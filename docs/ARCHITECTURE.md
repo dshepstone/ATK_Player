@@ -24,13 +24,14 @@ shortcut and the API command all end up calling the same method.
 ```
                       ┌──────────────────────────────┐
                       │        ATKPlayer.exe         │
-                      │      src/app/main.cpp        │
+                      │   src/app/ main + Application│
                       └──────────────┬───────────────┘
                                      │
                       ┌──────────────▼───────────────┐
                       │            atk_ui            │
                       │  MainWindow, ViewerWidget,   │
-                      │  TimelineWidget, Transport,  │
+                      │  TimelineWidget,             │
+                      │  TransportControls,          │
                       │  SourcesPanel, StatusInfoBar │
                       │  CommandRegistry (QActions)  │
                       └──────────────┬───────────────┘
@@ -40,8 +41,8 @@ shortcut and the API command all end up calling the same method.
                       │                              │
                       │  playback/  timeline/        │
                       │  media/     project/         │
-                      │  api/       compare/         │
-                      │  export/    core/            │
+                      │  api/       export/          │
+                      │  core/                       │
                       │                              │
                       │        platform/<os>/        │
                       └──────────────────────────────┘
@@ -52,7 +53,7 @@ The dependency arrow points one way only, and CMake enforces it:
 - `atk_core` links `Qt6::Core` and `Qt6::Gui` — **not** `Qt6::Widgets`. Core code
   therefore *cannot* include a widget header; it will not compile.
 - `atk_ui` links `atk_core` and `Qt6::Widgets`.
-- `ATKPlayer` links `atk_ui` and contains only `main.cpp`.
+- `ATKPlayer` links `atk_ui` and contains only `main.cpp` and `Application`.
 - The tests link `atk_core` alone, which is why the models are testable without
   a window.
 
@@ -63,6 +64,23 @@ new include.
 ---
 
 ## The layers in detail
+
+### `src/app/` — process startup
+
+`Application` (a `QApplication` subclass) owns everything that must happen
+before a window exists: application identity, which `QStandardPaths` derives the
+settings and data directories from; the logging banner; and the theme. `main.cpp`
+constructs it, calls `initialize()`, shows the window and runs the event loop —
+nothing else.
+
+It is a class rather than a run of statements in `main()` so the startup sequence
+has one place to live and one order. Command-line parsing, a single-instance
+guard or a crash handler become a step in `initialize()`, not another paragraph
+of `main()`.
+
+`Application` deliberately does **not** own the window title. `MainWindow` lives
+in `atk_ui`, which cannot depend on the executable target, so the title is built
+in one place — the UI — from `core/Version.h`.
 
 ### `src/core/` — foundations
 
@@ -114,6 +132,18 @@ bookmarks, and emits signals when they change. The playhead lives here rather
 than in the timeline widget so that the viewer, the timeline, the status bar and
 the API all read one value and cannot disagree.
 
+**The Phase 0 placeholder extent.** There is no decoder yet, so with a genuinely
+empty timeline the transport would be inert: stepping, seeking and looping would
+all clamp to frame zero and none of it could be verified. `MainWindow` therefore
+installs a nominal 100-frame, 24 fps extent at startup via
+`TimelineModel::setPlaceholderExtent()`, which also sets `isPlaceholder()`.
+
+That flag is the honesty mechanism. Every readout that shows these numbers marks
+itself: the status bar displays **NO MEDIA — placeholder values**, the viewer
+shows its branded empty state, and `get_status` over the API returns
+`"placeholder": true`. `setFrameCount()` clears the flag, so the moment real
+media arrives in M1 the marking disappears on its own and cannot be left stale.
+
 `PlaybackRange` is inclusive: frames 10–20 is eleven frames. `Bookmark` stores a
 palette *index* rather than an RGB value, so restyling the application restyles
 existing bookmarks instead of stranding them on old colours.
@@ -132,7 +162,7 @@ between two takes restores each one's own notes.
 full in the class comment. Media paths will be stored relative to the project
 file when possible, so a review folder can be zipped and sent to someone else.
 
-### `src/compare/` — A/B
+### `src/playback/` — A/B comparison
 
 The synchronisation rule, stated once so it does not get reinvented:
 
@@ -192,7 +222,7 @@ From that single table:
 
 - `CommandRegistry` (in `atk_ui`) builds one `QAction` per command.
 - `MainWindow` builds the menu bar by walking the table by category.
-- `TransportBar` gives its buttons the same `QAction` objects via
+- `TransportControls` gives its buttons the same `QAction` objects via
   `setDefaultAction()`.
 - Every trigger arrives at `MainWindow::onCommand()`, which is the only place in
   the application that decides what a command does.
@@ -237,7 +267,7 @@ connections keep working unchanged when they become cross-thread.
 |---|---|---|---|
 | `atk_core` | static lib | `Qt6::Core`, `Qt6::Gui` | All non-UI logic |
 | `atk_ui` | static lib | `atk_core`, `Qt6::Widgets` | All widgets |
-| `ATKPlayer` | executable | `atk_ui` | `main.cpp` |
+| `ATKPlayer` | executable | `atk_ui` | `main.cpp`, `Application` |
 | `tst_*` | executables | `atk_core`, `Qt6::Test` | One per test class |
 
 CMake is target-based throughout. There are no global `include_directories()` or

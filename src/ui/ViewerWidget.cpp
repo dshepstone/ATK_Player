@@ -2,6 +2,7 @@
 
 #include "ui/Theme.h"
 
+#include <QFontMetrics>
 #include <QPaintEvent>
 #include <QPainter>
 
@@ -9,7 +10,7 @@ namespace atk::ui {
 
 ViewerWidget::ViewerWidget(QWidget* parent)
     : QWidget(parent)
-    , m_placeholderText(tr("No media loaded"))
+    , m_placeholderText(tr("ATK PLAYER"))
 {
     // The viewer paints every pixel it owns, so let Qt skip the background fill.
     setAttribute(Qt::WA_OpaquePaintEvent, true);
@@ -50,6 +51,14 @@ void ViewerWidget::setFitMode(FitMode mode)
 void ViewerWidget::setPlaceholderText(const QString& text)
 {
     m_placeholderText = text;
+    if (!m_frame.isValid()) {
+        update();
+    }
+}
+
+void ViewerWidget::setPlaceholderSubtext(const QString& text)
+{
+    m_placeholderSubtext = text;
     if (!m_frame.isValid()) {
         update();
     }
@@ -120,8 +129,53 @@ void ViewerWidget::paintEvent(QPaintEvent* event)
 
 void ViewerWidget::paintEmptyState(QPainter& painter)
 {
-    painter.setPen(theme::textDisabled());
-    painter.drawText(rect(), Qt::AlignCenter, m_placeholderText);
+    const QFont baseFont = painter.font();
+
+    // Headline: the product mark, spaced out so it reads as branding rather
+    // than as an error message.
+    //
+    // The application stylesheet sets font-size in pixels, so pointSizeF()
+    // returns -1 and scaling it would produce an invalid font. Scale whichever
+    // unit the font actually carries.
+    QFont headline = baseFont;
+    constexpr qreal kHeadlineScale = 1.9;
+
+    if (baseFont.pointSizeF() > 0.0) {
+        headline.setPointSizeF(baseFont.pointSizeF() * kHeadlineScale);
+    } else if (baseFont.pixelSize() > 0) {
+        headline.setPixelSize(qRound(baseFont.pixelSize() * kHeadlineScale));
+    }
+
+    headline.setLetterSpacing(QFont::PercentageSpacing, 145);
+    headline.setWeight(QFont::Light);
+
+    painter.setFont(headline);
+    const QFontMetrics headlineMetrics(headline);
+    const int headlineHeight = headlineMetrics.height();
+
+    // Both lines are centred as a block, so the headline sits slightly above
+    // centre when a subtext is present and dead centre when it is not.
+    const int blockHeight = m_placeholderSubtext.isEmpty()
+        ? headlineHeight
+        : headlineHeight + QFontMetrics(baseFont).height() + 10;
+
+    const int top = rect().top() + (rect().height() - blockHeight) / 2;
+
+    painter.setPen(theme::textSecondary());
+    painter.drawText(QRect(rect().left(), top, rect().width(), headlineHeight),
+                     Qt::AlignHCenter | Qt::AlignVCenter,
+                     m_placeholderText);
+
+    if (!m_placeholderSubtext.isEmpty()) {
+        painter.setFont(baseFont);
+        painter.setPen(theme::textDisabled());
+        painter.drawText(QRect(rect().left(), top + headlineHeight + 10,
+                               rect().width(), QFontMetrics(baseFont).height()),
+                         Qt::AlignHCenter | Qt::AlignVCenter,
+                         m_placeholderSubtext);
+    }
+
+    painter.setFont(baseFont);
 }
 
 } // namespace atk::ui

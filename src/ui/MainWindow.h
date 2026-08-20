@@ -11,7 +11,7 @@
 class QDockWidget;
 
 namespace atk::api { class ApiServer; }
-namespace atk::compare { class CompareSession; }
+namespace atk::playback { class CompareSession; }
 namespace atk::project { class Project; }
 namespace atk::timeline { class TimelineModel; }
 
@@ -21,7 +21,7 @@ class CommandRegistry;
 class SourcesPanel;
 class StatusInfoBar;
 class TimelineWidget;
-class TransportBar;
+class TransportControls;
 class ViewerWidget;
 
 /// The application window.
@@ -60,14 +60,14 @@ private:
     std::unique_ptr<timeline::TimelineModel> m_timeline;
     std::unique_ptr<playback::PlaybackController> m_playback;
     std::unique_ptr<project::Project> m_project;
-    std::unique_ptr<compare::CompareSession> m_compare;
+    std::unique_ptr<playback::CompareSession> m_compare;
     std::unique_ptr<api::ApiServer> m_apiServer;
 
     CommandRegistry* m_commands = nullptr;
 
     ViewerWidget* m_viewer = nullptr;
     TimelineWidget* m_timelineWidget = nullptr;
-    TransportBar* m_transport = nullptr;
+    TransportControls* m_transport = nullptr;
     SourcesPanel* m_sources = nullptr;
     StatusInfoBar* m_statusInfo = nullptr;
     QDockWidget* m_sourcesDock = nullptr;

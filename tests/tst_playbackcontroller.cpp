@@ -1,0 +1,276 @@
+#include "playback/PlaybackController.h"
+
+#include "timeline/TimelineModel.h"
+
+#include <QSignalSpy>
+#include <QTest>
+
+using atk::media::FrameRate;
+using atk::playback::PlaybackController;
+using atk::playback::PlaybackState;
+using atk::timeline::TimelineModel;
+
+/// Covers the Phase 0 transport behaviour: state transitions, frame stepping
+/// against the placeholder extent, and the clamping that stops the placeholder
+/// frame counter from ever going out of range.
+class TestPlaybackController : public QObject {
+    Q_OBJECT
+
+private:
+    struct Fixture {
+        TimelineModel timeline;
+        PlaybackController playback{ &timeline };
+
+        /// Mirrors what MainWindow installs at startup.
+        explicit Fixture(int64_t frames = 100, int fps = 24)
+        {
+            if (frames > 0) {
+                timeline.setPlaceholderExtent(frames, FrameRate::fromInteger(fps));
+            }
+        }
+    };
+
+private slots:
+    void startsStopped();
+    void playThenPauseTogglesState();
+    void togglePlayPauseAlternates();
+    void stateChangedIsNotEmittedTwice();
+
+    void stepForwardAdvancesOneFrame();
+    void stepBackwardRetreatsOneFrame();
+    void stepBackwardCannotGoBelowZero();
+    void stepForwardCannotPassLastFrame();
+    void steppingLeavesPlayMode();
+
+    void goToStartReturnsToFirstFrame();
+    void goToEndJumpsToLastFrame();
+    void seekClampsToExtent();
+
+    void loopToggles();
+    void loopEmitsOnlyOnChange();
+
+    void rangeConstrainsStepping();
+    void clearRangeRestoresFullExtent();
+
+    void placeholderExtentIsMarkedAsSuch();
+    void hasNoMediaInPhaseZero();
+    void transportIsInertWithoutAnExtent();
+};
+
+void TestPlaybackController::startsStopped()
+{
+    Fixture fixture;
+    QCOMPARE(fixture.playback.state(), PlaybackState::Stopped);
+    QVERIFY(!fixture.playback.isPlaying());
+    QCOMPARE(fixture.playback.currentFrame(), qint64(0));
+}
+
+void TestPlaybackController::playThenPauseTogglesState()
+{
+    Fixture fixture;
+
+    fixture.playback.play();
+    QCOMPARE(fixture.playback.state(), PlaybackState::Playing);
+    QVERIFY(fixture.playback.isPlaying());
+
+    fixture.playback.pause();
+    QCOMPARE(fixture.playback.state(), PlaybackState::Paused);
+    QVERIFY(!fixture.playback.isPlaying());
+}
+
+void TestPlaybackController::togglePlayPauseAlternates()
+{
+    Fixture fixture;
+
+    fixture.playback.togglePlayPause();
+    QVERIFY(fixture.playback.isPlaying());
+
+    fixture.playback.togglePlayPause();
+    QVERIFY(!fixture.playback.isPlaying());
+
+    fixture.playback.togglePlayPause();
+    QVERIFY(fixture.playback.isPlaying());
+}
+
+void TestPlaybackController::stateChangedIsNotEmittedTwice()
+{
+    Fixture fixture;
+    QSignalSpy spy(&fixture.playback, &PlaybackController::stateChanged);
+
+    fixture.playback.play();
+    QCOMPARE(spy.count(), 1);
+
+    // Already playing: no transition, so no signal.
+    fixture.playback.play();
+    QCOMPARE(spy.count(), 1);
+}
+
+void TestPlaybackController::stepForwardAdvancesOneFrame()
+{
+    Fixture fixture;
+    fixture.playback.seekFrame(10);
+
+    fixture.playback.stepForward();
+    QCOMPARE(fixture.playback.currentFrame(), qint64(11));
+}
+
+void TestPlaybackController::stepBackwardRetreatsOneFrame()
+{
+    Fixture fixture;
+    fixture.playback.seekFrame(10);
+
+    fixture.playback.stepBackward();
+    QCOMPARE(fixture.playback.currentFrame(), qint64(9));
+}
+
+void TestPlaybackController::stepBackwardCannotGoBelowZero()
+{
+    Fixture fixture;
+    QCOMPARE(fixture.playback.currentFrame(), qint64(0));
+
+    // Holding the left arrow at frame 0 must not produce a negative frame.
+    fixture.playback.stepBackward();
+    fixture.playback.stepBackward();
+    QCOMPARE(fixture.playback.currentFrame(), qint64(0));
+}
+
+void TestPlaybackController::stepForwardCannotPassLastFrame()
+{
+    Fixture fixture;
+    fixture.playback.goToEnd();
+    QCOMPARE(fixture.playback.currentFrame(), qint64(99));
+
+    fixture.playback.stepForward();
+    fixture.playback.stepForward();
+    QCOMPARE(fixture.playback.currentFrame(), qint64(99));
+}
+
+void TestPlaybackController::steppingLeavesPlayMode()
+{
+    Fixture fixture;
+    fixture.playback.play();
+    QVERIFY(fixture.playback.isPlaying());
+
+    // Stepping is a deliberate single-frame move, so it stops playback rather
+    // than fighting the clock for the playhead.
+    fixture.playback.stepForward();
+    QCOMPARE(fixture.playback.state(), PlaybackState::Paused);
+}
+
+void TestPlaybackController::goToStartReturnsToFirstFrame()
+{
+    Fixture fixture;
+    fixture.playback.seekFrame(42);
+    QCOMPARE(fixture.playback.currentFrame(), qint64(42));
+
+    fixture.playback.goToStart();
+    QCOMPARE(fixture.playback.currentFrame(), qint64(0));
+}
+
+void TestPlaybackController::goToEndJumpsToLastFrame()
+{
+    Fixture fixture;
+    fixture.playback.goToEnd();
+    QCOMPARE(fixture.playback.currentFrame(), qint64(99));
+}
+
+void TestPlaybackController::seekClampsToExtent()
+{
+    Fixture fixture;
+
+    fixture.playback.seekFrame(5000);
+    QCOMPARE(fixture.playback.currentFrame(), qint64(99));
+
+    fixture.playback.seekFrame(-5000);
+    QCOMPARE(fixture.playback.currentFrame(), qint64(0));
+}
+
+void TestPlaybackController::loopToggles()
+{
+    Fixture fixture;
+    QVERIFY(!fixture.playback.isLoopEnabled());
+
+    fixture.playback.setLoopEnabled(true);
+    QVERIFY(fixture.playback.isLoopEnabled());
+
+    fixture.playback.setLoopEnabled(false);
+    QVERIFY(!fixture.playback.isLoopEnabled());
+}
+
+void TestPlaybackController::loopEmitsOnlyOnChange()
+{
+    Fixture fixture;
+    QSignalSpy spy(&fixture.playback, &PlaybackController::loopEnabledChanged);
+
+    fixture.playback.setLoopEnabled(true);
+    QCOMPARE(spy.count(), 1);
+
+    fixture.playback.setLoopEnabled(true);
+    QCOMPARE(spy.count(), 1);
+}
+
+void TestPlaybackController::rangeConstrainsStepping()
+{
+    Fixture fixture;
+    fixture.playback.setPlaybackRange(10, 20);
+
+    fixture.playback.goToStart();
+    QCOMPARE(fixture.playback.currentFrame(), qint64(10));
+
+    fixture.playback.goToEnd();
+    QCOMPARE(fixture.playback.currentFrame(), qint64(20));
+
+    // Stepping past the out point must stay on it.
+    fixture.playback.stepForward();
+    QCOMPARE(fixture.playback.currentFrame(), qint64(20));
+}
+
+void TestPlaybackController::clearRangeRestoresFullExtent()
+{
+    Fixture fixture;
+    fixture.playback.setPlaybackRange(10, 20);
+    fixture.playback.clearPlaybackRange();
+
+    fixture.playback.goToEnd();
+    QCOMPARE(fixture.playback.currentFrame(), qint64(99));
+}
+
+void TestPlaybackController::placeholderExtentIsMarkedAsSuch()
+{
+    Fixture fixture;
+    // The UI relies on this flag to say "no media" while still showing frame
+    // numbers, so it must survive ordinary transport use.
+    QVERIFY(fixture.timeline.isPlaceholder());
+
+    fixture.playback.stepForward();
+    fixture.playback.setLoopEnabled(true);
+    QVERIFY(fixture.timeline.isPlaceholder());
+
+    // A real extent clears it.
+    fixture.timeline.setFrameCount(240);
+    QVERIFY(!fixture.timeline.isPlaceholder());
+}
+
+void TestPlaybackController::hasNoMediaInPhaseZero()
+{
+    Fixture fixture;
+    // A placeholder extent must never be mistaken for an open file.
+    QVERIFY(!fixture.playback.hasMedia());
+}
+
+void TestPlaybackController::transportIsInertWithoutAnExtent()
+{
+    Fixture fixture(0);
+    QCOMPARE(fixture.timeline.frameCount(), qint64(0));
+
+    // With nothing loaded the transport still reports state honestly, but there
+    // is no frame to move to.
+    fixture.playback.play();
+    QCOMPARE(fixture.playback.state(), PlaybackState::Playing);
+
+    fixture.playback.stepForward();
+    QCOMPARE(fixture.playback.currentFrame(), qint64(0));
+}
+
+QTEST_GUILESS_MAIN(TestPlaybackController)
+#include "tst_playbackcontroller.moc"

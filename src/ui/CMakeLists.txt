@@ -12,7 +12,7 @@ set(ATK_UI_SOURCES
     StatusInfoBar.cpp
     Theme.cpp
     TimelineWidget.cpp
-    TransportBar.cpp
+    TransportControls.cpp
     ViewerWidget.cpp
     commands/CommandRegistry.cpp
 )
@@ -23,7 +23,7 @@ set(ATK_UI_HEADERS
     StatusInfoBar.h
     Theme.h
     TimelineWidget.h
-    TransportBar.h
+    TransportControls.h
     ViewerWidget.h
     commands/CommandRegistry.h
 )

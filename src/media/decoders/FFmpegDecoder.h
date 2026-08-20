@@ -13,7 +13,7 @@ namespace atk::media {
 /// Implementation plan (milestone M1):
 ///   1. Link libavformat / libavcodec / libavutil / libswscale dynamically.
 ///      LGPL builds only -- GPL and nonfree components stay disabled, see
-///      THIRD_PARTY_LICENSES.md.
+///      docs/THIRD_PARTY_LICENSES.md.
 ///   2. open():   avformat_open_input, avformat_find_stream_info, pick the best
 ///                video stream, open the codec, populate MediaMetadata.
 ///   3. seek():   av_seek_frame to the keyframe at or before the target, then

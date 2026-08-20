@@ -23,6 +23,12 @@ StatusInfoBar::StatusInfoBar(QWidget* parent)
 
     layout->addStretch(1);
 
+    // The transport is usable in Phase 0 against a placeholder extent. Saying
+    // so here is what keeps a moving frame counter from reading as an open file.
+    m_placeholderTag = new QLabel(tr("NO MEDIA — placeholder values"), this);
+    m_placeholderTag->setProperty("atkRole", "statusCaption");
+    layout->addWidget(m_placeholderTag);
+
     refresh();
 }
 
@@ -68,6 +74,8 @@ void StatusInfoBar::setModel(timeline::TimelineModel* model)
                 this, [this] { refresh(); });
         connect(m_model, &timeline::TimelineModel::frameRateChanged,
                 this, [this] { refresh(); });
+        connect(m_model, &timeline::TimelineModel::placeholderChanged,
+                this, [this] { refresh(); });
     }
 
     refresh();
@@ -79,8 +87,11 @@ void StatusInfoBar::refresh()
         m_frameValue->setText(QStringLiteral("0 / 0"));
         m_timecodeValue->setText(timeline::timecode::placeholder());
         m_fpsValue->setText(QStringLiteral("--"));
+        m_placeholderTag->setVisible(false);
         return;
     }
+
+    m_placeholderTag->setVisible(m_model->isPlaceholder());
 
     m_frameValue->setText(QStringLiteral("%1 / %2")
                               .arg(m_model->currentFrame())

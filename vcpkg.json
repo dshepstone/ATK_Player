@@ -8,7 +8,7 @@
   "dependencies": [],
   "features": {
     "ffmpeg": {
-      "description": "Media decoding and export via FFmpeg (milestone M1). LGPL components only: GPL and nonfree encoders stay disabled so the application can ship under the terms recorded in THIRD_PARTY_LICENSES.md.",
+      "description": "Media decoding and export via FFmpeg (milestone M1). LGPL components only: GPL and nonfree encoders stay disabled so the application can ship under the terms recorded in docs/THIRD_PARTY_LICENSES.md.",
       "dependencies": [
         {
           "name": "ffmpeg",
@@ -33,8 +33,9 @@
     "separately (see docs/BUILDING.md) and found through CMAKE_PREFIX_PATH.",
     "",
     "FFmpeg is behind the optional 'ffmpeg' feature so Phase 0 configures with",
-    "no dependency downloads at all. Enable it in M1 with:",
-    "    cmake --preset windows-msvc-debug-vcpkg -DVCPKG_MANIFEST_FEATURES=ffmpeg",
+    "no dependency downloads at all, and vcpkg is not installed or required for",
+    "Phase 0. Enable it in M1 with:",
+    "    cmake --preset windows-debug -DCMAKE_TOOLCHAIN_FILE=%VCPKG_ROOT%/scripts/buildsystems/vcpkg.cmake -DVCPKG_MANIFEST_FEATURES=ffmpeg",
     "",
     "'builtin-baseline' must be filled in with a vcpkg commit SHA when the",
     "ffmpeg feature is first enabled, so dependency versions are reproducible."

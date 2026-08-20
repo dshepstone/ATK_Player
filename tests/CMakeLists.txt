@@ -13,6 +13,7 @@ set(ATK_TEST_SOURCES
     tst_timecode.cpp
     tst_framecache.cpp
     tst_timelinemodel.cpp
+    tst_playbackcontroller.cpp
     tst_playbackrange.cpp
     tst_commanddefinitions.cpp
     tst_apicommands.cpp

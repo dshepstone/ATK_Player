@@ -1,0 +1,49 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "CMake: configure (Debug)",
+      "type": "shell",
+      "command": "cmake",
+      "args": [ "--preset", "windows-debug" ],
+      "problemMatcher": [],
+      "group": "build",
+      "detail": "Configure the Debug build. Requires QT_ROOT, or a CMakeUserPresets.json override."
+    },
+    {
+      "label": "CMake: build (Debug)",
+      "type": "shell",
+      "command": "cmake",
+      "args": [ "--build", "--preset", "windows-debug" ],
+      "problemMatcher": [ "$msCompile" ],
+      "group": { "kind": "build", "isDefault": true },
+      "detail": "Build ATKPlayer.exe and the tests."
+    },
+    {
+      "label": "CMake: build (Release)",
+      "type": "shell",
+      "command": "cmake",
+      "args": [ "--build", "--preset", "windows-release" ],
+      "problemMatcher": [ "$msCompile" ],
+      "group": "build"
+    },
+    {
+      "label": "CTest: run tests (Debug)",
+      "type": "shell",
+      "command": "ctest",
+      "args": [ "--preset", "windows-debug" ],
+      "problemMatcher": [],
+      "group": { "kind": "test", "isDefault": true },
+      "dependsOn": "CMake: build (Debug)"
+    },
+    {
+      "label": "Run ATK Player (Debug)",
+      "type": "shell",
+      "command": "${workspaceFolder}/build/windows-debug/bin/ATKPlayer.exe",
+      "problemMatcher": [],
+      "dependsOn": "CMake: build (Debug)",
+      "presentation": { "reveal": "always", "panel": "dedicated" },
+      "detail": "Build, then launch the application."
+    }
+  ]
+}
