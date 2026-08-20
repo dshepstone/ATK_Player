@@ -38,6 +38,15 @@ foreach(test_source IN LISTS ATK_TEST_SOURCES ATK_FFMPEG_TEST_SOURCES)
 
     qt_add_executable(${test_name} ${test_source})
 
+    # Every executable shares the build-tree bin directory. On Windows,
+    # windeployqt writes Qt DLLs there after linking ATKPlayer while vcpkg's
+    # applocal step scans the same DLLs after linking each test. Serialize that
+    # deployment boundary so parallel Ninja builds cannot open a DLL while it
+    # is being replaced.
+    if(WIN32 AND TARGET ATKPlayer)
+        add_dependencies(${test_name} ATKPlayer)
+    endif()
+
     target_link_libraries(${test_name}
         PRIVATE
             ATK::core
