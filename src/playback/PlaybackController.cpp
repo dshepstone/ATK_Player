@@ -362,6 +362,13 @@ void PlaybackController::requestScrubAudioAt(int64_t frame)
     // Same origin as the video preview -- see mediaTimeForFrame().
     const int64_t mediaUs = mediaTimeForFrame(frame);
 
+    // Direction comes from the pointer's own movement rather than from any
+    // decoder state, so it is correct even when the picture is still catching up.
+    if (m_lastScrubAudioFrame >= 0 && frame != m_lastScrubAudioFrame) {
+        m_scrubAudioReversed = frame < m_lastScrubAudioFrame;
+    }
+    m_lastScrubAudioFrame = frame;
+
     m_scrubAudioRequestNs = monotonicNowNs();
     emit requestScrubGrain(mediaUs, audio::ScrubAudioEngine::kGrainDurationUs,
                            ++m_scrubAudioSequence, m_generations->currentSource());
@@ -384,7 +391,7 @@ void PlaybackController::onScrubGrain(const QByteArray& pcm, qint64 requestedUs,
     }
 
     m_scrubAudioPlayedSequence = sequence;
-    m_scrubAudio->submitGrain(pcm);
+    m_scrubAudio->submitGrain(pcm, m_scrubAudioReversed);
 
     // Reported per grain at debug level: the gap between the requested media
     // position and where the audio really begins is the number that says
@@ -395,7 +402,8 @@ void PlaybackController::onScrubGrain(const QByteArray& pcm, qint64 requestedUs,
         << QStringLiteral("Scrub grain seq %1 requested %2 us actual %3 us "
                           "offset %4 us latency %5 ms")
                .arg(sequence).arg(requestedUs).arg(actualStartUs)
-               .arg(offsetUs).arg(latencyMs);
+               .arg(offsetUs).arg(latencyMs)
+        << (m_scrubAudioReversed ? "reversed" : "forward");
 }
 
 void PlaybackController::startWaveformAnalysis(const QString& filePath,
@@ -413,6 +421,7 @@ void PlaybackController::startWaveformAnalysis(const QString& filePath,
 
     if (m_waveformWorker != nullptr) {
         m_waveformWorker->clearCancel();
+        emit waveformAnalysingChanged(true);
         emit requestWaveform(filePath, sourceGeneration);
     }
 }
@@ -438,6 +447,7 @@ void PlaybackController::onWaveformFinished(qint64 totalUs, quint64 sourceGenera
     }
 
     m_waveform.setComplete(true);
+    emit waveformAnalysingChanged(false);
     qCInfo(log::playback).noquote()
         << QStringLiteral("Waveform complete: %1 s covered, %2 KB held")
                .arg(totalUs / 1'000'000.0, 0, 'f', 2)
@@ -453,6 +463,7 @@ void PlaybackController::onWaveformUnavailable(const QString& reason,
     }
     // Media without audio is ordinary; the timeline simply shows no waveform.
     qCDebug(log::playback).noquote() << "No waveform:" << reason;
+    emit waveformAnalysingChanged(false);
     m_waveform.clear();
     m_waveform.setSourceGeneration(sourceGeneration);
     emit waveformChanged();
@@ -1285,6 +1296,8 @@ void PlaybackController::beginScrub()
     m_scrubDecodeInFlight = false;
     m_latestScrubFrame = m_timeline->currentFrame();
     m_scrubAudioPlayedSequence = 0;
+    m_lastScrubAudioFrame = -1;
+    m_scrubAudioReversed = false;
     setState(PlayerState::Seeking);
 }
 

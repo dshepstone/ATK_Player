@@ -155,15 +155,44 @@ void ScrubAudioEngine::close()
     }
 }
 
-void ScrubAudioEngine::submitGrain(const QByteArray& pcm)
+QByteArray ScrubAudioEngine::reverseFrames(const QByteArray& pcm, int channelCount)
+{
+    const int channels = std::max(1, channelCount);
+    const qsizetype frameBytes = qsizetype(channels) * 2;
+    if (pcm.size() < frameBytes * 2) {
+        return pcm;
+    }
+
+    const qsizetype frames = pcm.size() / frameBytes;
+
+    QByteArray out(frames * frameBytes, Qt::Uninitialized);
+    const auto* source = reinterpret_cast<const int16_t*>(pcm.constData());
+    auto* destination = reinterpret_cast<int16_t*>(out.data());
+
+    // Frame order reverses; channel order within a frame does not.
+    for (qsizetype frame = 0; frame < frames; ++frame) {
+        const qsizetype from = (frames - 1 - frame) * channels;
+        const qsizetype to = frame * channels;
+        for (int channel = 0; channel < channels; ++channel) {
+            destination[to + channel] = source[from + channel];
+        }
+    }
+    return out;
+}
+
+void ScrubAudioEngine::submitGrain(const QByteArray& pcm, bool reversed)
 {
     if (!m_sink || m_device == nullptr || pcm.isEmpty()) {
         return;
     }
 
     ++m_submittedGrains;
+
+    const QByteArray oriented =
+        reversed ? reverseFrames(pcm, m_format.channelCount) : pcm;
+
     auto* grainDevice = static_cast<GrainDevice*>(m_device);
-    if (grainDevice->submit(withFades(pcm))) {
+    if (grainDevice->submit(withFades(oriented))) {
         ++m_replacedGrains;
     }
 }

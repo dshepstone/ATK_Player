@@ -113,7 +113,11 @@ void ScrubAudioWorker::requestGrain(qint64 mediaUs, qint64 durationUs, quint64 s
         return;
     }
 
-    const int64_t aligned = (std::max<int64_t>(0, mediaUs) / kGrainAlignUs) * kGrainAlignUs;
+    // Centre the grain on the requested position -- see requestGrain() in the
+    // header for why. Clamped at zero so a request near the start of the media
+    // still yields a full grain rather than a truncated one.
+    const int64_t centredStart = std::max<int64_t>(0, mediaUs - durationUs / 2);
+    const int64_t aligned = (centredStart / kGrainAlignUs) * kGrainAlignUs;
 
     QByteArray pcm;
     if (cachedGrain(aligned, pcm)) {

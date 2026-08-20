@@ -99,6 +99,21 @@ public:
     /// renderer calls per pixel column.
     WaveformPeak peakOverRange(int level, int64_t startUs, int64_t endUs) const;
 
+    /// Largest excursion anywhere in the analysed audio, in [0, 1].
+    ///
+    /// The renderer scales by this. Without it, material mastered well below
+    /// full scale -- which most dialogue is -- draws as a thin flat band, and a
+    /// single loud effect elsewhere in the file flattens every line of speech
+    /// next to it. Normalising by the file's own peak makes quiet dialogue
+    /// legible without changing where anything sits in time.
+    float peakAmplitude() const { return m_peakAmplitude; }
+
+    /// Gain the renderer should apply, derived from peakAmplitude().
+    ///
+    /// Clamped so near-silent audio is not amplified into visual noise: a file
+    /// that really is quiet should look quiet.
+    float displayGain() const;
+
     /// Approximate memory held, for diagnostics.
     int64_t memoryBytes() const;
 
@@ -110,6 +125,7 @@ private:
     QVector<QVector<WaveformPeak>> m_levels;
     uint64_t m_sourceGeneration = 0;
     bool m_complete = false;
+    float m_peakAmplitude = 0.0f;
 };
 
 } // namespace atk::media

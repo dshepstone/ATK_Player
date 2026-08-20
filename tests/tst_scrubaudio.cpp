@@ -1,5 +1,6 @@
 #include "media/ScrubAudioWorker.h"
 
+#include "audio/ScrubAudioEngine.h"
 #include "media/AudioBuffer.h"
 
 #include <QDir>
@@ -60,6 +61,12 @@ private slots:
     void repeatedPositionsUseTheCache();
     void refusesGrainsFromAnotherSource();
     void unavailableAudioIsReportedNotFatal();
+
+    void grainIsCentredOnTheRequestedPosition();
+    void reversesSampleFramesNotBytes();
+    void reversalPreservesChannelOrder();
+    void reversalIsItsOwnInverse();
+    void refusesToReverseATrivialBuffer();
 };
 
 void TestScrubAudio::initTestCase()
@@ -83,12 +90,15 @@ void TestScrubAudio::deliversGrainForRequestedPosition()
     const QList<QVariant> args = spy.at(0);
     const auto actualStartUs = args.at(2).toLongLong();
 
-    // Snapped to the 20 ms grain grid, which stays well inside a frame at
+    // Grains are centred on the request, so the position under the pointer sits
+    // in the middle of what is heard. The audible centre is what must line up;
+    // it is snapped to the 20 ms grid, which stays well inside a frame at
     // 24 fps so the alignment is never audible as a timing error.
     const int64_t requested = kLoudToneStartUs + 100'000;
-    QVERIFY2(std::abs(actualStartUs - requested) <= ScrubAudioWorker::kGrainAlignUs,
-             qPrintable(QStringLiteral("grain started %1 us from the request")
-                            .arg(actualStartUs - requested)));
+    const int64_t centreUs = actualStartUs + kGrainUs / 2;
+    QVERIFY2(std::abs(centreUs - requested) <= ScrubAudioWorker::kGrainAlignUs,
+             qPrintable(QStringLiteral("grain centre was %1 us from the request")
+                            .arg(centreUs - requested)));
 }
 
 void TestScrubAudio::grainContentMatchesThePosition()
@@ -207,6 +217,86 @@ void TestScrubAudio::unavailableAudioIsReportedNotFatal()
     // Requests afterwards are ignored quietly; visual scrubbing carries on.
     worker.requestGrain(1'000'000, kGrainUs, 1, 1);
     QCOMPARE(grains.count(), 0);
+}
+
+void TestScrubAudio::grainIsCentredOnTheRequestedPosition()
+{
+    ScrubAudioWorker worker;
+    QSignalSpy spy(&worker, &ScrubAudioWorker::grainReady);
+    worker.openSource(reviewFixture(), kSampleRate, kChannels, 1);
+
+    const qint64 requested = 4'000'000;
+    worker.requestGrain(requested, kGrainUs, 1, 1);
+    QCOMPARE(spy.count(), 1);
+
+    const auto actualStartUs = spy.at(0).at(2).toLongLong();
+
+    // The grain starts about half its length before the request, so its audible
+    // middle sits on the frame being pointed at. A start-aligned grain would
+    // make every position sound half a grain late.
+    const qint64 expectedStart = requested - kGrainUs / 2;
+    QVERIFY2(std::abs(actualStartUs - expectedStart) <= ScrubAudioWorker::kGrainAlignUs,
+             qPrintable(QStringLiteral("grain started at %1, expected near %2")
+                            .arg(actualStartUs).arg(expectedStart)));
+}
+
+void TestScrubAudio::reversesSampleFramesNotBytes()
+{
+    // Mono, so frames and samples coincide and the order is unambiguous.
+    QByteArray pcm(8, Qt::Uninitialized);
+    auto* samples = reinterpret_cast<int16_t*>(pcm.data());
+    samples[0] = 100; samples[1] = 200; samples[2] = 300; samples[3] = 400;
+
+    const QByteArray reversed = atk::audio::ScrubAudioEngine::reverseFrames(pcm, 1);
+    const auto* out = reinterpret_cast<const int16_t*>(reversed.constData());
+
+    // Sample values survive intact and only their order changes. Reversing at
+    // byte level would corrupt every sample into noise.
+    QCOMPARE(reversed.size(), pcm.size());
+    QCOMPARE(out[0], int16_t(400));
+    QCOMPARE(out[1], int16_t(300));
+    QCOMPARE(out[2], int16_t(200));
+    QCOMPARE(out[3], int16_t(100));
+}
+
+void TestScrubAudio::reversalPreservesChannelOrder()
+{
+    // Stereo: frames are (L,R) pairs. Frame order reverses; L and R must not
+    // swap, or backward scrubbing would flip the stereo image.
+    QByteArray pcm(12, Qt::Uninitialized);
+    auto* samples = reinterpret_cast<int16_t*>(pcm.data());
+    samples[0] = 1; samples[1] = -1;   // frame 0: L=1,  R=-1
+    samples[2] = 2; samples[3] = -2;   // frame 1
+    samples[4] = 3; samples[5] = -3;   // frame 2
+
+    const QByteArray reversed = atk::audio::ScrubAudioEngine::reverseFrames(pcm, 2);
+    const auto* out = reinterpret_cast<const int16_t*>(reversed.constData());
+
+    QCOMPARE(out[0], int16_t(3));  QCOMPARE(out[1], int16_t(-3));
+    QCOMPARE(out[2], int16_t(2));  QCOMPARE(out[3], int16_t(-2));
+    QCOMPARE(out[4], int16_t(1));  QCOMPARE(out[5], int16_t(-1));
+}
+
+void TestScrubAudio::reversalIsItsOwnInverse()
+{
+    QByteArray pcm(64, Qt::Uninitialized);
+    auto* samples = reinterpret_cast<int16_t*>(pcm.data());
+    for (int i = 0; i < 32; ++i) {
+        samples[i] = static_cast<int16_t>(i * 37 - 500);
+    }
+
+    const QByteArray once = atk::audio::ScrubAudioEngine::reverseFrames(pcm, 2);
+    const QByteArray twice = atk::audio::ScrubAudioEngine::reverseFrames(once, 2);
+    QCOMPARE(twice, pcm);
+}
+
+void TestScrubAudio::refusesToReverseATrivialBuffer()
+{
+    // Too short to have a meaningful order; returned unchanged rather than
+    // reinterpreted through a bad frame count.
+    const QByteArray tiny(2, char(0));
+    QCOMPARE(atk::audio::ScrubAudioEngine::reverseFrames(tiny, 2), tiny);
+    QCOMPARE(atk::audio::ScrubAudioEngine::reverseFrames(QByteArray(), 2), QByteArray());
 }
 
 QTEST_GUILESS_MAIN(TestScrubAudio)

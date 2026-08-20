@@ -1,6 +1,7 @@
 #include "media/WaveformData.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace atk::media {
 namespace {
@@ -28,6 +29,20 @@ void WaveformData::clear()
 {
     m_levels.clear();
     m_complete = false;
+    m_peakAmplitude = 0.0f;
+}
+
+float WaveformData::displayGain() const
+{
+    // Below this, the audio is quiet enough that amplifying it would show noise
+    // rather than content, so it is drawn at true scale and simply looks quiet.
+    constexpr float kMinimumPeakToNormalise = 0.05f;
+    constexpr float kMaximumGain = 8.0f;
+
+    if (m_peakAmplitude < kMinimumPeakToNormalise) {
+        return 1.0f;
+    }
+    return std::min(kMaximumGain, 1.0f / m_peakAmplitude);
 }
 
 int64_t WaveformData::bucketDurationUs(int level)
@@ -54,6 +69,13 @@ void WaveformData::appendBaseBuckets(const QVector<WaveformPeak>& buckets)
     }
 
     m_levels[0].append(buckets);
+
+    // Tracked as peaks arrive rather than rescanned: analysis is progressive,
+    // and the renderer needs a usable gain from the first chunk onward.
+    for (const WaveformPeak& peak : buckets) {
+        m_peakAmplitude = std::max(m_peakAmplitude,
+                                   std::max(std::abs(peak.minimum), std::abs(peak.maximum)));
+    }
 
     // Fold upward. Each level is rebuilt only from the tail that its parent has
     // newly completed, so appending stays proportional to what arrived rather

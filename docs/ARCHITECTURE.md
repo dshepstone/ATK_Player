@@ -169,6 +169,19 @@ otherwise produce, without blunting the consonant attack a lip-sync review
 listens for. The scrub `QAudioSink` is started once and left running; restarting
 it per grain would add device latency to every mouse move.
 
+**Grains are centred on the pointer**, not started there. When the cursor sits on
+a frame, what a reviewer expects to hear is the sound *at* that frame; a
+start-aligned grain makes every position sound half a grain late, which for
+lip-sync work is simply the wrong answer. The audible middle therefore lines up
+with the picture, within the 20 ms alignment grid.
+
+**Backward drags play the grain reversed.** Only the sample frames are reversed --
+never the bytes within a sample, which would be noise, and never the channel
+order, which would swap left and right. Reversal happens at submit time rather
+than in the worker, so the grain cache stays direction-neutral and the same
+decoded PCM serves a drag either way. That matters because review scrubbing
+changes direction constantly.
+
 Scrub audio is never a clock. The pointer is authoritative, and the playback
 audio path is left completely untouched so scrub PCM cannot leak into it.
 
@@ -185,6 +198,13 @@ bucket per pixel: reading the finest level for a long file would mean iterating
 thousands of buckets per column on every repaint, including every playhead move
 during playback. It is also the groundwork for timeline zoom, which becomes a
 choice of level rather than a new data structure.
+
+**Peaks are normalised for display** by the file's own loudest excursion. Most
+dialogue is mastered well below full scale, and drawn at true scale it becomes a
+thin flat band; worse, one loud effect elsewhere in the file flattens every line
+of speech beside it. The gain is clamped so genuinely quiet audio still looks
+quiet rather than being amplified into visual noise, and it changes only the
+drawn height -- never where anything sits in time.
 
 Measured on a 63-minute file: analysed in 6.1 s on a background-priority thread,
 6.9 MB of peaks retained.

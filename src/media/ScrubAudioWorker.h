@@ -70,8 +70,16 @@ public slots:
 
     void closeSource();
 
-    /// Fetches a grain at `mediaUs`. `sequence` must increase; a request older
-    /// than the newest seen is dropped.
+    /// Fetches a grain *centred* on `mediaUs`.
+    ///
+    /// Centred rather than starting there: when the pointer sits on a frame,
+    /// what a reviewer expects to hear is the sound at that frame, not the
+    /// 80 ms that follow it. With a start-aligned grain every position sounds
+    /// slightly late, which for lip-sync work is the wrong answer by half a
+    /// grain. The audible middle now lines up with the picture.
+    ///
+    /// `sequence` must increase; a request older than the newest seen is
+    /// dropped.
     void requestGrain(qint64 mediaUs, qint64 durationUs, quint64 sequence,
                       quint64 sourceGeneration);
 

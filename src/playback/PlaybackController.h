@@ -161,6 +161,10 @@ signals:
 
     /// More waveform peaks are available, or the waveform was cleared.
     void waveformChanged();
+
+    /// True while background waveform analysis is running, so the UI can say so
+    /// unobtrusively rather than leaving a half-drawn waveform unexplained.
+    void waveformAnalysingChanged(bool analysing);
     void errorOccurred(const QString& message);
 
     /// A new frame should be displayed.
@@ -338,6 +342,11 @@ private:
     quint64 m_scrubAudioPlayedSequence = 0;
     /// When the outstanding grain request was issued, for latency reporting.
     int64_t m_scrubAudioRequestNs = 0;
+    /// Previous scrub position, so the drag's direction is known. Backward
+    /// drags play their grain reversed, which is what makes running a line
+    /// backwards sound like the line rather than like a different one.
+    int64_t m_lastScrubAudioFrame = -1;
+    bool m_scrubAudioReversed = false;
     std::deque<int64_t> m_navigationDecodeTargets;
     std::deque<media::VideoFrame> m_navigationPresentationFrames;
     bool m_navigationDecodeInFlight = false;

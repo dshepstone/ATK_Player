@@ -219,6 +219,10 @@ void TimelineWidget::paintWaveform(QPainter& painter)
 
     const int64_t covered = m_waveform->coveredUs();
 
+    // Normalised against the file's own peak so dialogue mastered below full
+    // scale is still readable -- see WaveformData::displayGain().
+    const float gain = m_waveform->displayGain();
+
     // Saved and restored around the loop: paintTrack() draws with drawRect(),
     // which uses whatever brush is current, so leaving one set here silently
     // repaints the track in the waveform colour.
@@ -244,8 +248,8 @@ void TimelineWidget::paintWaveform(QPainter& painter)
             continue;
         }
 
-        const int up = std::clamp(int(peak.maximum * halfHeight), 0, halfHeight);
-        const int down = std::clamp(int(-peak.minimum * halfHeight), 0, halfHeight);
+        const int up = std::clamp(int(peak.maximum * gain * halfHeight), 0, halfHeight);
+        const int down = std::clamp(int(-peak.minimum * gain * halfHeight), 0, halfHeight);
         const int top = centreY - up;
         const int height = std::max(1, up + down);
 

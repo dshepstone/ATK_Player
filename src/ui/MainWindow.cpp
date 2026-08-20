@@ -214,6 +214,17 @@ void MainWindow::connectSignals()
     connect(m_playback.get(), &playback::PlaybackController::waveformChanged,
             this, [this] { m_timelineWidget->refreshWaveform(); });
 
+    // A quiet, self-clearing note rather than a progress bar: analysis is
+    // usually over in seconds and the player should not grow a widget for it.
+    connect(m_playback.get(), &playback::PlaybackController::waveformAnalysingChanged,
+            this, [this](bool analysing) {
+                if (analysing) {
+                    statusBar()->showMessage(tr("Analyzing audio..."));
+                } else {
+                    statusBar()->clearMessage();
+                }
+            });
+
     connect(m_playback.get(), &playback::PlaybackController::errorOccurred,
             this, &MainWindow::onMediaError);
 

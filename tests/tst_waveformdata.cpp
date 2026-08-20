@@ -39,6 +39,11 @@ private slots:
     void sourceGenerationChangeClears();
     void memoryStaysCompactForLongMedia();
     void clearResets();
+
+    void tracksPeakAmplitude();
+    void normalisesQuietMaterial();
+    void doesNotAmplifyNearSilence();
+    void clearResetsPeak();
 };
 
 void TestWaveformData::startsEmpty()
@@ -224,6 +229,60 @@ void TestWaveformData::clearResets()
     QVERIFY(data.isEmpty());
     QVERIFY(!data.isComplete());
     QCOMPARE(data.coveredUs(), qint64(0));
+}
+
+void TestWaveformData::tracksPeakAmplitude()
+{
+    WaveformData data;
+    data.appendBaseBuckets(makePeaks(10, 0.2f));
+    QCOMPARE(data.peakAmplitude(), 0.2f);
+
+    // The running peak must rise with later chunks, since analysis is
+    // progressive and the renderer needs a gain from the first chunk onward.
+    QVector<WaveformPeak> louder = makePeaks(5, 0.2f);
+    louder[2] = WaveformPeak{ -0.75f, 0.75f };
+    data.appendBaseBuckets(louder);
+    QCOMPARE(data.peakAmplitude(), 0.75f);
+}
+
+void TestWaveformData::normalisesQuietMaterial()
+{
+    WaveformData data;
+
+    // Dialogue mastered well below full scale. Drawn at true scale this is a
+    // thin flat band; the gain is what makes it readable.
+    data.appendBaseBuckets(makePeaks(50, 0.25f));
+
+    const float gain = data.displayGain();
+    QVERIFY2(gain > 3.0f, qPrintable(QStringLiteral("gain was %1").arg(gain)));
+
+    // Scaling by the gain brings the loudest bucket to roughly full height
+    // without exceeding it, so nothing clips off the top of the band.
+    const float scaled = data.peakAmplitude() * gain;
+    QVERIFY(scaled > 0.9f);
+    QVERIFY(scaled <= 1.01f);
+}
+
+void TestWaveformData::doesNotAmplifyNearSilence()
+{
+    WaveformData data;
+
+    // A genuinely near-silent file must keep looking quiet rather than being
+    // amplified into a wall of visual noise.
+    data.appendBaseBuckets(makePeaks(50, 0.01f));
+    QCOMPARE(data.displayGain(), 1.0f);
+}
+
+void TestWaveformData::clearResetsPeak()
+{
+    WaveformData data;
+    data.appendBaseBuckets(makePeaks(10, 0.8f));
+    QVERIFY(data.peakAmplitude() > 0.5f);
+
+    // A new source must not inherit the previous file's scaling.
+    data.setSourceGeneration(2);
+    QCOMPARE(data.peakAmplitude(), 0.0f);
+    QCOMPARE(data.displayGain(), 1.0f);
 }
 
 QTEST_GUILESS_MAIN(TestWaveformData)

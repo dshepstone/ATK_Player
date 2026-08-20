@@ -72,7 +72,20 @@ public:
 
     /// Queues a grain, replacing any not yet played. `pcm` must be in the
     /// format passed to open(). Fades are applied here, not by the caller.
-    void submitGrain(const QByteArray& pcm);
+    ///
+    /// `reversed` plays the grain backwards, for a backward drag. Reversal
+    /// happens here rather than in the worker so the grain cache stays
+    /// direction-neutral -- the same decoded PCM serves a drag in either
+    /// direction, which matters because review scrubbing changes direction
+    /// constantly.
+    ///
+    /// Only the sample frames are reversed, never the bytes within a sample and
+    /// never the channel order: reversing at byte level would produce noise,
+    /// and reversing channels would swap left and right.
+    void submitGrain(const QByteArray& pcm, bool reversed = false);
+
+    /// Reverses interleaved PCM by sample frame. Exposed for testing.
+    static QByteArray reverseFrames(const QByteArray& pcm, int channelCount);
 
     /// Drops queued audio and silences output, without closing the device.
     /// Called when a drag ends so no grain outlives the gesture.
