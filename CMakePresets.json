@@ -19,18 +19,25 @@
     {
       "name": "qt",
       "hidden": true,
-      "description": "Locates Qt without putting a machine-specific path in this tracked file. Set QT_ROOT to your Qt prefix, e.g. C:/Qt/6.9.3/msvc2022_64. If QT_ROOT is unset, CMake still honours a CMAKE_PREFIX_PATH environment variable or a CMakeUserPresets.json override.",
+      "description": "Locates Qt and vcpkg without putting machine-specific paths in this tracked file. Set QT_ROOT to your Qt prefix (e.g. C:/Qt/6.9.3/msvc2022_64) and VCPKG_ROOT to your vcpkg checkout (e.g. C:/dev/vcpkg). A CMakeUserPresets.json can override either.",
       "environment": {
-        "QT_ROOT": "$penv{QT_ROOT}"
+        "QT_ROOT": "$penv{QT_ROOT}",
+        "VCPKG_ROOT": "$penv{VCPKG_ROOT}"
       },
       "cacheVariables": {
-        "ATK_QT_ROOT": "$env{QT_ROOT}"
+        "ATK_QT_ROOT": "$env{QT_ROOT}",
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+        "VCPKG_TARGET_TRIPLET": "x64-windows",
+        "VCPKG_INSTALLED_DIR": "$penv{ATK_VCPKG_INSTALLED_DIR}"
       }
     },
     {
       "name": "windows-base",
       "hidden": true,
-      "inherits": [ "qt", "base" ],
+      "inherits": [
+        "qt",
+        "base"
+      ],
       "generator": "Ninja",
       "condition": {
         "type": "equals",
@@ -42,7 +49,9 @@
       },
       "vendor": {
         "microsoft.com/VisualStudioSettings/CMake/1.0": {
-          "hostOS": [ "Windows" ]
+          "hostOS": [
+            "Windows"
+          ]
         }
       }
     },
@@ -68,7 +77,10 @@
       "name": "windows-vs2022",
       "displayName": "Windows x64 (Visual Studio 2022 generator)",
       "description": "Multi-config fallback that locates MSVC itself, for use outside a Developer Command Prompt.",
-      "inherits": [ "qt", "base" ],
+      "inherits": [
+        "qt",
+        "base"
+      ],
       "generator": "Visual Studio 17 2022",
       "architecture": "x64",
       "condition": {

@@ -4,7 +4,7 @@ Milestones are ordered by dependency, not by preference. Each one should leave
 the application in a state that runs and is worth using — no milestone is a
 half-landed refactor.
 
-**Current milestone: M0 — complete.**
+**Current milestone: M1 — complete.**
 
 ---
 
@@ -74,7 +74,11 @@ on exactly the frame the status bar reports.
 
 ## M2 — Animation Review Tools
 
-Make it a review tool rather than a viewer.
+Make it a review tool rather than a viewer. **Not started.**
+
+Deferred here deliberately from M1: audio scrubbing, audible single-frame
+stepping, In/Out points, specific loop ranges, bookmarks and range bookmarks,
+finer cache controls, and viewer zoom and pan.
 
 - Bookmark editing: name, note, colour, and a bookmark list panel
 - In/out range editing by dragging the range handles on the timeline

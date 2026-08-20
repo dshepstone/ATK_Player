@@ -94,6 +94,106 @@ in one place — the UI — from `core/Version.h`.
   without touching call sites.
 - **`commands/`** holds the command table — see *Commands and shortcuts* below.
 
+### The M1 decode pipeline
+
+```
+                        media file
+                            |
+                     libavformat (demux)
+                            |
+              +-------------+-------------+
+              |                           |
+         video packets               audio packets
+              |                           |
+          libavcodec                  libavcodec
+              |                           |
+         libswscale                 libswresample
+        (-> BGRA/RGB32)          (-> interleaved s16)
+              |                           |
+          FrameCache                AudioRingBuffer
+              |                       (bounded)
+              |                           |
+        [queued signal]                QAudioSink
+              |                           |
+         ViewerWidget  <--- picks frame for --- audio clock
+                            master position
+```
+
+Everything left of the queued signal runs on the decode thread. Everything right
+of it runs on the GUI thread. Nothing crosses in the other direction except
+requests.
+
+### Decoder thread ownership
+
+`DecoderWorker` is moved to a dedicated `QThread` and owns a `MediaDecoder`,
+which in turn owns **every** FFmpeg object: `AVFormatContext`, both
+`AVCodecContext`s, `AVPacket`, `AVFrame`, `SwsContext`, `SwrContext`. All are
+held by the RAII types in `media/ffmpeg/FFmpegRaii.h`, so an early return on any
+error path cannot leak them.
+
+No other thread touches those contexts. `PlaybackController` communicates only
+through queued signals, in both directions: requests out, finished frames back.
+A frame arrives on the GUI thread already converted to a `QImage`, so the viewer
+never decodes and never blocks.
+
+### Seek generations
+
+Decoding is asynchronous, and work already started cannot be un-started. Drag the
+playhead and the worker may be midway through frame 500 when the user reaches
+frame 900. Without a way to recognise the frame-500 result as obsolete it arrives
+late and is displayed, and the picture visibly jumps backwards.
+
+`media/DecodeGeneration.h` holds two atomic counters, shared between the
+controller and the worker:
+
+| Counter | Bumped by | Answers |
+|---|---|---|
+| `request` | every seek, step, play, pause, stop | "is this frame still the one being waited for?" |
+| `source` | opening or closing media (also bumps `request`) | "does this frame belong to the file that is open?" |
+
+Every request carries the generation it was issued under. The worker checks
+before emitting, the controller checks on receipt, and long decode loops poll it
+through a cancellation predicate so superseded work is abandoned rather than
+finished. Late results are dropped, never displayed.
+
+### Cache invalidation
+
+`FrameCache` is bound to a source generation rather than relying on callers to
+remember to clear it. Frames tagged with a different generation are refused on
+insert and miss on lookup, so a frame from a previous file cannot be shown under
+the current one even if some path forgot to invalidate.
+
+The cache is deliberately **not** cleared on seek: those frames still belong to
+the open source and staying cached is what makes stepping back and forth over
+the same few seconds instant. Correctness after a seek comes from the request
+generation, not from throwing work away.
+
+### Shutdown order
+
+Fixed, and documented in the `PlaybackController` destructor because the order is
+load-bearing:
+
+1. bump the source generation — everything in flight becomes stale, and long
+   decodes abandon their work;
+2. stop the display timer and the audio device — no more UI objects are touched;
+3. disconnect worker signals — a queued signal already posted cannot run a slot
+   on a half-destroyed controller;
+4. close FFmpeg synchronously on the decode thread, so teardown happens on the
+   thread that owns the contexts;
+5. quit and join the thread;
+6. only then destroy members.
+
+### The playback clock
+
+With audio, the audio device is the master: audio cannot be stretched or skipped
+without being audible, whereas a video frame shown slightly late is not. The
+video frame to display is chosen by asking the audio output what media position
+is currently being heard.
+
+Without audio, a monotonic clock takes that role. There is never a second
+independent timer — one clock decides the position and everything follows it.
+Frames are never advanced by incrementing a counter on a timer tick.
+
 ### `src/media/` — getting pictures out of files
 
 `MediaSource` owns a file, its probed `MediaMetadata` and a decoder. Decoders
@@ -109,9 +209,12 @@ window-around-the-playhead because review scrubbing changes direction constantly
 the frames worth keeping are the ones recently touched, whichever way the user
 was moving.
 
-`FFmpegDecoder` is currently a stub that fails cleanly on every call and records
-why. It fails rather than pretending, so every caller exercises its error path
-from day one. The implementation plan is written out in the class comment.
+`MediaDecoder` is the real decoder (M1). Frame indices are derived from
+presentation timestamps by exact rational arithmetic, never by counting decoded
+frames — a counter becomes wrong the moment anything seeks. `frameAtIndex()`
+seeks to the keyframe at or before the target and decodes forward to the
+requested presentation frame, which is what makes backward stepping land on the
+right picture instead of on the keyframe FFmpeg happened to reach.
 
 ### `src/playback/` — when to show which frame
 

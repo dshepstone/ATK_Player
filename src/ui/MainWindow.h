@@ -2,6 +2,7 @@
 
 #include "core/commands/CommandDefinitions.h"
 #include "core/commands/CommandId.h"
+#include "media/MediaMetadata.h"
 #include "playback/PlaybackController.h"
 
 #include <QMainWindow>
@@ -49,11 +50,27 @@ private:
     /// Single entry point for every command in the application.
     void onCommand(commands::CommandId id, bool checked);
 
+    /// Shows the file dialog and opens what the user picked.
+    void openMediaDialog();
+
+public:
+    /// Opens a file directly, bypassing the dialog. Used by the command line
+    /// and, later, by file associations and the external API.
+    void openMediaFile(const QString& filePath);
+
+private:
+    void onPlayerStateChanged(playback::PlayerState state);
+    void onMediaOpened(const media::MediaMetadata& metadata);
+    void onMediaError(const QString& message);
+    void updateTransportEnabled();
+    void buildAudioControls();
+    void installPlaceholderTimeline();
+
     /// Phase 0 helper: reports a command that exists but has no behaviour yet.
     void reportNotImplemented(commands::CommandId id);
 
     void updateWindowTitle();
-    void onPlaybackStateChanged(playback::PlaybackState state);
+
 
     // Session models. Declared before the widgets that observe them so
     // destruction runs in the safe order.
@@ -71,6 +88,9 @@ private:
     SourcesPanel* m_sources = nullptr;
     StatusInfoBar* m_statusInfo = nullptr;
     QDockWidget* m_sourcesDock = nullptr;
+
+    /// Directory the last Open Media dialog was pointed at.
+    QString m_lastMediaDirectory;
 };
 
 } // namespace atk::ui

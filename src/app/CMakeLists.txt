@@ -56,6 +56,24 @@ if(WIN32)
             VERBATIM
         )
     endif()
+
+    # FFmpeg is dynamically linked too, and windeployqt knows nothing about it.
+    # Copying the DLLs beside the executable means the build tree is directly
+    # runnable -- no global PATH edit, and no risk of an unrelated FFmpeg
+    # already on PATH being picked up instead of the one this build was
+    # compiled against.
+    if(ATK_FFMPEG_RUNTIME_DIR)
+        file(GLOB _atk_ffmpeg_dlls "${ATK_FFMPEG_RUNTIME_DIR}/*.dll")
+        if(_atk_ffmpeg_dlls)
+            add_custom_command(TARGET ATKPlayer POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                        ${_atk_ffmpeg_dlls}
+                        "$<TARGET_FILE_DIR:ATKPlayer>"
+                COMMENT "Copying the FFmpeg runtime next to ATKPlayer.exe"
+                VERBATIM
+            )
+        endif()
+    endif()
 endif()
 
 # ---------------------------------------------------------------------------

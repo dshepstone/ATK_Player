@@ -46,7 +46,7 @@ TransportControls::TransportControls(CommandRegistry* registry, QWidget* parent)
 
     layout->addStretch(1);
 
-    setPlaybackState(playback::PlaybackState::Stopped);
+    setPlaying(false);
 }
 
 TransportControls::~TransportControls() = default;
@@ -85,13 +85,12 @@ QToolButton* TransportControls::makeCommandButton(commands::CommandId id,
     return button;
 }
 
-void TransportControls::setPlaybackState(playback::PlaybackState state)
+void TransportControls::setPlaying(bool playing)
 {
     if (m_playPauseButton == nullptr) {
         return;
     }
 
-    const bool playing = state == playback::PlaybackState::Playing;
     m_playPauseButton->setText(playing ? kGlyphPause : kGlyphPlay);
 
     const QString label = playing ? tr("Pause") : tr("Play");

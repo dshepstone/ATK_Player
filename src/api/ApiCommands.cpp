@@ -3,6 +3,8 @@
 #include "core/Logging.h"
 #include "playback/PlaybackController.h"
 #include "timeline/Bookmark.h"
+#include "media/MediaMetadata.h"
+#include "media/ffmpeg/FFmpegUtil.h"
 #include "timeline/TimelineModel.h"
 
 #include <QJsonArray>
@@ -54,12 +56,19 @@ bool readBool(const QJsonObject& params, const QString& key, bool& out, QString&
     return true;
 }
 
-QString stateName(playback::PlaybackState state)
+QString stateName(playback::PlayerState state)
 {
+    // Mirrors PlayerState exactly. Reported as lower-case strings so a client
+    // never has to know the C++ enumerator names.
     switch (state) {
-    case playback::PlaybackState::Playing: return QStringLiteral("playing");
-    case playback::PlaybackState::Paused:  return QStringLiteral("paused");
-    case playback::PlaybackState::Stopped: return QStringLiteral("stopped");
+    case playback::PlayerState::Empty:   return QStringLiteral("empty");
+    case playback::PlayerState::Loading: return QStringLiteral("loading");
+    case playback::PlayerState::Ready:   return QStringLiteral("ready");
+    case playback::PlayerState::Playing: return QStringLiteral("playing");
+    case playback::PlayerState::Paused:  return QStringLiteral("paused");
+    case playback::PlayerState::Seeking: return QStringLiteral("seeking");
+    case playback::PlayerState::Ended:   return QStringLiteral("ended");
+    case playback::PlayerState::Error:   return QStringLiteral("error");
     }
     return QStringLiteral("unknown");
 }
@@ -140,6 +149,7 @@ ApiResponse ApiCommandDispatcher::dispatch(const QJsonObject& request)
     }
 
     const QJsonObject params = request.value(QStringLiteral("params")).toObject();
+    const media::MediaMetadata& metadata = m_playback->metadata();
     QString error;
     int64_t frame = 0;
 
@@ -166,6 +176,21 @@ ApiResponse ApiCommandDispatcher::dispatch(const QJsonObject& request)
             // rather than an open file. A client must not treat the frame
             // numbers as referring to real media while this is set.
             { QStringLiteral("placeholder"),  m_timeline->isPlaceholder() },
+
+            // M1: real loaded-media detail, so a DCC client can tell what is
+            // open and how long it is without a second round trip.
+            { QStringLiteral("path"),         metadata.filePath },
+            { QStringLiteral("fileName"),     metadata.fileName },
+            { QStringLiteral("currentTimeUs"),
+              static_cast<double>(atk::media::ffmpeg::frameIndexToMicroseconds(
+                  m_timeline->currentFrame(),
+                  AVRational{ m_timeline->frameRate().numerator,
+                              m_timeline->frameRate().denominator })) },
+            { QStringLiteral("durationUs"),   static_cast<double>(metadata.durationUs) },
+            // An estimated count must not be presented as fact; a client that
+            // seeks to frameCount-1 on an estimate may find it unreachable.
+            { QStringLiteral("frameCountIsExact"), metadata.hasExactFrameCount() },
+            { QStringLiteral("hasAudio"),     metadata.hasAudio },
         });
     }
 

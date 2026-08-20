@@ -15,6 +15,12 @@
 #include "ui/ViewerWidget.h"
 #include "ui/commands/CommandRegistry.h"
 
+#include <QFileDialog>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QSlider>
+#include <QWidgetAction>
+
 #include <QAction>
 #include <QApplication>
 #include <QCoreApplication>
@@ -73,6 +79,7 @@ MainWindow::MainWindow(QWidget* parent)
     buildModels();
     buildWidgets();
     buildMenus();
+    buildAudioControls();
     connectSignals();
 
     updateWindowTitle();
@@ -96,8 +103,7 @@ void MainWindow::buildModels()
     m_commands = new CommandRegistry(this);
 
     // Give the transport something to move against; see the note above.
-    m_timeline->setPlaceholderExtent(kPlaceholderFrameCount,
-                                     media::FrameRate::fromInteger(kPlaceholderFps));
+    installPlaceholderTimeline();
 
     qCInfo(log::app) << "Session models created";
 }
@@ -193,7 +199,29 @@ void MainWindow::connectSignals()
             this, &MainWindow::onCommand);
 
     connect(m_playback.get(), &playback::PlaybackController::stateChanged,
-            this, &MainWindow::onPlaybackStateChanged);
+            this, &MainWindow::onPlayerStateChanged);
+
+    // Decoded frames reach the viewer through the controller, so the viewer
+    // never talks to the decoder and never decodes inside a paint event.
+    connect(m_playback.get(), &playback::PlaybackController::frameChanged,
+            this, [this](const media::VideoFrame& frame) { m_viewer->setFrame(frame); });
+
+    connect(m_playback.get(), &playback::PlaybackController::mediaOpened,
+            this, &MainWindow::onMediaOpened);
+
+    connect(m_playback.get(), &playback::PlaybackController::errorOccurred,
+            this, &MainWindow::onMediaError);
+
+    connect(m_playback.get(), &playback::PlaybackController::mediaClosed,
+            this, [this] {
+                m_viewer->setEmpty();
+                m_viewer->setSourceAspectRatio(0.0);
+                m_sources->clearCurrentMedia();
+                m_statusInfo->clearMediaInfo();
+                installPlaceholderTimeline();
+                updateTransportEnabled();
+                updateWindowTitle();
+            });
 
     connect(m_playback.get(), &playback::PlaybackController::loopEnabledChanged,
             this, [this](bool enabled) {
@@ -205,14 +233,23 @@ void MainWindow::connectSignals()
 
     // Scrubbing the timeline goes through the controller, not straight into the
     // model, so a drag behaves exactly like an API seek.
-    connect(m_timelineWidget, &TimelineWidget::seekRequested,
-            this, [this](qint64 frame) { m_playback->seekFrame(frame); });
+    connect(m_timelineWidget, &TimelineWidget::scrubStarted,
+            m_playback.get(), &playback::PlaybackController::beginScrub);
+    connect(m_timelineWidget, &TimelineWidget::scrubPreviewRequested,
+            m_playback.get(), &playback::PlaybackController::scrubToFrame);
+    connect(m_timelineWidget, &TimelineWidget::scrubFinished,
+            m_playback.get(), &playback::PlaybackController::endScrub);
 
     connect(m_timelineWidget, &TimelineWidget::bookmarkActivated,
             this, [this](qint64 frame) { m_playback->seekFrame(frame); });
 
     connect(m_project.get(), &project::Project::modifiedChanged,
             this, [this](bool) { updateWindowTitle(); });
+
+    // The frame count only becomes final once media is open, and the transport
+    // depends on whether there is an extent at all.
+    connect(m_timeline.get(), &timeline::TimelineModel::frameCountChanged,
+            this, [this](qint64) { updateTransportEnabled(); });
 
     connect(m_sourcesDock, &QDockWidget::visibilityChanged,
             this, [this](bool visible) {
@@ -321,13 +358,30 @@ void MainWindow::onCommand(CommandId id, bool checked)
 
     // --- Declared, not yet implemented ------------------------------------
     case CommandId::OpenMedia:
+        openMediaDialog();
+        return;
+    case CommandId::CloseSource:
+        m_playback->closeMedia();
+        return;
+    case CommandId::ToggleMute: {
+        m_playback->setMuted(checked);
+        statusBar()->showMessage(checked ? tr("Audio muted") : tr("Audio unmuted"), 1500);
+        return;
+    }
+    case CommandId::VolumeUp:
+        m_playback->setVolume(m_playback->volume() + 0.1);
+        statusBar()->showMessage(
+            tr("Volume %1%").arg(qRound(m_playback->volume() * 100)), 1500);
+        return;
+    case CommandId::VolumeDown:
+        m_playback->setVolume(m_playback->volume() - 0.1);
+        statusBar()->showMessage(
+            tr("Volume %1%").arg(qRound(m_playback->volume() * 100)), 1500);
+        return;
+
     case CommandId::OpenProject:
     case CommandId::SaveProject:
     case CommandId::SaveProjectAs:
-    case CommandId::CloseSource:
-    case CommandId::ToggleMute:
-    case CommandId::VolumeUp:
-    case CommandId::VolumeDown:
     case CommandId::ZoomIn:
     case CommandId::ZoomOut:
         reportNotImplemented(id);
@@ -348,21 +402,164 @@ void MainWindow::reportNotImplemented(CommandId id)
     statusBar()->showMessage(tr("%1 is not implemented yet.").arg(name), 3000);
 }
 
-void MainWindow::onPlaybackStateChanged(playback::PlaybackState state)
+void MainWindow::onPlayerStateChanged(playback::PlayerState state)
 {
-    m_transport->setPlaybackState(state);
+    using playback::PlayerState;
+
+    m_transport->setPlaying(state == PlayerState::Playing);
+    updateTransportEnabled();
 
     switch (state) {
-    case playback::PlaybackState::Playing:
+    case PlayerState::Playing:
         statusBar()->showMessage(tr("Playing"), 1500);
         break;
-    case playback::PlaybackState::Paused:
+    case PlayerState::Paused:
         statusBar()->showMessage(tr("Paused"), 1500);
         break;
-    case playback::PlaybackState::Stopped:
-        statusBar()->showMessage(tr("Stopped"), 1500);
+    case PlayerState::Ended:
+        statusBar()->showMessage(tr("End of media"), 2000);
+        break;
+    case PlayerState::Loading:
+        m_viewer->setLoading();
+        statusBar()->showMessage(tr("Loading media..."));
+        break;
+    case PlayerState::Error:
+        m_viewer->setError(m_playback->errorMessage());
+        break;
+    case PlayerState::Empty:
+        m_viewer->setEmpty();
+        break;
+    case PlayerState::Ready:
+    case PlayerState::Seeking:
         break;
     }
+}
+
+void MainWindow::updateTransportEnabled()
+{
+    // Transport is meaningful whenever there is an extent to move along --
+    // real media, or the labelled placeholder before anything is opened.
+    const bool hasExtent = m_timeline->frameCount() > 0;
+    const bool notErrored = m_playback->state() != playback::PlayerState::Error;
+    const bool enabled = hasExtent && notErrored;
+
+    for (const commands::CommandId id : { commands::CommandId::PlayPause,
+                                          commands::CommandId::Stop,
+                                          commands::CommandId::PreviousFrame,
+                                          commands::CommandId::NextFrame,
+                                          commands::CommandId::FirstFrame,
+                                          commands::CommandId::LastFrame,
+                                          commands::CommandId::ToggleLoop }) {
+        if (QAction* action = m_commands->action(id)) {
+            action->setEnabled(enabled);
+        }
+    }
+
+    const bool audio = m_playback->hasAudioOutput();
+    for (const commands::CommandId id : { commands::CommandId::ToggleMute,
+                                          commands::CommandId::VolumeUp,
+                                          commands::CommandId::VolumeDown }) {
+        if (QAction* action = m_commands->action(id)) {
+            action->setEnabled(audio);
+        }
+    }
+}
+
+void MainWindow::installPlaceholderTimeline()
+{
+    m_timeline->setPlaceholderExtent(kPlaceholderFrameCount,
+                                     media::FrameRate::fromInteger(kPlaceholderFps));
+}
+
+void MainWindow::buildAudioControls()
+{
+    QMenu* audioMenu = nullptr;
+    const QList<QAction*> menuActions = menuBar()->actions();
+    for (QAction* action : menuActions) {
+        if (action->menu() != nullptr
+            && action->text() == commands::categoryTitle(commands::CommandCategory::Audio)) {
+            audioMenu = action->menu();
+            break;
+        }
+    }
+    if (audioMenu == nullptr) {
+        return;
+    }
+
+    audioMenu->addSeparator();
+
+    // A slider embedded in the menu is enough for M1; a mixer is not the point.
+    auto* container = new QWidget(audioMenu);
+    auto* layout = new QHBoxLayout(container);
+    layout->setContentsMargins(12, 4, 12, 4);
+
+    auto* label = new QLabel(tr("Volume"), container);
+    label->setProperty("atkRole", "statusCaption");
+    layout->addWidget(label);
+
+    auto* slider = new QSlider(Qt::Horizontal, container);
+    slider->setRange(0, 100);
+    slider->setValue(qRound(m_playback->volume() * 100));
+    slider->setFixedWidth(140);
+    layout->addWidget(slider);
+
+    connect(slider, &QSlider::valueChanged, this, [this](int value) {
+        m_playback->setVolume(value / 100.0);
+    });
+
+    auto* action = new QWidgetAction(audioMenu);
+    action->setDefaultWidget(container);
+    audioMenu->addAction(action);
+}
+
+void MainWindow::openMediaDialog()
+{
+    // FFmpeg decides what is readable, so "All Files" is offered alongside the
+    // common filters rather than the extension list being the gate.
+    const QString filter = tr(
+        "Video Files (*.mp4 *.mov *.avi *.mkv *.m4v *.webm *.mpg *.mpeg *.wmv *.flv);;"
+        "All Files (*.*)");
+
+    const QString path = QFileDialog::getOpenFileName(
+        this, tr("Open Media"), m_lastMediaDirectory, filter);
+
+    if (path.isEmpty()) {
+        return;
+    }
+
+    m_lastMediaDirectory = QFileInfo(path).absolutePath();
+    openMediaFile(path);
+}
+
+void MainWindow::openMediaFile(const QString& filePath)
+{
+    m_playback->openMedia(filePath);
+}
+
+void MainWindow::onMediaOpened(const media::MediaMetadata& metadata)
+{
+    m_viewer->setSourceAspectRatio(
+        metadata.resolution.height() > 0
+            ? (static_cast<double>(metadata.resolution.width()) * metadata.pixelAspectRatio)
+                  / static_cast<double>(metadata.resolution.height())
+            : 0.0);
+
+    m_sources->setCurrentMedia(metadata.fileName, metadata.shortDescription());
+    m_statusInfo->setMediaInfo(metadata.fileName, metadata.hasExactFrameCount());
+
+    updateTransportEnabled();
+    updateWindowTitle();
+
+    statusBar()->showMessage(tr("Opened %1").arg(metadata.fileName), 3000);
+}
+
+void MainWindow::onMediaError(const QString& message)
+{
+    m_sources->clearCurrentMedia();
+    m_statusInfo->clearMediaInfo();
+    updateTransportEnabled();
+    updateWindowTitle();
+    statusBar()->showMessage(message, 8000);
 }
 
 void MainWindow::updateWindowTitle()

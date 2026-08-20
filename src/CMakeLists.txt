@@ -20,7 +20,13 @@ set(ATK_CORE_SOURCES
     media/MediaMetadata.cpp
     media/MediaSource.cpp
     media/FrameCache.cpp
-    media/decoders/FFmpegDecoder.cpp
+    media/PlaybackQueue.cpp
+    media/MediaDecoder.cpp
+    media/DecoderWorker.cpp
+    media/ffmpeg/FFmpegUtil.cpp
+
+    audio/AudioRingBuffer.cpp
+    audio/AudioOutput.cpp
 
     playback/PlaybackClock.cpp
     playback/PlaybackController.cpp
@@ -48,9 +54,18 @@ set(ATK_CORE_HEADERS
     media/MediaMetadata.h
     media/MediaSource.h
     media/VideoFrame.h
+    media/AudioBuffer.h
+    media/MediaLibraryInfo.h
+    media/DecodeGeneration.h
     media/FrameCache.h
-    media/decoders/IDecoder.h
-    media/decoders/FFmpegDecoder.h
+    media/PlaybackQueue.h
+    media/MediaDecoder.h
+    media/DecoderWorker.h
+    media/ffmpeg/FFmpegUtil.h
+    media/ffmpeg/FFmpegRaii.h
+
+    audio/AudioRingBuffer.h
+    audio/AudioOutput.h
 
     playback/PlaybackClock.h
     playback/PlaybackController.h
@@ -98,7 +113,18 @@ target_link_libraries(atk_core
     PUBLIC
         Qt6::Core
         Qt6::Gui
+        # Audio output only. Still no Qt6::Widgets, so core code remains unable
+        # to include a widget header.
+        Qt6::Multimedia
+    PRIVATE
+        ${FFMPEG_LIBRARIES}
 )
+
+# PRIVATE: FFmpeg headers are an implementation detail of the media layer. The
+# UI links atk_core but must not be able to include libav* -- that boundary is
+# what keeps decoding out of paint events.
+target_include_directories(atk_core PRIVATE ${FFMPEG_INCLUDE_DIRS})
+target_link_directories(atk_core PRIVATE ${FFMPEG_LIBRARY_DIRS})
 
 atk_set_compiler_warnings(atk_core)
 

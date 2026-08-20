@@ -27,12 +27,37 @@ public:
     };
     Q_ENUM(FitMode)
 
+    /// What the viewer is currently showing.
+    enum class State {
+        Empty,   ///< No media -- the branded placeholder.
+        Loading, ///< An open is in progress.
+        Loaded,  ///< Displaying decoded frames.
+        Error,   ///< Showing why the last open failed.
+    };
+    Q_ENUM(State)
+
     explicit ViewerWidget(QWidget* parent = nullptr);
     ~ViewerWidget() override;
 
-    /// Sets the frame to display and repaints. An invalid frame clears the
-    /// viewer back to its empty state.
+    /// Switches to the loading state and drops any frame on screen, so a failed
+    /// open cannot leave the previous clip's picture visible.
+    void setLoading();
+
+    /// Switches to the error state with a user-facing message.
+    void setError(const QString& message);
+
+    /// Returns to the empty state.
+    void setEmpty();
+
+    State state() const { return m_state; }
+
+    /// Sets the frame to display and repaints. Moves the viewer into the
+    /// Loaded state. An invalid frame clears it back to empty.
     void setFrame(const media::VideoFrame& frame);
+
+    /// Source aspect ratio to preserve, accounting for non-square pixels.
+    /// Defaults to the frame's own dimensions when not set.
+    void setSourceAspectRatio(double ratio);
     void clear();
 
     FitMode fitMode() const { return m_fitMode; }
@@ -57,8 +82,12 @@ private:
     /// Where the picture lands inside the widget for the current fit mode.
     QRect targetRectFor(const QSize& imageSize) const;
     void paintEmptyState(QPainter& painter);
+    void paintMessage(QPainter& painter, const QString& headline, const QString& detail);
 
     media::VideoFrame m_frame;
+    State m_state = State::Empty;
+    QString m_errorMessage;
+    double m_sourceAspectRatio = 0.0;
     FitMode m_fitMode = FitMode::FitInWindow;
     QString m_placeholderText;
     QString m_placeholderSubtext;

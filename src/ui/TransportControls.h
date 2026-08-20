@@ -1,7 +1,6 @@
 #pragma once
 
 #include "core/commands/CommandId.h"
-#include "playback/PlaybackController.h"
 
 #include <QString>
 #include <QWidget>
@@ -27,7 +26,7 @@ public:
     ~TransportControls() override;
 
     /// Updates the play/pause button to match the transport.
-    void setPlaybackState(playback::PlaybackState state);
+    void setPlaying(bool playing);
 
 private:
     QToolButton* makeCommandButton(commands::CommandId id,

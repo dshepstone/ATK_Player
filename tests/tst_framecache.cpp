@@ -11,8 +11,10 @@ namespace {
 VideoFrame makeFrame(qint64 number, int width = 64, int height = 64)
 {
     VideoFrame frame;
-    frame.frameNumber = number;
-    frame.presentationTimeUs = number * 1000;
+    frame.frameIndex = number;
+    frame.ptsUs = number * 1000;
+    frame.width = width;
+    frame.height = height;
     frame.image = QImage(width, height, QImage::Format_ARGB32);
     frame.image.fill(Qt::black);
     return frame;
@@ -55,7 +57,7 @@ void TestFrameCache::storesAndRetrieves()
 
     const VideoFrame* found = cache.find(7);
     QVERIFY(found != nullptr);
-    QCOMPARE(found->frameNumber, qint64(7));
+    QCOMPARE(found->frameIndex, qint64(7));
     QCOMPARE(cache.count(), std::size_t(1));
     QCOMPARE(cache.usedBytes(), qint64(frameBytes()));
 }

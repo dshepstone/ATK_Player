@@ -1,43 +1,47 @@
 {
   "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
   "name": "atk-player",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Cross-platform animation playback and review application",
   "homepage": "https://github.com/dshepstone/ATK_Player",
   "license": "MIT",
-  "dependencies": [],
-  "features": {
-    "ffmpeg": {
-      "description": "Media decoding and export via FFmpeg (milestone M1). LGPL components only: GPL and nonfree encoders stay disabled so the application can ship under the terms recorded in docs/THIRD_PARTY_LICENSES.md.",
-      "dependencies": [
-        {
-          "name": "ffmpeg",
-          "default-features": false,
-          "features": [
-            "avcodec",
-            "avformat",
-            "avdevice",
-            "swresample",
-            "swscale"
-          ]
-        }
+  "builtin-baseline": "45f9f39362a4c52e2b1fbe57b7e649db7f3d96d4",
+  "dependencies": [
+    {
+      "name": "ffmpeg",
+      "default-features": false,
+      "features": [
+        "avcodec",
+        "avformat",
+        "swresample",
+        "swscale",
+        "avdevice",
+        "ffmpeg",
+        "ffprobe"
       ]
     }
-  },
-  "builtin-baseline": "",
-  "overrides": [],
+  ],
   "$comment": [
-    "Qt is NOT listed here on purpose.",
-    "Building Qt from source through vcpkg takes hours on Windows and produces",
-    "a toolchain the official binaries already provide. Qt is installed",
-    "separately (see docs/BUILDING.md) and found through CMAKE_PREFIX_PATH.",
+    "Qt is NOT a vcpkg dependency. Building Qt from source through vcpkg takes",
+    "hours on Windows and reproduces what the official binaries already provide.",
+    "Qt is installed separately and found through QT_ROOT -- see docs/BUILDING.md.",
     "",
-    "FFmpeg is behind the optional 'ffmpeg' feature so Phase 0 configures with",
-    "no dependency downloads at all, and vcpkg is not installed or required for",
-    "Phase 0. Enable it in M1 with:",
-    "    cmake --preset windows-debug -DCMAKE_TOOLCHAIN_FILE=%VCPKG_ROOT%/scripts/buildsystems/vcpkg.cmake -DVCPKG_MANIFEST_FEATURES=ffmpeg",
+    "FFmpeg feature selection:",
+    "  avcodec, avformat  -- demuxing and decoding",
+    "  swscale            -- pixel format conversion to a viewer-ready RGB frame",
+    "  swresample         -- audio conversion to a device-compatible PCM format",
+    "  avdevice           -- provides the 'lavfi' input device, which is how the\n                        deterministic test fixtures are generated. Not used by\n                        the application itself.\n  ffmpeg, ffprobe    -- command-line tools, used to generate and validate the",
+    "                        deterministic test fixtures the integration tests",
+    "                        decode. Not shipped with the application.",
     "",
-    "'builtin-baseline' must be filled in with a vcpkg commit SHA when the",
-    "ffmpeg feature is first enabled, so dependency versions are reproducible."
+    "default-features is false on purpose: the port would otherwise also build",
+    "avdevice and avfilter, which ATK Player does not use.",
+    "",
+    "GPL and nonfree features (gpl, all-gpl, nonfree, all-nonfree, x264, x265,",
+    "fdk-aac) are deliberately NOT enabled. ATK Player relies on FFmpeg's",
+    "built-in LGPL decoders. See docs/THIRD_PARTY_LICENSES.md before changing",
+    "this list.",
+    "",
+    "builtin-baseline pins the dependency graph so the build is reproducible."
   ]
 }

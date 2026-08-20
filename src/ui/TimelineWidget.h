@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QElapsedTimer>
 #include <QWidget>
 
 #include <cstdint>
@@ -33,9 +34,12 @@ public:
     QSize minimumSizeHint() const override;
 
 signals:
-    /// The user asked to move the playhead. The receiver decides whether to
-    /// honour it -- the widget does not assume the seek succeeded.
-    void seekRequested(qint64 frame);
+    /// A drag has distinct start, preview, and exact-release phases so the
+    /// controller can coalesce expensive preview decodes without losing the
+    /// final requested frame.
+    void scrubStarted();
+    void scrubPreviewRequested(qint64 frame);
+    void scrubFinished(qint64 frame);
     /// A bookmark marker was double-clicked.
     void bookmarkActivated(qint64 frame);
 
@@ -61,8 +65,31 @@ private:
     void paintPlayhead(QPainter& painter);
     void paintFrameLabels(QPainter& painter);
 
+    /// Emits a seek request, but no more often than the throttle interval
+    /// while a drag is in progress.
+    void requestSeek(int64_t frame, bool force);
+
+    /// Frame the playhead should be drawn at: the scrub position while
+    /// dragging, the model's current frame otherwise.
+    int64_t displayFrame() const;
+
     timeline::TimelineModel* m_model = nullptr;
     bool m_scrubbing = false;
+    /// Paces preview seeks during a drag so the decoder is not handed a new
+    /// target on every mouse move; the exact seek is issued on release.
+    QElapsedTimer m_scrubThrottle;
+    int64_t m_lastRequestedFrame = -1;
+
+    /// Where the pointer is during a drag, independent of what has decoded.
+    ///
+    /// The playhead used to be drawn straight from the model, which only moves
+    /// when a decoded frame is presented -- so it could not advance faster than
+    /// FFmpeg could seek, and the cursor visibly outran it. Tracking the
+    /// requested position separately lets the playhead follow the mouse at
+    /// pointer rate while the picture catches up behind it.
+    ///
+    /// -1 when not scrubbing.
+    int64_t m_scrubFrame = -1;
 };
 
 } // namespace atk::ui

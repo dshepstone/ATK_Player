@@ -97,10 +97,26 @@ void TestApiCommands::reportsStatus()
     Fixture fixture;
     const ApiResponse response = fixture.dispatcher.dispatch(request(QStringLiteral("get_status")));
     QVERIFY(response.ok);
-    QCOMPARE(response.result.value(QStringLiteral("state")).toString(), QStringLiteral("stopped"));
+    // M1 replaced the M0 three-state model with an explicit eight-state one.
+    // An idle transport that has an extent to move along is "ready"; "stopped"
+    // no longer exists. hasMedia() is what separates a placeholder extent from
+    // an open file.
+    QCOMPARE(response.result.value(QStringLiteral("state")).toString(), QStringLiteral("ready"));
     QCOMPARE(response.result.value(QStringLiteral("frameCount")).toDouble(), 100.0);
     QCOMPARE(response.result.value(QStringLiteral("fps")).toDouble(), 24.0);
     QCOMPARE(response.result.value(QStringLiteral("hasMedia")).toBool(), false);
+
+    // This fixture sets the extent with setFrameCount() rather than
+    // setPlaceholderExtent(), and setFrameCount() is precisely the call that
+    // clears the placeholder marking -- it is how real media removes it. So the
+    // extent here is reported as genuine, and hasMedia is what tells a client
+    // no file is open.
+    QCOMPARE(response.result.value(QStringLiteral("placeholder")).toBool(), false);
+
+    // Media detail is absent but well-formed while nothing is open, so a client
+    // never has to special-case a missing key.
+    QCOMPARE(response.result.value(QStringLiteral("fileName")).toString(), QString());
+    QCOMPARE(response.result.value(QStringLiteral("hasAudio")).toBool(), false);
 }
 
 void TestApiCommands::seeksToFrame()

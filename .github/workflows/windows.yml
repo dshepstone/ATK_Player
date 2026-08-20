@@ -37,6 +37,9 @@ jobs:
           host: windows
           target: desktop
           arch: win64_msvc2022_64
+          # Multimedia is not part of the base package and is required for
+          # audio output.
+          modules: qtmultimedia
           cache: true
 
       # install-qt-action exports QT_ROOT_DIR; the presets read QT_ROOT.
@@ -49,13 +52,68 @@ jobs:
         with:
           arch: x64
 
+      # msvc-dev-cmd supplies the compiler but not Ninja, and the presets use
+      # the Ninja generator. Without this the configure fails with
+      # "CMake was unable to find a build program corresponding to Ninja".
+      - name: Set up Ninja
+        uses: seanmiddleditch/gha-setup-ninja@v5
+
+      # vcpkg supplies FFmpeg, cloned at exactly the commit vcpkg.json pins.
+      #
+      # The runner ships its own vcpkg, but using it does not work: vcpkg reads
+      # the baseline from the pinned commit while taking port files and the
+      # version database from the checked-out tree. With the runner's tree at a
+      # different commit those disagree, and the install fails with "no version
+      # database entry for ffmpeg at 9.0.1#1". Checking out the pinned commit
+      # makes both come from the same place, and makes CI match exactly what
+      # docs/BUILDING.md tells a developer to set up.
+      #
+      # --filter=blob:none keeps the clone quick; only the blobs actually
+      # needed are fetched.
+      - name: Set up vcpkg at the pinned baseline
+        shell: pwsh
+        run: |
+          $baseline = (Get-Content vcpkg.json -Raw | ConvertFrom-Json).'builtin-baseline'
+          if (-not $baseline) { throw "vcpkg.json has no builtin-baseline" }
+          Write-Host "Pinned baseline: $baseline"
+
+          $root = "C:/vcpkg-atk"
+          git clone --filter=blob:none https://github.com/microsoft/vcpkg.git $root
+          if ($LASTEXITCODE -ne 0) { throw "Could not clone vcpkg" }
+
+          git -C $root checkout --detach $baseline
+          if ($LASTEXITCODE -ne 0) { throw "Could not check out vcpkg baseline $baseline" }
+
+          & "$root/bootstrap-vcpkg.bat" -disableMetrics
+          if (-not (Test-Path "$root/vcpkg.exe")) { throw "vcpkg bootstrap produced no vcpkg.exe" }
+
+          echo "VCPKG_ROOT=$root" >> $env:GITHUB_ENV
+
+          # FFmpeg's configure does not quote -libpath:, so the installed tree
+          # must not sit under a path containing a space.
+          echo "ATK_VCPKG_INSTALLED_DIR=C:/atkvcpkg" >> $env:GITHUB_ENV
+
+      # Building FFmpeg from source takes ten to twenty minutes, so the binary
+      # artefacts are cached. The key covers the manifest and the pinned
+      # baseline, which is exactly what determines the result.
+      - name: Cache vcpkg binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/AppData/Local/vcpkg/archives
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-
+
       - name: Configure
         run: cmake --preset ${{ matrix.preset }}
 
       - name: Build
         run: cmake --build --preset ${{ matrix.preset }}
 
-      # The tests cover atk_core only and need no display, so they run headless.
+      # All suites run headless. The media integration tests decode fixtures
+      # generated during the build by the ffmpeg tool vcpkg produced, so no
+      # binary test media is committed and no audio device is needed -- audio is
+      # only decoded and resampled here, never played.
       - name: Test
         run: ctest --preset windows-debug --output-on-failure
         if: matrix.preset == 'windows-debug'
