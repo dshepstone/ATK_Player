@@ -21,6 +21,13 @@ int main(int argc, char* argv[])
     atk::ui::MainWindow window;
     window.show();
 
+    // Opened after show() so the window is already up and can display the
+    // loading state rather than appearing only once decoding finishes.
+    const QString requested = application.requestedMediaPath();
+    if (!requested.isEmpty()) {
+        window.openMediaFile(requested);
+    }
+
     qCInfo(atk::log::app) << "Entering event loop";
     const int result = application.exec();
     qCInfo(atk::log::app) << "Exiting with code" << result;

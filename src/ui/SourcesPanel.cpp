@@ -22,7 +22,6 @@ SourcesPanel::SourcesPanel(QWidget* parent)
 
     m_list = new QListWidget(this);
     m_list->setSelectionMode(QAbstractItemView::SingleSelection);
-    m_list->setUniformItemSizes(true);
     layout->addWidget(m_list, 1);
 
     // The hint replaces the list rather than sitting beneath it, so the empty
@@ -67,8 +66,38 @@ void SourcesPanel::setProject(project::Project* project)
     refresh();
 }
 
+void SourcesPanel::setCurrentMedia(const QString& fileName, const QString& description)
+{
+    m_showingSingleSource = true;
+
+    m_list->clear();
+
+    auto* item = new QListWidgetItem(fileName, m_list);
+    if (!description.isEmpty()) {
+        // Second line carries the resolution/fps/duration summary.
+        const QString label = fileName + QLatin1Char('\n') + description;
+        item->setText(label);
+        item->setToolTip(label);
+    }
+    m_list->setCurrentRow(0);
+
+    m_emptyHint->setVisible(false);
+    m_list->setVisible(true);
+}
+
+void SourcesPanel::clearCurrentMedia()
+{
+    m_showingSingleSource = false;
+    refresh();
+}
+
 void SourcesPanel::refresh()
 {
+    if (m_showingSingleSource) {
+        // A single loaded source takes precedence over the (empty) project.
+        return;
+    }
+
     m_list->clear();
 
     if (m_project != nullptr) {

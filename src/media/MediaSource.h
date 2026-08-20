@@ -1,61 +1,48 @@
 #pragma once
 
 #include "media/MediaMetadata.h"
-#include "media/VideoFrame.h"
-#include "media/decoders/IDecoder.h"
 
 #include <QString>
 
 #include <cstdint>
-#include <memory>
 
 namespace atk::media {
 
-/// One piece of media loaded into ATK Player: a file, its probed metadata, its
-/// decoder and its per-source frame offset.
+/// A media file referenced by a project, together with what is known about it.
 ///
-/// The offset exists for A/B comparison: viewer B may be shifted relative to
-/// the master clock so two takes with different handles line up. It applies to
-/// this source only and never moves the shared clock.
+/// This is a *descriptor*, not a decoder. Decoding is owned by MediaDecoder on
+/// the decode thread (see MediaDecoder.h); an object that a project holds in a
+/// list must not also own an FFmpeg context, or a playlist would mean many open
+/// demuxers and many decode threads.
 ///
-/// This class has no UI dependency and no Qt object identity; it is owned by
-/// the Project and referenced by PlaybackController.
+/// The per-source frame offset lives here because it belongs to the source
+/// rather than to playback: A/B comparison shifts one take relative to the
+/// master clock so two versions of a shot line up (milestone M4).
 class MediaSource {
 public:
+    MediaSource() = default;
     explicit MediaSource(QString filePath);
-    ~MediaSource();
-
-    MediaSource(const MediaSource&) = delete;
-    MediaSource& operator=(const MediaSource&) = delete;
 
     const QString& filePath() const { return m_filePath; }
+
     /// File name without directory, for the sources list.
     QString displayName() const;
 
-    /// Opens the underlying decoder and probes metadata.
-    ///
-    /// PHASE 0: always fails, because FFmpegDecoder is a stub. The failure is
-    /// reported through lastError() and logged; callers must handle it.
-    bool open();
-    void close();
-    bool isOpen() const;
+    /// What probing found. Empty until the decoder fills it in.
+    const MediaMetadata& metadata() const { return m_metadata; }
+    void setMetadata(const MediaMetadata& metadata) { m_metadata = metadata; }
 
-    const MediaMetadata& metadata() const;
-    QString lastError() const;
+    /// True once metadata has been populated by a successful open.
+    bool isProbed() const { return m_metadata.isValid(); }
 
-    /// Frames added to the master frame number before decoding from this
-    /// source. May be negative.
+    /// Frames added to the master frame number before reading from this source.
+    /// May be negative.
     int64_t frameOffset() const { return m_frameOffset; }
     void setFrameOffset(int64_t offset) { m_frameOffset = offset; }
 
-    /// Decodes the frame corresponding to a master timeline frame, applying
-    /// frameOffset(). Returns false when out of range or not yet implemented.
-    bool frameAt(int64_t masterFrame, VideoFrame& out);
-
 private:
     QString m_filePath;
-    std::unique_ptr<IDecoder> m_decoder;
-    MediaMetadata m_emptyMetadata;
+    MediaMetadata m_metadata;
     int64_t m_frameOffset = 0;
 };
 

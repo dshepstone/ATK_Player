@@ -27,8 +27,20 @@ public:
     /// touched. Returns false when startup cannot continue.
     bool initialize();
 
-    /// Human-readable version, e.g. "0.1.0-dev".
+    /// Human-readable version, e.g. "0.2.0-dev".
     static QString versionString();
+
+    /// Media file named on the command line, or an empty string.
+    ///
+    /// Supports both `ATKPlayer.exe <file>` and `ATKPlayer.exe --open <file>`.
+    /// Deliberately hand-parsed rather than pulled in via QCommandLineParser:
+    /// the point is file associations and test automation, not a CLI surface.
+    QString requestedMediaPath() const { return m_requestedMediaPath; }
+
+private:
+    void parseArguments();
+
+    QString m_requestedMediaPath;
 };
 
 } // namespace atk::app

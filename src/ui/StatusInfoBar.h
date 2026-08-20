@@ -25,6 +25,14 @@ public:
     /// empty state.
     void setModel(timeline::TimelineModel* model);
 
+    /// Names the loaded media and says whether its frame count is exact.
+    /// An estimated count is marked, because the last frame of an estimate may
+    /// not be reachable and the user is entitled to know that.
+    void setMediaInfo(const QString& fileName, bool frameCountIsExact);
+
+    /// Returns to the no-media readout.
+    void clearMediaInfo();
+
 private:
     /// Builds a caption + monospaced value pair and appends it to the layout.
     QLabel* addField(const QString& caption, const QString& initialValue, int minimumValueWidth);
@@ -37,6 +45,8 @@ private:
     /// Shown whenever the numbers to its left describe a placeholder extent
     /// rather than an open file.
     QLabel* m_placeholderTag = nullptr;
+    QLabel* m_mediaValue = nullptr;
+    bool m_frameCountIsExact = true;
 };
 
 } // namespace atk::ui

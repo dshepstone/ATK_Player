@@ -20,6 +20,8 @@ StatusInfoBar::StatusInfoBar(QWidget* parent)
     m_timecodeValue = addField(tr("TIMECODE"), timeline::timecode::placeholder(), 90);
     layout->addSpacing(16);
     m_fpsValue      = addField(tr("FPS"),      QStringLiteral("--"),     42);
+    layout->addSpacing(16);
+    m_mediaValue    = addField(tr("MEDIA"),    tr("no media"),           120);
 
     layout->addStretch(1);
 
@@ -81,6 +83,22 @@ void StatusInfoBar::setModel(timeline::TimelineModel* model)
     refresh();
 }
 
+void StatusInfoBar::setMediaInfo(const QString& fileName, bool frameCountIsExact)
+{
+    m_frameCountIsExact = frameCountIsExact;
+    m_mediaValue->setText(fileName);
+    m_mediaValue->setToolTip(fileName);
+    refresh();
+}
+
+void StatusInfoBar::clearMediaInfo()
+{
+    m_frameCountIsExact = true;
+    m_mediaValue->setText(tr("no media"));
+    m_mediaValue->setToolTip(QString());
+    refresh();
+}
+
 void StatusInfoBar::refresh()
 {
     if (m_model == nullptr) {
@@ -93,9 +111,14 @@ void StatusInfoBar::refresh()
 
     m_placeholderTag->setVisible(m_model->isPlaceholder());
 
+    // A "~" in front of the total is the quiet signal that the count came from
+    // duration x frame rate rather than from the container.
+    const QString total = m_frameCountIsExact
+        ? QString::number(m_model->frameCount())
+        : QStringLiteral("~%1").arg(m_model->frameCount());
+
     m_frameValue->setText(QStringLiteral("%1 / %2")
-                              .arg(m_model->currentFrame())
-                              .arg(m_model->frameCount()));
+                              .arg(QString::number(m_model->currentFrame()), total));
 
     m_timecodeValue->setText(
         timeline::timecode::fromFrame(m_model->currentFrame(), m_model->frameRate()));

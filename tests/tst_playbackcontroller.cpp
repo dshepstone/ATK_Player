@@ -7,7 +7,7 @@
 
 using atk::media::FrameRate;
 using atk::playback::PlaybackController;
-using atk::playback::PlaybackState;
+using atk::playback::PlayerState;
 using atk::timeline::TimelineModel;
 
 /// Covers the Phase 0 transport behaviour: state transitions, frame stepping
@@ -31,7 +31,7 @@ private:
     };
 
 private slots:
-    void startsStopped();
+    void startsReady();
     void playThenPauseTogglesState();
     void togglePlayPauseAlternates();
     void stateChangedIsNotEmittedTwice();
@@ -57,11 +57,14 @@ private slots:
     void transportIsInertWithoutAnExtent();
 };
 
-void TestPlaybackController::startsStopped()
+void TestPlaybackController::startsReady()
 {
     Fixture fixture;
-    QCOMPARE(fixture.playback.state(), PlaybackState::Stopped);
+    // A placeholder extent is a real extent to move along, so the transport is
+    // Ready even though no file is open. hasMedia() is what distinguishes them.
+    QCOMPARE(fixture.playback.state(), PlayerState::Ready);
     QVERIFY(!fixture.playback.isPlaying());
+    QVERIFY(!fixture.playback.hasMedia());
     QCOMPARE(fixture.playback.currentFrame(), qint64(0));
 }
 
@@ -70,11 +73,11 @@ void TestPlaybackController::playThenPauseTogglesState()
     Fixture fixture;
 
     fixture.playback.play();
-    QCOMPARE(fixture.playback.state(), PlaybackState::Playing);
+    QCOMPARE(fixture.playback.state(), PlayerState::Playing);
     QVERIFY(fixture.playback.isPlaying());
 
     fixture.playback.pause();
-    QCOMPARE(fixture.playback.state(), PlaybackState::Paused);
+    QCOMPARE(fixture.playback.state(), PlayerState::Paused);
     QVERIFY(!fixture.playback.isPlaying());
 }
 
@@ -154,7 +157,7 @@ void TestPlaybackController::steppingLeavesPlayMode()
     // Stepping is a deliberate single-frame move, so it stops playback rather
     // than fighting the clock for the playhead.
     fixture.playback.stepForward();
-    QCOMPARE(fixture.playback.state(), PlaybackState::Paused);
+    QCOMPARE(fixture.playback.state(), PlayerState::Paused);
 }
 
 void TestPlaybackController::goToStartReturnsToFirstFrame()
@@ -262,11 +265,11 @@ void TestPlaybackController::transportIsInertWithoutAnExtent()
 {
     Fixture fixture(0);
     QCOMPARE(fixture.timeline.frameCount(), qint64(0));
+    QCOMPARE(fixture.playback.state(), PlayerState::Empty);
 
-    // With nothing loaded the transport still reports state honestly, but there
-    // is no frame to move to.
+    // Nothing to play and nothing to step to: play() must not claim otherwise.
     fixture.playback.play();
-    QCOMPARE(fixture.playback.state(), PlaybackState::Playing);
+    QCOMPARE(fixture.playback.state(), PlayerState::Empty);
 
     fixture.playback.stepForward();
     QCOMPARE(fixture.playback.currentFrame(), qint64(0));

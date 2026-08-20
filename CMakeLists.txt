@@ -7,7 +7,7 @@ cmake_minimum_required(VERSION 3.24)
 # Version is defined once here and propagated to C++ via core/Version.h.in.
 # ---------------------------------------------------------------------------
 project(ATKPlayer
-    VERSION 0.1.0
+    VERSION 0.2.0
     DESCRIPTION "Animation playback and review application"
     HOMEPAGE_URL "https://github.com/dshepstone/ATK_Player"
     LANGUAGES CXX
@@ -82,7 +82,7 @@ elseif(DEFINED ENV{QT_ROOT} AND NOT "$ENV{QT_ROOT}" STREQUAL "")
     message(STATUS "Qt prefix from QT_ROOT environment variable: $ENV{QT_ROOT}")
 endif()
 
-set(ATK_QT_COMPONENTS Core Gui Widgets)
+set(ATK_QT_COMPONENTS Core Gui Widgets Multimedia)
 if(ATK_BUILD_TESTS)
     list(APPEND ATK_QT_COMPONENTS Test)
 endif()
@@ -90,6 +90,18 @@ endif()
 find_package(Qt6 6.5 REQUIRED COMPONENTS ${ATK_QT_COMPONENTS})
 
 message(STATUS "Qt ${Qt6_VERSION} found at ${Qt6_DIR}")
+
+# ---------------------------------------------------------------------------
+# FFmpeg
+#
+# Supplied by vcpkg in manifest mode; see vcpkg.json for the pinned baseline and
+# the feature set. The vcpkg port ships a FindFFMPEG module, so the usual
+# find_package works and no path into vcpkg_installed is hard-coded here.
+# ---------------------------------------------------------------------------
+find_package(FFMPEG REQUIRED)
+
+message(STATUS "FFmpeg libraries: ${FFMPEG_LIBRARIES}")
+message(STATUS "FFmpeg includes:  ${FFMPEG_INCLUDE_DIRS}")
 
 qt_standard_project_setup()
 

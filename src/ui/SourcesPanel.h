@@ -24,6 +24,15 @@ public:
     /// Observes a project; not owned. Passing nullptr detaches.
     void setProject(project::Project* project);
 
+    /// Shows the single currently-loaded clip.
+    ///
+    /// M1 plays one source at a time, so this replaces whatever was listed
+    /// rather than appending. Playlists arrive in M3.
+    void setCurrentMedia(const QString& fileName, const QString& description);
+
+    /// Returns to the empty state.
+    void clearCurrentMedia();
+
 signals:
     /// A row was activated (double-click or Enter).
     void sourceActivated(int playlistIndex);
@@ -32,6 +41,8 @@ private:
     void refresh();
 
     project::Project* m_project = nullptr;
+    /// Set while a single M1 source is loaded; overrides the project listing.
+    bool m_showingSingleSource = false;
     QListWidget* m_list = nullptr;
     QLabel* m_emptyHint = nullptr;
 };

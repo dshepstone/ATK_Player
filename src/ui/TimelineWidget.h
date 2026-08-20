@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QElapsedTimer>
 #include <QWidget>
 
 #include <cstdint>
@@ -61,8 +62,16 @@ private:
     void paintPlayhead(QPainter& painter);
     void paintFrameLabels(QPainter& painter);
 
+    /// Emits a seek request, but no more often than the throttle interval
+    /// while a drag is in progress.
+    void requestSeek(int64_t frame, bool force);
+
     timeline::TimelineModel* m_model = nullptr;
     bool m_scrubbing = false;
+    /// Paces preview seeks during a drag so the decoder is not handed a new
+    /// target on every mouse move; the exact seek is issued on release.
+    QElapsedTimer m_scrubThrottle;
+    int64_t m_lastRequestedFrame = -1;
 };
 
 } // namespace atk::ui

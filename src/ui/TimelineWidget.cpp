@@ -21,6 +21,14 @@ constexpr int kTrackInsetBottom = 18;
 constexpr int kPlayheadHandleWidth = 9;
 constexpr int kBookmarkMarkerWidth = 3;
 
+/// Minimum gap between preview seeks while dragging the playhead.
+///
+/// Dragging produces mouse moves far faster than a seek can be decoded. Without
+/// pacing, the decoder would spend the whole drag servicing positions the user
+/// has already left. The exact target is always issued on release, so the final
+/// position is never a throttled approximation.
+constexpr qint64 kScrubThrottleMs = 60;
+
 } // namespace
 
 TimelineWidget::TimelineWidget(QWidget* parent)
@@ -215,6 +223,22 @@ void TimelineWidget::paintFrameLabels(QPainter& painter)
                      QString::number(last));
 }
 
+void TimelineWidget::requestSeek(int64_t frame, bool force)
+{
+    if (!force) {
+        if (frame == m_lastRequestedFrame) {
+            return;
+        }
+        if (m_scrubThrottle.isValid() && m_scrubThrottle.elapsed() < kScrubThrottleMs) {
+            return;
+        }
+    }
+
+    m_lastRequestedFrame = frame;
+    m_scrubThrottle.restart();
+    emit seekRequested(frame);
+}
+
 void TimelineWidget::mousePressEvent(QMouseEvent* event)
 {
     if (event->button() != Qt::LeftButton) {
@@ -222,7 +246,9 @@ void TimelineWidget::mousePressEvent(QMouseEvent* event)
         return;
     }
     m_scrubbing = true;
-    emit seekRequested(frameForX(event->position().toPoint().x()));
+    m_scrubThrottle.start();
+    // A click is a deliberate single position, so it is never throttled.
+    requestSeek(frameForX(event->position().toPoint().x()), true);
 }
 
 void TimelineWidget::mouseMoveEvent(QMouseEvent* event)
@@ -231,13 +257,16 @@ void TimelineWidget::mouseMoveEvent(QMouseEvent* event)
         QWidget::mouseMoveEvent(event);
         return;
     }
-    emit seekRequested(frameForX(event->position().toPoint().x()));
+    requestSeek(frameForX(event->position().toPoint().x()), false);
 }
 
 void TimelineWidget::mouseReleaseEvent(QMouseEvent* event)
 {
-    if (event->button() == Qt::LeftButton) {
+    if (event->button() == Qt::LeftButton && m_scrubbing) {
         m_scrubbing = false;
+        // Land exactly where the pointer was let go, even if that position was
+        // skipped by throttling.
+        requestSeek(frameForX(event->position().toPoint().x()), true);
     }
     QWidget::mouseReleaseEvent(event);
 }

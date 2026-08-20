@@ -9,9 +9,9 @@ FrameCache::FrameCache(int64_t budgetBytes)
 {
 }
 
-const VideoFrame* FrameCache::find(int64_t frameNumber)
+const VideoFrame* FrameCache::find(int64_t frameIndex)
 {
-    const auto it = m_entries.find(frameNumber);
+    const auto it = m_entries.find(frameIndex);
     if (it == m_entries.end()) {
         return nullptr;
     }
@@ -21,9 +21,9 @@ const VideoFrame* FrameCache::find(int64_t frameNumber)
     return &it->second.frame;
 }
 
-bool FrameCache::contains(int64_t frameNumber) const
+bool FrameCache::contains(int64_t frameIndex) const
 {
-    return m_entries.find(frameNumber) != m_entries.end();
+    return m_entries.find(frameIndex) != m_entries.end();
 }
 
 void FrameCache::insert(VideoFrame frame)
@@ -39,19 +39,19 @@ void FrameCache::insert(VideoFrame frame)
         return;
     }
 
-    const int64_t number = frame.frameNumber;
-    remove(number);
+    const int64_t index = frame.frameIndex;
+    remove(index);
 
-    m_lru.push_front(number);
-    m_entries.emplace(number, Entry{ std::move(frame), m_lru.begin() });
+    m_lru.push_front(index);
+    m_entries.emplace(index, Entry{ std::move(frame), m_lru.begin() });
     m_usedBytes += bytes;
 
     evictToBudget();
 }
 
-void FrameCache::remove(int64_t frameNumber)
+void FrameCache::remove(int64_t frameIndex)
 {
-    const auto it = m_entries.find(frameNumber);
+    const auto it = m_entries.find(frameIndex);
     if (it == m_entries.end()) {
         return;
     }
