@@ -19,6 +19,9 @@ private slots:
     void setRangeInFromCurrentFrame();
     void setRangeOutFromCurrentFrame();
     void normalisesReversedRange();
+    void clampsRangeToExtent();
+    void normalisesNegativeRange();
+    void frameCountChangesKeepStateValid();
     void effectiveBoundsFollowRange();
     void bookmarksStaySortedAndUnique();
     void bookmarkNavigation();
@@ -112,6 +115,44 @@ void TestTimelineModel::normalisesReversedRange()
 
     QCOMPARE(model.playbackRange().startFrame, qint64(20));
     QCOMPARE(model.playbackRange().endFrame, qint64(60));
+}
+
+void TestTimelineModel::clampsRangeToExtent()
+{
+    TimelineModel model;
+    model.setFrameCount(100);
+    model.setPlaybackRange(PlaybackRange{ 90, 500, true });
+
+    QCOMPARE(model.playbackRange().startFrame, qint64(90));
+    QCOMPARE(model.playbackRange().endFrame, qint64(99));
+}
+
+void TestTimelineModel::normalisesNegativeRange()
+{
+    TimelineModel model;
+    model.setFrameCount(100);
+    model.setPlaybackRange(PlaybackRange{ -20, -10, true });
+
+    QCOMPARE(model.playbackRange().startFrame, qint64(0));
+    QCOMPARE(model.playbackRange().endFrame, qint64(0));
+    QVERIFY(model.playbackRange().isValid());
+}
+
+void TestTimelineModel::frameCountChangesKeepStateValid()
+{
+    TimelineModel model;
+    model.setFrameCount(100);
+    model.setCurrentFrame(90);
+    model.setPlaybackRange(PlaybackRange{ 80, 99, true });
+
+    model.setFrameCount(1);
+    QCOMPARE(model.currentFrame(), qint64(0));
+    QCOMPARE(model.playbackRange().startFrame, qint64(0));
+    QCOMPARE(model.playbackRange().endFrame, qint64(0));
+
+    model.setFrameCount(0);
+    QCOMPARE(model.currentFrame(), qint64(0));
+    QCOMPARE(model.lastFrame(), qint64(-1));
 }
 
 void TestTimelineModel::effectiveBoundsFollowRange()
