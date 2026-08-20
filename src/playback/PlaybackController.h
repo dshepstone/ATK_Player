@@ -11,6 +11,7 @@
 #include <QString>
 
 #include <cstdint>
+#include <deque>
 #include <memory>
 
 class QThread;
@@ -128,6 +129,12 @@ public:
     /// Frames the display loop had to skip because they had not decoded in
     /// time. Diagnostic only; never incremented while stepping.
     int64_t droppedFrameCount() const { return m_droppedFrames; }
+    int64_t reviewCacheBytes() const { return m_cache.usedBytes(); }
+    int64_t reviewCacheBudgetBytes() const { return m_cache.budgetBytes(); }
+    int64_t reviewCacheHits() const { return m_cache.hitCount(); }
+    int64_t reviewCacheMisses() const { return m_cache.missCount(); }
+    int64_t reviewCacheEvictions() const { return m_cache.evictionCount(); }
+    void resetReviewCacheCounters() { m_cache.resetCounters(); }
 
 signals:
     void stateChanged(atk::playback::PlayerState state);
@@ -155,6 +162,7 @@ private slots:
 
     /// Chooses and displays the frame for the current master clock position.
     void onDisplayTick();
+    void presentNextNavigationFrame();
 
 signals:
     // Requests to the decode thread. Connected to DecoderWorker slots as queued
@@ -209,6 +217,11 @@ private:
     void seekAndShow(int64_t frame, bool keepPlaying);
     void dispatchScrubDecode();
     void finishScrubIfReady();
+    void enqueueNavigationTarget(int64_t frame);
+    void dispatchNavigationDecode();
+    void enqueueNavigationPresentation(const media::VideoFrame& frame);
+    void finishNavigationIfReady();
+    void cancelNavigation();
     void resetNavigationTarget();
 
     media::FrameRate effectiveFrameRate() const;
@@ -238,6 +251,7 @@ private:
     media::PlaybackQueue m_queue;
     media::VideoFrame m_currentFrame;
     QTimer* m_displayTimer = nullptr;
+    QTimer* m_navigationTimer = nullptr;
 
     // --- Clock ------------------------------------------------------------
     /// Media position the current playback run started from, in microseconds.
@@ -257,6 +271,14 @@ private:
     bool m_scrubFinalPending = false;
     int64_t m_latestScrubFrame = -1;
     quint64 m_scrubRequestGeneration = 0;
+    int64_t m_scrubDecodeTarget = -1;
+    int64_t m_scrubDecodeStartNs = 0;
+    std::deque<int64_t> m_navigationDecodeTargets;
+    std::deque<media::VideoFrame> m_navigationPresentationFrames;
+    bool m_navigationDecodeInFlight = false;
+    int64_t m_navigationDecodeTarget = -1;
+    quint64 m_navigationRequestGeneration = 0;
+    int64_t m_navigationRequestStartNs = 0;
     int64_t m_droppedFrames = 0;
 
     // --- Performance diagnostics -----------------------------------------

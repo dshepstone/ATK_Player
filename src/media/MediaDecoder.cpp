@@ -933,13 +933,15 @@ bool MediaDecoder::frameAtIndex(int64_t index, VideoFrame& out, QString* error,
 
     // Fast path: the requested frame is simply the next one, so no seek is
     // needed. This is what makes forward stepping and normal playback cheap.
-    if (target == m_nextVideoFrameIndex && !m_pendingVideo.empty()) {
-        out = std::move(m_pendingVideo.front());
-        m_pendingVideo.pop_front();
-        if (out.frameIndex == target) {
+    if (target == m_nextVideoFrameIndex) {
+        VideoFrame next;
+        if (nextVideoFrame(next, error) == DecodeStatus::Ok
+            && next.frameIndex == target) {
+            out = std::move(next);
             return true;
         }
-        // Fell through: the queued frame was not the expected one, so seek.
+        // Fell through: timestamps did not map to the expected next frame, so
+        // preserve exactness by using the established seek/decode-forward path.
     }
 
     int64_t seekTarget = target;

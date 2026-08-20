@@ -20,14 +20,19 @@ QString syncFixture()
         .filePath(QStringLiteral("atk_sync_10s.mkv"));
 }
 
+QString longFixture()
+{
+    return qEnvironmentVariable("ATK_LONG_TEST_MEDIA");
+}
+
 struct Fixture {
     TimelineModel timeline;
     PlaybackController playback{ &timeline };
 
-    bool open()
+    bool open(const QString& path = syncFixture())
     {
         QSignalSpy opened(&playback, &PlaybackController::mediaOpened);
-        playback.openMedia(syncFixture());
+        playback.openMedia(path);
         return opened.wait(10000) && playback.state() == PlayerState::Ready;
     }
 };
@@ -39,11 +44,32 @@ class TestPlaybackInteraction : public QObject {
 
 private slots:
     void initTestCase();
+    void rapidForwardPreservesInputsAndProgress();
     void rapidForwardAndBackwardAccumulate();
+    void rapidRoundTripPreservesInputsAndProgress();
     void scrubCoalescesToExactReleaseFrame();
+    void longClipScrubProfile();
     void explicitSeekResetsLogicalTarget();
     void realTimePlaybackCrossesLoopBoundary();
 };
+
+void TestPlaybackInteraction::rapidForwardPreservesInputsAndProgress()
+{
+    Fixture fixture;
+    QVERIFY(fixture.open());
+    fixture.playback.seekFrame(20);
+    QTRY_COMPARE_WITH_TIMEOUT(fixture.playback.currentVideoFrame().frameIndex, qint64(20), 5000);
+
+    QSignalSpy frames(&fixture.playback, &PlaybackController::frameChanged);
+    for (int i = 0; i < 10; ++i) {
+        fixture.playback.stepForward();
+    }
+
+    QCOMPARE(fixture.playback.navigationFrame(), qint64(30));
+    QTRY_COMPARE_WITH_TIMEOUT(fixture.playback.state(), PlayerState::Ready, 10000);
+    QTRY_COMPARE_WITH_TIMEOUT(fixture.playback.currentVideoFrame().frameIndex, qint64(30), 10000);
+    QVERIFY2(frames.size() > 1, "rapid forward navigation froze until the final frame");
+}
 
 void TestPlaybackInteraction::initTestCase()
 {
@@ -58,6 +84,13 @@ void TestPlaybackInteraction::rapidForwardAndBackwardAccumulate()
     QVERIFY(fixture.open());
     QTRY_COMPARE_WITH_TIMEOUT(fixture.playback.currentVideoFrame().frameIndex, qint64(0), 5000);
 
+    fixture.playback.seekFrame(20);
+    QTRY_COMPARE_WITH_TIMEOUT(fixture.playback.currentVideoFrame().frameIndex, qint64(20), 5000);
+
+    QSignalSpy frames(&fixture.playback, &PlaybackController::frameChanged);
+    QElapsedTimer commands;
+    commands.start();
+
     for (int i = 0; i < 10; ++i) {
         fixture.playback.stepForward();
     }
@@ -65,9 +98,45 @@ void TestPlaybackInteraction::rapidForwardAndBackwardAccumulate()
         fixture.playback.stepBackward();
     }
 
-    QCOMPARE(fixture.playback.navigationFrame(), qint64(7));
-    QTRY_COMPARE_WITH_TIMEOUT(fixture.playback.currentVideoFrame().frameIndex, qint64(7), 10000);
-    QCOMPARE(fixture.playback.currentFrame(), qint64(7));
+    const qint64 commandMs = commands.elapsed();
+    QCOMPARE(fixture.playback.navigationFrame(), qint64(27));
+    QTRY_COMPARE_WITH_TIMEOUT(fixture.playback.currentVideoFrame().frameIndex, qint64(27), 10000);
+    const qint64 settleMs = commands.elapsed();
+
+    QStringList presented;
+    for (const QList<QVariant>& arguments : frames) {
+        presented.append(QString::number(
+            qvariant_cast<atk::media::VideoFrame>(arguments.at(0)).frameIndex));
+    }
+    qInfo().noquote() << "rapid commands ms" << commandMs
+                      << "settle ms" << settleMs
+                      << "presented" << presented.join(',');
+    QVERIFY2(presented.size() > 1,
+             qPrintable(QStringLiteral("navigation froze then jumped: %1")
+                            .arg(presented.join(','))));
+    QCOMPARE(presented.constLast(), QStringLiteral("27"));
+    QCOMPARE(fixture.playback.currentFrame(), qint64(27));
+}
+
+void TestPlaybackInteraction::rapidRoundTripPreservesInputsAndProgress()
+{
+    Fixture fixture;
+    QVERIFY(fixture.open());
+    fixture.playback.seekFrame(20);
+    QTRY_COMPARE_WITH_TIMEOUT(fixture.playback.currentVideoFrame().frameIndex, qint64(20), 5000);
+
+    QSignalSpy frames(&fixture.playback, &PlaybackController::frameChanged);
+    for (int i = 0; i < 10; ++i) {
+        fixture.playback.stepForward();
+    }
+    for (int i = 0; i < 10; ++i) {
+        fixture.playback.stepBackward();
+    }
+
+    QCOMPARE(fixture.playback.navigationFrame(), qint64(20));
+    QTRY_COMPARE_WITH_TIMEOUT(fixture.playback.state(), PlayerState::Ready, 10000);
+    QTRY_COMPARE_WITH_TIMEOUT(fixture.playback.currentVideoFrame().frameIndex, qint64(20), 10000);
+    QVERIFY(frames.size() > 1);
 }
 
 void TestPlaybackInteraction::scrubCoalescesToExactReleaseFrame()
@@ -85,6 +154,76 @@ void TestPlaybackInteraction::scrubCoalescesToExactReleaseFrame()
     QCOMPARE(fixture.playback.navigationFrame(), qint64(156));
     QTRY_COMPARE_WITH_TIMEOUT(fixture.playback.currentVideoFrame().frameIndex, qint64(156), 10000);
     QCOMPARE(fixture.playback.state(), PlayerState::Ready);
+}
+
+void TestPlaybackInteraction::longClipScrubProfile()
+{
+    if (longFixture().isEmpty() || !QFileInfo::exists(longFixture())) {
+        QSKIP("Set ATK_LONG_TEST_MEDIA to the ignored 90-second development fixture.");
+    }
+
+    Fixture fixture;
+    QVERIFY(fixture.open(longFixture()));
+    fixture.playback.seekFrame(1000);
+    QTRY_COMPARE_WITH_TIMEOUT(fixture.playback.currentVideoFrame().frameIndex, qint64(1000), 10000);
+
+    fixture.playback.resetReviewCacheCounters();
+    QSignalSpy localFrames(&fixture.playback, &PlaybackController::frameChanged);
+    QElapsedTimer local;
+    local.start();
+    fixture.playback.beginScrub();
+    for (qint64 frame = 1001; frame <= 1024; ++frame) {
+        fixture.playback.scrubToFrame(frame);
+        QTest::qWait(42);
+    }
+    fixture.playback.endScrub(1024);
+    QTRY_COMPARE_WITH_TIMEOUT(fixture.playback.currentVideoFrame().frameIndex, qint64(1024), 10000);
+    const qint64 localMs = local.elapsed();
+    const qsizetype localPresented = localFrames.size();
+
+    QSignalSpy backwardFrames(&fixture.playback, &PlaybackController::frameChanged);
+    fixture.playback.beginScrub();
+    for (qint64 frame = 1023; frame >= 1000; --frame) {
+        fixture.playback.scrubToFrame(frame);
+        QTest::qWait(42);
+    }
+    fixture.playback.endScrub(1000);
+    QTRY_COMPARE_WITH_TIMEOUT(fixture.playback.currentVideoFrame().frameIndex, qint64(1000), 10000);
+    const qsizetype backwardPresented = backwardFrames.size();
+
+    QSignalSpy jumpFrames(&fixture.playback, &PlaybackController::frameChanged);
+    QElapsedTimer jump;
+    jump.start();
+    fixture.playback.beginScrub();
+    for (const qint64 frame : { 200, 800, 1400, 2000 }) {
+        fixture.playback.scrubToFrame(frame);
+        QTest::qWait(20);
+    }
+    fixture.playback.endScrub(2100);
+    QTRY_COMPARE_WITH_TIMEOUT(fixture.playback.currentVideoFrame().frameIndex, qint64(2100), 10000);
+    const qint64 jumpMs = jump.elapsed();
+    const qsizetype jumpPresented = jumpFrames.size();
+
+    const double localFps = localMs > 0
+        ? localPresented * 1000.0 / static_cast<double>(localMs) : 0.0;
+    const int64_t lookups = fixture.playback.reviewCacheHits()
+        + fixture.playback.reviewCacheMisses();
+    const double hitRate = lookups > 0
+        ? 100.0 * fixture.playback.reviewCacheHits() / static_cast<double>(lookups) : 0.0;
+    qInfo().noquote()
+        << QStringLiteral("long scrub local %1 frames/%2 ms (%3 fps), backward %4, "
+                          "jumps %5/%6 ms, cache %7/%8 MB hit %9% evict %10")
+               .arg(localPresented).arg(localMs).arg(localFps, 0, 'f', 1)
+               .arg(backwardPresented).arg(jumpPresented).arg(jumpMs)
+               .arg(fixture.playback.reviewCacheBytes() / (1024 * 1024))
+               .arg(fixture.playback.reviewCacheBudgetBytes() / (1024 * 1024))
+               .arg(hitRate, 0, 'f', 1).arg(fixture.playback.reviewCacheEvictions());
+
+    QVERIFY(localPresented >= 18);
+    QVERIFY(backwardPresented >= 18);
+    QVERIFY(jumpPresented >= 2);
+    QVERIFY(fixture.playback.reviewCacheBytes()
+            <= fixture.playback.reviewCacheBudgetBytes());
 }
 
 void TestPlaybackInteraction::explicitSeekResetsLogicalTarget()
@@ -112,26 +251,38 @@ void TestPlaybackInteraction::realTimePlaybackCrossesLoopBoundary()
     fixture.playback.setMuted(true);
     fixture.playback.setLoopEnabled(true);
     QSignalSpy frames(&fixture.playback, &PlaybackController::frameChanged);
+    int loopCrossings = 0;
+    int64_t previousFrame = -1;
+    connect(&fixture.playback, &PlaybackController::frameChanged,
+            &fixture.playback, [&](const atk::media::VideoFrame& frame) {
+                if (previousFrame >= 0 && frame.frameIndex < previousFrame) {
+                    ++loopCrossings;
+                }
+                previousFrame = frame.frameIndex;
+            });
     QElapsedTimer elapsed;
     elapsed.start();
     fixture.playback.play();
 
-    // The fixture is ten seconds. At 10.5 seconds playback must have crossed
-    // the loop boundary and be advancing from a fresh epoch near the start.
-    QTest::qWait(11'500);
+    // The fixture is ten seconds. Run beyond two complete cycles and verify
+    // both observed end-to-start transitions rather than inferring looping
+    // from the final playhead position.
+    QTest::qWait(21'500);
 
     const double seconds = elapsed.elapsed() / 1000.0;
     const double observedFps = frames.count() / seconds;
     qInfo().noquote()
-        << QStringLiteral("Release-observable playback %1 fps, drops %2, loop frame %3")
+        << QStringLiteral("Release-observable playback %1 fps, drops %2, loops %3, frame %4")
                .arg(observedFps, 0, 'f', 2)
                .arg(fixture.playback.droppedFrameCount())
+               .arg(loopCrossings)
                .arg(fixture.playback.currentFrame());
     QCOMPARE(fixture.playback.state(), PlayerState::Playing);
     QVERIFY(fixture.playback.currentFrame() >= 2);
     QVERIFY(fixture.playback.currentFrame() < 50);
     QVERIFY(observedFps > 20.0);
     QVERIFY(fixture.playback.droppedFrameCount() < 12);
+    QVERIFY(loopCrossings >= 2);
     fixture.playback.stop();
 }
 

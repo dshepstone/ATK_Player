@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iterator>
 
 namespace atk::playback {
 namespace {
@@ -47,6 +48,12 @@ constexpr int kPrerollFrames = 4;
 
 /// How often the playback performance summary is emitted.
 constexpr int64_t kPerfReportIntervalNs = 1'000'000'000;
+
+/// Interactive stepping is visually paced independently from normal playback.
+/// Qt may coalesce paints above refresh rate, so retaining more than a handful
+/// of decoded navigation frames only wastes full-resolution image memory.
+constexpr int kNavigationPresentationIntervalMs = 16;
+constexpr std::size_t kNavigationPresentationCapacity = 4;
 
 int64_t monotonicNowNs()
 {
@@ -84,6 +91,7 @@ PlaybackController::PlaybackController(timeline::TimelineModel* timeline, QObjec
     , m_audioBuffer(std::make_shared<audio::AudioRingBuffer>())
     , m_generations(std::make_shared<media::DecodeGenerations>())
     , m_displayTimer(new QTimer(this))
+    , m_navigationTimer(new QTimer(this))
 {
     Q_ASSERT(m_timeline != nullptr);
 
@@ -95,6 +103,10 @@ PlaybackController::PlaybackController(timeline::TimelineModel* timeline, QObjec
 
     m_displayTimer->setTimerType(Qt::PreciseTimer);
     connect(m_displayTimer, &QTimer::timeout, this, &PlaybackController::onDisplayTick);
+    m_navigationTimer->setSingleShot(true);
+    m_navigationTimer->setTimerType(Qt::PreciseTimer);
+    connect(m_navigationTimer, &QTimer::timeout,
+            this, &PlaybackController::presentNextNavigationFrame);
 
     // --- Decode thread ----------------------------------------------------
     m_decodeThread = new QThread(this);
@@ -237,6 +249,7 @@ void PlaybackController::haltPlaybackMachinery()
 
 void PlaybackController::openMedia(const QString& filePath)
 {
+    cancelNavigation();
     qCInfo(log::playback).noquote() << "Opening media:" << filePath;
 
     // A new source invalidates every outstanding request and every cached
@@ -269,6 +282,7 @@ void PlaybackController::openMedia(const QString& filePath)
 
 void PlaybackController::closeMedia()
 {
+    cancelNavigation();
     const quint64 sourceGeneration = m_generations->bumpSource();
 
     haltPlaybackMachinery();
@@ -401,6 +415,10 @@ void PlaybackController::onWorkerFrameReady(const media::VideoFrame& frame,
 
     if (m_scrubDecodeInFlight && requestGeneration == m_scrubRequestGeneration) {
         m_scrubDecodeInFlight = false;
+        qCDebug(log::playback) << "Scrub decoded" << frame.frameIndex
+                               << "target" << m_scrubDecodeTarget
+                               << "latency ms"
+                               << (monotonicNowNs() - m_scrubDecodeStartNs) / 1'000'000;
 
         // During a drag an intermediate result is useful unless a newer target
         // was already displayed from cache. On release only the exact final
@@ -415,6 +433,20 @@ void PlaybackController::onWorkerFrameReady(const media::VideoFrame& frame,
         } else {
             finishScrubIfReady();
         }
+        return;
+    }
+
+    if (m_navigationDecodeInFlight
+        && requestGeneration == m_navigationRequestGeneration) {
+        m_navigationDecodeInFlight = false;
+        qCDebug(log::playback) << "Navigation decoded" << frame.frameIndex
+                               << "target" << m_navigationDecodeTarget
+                               << "latency ms"
+                               << (monotonicNowNs() - m_navigationRequestStartNs) / 1'000'000
+                               << "outstanding" << m_navigationDecodeTargets.size();
+        enqueueNavigationPresentation(frame);
+        dispatchNavigationDecode();
+        finishNavigationIfReady();
         return;
     }
 
@@ -454,6 +486,15 @@ void PlaybackController::onWorkerFrameFailed(qint64 frameIndex, const QString& m
         } else {
             finishScrubIfReady();
         }
+        return;
+    }
+    if (m_navigationDecodeInFlight
+        && requestGeneration == m_navigationRequestGeneration) {
+        m_navigationDecodeInFlight = false;
+        qCWarning(log::playback).noquote()
+            << "Navigation frame" << frameIndex << "failed:" << message;
+        dispatchNavigationDecode();
+        finishNavigationIfReady();
         return;
     }
 
@@ -564,6 +605,27 @@ void PlaybackController::presentFrame(const media::VideoFrame& frame)
 
     m_timeline->setCurrentFrame(frame.frameIndex);
     emit frameChanged(frame);
+}
+
+void PlaybackController::presentNextNavigationFrame()
+{
+    if (m_navigationPresentationFrames.empty()) {
+        finishNavigationIfReady();
+        return;
+    }
+
+    media::VideoFrame frame = std::move(m_navigationPresentationFrames.front());
+    m_navigationPresentationFrames.pop_front();
+    presentFrame(frame);
+    qCDebug(log::playback) << "Navigation presented" << frame.frameIndex
+                           << "logical target" << m_navigationFrame
+                           << "queued" << m_navigationPresentationFrames.size();
+
+    if (!m_navigationPresentationFrames.empty()) {
+        m_navigationTimer->start(kNavigationPresentationIntervalMs);
+    } else {
+        finishNavigationIfReady();
+    }
 }
 
 void PlaybackController::resetNavigationTarget()
@@ -783,6 +845,7 @@ void PlaybackController::onDisplayTick()
 
 void PlaybackController::play()
 {
+    cancelNavigation();
     if (m_state == PlayerState::Playing || m_state == PlayerState::Error) {
         return;
     }
@@ -861,6 +924,7 @@ void PlaybackController::togglePlayPause()
 
 void PlaybackController::stop()
 {
+    cancelNavigation();
     haltPlaybackMachinery();
     m_generations->bumpRequest();
 
@@ -926,6 +990,7 @@ void PlaybackController::seekAndShow(int64_t frame, bool keepPlaying)
 
 void PlaybackController::seekFrame(int64_t frame)
 {
+    cancelNavigation();
     const bool wasPlaying = m_state == PlayerState::Playing;
 
     if (wasPlaying) {
@@ -950,6 +1015,7 @@ void PlaybackController::seekFrame(int64_t frame)
 
 void PlaybackController::beginScrub()
 {
+    cancelNavigation();
     m_resumeAfterSeek = (m_state == PlayerState::Playing);
     haltPlaybackMachinery();
     m_generations->bumpRequest();
@@ -985,6 +1051,25 @@ void PlaybackController::scrubToFrame(int64_t frame)
         return;
     }
     qCDebug(log::playback) << "Scrub target" << m_latestScrubFrame << "cache miss";
+
+    // Keep nearby motion sequential: the current decode is useful visual
+    // progress and MediaDecoder can continue without another seek. A distant
+    // cursor jump is different -- cancel obsolete GOP work immediately so the
+    // viewer converges on the new region instead of carrying stale backlog.
+    const int64_t localWindow = std::max<int64_t>(
+        2, static_cast<int64_t>(std::ceil(effectiveFrameRate().toDouble())));
+    const int64_t scrubDecodeAgeNs = monotonicNowNs() - m_scrubDecodeStartNs;
+    constexpr int64_t kOneDisplayIntervalNs = 16'000'000;
+    constexpr int64_t kMaximumStaleWorkNs = 100'000'000;
+    if (m_scrubDecodeInFlight
+        && std::abs(m_latestScrubFrame - m_scrubDecodeTarget) > localWindow
+        && (scrubDecodeAgeNs < kOneDisplayIntervalNs
+            || scrubDecodeAgeNs > kMaximumStaleWorkNs)) {
+        m_generations->bumpRequest();
+        m_scrubDecodeInFlight = false;
+        qCDebug(log::playback) << "Scrub cancelled distant target"
+                               << m_scrubDecodeTarget << "for" << m_latestScrubFrame;
+    }
     dispatchScrubDecode();
 }
 
@@ -1020,8 +1105,111 @@ void PlaybackController::dispatchScrubDecode()
     }
     m_scrubRequestGeneration = m_generations->bumpRequest();
     m_scrubDecodeInFlight = true;
+    m_scrubDecodeTarget = m_latestScrubFrame;
+    m_scrubDecodeStartNs = monotonicNowNs();
     qCDebug(log::playback) << "Scrub decode target" << m_latestScrubFrame;
     emit requestFrame(m_latestScrubFrame, m_scrubRequestGeneration);
+}
+
+void PlaybackController::enqueueNavigationTarget(int64_t frame)
+{
+    if (inPlaceholderMode()) {
+        m_timeline->setCurrentFrame(frame);
+        return;
+    }
+
+    if (m_navigationDecodeTargets.empty() && !m_navigationDecodeInFlight
+        && m_navigationPresentationFrames.empty()) {
+        m_navigationRequestGeneration = m_generations->bumpRequest();
+        m_pendingSeekFrame = -1;
+        if (m_state != PlayerState::Seeking) {
+            setState(PlayerState::Seeking);
+        }
+    }
+
+    m_navigationDecodeTargets.push_back(frame);
+    qCDebug(log::playback) << "Navigation accepted target" << frame
+                           << "generation" << m_navigationRequestGeneration
+                           << "outstanding" << m_navigationDecodeTargets.size()
+                                                + (m_navigationDecodeInFlight ? 1 : 0);
+    dispatchNavigationDecode();
+}
+
+void PlaybackController::dispatchNavigationDecode()
+{
+    if (m_navigationDecodeInFlight || m_navigationDecodeTargets.empty()
+        || inPlaceholderMode()) {
+        return;
+    }
+
+    while (!m_navigationDecodeTargets.empty()) {
+        const int64_t target = m_navigationDecodeTargets.front();
+        m_navigationDecodeTargets.pop_front();
+        if (const media::VideoFrame* cached = m_cache.find(target)) {
+            qCDebug(log::playback) << "Navigation cache hit" << target;
+            emit requestPlayheadFrame(target);
+            enqueueNavigationPresentation(*cached);
+            continue;
+        }
+
+        m_navigationDecodeInFlight = true;
+        m_navigationDecodeTarget = target;
+        m_navigationRequestStartNs = monotonicNowNs();
+        qCDebug(log::playback) << "Navigation decode target" << target
+                               << "generation" << m_navigationRequestGeneration
+                               << "outstanding" << m_navigationDecodeTargets.size() + 1;
+        emit requestFrame(target, m_navigationRequestGeneration);
+        return;
+    }
+
+    finishNavigationIfReady();
+}
+
+void PlaybackController::enqueueNavigationPresentation(const media::VideoFrame& frame)
+{
+    if (!frame.isValid()) {
+        return;
+    }
+    if (m_navigationPresentationFrames.size() >= kNavigationPresentationCapacity) {
+        // Preserve the next frame already promised to the viewer and the most
+        // recent progress. Dropping the second-oldest paint is preferable to
+        // building latency; the logical/final target is never discarded.
+        m_navigationPresentationFrames.erase(
+            std::next(m_navigationPresentationFrames.begin()));
+    }
+    m_navigationPresentationFrames.push_back(frame);
+    if (!m_navigationTimer->isActive()) {
+        m_navigationTimer->start(kNavigationPresentationIntervalMs);
+    }
+}
+
+void PlaybackController::finishNavigationIfReady()
+{
+    if (m_navigationDecodeInFlight || !m_navigationDecodeTargets.empty()
+        || !m_navigationPresentationFrames.empty() || m_navigationTimer->isActive()) {
+        return;
+    }
+    if (m_state == PlayerState::Seeking) {
+        setState(PlayerState::Ready);
+    }
+}
+
+void PlaybackController::cancelNavigation()
+{
+    const bool active = m_navigationDecodeInFlight
+        || !m_navigationDecodeTargets.empty()
+        || !m_navigationPresentationFrames.empty()
+        || (m_navigationTimer && m_navigationTimer->isActive());
+    if (m_navigationTimer) {
+        m_navigationTimer->stop();
+    }
+    m_navigationDecodeTargets.clear();
+    m_navigationPresentationFrames.clear();
+    m_navigationDecodeInFlight = false;
+    m_navigationDecodeTarget = -1;
+    if (active) {
+        m_generations->bumpRequest();
+    }
 }
 
 void PlaybackController::finishScrubIfReady()
@@ -1056,9 +1244,10 @@ void PlaybackController::stepForward()
         return;
     }
     m_navigationFrame = target;
-    qCDebug(log::playback) << "Step forward displayed" << m_timeline->currentFrame()
+    qCDebug(log::playback) << "Step input ns" << monotonicNowNs()
+                           << "forward displayed" << m_timeline->currentFrame()
                            << "logical target" << m_navigationFrame;
-    seekAndShow(target, false);
+    enqueueNavigationTarget(target);
 }
 
 void PlaybackController::stepBackward()
@@ -1071,9 +1260,10 @@ void PlaybackController::stepBackward()
         return;
     }
     m_navigationFrame = target;
-    qCDebug(log::playback) << "Step backward displayed" << m_timeline->currentFrame()
+    qCDebug(log::playback) << "Step input ns" << monotonicNowNs()
+                           << "backward displayed" << m_timeline->currentFrame()
                            << "logical target" << m_navigationFrame;
-    seekAndShow(target, false);
+    enqueueNavigationTarget(target);
 }
 
 void PlaybackController::goToStart()

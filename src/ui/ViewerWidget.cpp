@@ -1,7 +1,9 @@
 #include "ui/ViewerWidget.h"
 
+#include "core/Logging.h"
 #include "ui/Theme.h"
 
+#include <QElapsedTimer>
 #include <QFontMetrics>
 #include <QPaintEvent>
 #include <QPainter>
@@ -36,6 +38,7 @@ void ViewerWidget::setFrame(const media::VideoFrame& frame)
     m_frame = frame;
     m_state = State::Loaded;
     m_errorMessage.clear();
+    qCDebug(log::ui) << "Viewer update frame" << frame.frameIndex;
     update();
 }
 
@@ -159,6 +162,8 @@ QRect ViewerWidget::targetRectFor(const QSize& imageSize) const
 
 void ViewerWidget::paintEvent(QPaintEvent* event)
 {
+    QElapsedTimer paintTimer;
+    paintTimer.start();
     QPainter painter(this);
     painter.fillRect(event->rect(), theme::viewerBackground());
 
@@ -189,6 +194,10 @@ void ViewerWidget::paintEvent(QPaintEvent* event)
         font.setBold(true);
         painter.setFont(font);
         painter.drawText(rect().adjusted(10, 8, -10, -8), Qt::AlignTop | Qt::AlignLeft, m_cornerLabel);
+    }
+    if (m_frame.isValid()) {
+        qCDebug(log::ui) << "Viewer painted frame" << m_frame.frameIndex
+                         << "in us" << paintTimer.nsecsElapsed() / 1000;
     }
 }
 
