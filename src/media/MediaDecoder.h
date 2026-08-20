@@ -86,6 +86,10 @@ public:
     /// The index the next call to nextVideoFrame() is expected to produce.
     int64_t nextFrameIndex() const { return m_nextVideoFrameIndex; }
 
+    /// Number of demuxer seek operations performed since the current source
+    /// was opened. Diagnostic only; used to protect local decode-forward paths.
+    int64_t seekOperationCount() const { return m_seekOperationCount; }
+
     /// True once the video stream has been fully drained.
     bool atEndOfVideo() const { return m_videoEof && m_pendingVideo.empty(); }
 
@@ -164,6 +168,7 @@ private:
     std::deque<AudioChunk> m_pendingAudio;
 
     int64_t m_nextVideoFrameIndex = 0;
+    int64_t m_seekOperationCount = 0;
     /// PTS of the next audio sample to be emitted, in output-format terms.
     int64_t m_nextAudioPtsUs = 0;
 

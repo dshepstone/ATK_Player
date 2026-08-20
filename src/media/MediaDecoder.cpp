@@ -407,6 +407,7 @@ void MediaDecoder::close()
 void MediaDecoder::resetStreamState()
 {
     m_nextVideoFrameIndex = 0;
+    m_seekOperationCount = 0;
     m_nextAudioPtsUs = 0;
     m_demuxEof = false;
     m_videoEof = false;
@@ -886,6 +887,7 @@ bool MediaDecoder::seekToFrameIndex(int64_t index, QString* error)
         qCWarning(log::media).noquote() << ffmpeg::errorString("av_seek_frame", result);
         return false;
     }
+    ++m_seekOperationCount;
 
     // Buffered decoder state belongs to the old position and would otherwise be
     // presented as if it belonged to the new one.
@@ -931,17 +933,35 @@ bool MediaDecoder::frameAtIndex(int64_t index, VideoFrame& out, QString* error,
 
     const int64_t target = std::max<int64_t>(index, 0);
 
-    // Fast path: the requested frame is simply the next one, so no seek is
-    // needed. This is what makes forward stepping and normal playback cheap.
-    if (target == m_nextVideoFrameIndex) {
+    // Timeline movement commonly advances several source frames between its
+    // 30 Hz preview events. Keep nearby forward requests on the live decoder
+    // position instead of flushing and seeking for every small gap.
+    const int64_t sequentialWindow = std::max<int64_t>(
+        2, static_cast<int64_t>(std::ceil(m_metadata.frameRate.toDouble())));
+    if (target >= m_nextVideoFrameIndex
+        && target - m_nextVideoFrameIndex <= sequentialWindow) {
         VideoFrame next;
-        if (nextVideoFrame(next, error) == DecodeStatus::Ok
-            && next.frameIndex == target) {
-            out = std::move(next);
-            return true;
+        while (m_nextVideoFrameIndex <= target) {
+            if (cancelled(isCancelled)) {
+                if (error) {
+                    *error = QStringLiteral("Decode cancelled.");
+                }
+                return false;
+            }
+            const DecodeStatus status = nextVideoFrame(next, error);
+            if (status != DecodeStatus::Ok) {
+                break;
+            }
+            if (next.frameIndex == target) {
+                out = std::move(next);
+                return true;
+            }
+            if (next.frameIndex > target) {
+                break;
+            }
         }
-        // Fell through: timestamps did not map to the expected next frame, so
-        // preserve exactness by using the established seek/decode-forward path.
+        // Timestamp discontinuity or EOF: preserve exactness by falling back
+        // to the established seek/decode-forward path.
     }
 
     int64_t seekTarget = target;

@@ -83,6 +83,7 @@ private slots:
 
     // --- Frame accuracy ---------------------------------------------------
     void stepsForwardOneRealFrame();
+    void nearbyForwardRequestAvoidsSeek();
     void stepsBackwardOneRealFrame();
     void steppingSequenceMatchesDecodedFrames();
     void randomAccessReturnsRequestedFrame_data();
@@ -336,6 +337,25 @@ void TestMediaDecoder::stepsForwardOneRealFrame()
 
     QVERIFY2(decoder.frameAtIndex(11, frame, &error), qPrintable(error));
     QCOMPARE(frame.frameIndex, qint64(11));
+}
+
+void TestMediaDecoder::nearbyForwardRequestAvoidsSeek()
+{
+    MediaDecoder decoder;
+    QVERIFY(decoder.open(lossyFixture(), nullptr));
+
+    VideoFrame frame;
+    QString error;
+    QVERIFY2(decoder.frameAtIndex(10, frame, &error), qPrintable(error));
+    QCOMPARE(frame.frameIndex, qint64(10));
+    const int64_t seeksBeforeLocalMove = decoder.seekOperationCount();
+
+    // Timeline preview events do not necessarily advance exactly one source
+    // frame. A small forward gap must retain decoder position rather than
+    // flushing back to the previous keyframe.
+    QVERIFY2(decoder.frameAtIndex(15, frame, &error), qPrintable(error));
+    QCOMPARE(frame.frameIndex, qint64(15));
+    QCOMPARE(decoder.seekOperationCount(), seeksBeforeLocalMove);
 }
 
 void TestMediaDecoder::stepsBackwardOneRealFrame()
