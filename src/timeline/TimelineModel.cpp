@@ -67,6 +67,11 @@ void TimelineModel::setPlaybackRange(const PlaybackRange& range)
         std::swap(normalised.startFrame, normalised.endFrame);
     }
     normalised.startFrame = std::max<int64_t>(normalised.startFrame, 0);
+    normalised.endFrame = std::max<int64_t>(normalised.endFrame, normalised.startFrame);
+    if (m_frameCount > 0) {
+        normalised.startFrame = std::min(normalised.startFrame, lastFrame());
+        normalised.endFrame = std::min(normalised.endFrame, lastFrame());
+    }
 
     if (m_range == normalised) {
         return;
