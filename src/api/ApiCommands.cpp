@@ -8,6 +8,7 @@
 #include <QJsonArray>
 #include <QJsonValue>
 
+#include <cmath>
 #include <utility>
 
 namespace atk::api {
@@ -26,7 +27,15 @@ bool readInt64(const QJsonObject& params, const QString& key, int64_t& out, QStr
         error = QStringLiteral("parameter %1 must be a number").arg(key);
         return false;
     }
-    out = static_cast<int64_t>(value.toDouble());
+    const double number = value.toDouble();
+    constexpr double kInt64Lower = -9223372036854775808.0;
+    constexpr double kInt64Upper =  9223372036854775808.0;
+    if (!std::isfinite(number) || std::trunc(number) != number
+        || number < kInt64Lower || number >= kInt64Upper) {
+        error = QStringLiteral("parameter %1 must be a 64-bit integer").arg(key);
+        return false;
+    }
+    out = static_cast<int64_t>(number);
     return true;
 }
 

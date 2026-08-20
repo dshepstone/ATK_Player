@@ -15,6 +15,7 @@ set(ATK_TEST_SOURCES
     tst_timelinemodel.cpp
     tst_playbackcontroller.cpp
     tst_playbackrange.cpp
+    tst_bookmark.cpp
     tst_commanddefinitions.cpp
     tst_apicommands.cpp
 )

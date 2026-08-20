@@ -7,6 +7,8 @@
 #include <QJsonObject>
 #include <QTest>
 
+#include <limits>
+
 using atk::api::ApiCommandDispatcher;
 using atk::api::ApiResponse;
 using atk::media::FrameRate;
@@ -52,6 +54,7 @@ private slots:
     void seeksToFrame();
     void rejectsSeekWithoutFrame();
     void rejectsSeekWithWrongType();
+    void rejectsSeekWithNonIntegerNumber();
     void clampsSeekToExtent();
     void stepsForwardAndBackward();
     void togglesLoop();
@@ -127,6 +130,24 @@ void TestApiCommands::rejectsSeekWithWrongType()
 
     QVERIFY(!response.ok);
     QCOMPARE(fixture.timeline.currentFrame(), qint64(0));
+}
+
+void TestApiCommands::rejectsSeekWithNonIntegerNumber()
+{
+    Fixture fixture;
+    const double invalidValues[] = {
+        1.5,
+        std::numeric_limits<double>::infinity(),
+        9223372036854775808.0,
+    };
+
+    for (const double value : invalidValues) {
+        const ApiResponse response = fixture.dispatcher.dispatch(
+            request(QStringLiteral("seek_frame"), { { QStringLiteral("frame"), value } }));
+        QVERIFY(!response.ok);
+        QVERIFY(response.error.contains(QStringLiteral("64-bit integer")));
+        QCOMPARE(fixture.timeline.currentFrame(), qint64(0));
+    }
 }
 
 void TestApiCommands::clampsSeekToExtent()
