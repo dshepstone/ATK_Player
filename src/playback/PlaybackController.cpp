@@ -255,6 +255,11 @@ void PlaybackController::openMedia(const QString& filePath)
     m_errorMessage.clear();
     m_pendingSeekFrame = -1;
     m_resumeAfterSeek = false;
+    m_scrubbing = false;
+    m_scrubDecodeInFlight = false;
+    m_scrubFinalPending = false;
+    m_latestScrubFrame = -1;
+    resetNavigationTarget();
 
     setState(PlayerState::Loading);
     emit loadingChanged(true);
@@ -276,6 +281,10 @@ void PlaybackController::closeMedia()
     m_hasMedia = false;
     m_metadata = media::MediaMetadata{};
     m_droppedFrames = 0;
+    m_scrubbing = false;
+    m_scrubDecodeInFlight = false;
+    m_scrubFinalPending = false;
+    resetNavigationTarget();
 
     m_timeline->reset();
 
@@ -302,6 +311,7 @@ void PlaybackController::onWorkerMediaOpened(const media::MediaMetadata& metadat
     m_timeline->setFrameCount(std::max<int64_t>(metadata.frameCount, 0));
     m_timeline->clearPlaybackRange();
     m_timeline->setCurrentFrame(0);
+    resetNavigationTarget();
 
     // Size the playback queue for this media. A fixed byte budget that suits
     // 1080p leaves 4K with room for only two frames of lookahead, which is not
@@ -389,6 +399,25 @@ void PlaybackController::onWorkerFrameReady(const media::VideoFrame& frame,
         m_queue.insert(frame);
     }
 
+    if (m_scrubDecodeInFlight && requestGeneration == m_scrubRequestGeneration) {
+        m_scrubDecodeInFlight = false;
+
+        // During a drag an intermediate result is useful unless a newer target
+        // was already displayed from cache. On release only the exact final
+        // target may settle the operation.
+        if ((!m_scrubFinalPending || frame.frameIndex == m_latestScrubFrame)
+            && m_currentFrame.frameIndex != m_latestScrubFrame) {
+            presentFrame(frame);
+        }
+
+        if (frame.frameIndex != m_latestScrubFrame) {
+            dispatchScrubDecode();
+        } else {
+            finishScrubIfReady();
+        }
+        return;
+    }
+
     // A frame arriving for the position a seek asked for completes that seek.
     if (m_pendingSeekFrame >= 0 && frame.frameIndex == m_pendingSeekFrame) {
         m_pendingSeekFrame = -1;
@@ -415,6 +444,16 @@ void PlaybackController::onWorkerFrameFailed(qint64 frameIndex, const QString& m
 {
     if (!m_generations->isCurrentRequest(requestGeneration)) {
         // Expected whenever a request was cancelled mid-decode; not an error.
+        return;
+    }
+
+    if (m_scrubDecodeInFlight && requestGeneration == m_scrubRequestGeneration) {
+        m_scrubDecodeInFlight = false;
+        if (frameIndex != m_latestScrubFrame) {
+            dispatchScrubDecode();
+        } else {
+            finishScrubIfReady();
+        }
         return;
     }
 
@@ -478,9 +517,11 @@ void PlaybackController::finishPlayback()
     setState(PlayerState::Ended);
 }
 
-void PlaybackController::onAudioPrimed(int bufferedMs)
+void PlaybackController::onAudioPrimed(int bufferedMs, qint64 mediaOriginUs,
+                                       quint64 requestGeneration)
 {
-    if (!m_audioActive || m_state != PlayerState::Playing) {
+    if (!m_generations->isCurrentRequest(requestGeneration)
+        || !m_audioActive || m_state != PlayerState::Playing) {
         return;
     }
 
@@ -492,10 +533,18 @@ void PlaybackController::onAudioPrimed(int bufferedMs)
         // waiting on audio that is not coming.
         qCWarning(log::playback)
             << "Audio could not be primed; continuing with video-only timing";
+        m_monotonicStartNs = monotonicNowNs();
+        startDisplayTimer();
         return;
     }
 
+    if (mediaOriginUs >= 0) {
+        m_playbackStartUs = mediaOriginUs;
+    }
+    qCDebug(log::playback) << "Playback epoch media us" << m_playbackStartUs;
     m_audioOutput->start(m_playbackStartUs);
+    m_monotonicStartNs = monotonicNowNs();
+    startDisplayTimer();
 }
 
 void PlaybackController::onWorkerDecodeError(const QString& message)
@@ -515,6 +564,11 @@ void PlaybackController::presentFrame(const media::VideoFrame& frame)
 
     m_timeline->setCurrentFrame(frame.frameIndex);
     emit frameChanged(frame);
+}
+
+void PlaybackController::resetNavigationTarget()
+{
+    m_navigationFrame = m_timeline ? m_timeline->currentFrame() : 0;
 }
 
 int PlaybackController::computeLookaheadFrames() const
@@ -748,7 +802,11 @@ void PlaybackController::play()
 
     const media::FrameRate rate = effectiveFrameRate();
     const AVRational avRate{ rate.numerator, rate.denominator };
-    m_playbackStartUs = media::ffmpeg::frameIndexToMicroseconds(from, avRate);
+    m_playbackStartUs = (m_currentFrame.isValid() && m_currentFrame.frameIndex == from
+                         && m_currentFrame.ptsUs >= 0)
+        ? m_currentFrame.ptsUs
+        : media::ffmpeg::frameIndexToMicroseconds(from, avRate);
+    m_navigationFrame = from;
     m_monotonicStartNs = monotonicNowNs();
     m_decoderAtEnd = false;
 
@@ -770,7 +828,9 @@ void PlaybackController::play()
     }
 
     setState(PlayerState::Playing);
-    startDisplayTimer();
+    if (inPlaceholderMode() || !m_audioActive) {
+        startDisplayTimer();
+    }
 }
 
 void PlaybackController::pause()
@@ -805,8 +865,12 @@ void PlaybackController::stop()
     m_generations->bumpRequest();
 
     m_resumeAfterSeek = false;
+    m_scrubbing = false;
+    m_scrubFinalPending = false;
+    m_scrubDecodeInFlight = false;
 
     const int64_t start = m_timeline->effectiveStartFrame();
+    m_navigationFrame = start;
 
     if (inPlaceholderMode()) {
         m_timeline->setCurrentFrame(start);
@@ -837,6 +901,8 @@ void PlaybackController::seekAndShow(int64_t frame, bool keepPlaying)
     // review scrubs back and forth over the same few seconds constantly.
     const media::VideoFrame* cached = m_cache.find(target);
     if (cached != nullptr && !keepPlaying) {
+        m_generations->bumpRequest();
+        m_pendingSeekFrame = -1;
         presentFrame(*cached);
         emit requestPlayheadFrame(target);
         if (m_state == PlayerState::Seeking) {
@@ -869,6 +935,9 @@ void PlaybackController::seekFrame(int64_t frame)
     // The queue holds the future of the *old* position, so it goes. The cache
     // deliberately does not -- see below.
     m_queue.clear();
+    const int64_t end = effectiveLastFrame();
+    m_navigationFrame = std::clamp(frame, m_timeline->effectiveStartFrame(),
+                                   end < 0 ? frame : end);
 
     // The cache is deliberately *not* cleared here. Its frames still belong to
     // the open source, so they stay valid across a seek -- that is what makes
@@ -879,6 +948,102 @@ void PlaybackController::seekFrame(int64_t frame)
     seekAndShow(frame, wasPlaying);
 }
 
+void PlaybackController::beginScrub()
+{
+    m_resumeAfterSeek = (m_state == PlayerState::Playing);
+    haltPlaybackMachinery();
+    m_generations->bumpRequest();
+    m_queue.clear();
+    m_scrubbing = true;
+    m_scrubFinalPending = false;
+    m_scrubDecodeInFlight = false;
+    m_latestScrubFrame = m_timeline->currentFrame();
+    setState(PlayerState::Seeking);
+}
+
+void PlaybackController::scrubToFrame(int64_t frame)
+{
+    if (!m_scrubbing) {
+        beginScrub();
+    }
+    const int64_t end = effectiveLastFrame();
+    m_latestScrubFrame = std::clamp(frame, m_timeline->effectiveStartFrame(),
+                                    end < 0 ? frame : end);
+    m_navigationFrame = m_latestScrubFrame;
+
+    if (inPlaceholderMode()) {
+        m_timeline->setCurrentFrame(m_latestScrubFrame);
+        return;
+    }
+    if (const media::VideoFrame* cached = m_cache.find(m_latestScrubFrame)) {
+        if (m_scrubDecodeInFlight) {
+            m_generations->bumpRequest();
+            m_scrubDecodeInFlight = false;
+        }
+        presentFrame(*cached);
+        qCDebug(log::playback) << "Scrub cache hit" << m_latestScrubFrame;
+        return;
+    }
+    qCDebug(log::playback) << "Scrub target" << m_latestScrubFrame << "cache miss";
+    dispatchScrubDecode();
+}
+
+void PlaybackController::endScrub(int64_t frame)
+{
+    scrubToFrame(frame);
+    m_scrubbing = false;
+    m_scrubFinalPending = true;
+
+    if (inPlaceholderMode()) {
+        m_scrubFinalPending = false;
+        const bool resume = m_resumeAfterSeek;
+        m_resumeAfterSeek = false;
+        if (resume) {
+            play();
+        } else {
+            setState(PlayerState::Ready);
+        }
+        return;
+    }
+
+    if (m_currentFrame.isValid() && m_currentFrame.frameIndex == m_latestScrubFrame) {
+        finishScrubIfReady();
+    } else {
+        dispatchScrubDecode();
+    }
+}
+
+void PlaybackController::dispatchScrubDecode()
+{
+    if (m_scrubDecodeInFlight || m_latestScrubFrame < 0 || inPlaceholderMode()) {
+        return;
+    }
+    m_scrubRequestGeneration = m_generations->bumpRequest();
+    m_scrubDecodeInFlight = true;
+    qCDebug(log::playback) << "Scrub decode target" << m_latestScrubFrame;
+    emit requestFrame(m_latestScrubFrame, m_scrubRequestGeneration);
+}
+
+void PlaybackController::finishScrubIfReady()
+{
+    if (!m_scrubFinalPending || m_scrubDecodeInFlight
+        || !m_currentFrame.isValid()
+        || m_currentFrame.frameIndex != m_latestScrubFrame) {
+        return;
+    }
+
+    m_scrubFinalPending = false;
+    const bool resume = m_resumeAfterSeek;
+    m_resumeAfterSeek = false;
+    qCDebug(log::playback) << "Scrub final frame" << m_latestScrubFrame
+                           << "pts us" << m_currentFrame.ptsUs;
+    if (resume) {
+        play();
+    } else {
+        setState(PlayerState::Ready);
+    }
+}
+
 void PlaybackController::stepForward()
 {
     // Stepping is a deliberate single-frame move, so it leaves play mode --
@@ -886,10 +1051,13 @@ void PlaybackController::stepForward()
     if (m_state == PlayerState::Playing) {
         pause();
     }
-    const int64_t target = m_timeline->currentFrame() + 1;
+    const int64_t target = m_navigationFrame + 1;
     if (target > effectiveLastFrame() && effectiveLastFrame() >= 0) {
         return;
     }
+    m_navigationFrame = target;
+    qCDebug(log::playback) << "Step forward displayed" << m_timeline->currentFrame()
+                           << "logical target" << m_navigationFrame;
     seekAndShow(target, false);
 }
 
@@ -898,10 +1066,13 @@ void PlaybackController::stepBackward()
     if (m_state == PlayerState::Playing) {
         pause();
     }
-    const int64_t target = m_timeline->currentFrame() - 1;
+    const int64_t target = m_navigationFrame - 1;
     if (target < m_timeline->effectiveStartFrame()) {
         return;
     }
+    m_navigationFrame = target;
+    qCDebug(log::playback) << "Step backward displayed" << m_timeline->currentFrame()
+                           << "logical target" << m_navigationFrame;
     seekAndShow(target, false);
 }
 

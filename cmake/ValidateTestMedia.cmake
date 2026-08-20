@@ -86,3 +86,13 @@ expect_field("${lossy}" "v:0" "stream=height"     "360")
 expect_field("${lossy}" "a:0" "stream=codec_name" "aac")
 
 message(STATUS "Test media fixtures validated")
+
+set(sync "${MEDIA_DIR}/atk_sync_10s.mkv")
+if(NOT EXISTS "${sync}")
+    message(FATAL_ERROR "Missing fixture: ${sync}")
+endif()
+message(STATUS "Validating ${sync}")
+expect_field("${sync}" "v:0" "stream=width" "1920")
+expect_field("${sync}" "v:0" "stream=height" "1080")
+expect_field("${sync}" "v:0" "stream=r_frame_rate" "24/1")
+expect_field("${sync}" "a:0" "stream=sample_rate" "48000")

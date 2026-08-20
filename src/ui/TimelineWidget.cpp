@@ -262,7 +262,7 @@ void TimelineWidget::requestSeek(int64_t frame, bool force)
 
     m_lastRequestedFrame = frame;
     m_scrubThrottle.restart();
-    emit seekRequested(frame);
+    emit scrubPreviewRequested(frame);
 }
 
 void TimelineWidget::mousePressEvent(QMouseEvent* event)
@@ -272,6 +272,7 @@ void TimelineWidget::mousePressEvent(QMouseEvent* event)
         return;
     }
     m_scrubbing = true;
+    emit scrubStarted();
     m_scrubThrottle.start();
 
     const int64_t frame = frameForX(event->position().toPoint().x());
@@ -312,7 +313,8 @@ void TimelineWidget::mouseReleaseEvent(QMouseEvent* event)
         // skipped by throttling.
         const int64_t frame = frameForX(event->position().toPoint().x());
         m_scrubFrame = frame;
-        requestSeek(frame, true);
+        m_lastRequestedFrame = frame;
+        emit scrubFinished(frame);
 
         // m_scrubFrame stays set until the model reports that frame, so the
         // playhead does not snap backwards to the last decoded position while

@@ -2,6 +2,7 @@
 
 #include "audio/AudioRingBuffer.h"
 #include "core/Logging.h"
+#include "media/ffmpeg/FFmpegUtil.h"
 
 #include <QMetaObject>
 #include <QTimer>
@@ -54,6 +55,9 @@ void DecoderWorker::shutdown()
     }
     m_pendingAudio = AudioChunk{};
     m_pendingAudioOffset = 0;
+    m_audioTrimBeforeUs = -1;
+    m_positionedFrameIndex = -1;
+    m_positionedFramePtsUs = -1;
 
     // Release FFmpeg here rather than leaving it to the destructor, so teardown
     // is an explicit step that happens before the thread is joined.
@@ -74,6 +78,9 @@ void DecoderWorker::openMedia(const QString& filePath, quint64 sourceGeneration)
     m_reachedEnd = false;
     m_pendingAudio = AudioChunk{};
     m_pendingAudioOffset = 0;
+    m_audioTrimBeforeUs = -1;
+    m_positionedFrameIndex = -1;
+    m_positionedFramePtsUs = -1;
     m_decodedAheadTo = -1;
 
     if (m_audioBuffer) {
@@ -163,6 +170,25 @@ void DecoderWorker::configureAudio(int sampleRate, int channelCount)
     if (m_audioBuffer) {
         m_audioBuffer->setBytesPerSecond(format.bytesPerSecond());
     }
+
+    // Media open displays frame zero before the UI can report the audio
+    // device's accepted format. Packets demuxed while producing that first
+    // picture could not be resampled and were intentionally discarded. Seek
+    // back to the exact displayed epoch now that audio is configured, or the
+    // first playback run starts with a shortened audio stream and its master
+    // clock stalls before the final video frames/loop boundary.
+    if (m_positionedFrameIndex >= 0) {
+        QString seekError;
+        if (!m_decoder->seekToFrameIndex(m_positionedFrameIndex, &seekError)) {
+            qCWarning(log::media).noquote()
+                << "Could not restore decoder after audio configuration:" << seekError;
+            emit decodeError(seekError);
+            return;
+        }
+        m_audioTrimBeforeUs = m_positionedFramePtsUs;
+        m_pendingAudio = AudioChunk{};
+        m_pendingAudioOffset = 0;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -214,6 +240,9 @@ void DecoderWorker::requestFrame(qint64 frameIndex, quint64 requestGeneration)
     }
 
     frame.sourceGeneration = m_generations->currentSource();
+    m_positionedFrameIndex = frame.frameIndex;
+    m_positionedFramePtsUs = frame.ptsUs;
+    m_audioTrimBeforeUs = frame.ptsUs;
 
     m_reachedEnd = false;
     m_decodedAheadTo = frame.frameIndex;
@@ -235,7 +264,7 @@ void DecoderWorker::startPlayback(qint64 fromFrameIndex, quint64 requestGenerati
     // Only reposition when the decoder is not already sitting at the right
     // place; a needless seek at the start of every play would drop the frames
     // already decoded ahead.
-    if (m_decoder->nextFrameIndex() != fromFrameIndex) {
+    if (m_positionedFrameIndex != fromFrameIndex) {
         QString error;
         if (!m_decoder->seekToFrameIndex(fromFrameIndex, &error)) {
             emit decodeError(error);
@@ -246,7 +275,16 @@ void DecoderWorker::startPlayback(qint64 fromFrameIndex, quint64 requestGenerati
         }
         m_pendingAudio = AudioChunk{};
         m_pendingAudioOffset = 0;
+        m_audioTrimBeforeUs = -1;
+        m_positionedFramePtsUs = -1;
     }
+
+    const int64_t playbackOriginUs = m_positionedFramePtsUs >= 0
+        ? m_positionedFramePtsUs
+        : ffmpeg::frameIndexToMicroseconds(
+              fromFrameIndex,
+              AVRational{ m_decoder->metadata().frameRate.numerator,
+                          m_decoder->metadata().frameRate.denominator });
 
     // Preroll, before the run starts and before the device is told to play.
     // Starting QAudioSink against an empty buffer means it immediately pulls
@@ -266,7 +304,7 @@ void DecoderWorker::startPlayback(qint64 fromFrameIndex, quint64 requestGenerati
 
     // Tell the controller audio is ready, so it starts the device against a
     // primed buffer rather than against silence.
-    emit audioPrimed(static_cast<int>(primedMs));
+    emit audioPrimed(static_cast<int>(primedMs), playbackOriginUs, requestGeneration);
 
     scheduleNextStep();
 }
@@ -407,6 +445,10 @@ void DecoderWorker::pumpAudioUpTo(int64_t targetMs, int64_t maxBytesThisCall)
             m_pendingAudioOffset = 0;
         }
 
+        if (!preparePendingAudioForEpoch()) {
+            continue;
+        }
+
         const int64_t remaining = m_pendingAudio.pcm.size() - m_pendingAudioOffset;
         if (remaining <= 0) {
             m_pendingAudio = AudioChunk{};
@@ -444,6 +486,28 @@ void DecoderWorker::pumpAudioUpTo(int64_t targetMs, int64_t maxBytesThisCall)
     }
 }
 
+bool DecoderWorker::preparePendingAudioForEpoch()
+{
+    if (m_audioTrimBeforeUs < 0 || m_pendingAudio.pcm.isEmpty()) {
+        return true;
+    }
+
+    const int64_t beforePts = m_pendingAudio.ptsUs;
+    const int64_t trimmed = trimAudioChunkBefore(
+        m_pendingAudio, m_decoder->outputAudioFormat(), m_audioTrimBeforeUs);
+    m_pendingAudioOffset = 0;
+    if (trimmed > 0) {
+        qCDebug(log::media) << "Audio seek trim requested" << m_audioTrimBeforeUs
+                            << "chunk" << beforePts << "trimmed bytes" << trimmed
+                            << "retained pts" << m_pendingAudio.ptsUs;
+    }
+    if (m_pendingAudio.pcm.isEmpty()) {
+        return false;
+    }
+    m_audioTrimBeforeUs = -1;
+    return true;
+}
+
 void DecoderWorker::setLookaheadFrames(int frames)
 {
     m_lookaheadFrames = std::clamp(frames, 1, 240);
@@ -453,7 +517,7 @@ void DecoderWorker::primeAudio(int targetMs)
 {
     if (!m_decoder->isOpen() || !m_decoder->metadata().hasAudio
         || !m_decoder->outputAudioFormat().isValid()) {
-        emit audioPrimed(0);
+        emit audioPrimed(0, -1, m_generations->currentRequest());
         return;
     }
 
@@ -468,7 +532,8 @@ void DecoderWorker::primeAudio(int targetMs)
 
     const int64_t buffered = bufferedAudioMs();
     qCDebug(log::media) << "Audio primed to" << buffered << "ms (target" << targetMs << "ms)";
-    emit audioPrimed(static_cast<int>(buffered));
+    emit audioPrimed(static_cast<int>(buffered), m_positionedFramePtsUs,
+                     m_generations->currentRequest());
 }
 
 } // namespace atk::media

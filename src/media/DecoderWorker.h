@@ -128,7 +128,7 @@ signals:
     void decodeError(const QString& message);
 
     /// Emitted after primeAudio() with the milliseconds actually queued.
-    void audioPrimed(int bufferedMs);
+    void audioPrimed(int bufferedMs, qint64 mediaOriginUs, quint64 requestGeneration);
 
 private slots:
     /// One unit of decoding. Re-posts itself while playback is active.
@@ -143,6 +143,7 @@ private:
 
     /// Milliseconds of audio currently queued for the device.
     int64_t bufferedAudioMs() const;
+    bool preparePendingAudioForEpoch();
     void scheduleNextStep();
 
     /// True when `generation` is no longer the current request.
@@ -156,6 +157,9 @@ private:
     /// samples are lost when the buffer is momentarily full.
     AudioChunk m_pendingAudio;
     int64_t m_pendingAudioOffset = 0;
+    int64_t m_audioTrimBeforeUs = -1;
+    int64_t m_positionedFrameIndex = -1;
+    int64_t m_positionedFramePtsUs = -1;
 
     bool m_playing = false;
     bool m_stepScheduled = false;

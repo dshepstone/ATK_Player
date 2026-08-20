@@ -30,6 +30,7 @@ set(ATK_TEST_SOURCES
 set(ATK_FFMPEG_TEST_SOURCES
     tst_ffmpegutil.cpp
     tst_mediadecoder.cpp
+    tst_playbackinteraction.cpp
 )
 
 foreach(test_source IN LISTS ATK_TEST_SOURCES ATK_FFMPEG_TEST_SOURCES)

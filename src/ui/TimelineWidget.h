@@ -34,9 +34,12 @@ public:
     QSize minimumSizeHint() const override;
 
 signals:
-    /// The user asked to move the playhead. The receiver decides whether to
-    /// honour it -- the widget does not assume the seek succeeded.
-    void seekRequested(qint64 frame);
+    /// A drag has distinct start, preview, and exact-release phases so the
+    /// controller can coalesce expensive preview decodes without losing the
+    /// final requested frame.
+    void scrubStarted();
+    void scrubPreviewRequested(qint64 frame);
+    void scrubFinished(qint64 frame);
     /// A bookmark marker was double-clicked.
     void bookmarkActivated(qint64 frame);
 

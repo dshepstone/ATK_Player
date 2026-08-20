@@ -61,9 +61,10 @@ function(atk_add_test_media)
 
     set(lossless "${ATK_TEST_MEDIA_DIR}/atk_fixture_48f.mkv")
     set(lossy    "${ATK_TEST_MEDIA_DIR}/atk_fixture_48f.mp4")
+    set(sync     "${ATK_TEST_MEDIA_DIR}/atk_sync_10s.mkv")
 
     add_custom_command(
-        OUTPUT "${lossless}" "${lossy}"
+        OUTPUT "${lossless}" "${lossy}" "${sync}"
         COMMAND "${CMAKE_COMMAND}" -E make_directory "${ATK_TEST_MEDIA_DIR}"
 
         # Lossless fixture: FFV1 video, PCM audio, Matroska.
@@ -84,11 +85,19 @@ function(atk_add_test_media)
                 -c:a aac -b:a 96k
                 "${lossy}"
 
+        COMMAND "${ATK_FFMPEG_EXECUTABLE}"
+                -hide_banner -loglevel error -y
+                -f lavfi -i "testsrc2=size=1920x1080:rate=24:duration=10,drawbox=color=white:t=fill:enable='lt(mod(t,1),0.08)'"
+                -f lavfi -i "sine=frequency=1:beep_factor=1000:sample_rate=48000:duration=10"
+                -c:v ffv1 -pix_fmt yuv420p
+                -c:a pcm_s16le
+                "${sync}"
+
         COMMENT "Generating deterministic test media fixtures"
         VERBATIM
     )
 
-    add_custom_target(atk_test_media DEPENDS "${lossless}" "${lossy}")
+    add_custom_target(atk_test_media DEPENDS "${lossless}" "${lossy}" "${sync}")
     set_target_properties(atk_test_media PROPERTIES FOLDER "Tests")
 
     # Validate what was produced rather than trusting the recipe. If a future

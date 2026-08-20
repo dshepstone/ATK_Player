@@ -41,6 +41,10 @@ private slots:
     void stepBackwardCannotGoBelowZero();
     void stepForwardCannotPassLastFrame();
     void steppingLeavesPlayMode();
+    void rapidStepsAccumulateLogicalTarget();
+    void alternatingRapidStepsPreserveEveryInput();
+    void scrubFinalTargetWins();
+    void seekAndPlayResetLogicalTarget();
 
     void goToStartReturnsToFirstFrame();
     void goToEndJumpsToLastFrame();
@@ -158,6 +162,64 @@ void TestPlaybackController::steppingLeavesPlayMode()
     // than fighting the clock for the playhead.
     fixture.playback.stepForward();
     QCOMPARE(fixture.playback.state(), PlayerState::Paused);
+}
+
+void TestPlaybackController::rapidStepsAccumulateLogicalTarget()
+{
+    Fixture fixture;
+    fixture.playback.seekFrame(10);
+
+    for (int i = 0; i < 10; ++i) {
+        fixture.playback.stepForward();
+    }
+
+    QCOMPARE(fixture.playback.navigationFrame(), qint64(20));
+    QCOMPARE(fixture.playback.currentFrame(), qint64(20));
+}
+
+void TestPlaybackController::alternatingRapidStepsPreserveEveryInput()
+{
+    Fixture fixture;
+    fixture.playback.seekFrame(10);
+
+    for (int i = 0; i < 10; ++i) {
+        fixture.playback.stepForward();
+    }
+    for (int i = 0; i < 3; ++i) {
+        fixture.playback.stepBackward();
+    }
+
+    QCOMPARE(fixture.playback.navigationFrame(), qint64(17));
+    QCOMPARE(fixture.playback.currentFrame(), qint64(17));
+}
+
+void TestPlaybackController::scrubFinalTargetWins()
+{
+    Fixture fixture;
+    fixture.playback.beginScrub();
+    for (const int64_t frame : { 20, 30, 45, 70 }) {
+        fixture.playback.scrubToFrame(frame);
+    }
+    fixture.playback.endScrub(63);
+
+    QCOMPARE(fixture.playback.navigationFrame(), qint64(63));
+    QCOMPARE(fixture.playback.currentFrame(), qint64(63));
+    QCOMPARE(fixture.playback.state(), PlayerState::Ready);
+}
+
+void TestPlaybackController::seekAndPlayResetLogicalTarget()
+{
+    Fixture fixture;
+    fixture.playback.seekFrame(10);
+    fixture.playback.stepForward();
+    fixture.playback.stepForward();
+    QCOMPARE(fixture.playback.navigationFrame(), qint64(12));
+
+    fixture.playback.seekFrame(50);
+    QCOMPARE(fixture.playback.navigationFrame(), qint64(50));
+
+    fixture.playback.play();
+    QCOMPARE(fixture.playback.navigationFrame(), qint64(50));
 }
 
 void TestPlaybackController::goToStartReturnsToFirstFrame()

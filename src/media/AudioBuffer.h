@@ -2,6 +2,7 @@
 
 #include <QByteArray>
 
+#include <algorithm>
 #include <cstdint>
 
 namespace atk::media {
@@ -65,5 +66,26 @@ struct AudioChunk {
 
     bool isValid() const { return ptsUs >= 0 && !pcm.isEmpty(); }
 };
+
+/// Removes PCM before `mediaOriginUs`, preserving whole interleaved sample
+/// frames. Returns the number of bytes removed.
+inline int64_t trimAudioChunkBefore(AudioChunk& chunk, const AudioFormat& format,
+                                    int64_t mediaOriginUs)
+{
+    if (!chunk.isValid() || !format.isValid() || mediaOriginUs <= chunk.ptsUs) {
+        return 0;
+    }
+    const int64_t durationUs = format.bytesToMicroseconds(chunk.pcm.size());
+    if (chunk.ptsUs + durationUs <= mediaOriginUs) {
+        const int64_t removed = chunk.pcm.size();
+        chunk = AudioChunk{};
+        return removed;
+    }
+    const int64_t removed = std::clamp<int64_t>(
+        format.microsecondsToBytes(mediaOriginUs - chunk.ptsUs), 0, chunk.pcm.size());
+    chunk.pcm.remove(0, static_cast<qsizetype>(removed));
+    chunk.ptsUs += format.bytesToMicroseconds(removed);
+    return removed;
+}
 
 } // namespace atk::media

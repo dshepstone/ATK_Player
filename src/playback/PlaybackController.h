@@ -93,6 +93,9 @@ public:
     void stop();
 
     void seekFrame(int64_t frame);
+    void beginScrub();
+    void scrubToFrame(int64_t frame);
+    void endScrub(int64_t frame);
     void stepForward();
     void stepBackward();
     void goToStart();
@@ -117,6 +120,7 @@ public:
     PlayerState state() const { return m_state; }
     bool isPlaying() const { return m_state == PlayerState::Playing; }
     int64_t currentFrame() const;
+    int64_t navigationFrame() const { return m_navigationFrame; }
 
     /// The most recently displayed frame. Invalid before the first decode.
     const media::VideoFrame& currentVideoFrame() const { return m_currentFrame; }
@@ -147,7 +151,7 @@ private slots:
                              quint64 requestGeneration);
     void onWorkerEndOfStream(quint64 requestGeneration);
     void onWorkerDecodeError(const QString& message);
-    void onAudioPrimed(int bufferedMs);
+    void onAudioPrimed(int bufferedMs, qint64 mediaOriginUs, quint64 requestGeneration);
 
     /// Chooses and displays the frame for the current master clock position.
     void onDisplayTick();
@@ -203,6 +207,9 @@ private:
 
     /// Moves to `frame` without playing: cache lookup, else a decode request.
     void seekAndShow(int64_t frame, bool keepPlaying);
+    void dispatchScrubDecode();
+    void finishScrubIfReady();
+    void resetNavigationTarget();
 
     media::FrameRate effectiveFrameRate() const;
     int64_t effectiveLastFrame() const;
@@ -244,6 +251,12 @@ private:
     bool m_hasMedia = false;
     bool m_loopEnabled = false;
     bool m_resumeAfterSeek = false;
+    int64_t m_navigationFrame = 0;
+    bool m_scrubbing = false;
+    bool m_scrubDecodeInFlight = false;
+    bool m_scrubFinalPending = false;
+    int64_t m_latestScrubFrame = -1;
+    quint64 m_scrubRequestGeneration = 0;
     int64_t m_droppedFrames = 0;
 
     // --- Performance diagnostics -----------------------------------------

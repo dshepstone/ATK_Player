@@ -8,6 +8,8 @@
 #include <QFileInfo>
 #include <QTest>
 
+#include <cstdlib>
+
 using atk::media::AudioChunk;
 using atk::media::AudioFormat;
 using atk::media::DecodeStatus;
@@ -44,6 +46,11 @@ QString losslessFixture()
 QString lossyFixture()
 {
     return QDir(fixtureDir()).filePath(QStringLiteral("atk_fixture_48f.mp4"));
+}
+
+QString syncFixture()
+{
+    return QDir(fixtureDir()).filePath(QStringLiteral("atk_sync_10s.mkv"));
 }
 
 } // namespace
@@ -91,6 +98,7 @@ private slots:
     void decodesAudioSamples();
     void resamplesToRequestedFormat();
     void resamplesToMonoAndDifferentRate();
+    void seekAudioCanBeTrimmedToVideoEpoch();
 
     // --- Cache ------------------------------------------------------------
     void cacheRejectsForeignSourceGeneration();
@@ -556,6 +564,40 @@ void TestMediaDecoder::resamplesToMonoAndDifferentRate()
     QCOMPARE(decoder.nextAudioChunk(chunk, &error), DecodeStatus::Ok);
     QVERIFY(chunk.isValid());
     QCOMPARE(chunk.pcm.size() % format.bytesPerFrame(), qsizetype(0));
+}
+
+void TestMediaDecoder::seekAudioCanBeTrimmedToVideoEpoch()
+{
+    MediaDecoder decoder;
+    QVERIFY(decoder.open(syncFixture(), nullptr));
+
+    AudioFormat format;
+    format.sampleRate = 48000;
+    format.channelCount = 2;
+    format.bytesPerSample = 2;
+    QVERIFY(decoder.configureAudioOutput(format, nullptr));
+
+    constexpr int64_t frameDurationUs = 1'000'000 / 24;
+    for (const int64_t target : { int64_t(0), int64_t(24), int64_t(84), int64_t(192) }) {
+        VideoFrame video;
+        QString error;
+        QVERIFY2(decoder.frameAtIndex(target, video, &error), qPrintable(error));
+        QCOMPARE(video.frameIndex, target);
+
+        AudioChunk audio;
+        do {
+            QCOMPARE(decoder.nextAudioChunk(audio, &error), DecodeStatus::Ok);
+            atk::media::trimAudioChunkBefore(audio, format, video.ptsUs);
+        } while (audio.pcm.isEmpty());
+
+        const int64_t differenceUs = std::abs(audio.ptsUs - video.ptsUs);
+        qInfo().noquote()
+            << QStringLiteral("seek frame %1 requested/video %2 us audio %3 us diff %4 us")
+                   .arg(target).arg(video.ptsUs).arg(audio.ptsUs).arg(differenceUs);
+        QVERIFY2(differenceUs < frameDurationUs,
+                 qPrintable(QStringLiteral("frame %1 video %2 audio %3 diff %4 us")
+                                .arg(target).arg(video.ptsUs).arg(audio.ptsUs).arg(differenceUs)));
+    }
 }
 
 // ---------------------------------------------------------------------------

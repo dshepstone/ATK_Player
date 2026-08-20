@@ -233,8 +233,12 @@ void MainWindow::connectSignals()
 
     // Scrubbing the timeline goes through the controller, not straight into the
     // model, so a drag behaves exactly like an API seek.
-    connect(m_timelineWidget, &TimelineWidget::seekRequested,
-            this, [this](qint64 frame) { m_playback->seekFrame(frame); });
+    connect(m_timelineWidget, &TimelineWidget::scrubStarted,
+            m_playback.get(), &playback::PlaybackController::beginScrub);
+    connect(m_timelineWidget, &TimelineWidget::scrubPreviewRequested,
+            m_playback.get(), &playback::PlaybackController::scrubToFrame);
+    connect(m_timelineWidget, &TimelineWidget::scrubFinished,
+            m_playback.get(), &playback::PlaybackController::endScrub);
 
     connect(m_timelineWidget, &TimelineWidget::bookmarkActivated,
             this, [this](qint64 frame) { m_playback->seekFrame(frame); });
