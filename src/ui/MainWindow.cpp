@@ -1,7 +1,7 @@
 #include "ui/MainWindow.h"
 
 #include "api/ApiServer.h"
-#include "compare/CompareSession.h"
+#include "playback/CompareSession.h"
 #include "core/Logging.h"
 #include "core/Version.h"
 #include "project/Project.h"
@@ -11,7 +11,7 @@
 #include "ui/StatusInfoBar.h"
 #include "ui/Theme.h"
 #include "ui/TimelineWidget.h"
-#include "ui/TransportBar.h"
+#include "ui/TransportControls.h"
 #include "ui/ViewerWidget.h"
 #include "ui/commands/CommandRegistry.h"
 
@@ -51,6 +51,18 @@ bool startsNewGroup(CommandId id)
     }
 }
 
+/// Phase 0 placeholder extent.
+///
+/// There is no decoder yet, so without an extent the transport would be inert
+/// and unverifiable -- stepping, seeking and looping would all clamp to frame
+/// zero. Installing a nominal 100 frames at 24 fps makes the whole transport
+/// exercisable now, and every readout that displays these numbers marks itself
+/// as placeholder so the application never looks as though a file is open.
+///
+/// Opening real media in M1 replaces this via PlaybackController::setSource().
+constexpr int64_t kPlaceholderFrameCount = 100;
+constexpr int kPlaceholderFps = 24;
+
 } // namespace
 
 MainWindow::MainWindow(QWidget* parent)
@@ -76,12 +88,16 @@ void MainWindow::buildModels()
     m_timeline = std::make_unique<timeline::TimelineModel>();
     m_playback = std::make_unique<playback::PlaybackController>(m_timeline.get());
     m_project  = std::make_unique<project::Project>();
-    m_compare  = std::make_unique<compare::CompareSession>();
+    m_compare  = std::make_unique<playback::CompareSession>();
     m_apiServer = std::make_unique<api::ApiServer>(m_playback.get(), m_timeline.get());
 
     // The registry is parented to the window, so its QActions live exactly as
     // long as the widgets that reference them.
     m_commands = new CommandRegistry(this);
+
+    // Give the transport something to move against; see the note above.
+    m_timeline->setPlaceholderExtent(kPlaceholderFrameCount,
+                                     media::FrameRate::fromInteger(kPlaceholderFps));
 
     qCInfo(log::app) << "Session models created";
 }
@@ -95,14 +111,16 @@ void MainWindow::buildWidgets()
     column->setSpacing(0);
 
     m_viewer = new ViewerWidget(central);
-    m_viewer->setPlaceholderText(tr("No media loaded\nPlayback arrives in milestone M1"));
+    m_viewer->setPlaceholderText(tr("ATK PLAYER"));
+    m_viewer->setPlaceholderSubtext(
+        tr("No media loaded — video playback arrives in milestone M1"));
     column->addWidget(m_viewer, 1);
 
     m_timelineWidget = new TimelineWidget(central);
     m_timelineWidget->setModel(m_timeline.get());
     column->addWidget(m_timelineWidget);
 
-    m_transport = new TransportBar(m_commands, central);
+    m_transport = new TransportControls(m_commands, central);
     column->addWidget(m_transport);
 
     setCentralWidget(central);

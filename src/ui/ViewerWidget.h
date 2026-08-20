@@ -38,8 +38,12 @@ public:
     FitMode fitMode() const { return m_fitMode; }
     void setFitMode(FitMode mode);
 
-    /// Text shown when there is nothing to display.
+    /// Headline shown when there is nothing to display.
     void setPlaceholderText(const QString& text);
+
+    /// Smaller line beneath the headline, for explaining why the viewer is
+    /// empty. Pass an empty string to show the headline alone.
+    void setPlaceholderSubtext(const QString& text);
 
     /// Label drawn in the corner, e.g. "A" or "B" during comparison.
     void setCornerLabel(const QString& label);
@@ -57,6 +61,7 @@ private:
     media::VideoFrame m_frame;
     FitMode m_fitMode = FitMode::FitInWindow;
     QString m_placeholderText;
+    QString m_placeholderSubtext;
     QString m_cornerLabel;
 };
 

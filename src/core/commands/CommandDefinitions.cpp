@@ -17,6 +17,7 @@ using C = CommandCategory;
 //   Space  Play/Pause      Home  First Frame     I  Set Range In
 //   Left   Previous Frame  End   Last Frame      O  Set Range Out
 //   Right  Next Frame      L     Toggle Loop     B  Add Bookmark
+//   Esc    Stop / cancel the current temporary action
 //
 // Adding a command means adding one row here; menus, shortcuts and the API
 // command surface all derive from this array.
@@ -32,7 +33,7 @@ constexpr std::array kCommands{
 
     // Playback
     CommandDefinition{ CommandId::PlayPause,          "playback.playPause",    QT_TRANSLATE_NOOP("Command", "Play / Pause"),         C::Playback, "Space",        false },
-    CommandDefinition{ CommandId::Stop,               "playback.stop",         QT_TRANSLATE_NOOP("Command", "Stop"),                 C::Playback, nullptr,        false },
+    CommandDefinition{ CommandId::Stop,               "playback.stop",         QT_TRANSLATE_NOOP("Command", "Stop"),                 C::Playback, "Esc",          false },
     CommandDefinition{ CommandId::PreviousFrame,      "playback.previousFrame",QT_TRANSLATE_NOOP("Command", "Previous Frame"),       C::Playback, "Left",         false },
     CommandDefinition{ CommandId::NextFrame,          "playback.nextFrame",    QT_TRANSLATE_NOOP("Command", "Next Frame"),           C::Playback, "Right",        false },
     CommandDefinition{ CommandId::FirstFrame,         "playback.firstFrame",   QT_TRANSLATE_NOOP("Command", "First Frame"),          C::Playback, "Home",         false },

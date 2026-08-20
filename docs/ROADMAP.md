@@ -31,6 +31,8 @@ incrementally.
 - [x] Unit tests for the core library
 - [x] Documentation: architecture, building, roadmap, API, licences
 - [x] Windows CI workflow
+- [x] Portable presets: Qt located through `QT_ROOT`, no machine path committed
+- [x] VS Code configure / build / test / run / debug workflow
 
 ---
 
@@ -50,6 +52,21 @@ into an application.
 - Viewer fit modes: fit in window, 1:1, and the aspect-ratio handling that goes
   with them
 
+**Capabilities this milestone delivers**
+
+| | |
+|---|---|
+| Formats | MOV, MP4, MKV, AVI and anything else the LGPL FFmpeg build demuxes |
+| Decoding | `libavformat`, `libavcodec`, `libswscale`, `libswresample` |
+| Audio | Decoded and played in sync with the master clock |
+| Stepping | Frame-accurate in both directions, no drift after seeking |
+| Clock | `PlaybackClock` driving real frames rather than a placeholder extent |
+| Cache | `FrameCache` fed by the decode thread, sized against a byte budget |
+
+The Phase 0 placeholder extent disappears here: `setFrameCount()` clears
+`isPlaceholder()`, so the **NO MEDIA** marking removes itself the first time a
+file opens.
+
 **Done when** a 1080p clip opens, plays at the correct rate, and stepping lands
 on exactly the frame the status bar reports.
 
@@ -68,6 +85,10 @@ Make it a review tool rather than a viewer.
 - Configurable keyboard shortcuts, loaded into `CommandRegistry` from settings
 - Icons in `assets/icons/`, replacing the placeholder text glyphs
 - Preferences dialog
+
+**Capabilities this milestone delivers:** timeline scrubbing with audio
+scrubbing, bookmarks with names/notes/colours, In/Out points, loop ranges, and
+viewer zoom and pan.
 
 ---
 
@@ -94,13 +115,17 @@ Make a review session something you can save and hand to someone else.
 - Sources at different frame rates resolved through the master time base
 - Difference and split-screen display modes
 
+**Capabilities this milestone delivers:** horizontal A/B, vertical A/B,
+synchronised playback and seeking, and per-source frame offsets — all driven by
+one master clock, never two.
+
 ---
 
 ## M5 — Export and External API
 
 The milestone that connects ATK Player to the rest of a pipeline.
 
-- Implement `ExportJob`: video, image sequence and single frame
+- Implement `FFmpegExporter`: video, image sequence and single frame
 - Burn-in of frame numbers, bookmarks and notes
 - Export runs off the UI thread with progress and cancellation
 - Implement `ApiServer`: newline-delimited JSON over a **loopback-only** TCP
@@ -108,6 +133,9 @@ The milestone that connects ATK Player to the rest of a pipeline.
 - Python client library in `integrations/python/`
 - Maya integration built on the Python client
 - Harmony integration via the Python client or a script bridge
+
+**Capabilities this milestone delivers:** FFmpeg encoding for export, a Python
+client library, and Maya and Harmony integrations built on top of it.
 
 ---
 

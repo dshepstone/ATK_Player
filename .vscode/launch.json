@@ -1,0 +1,21 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug ATK Player",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/windows-debug/bin/ATKPlayer.exe",
+      "args": [],
+      "cwd": "${workspaceFolder}/build/windows-debug/bin",
+      "environment": [
+        {
+          "name": "QT_LOGGING_RULES",
+          "value": "atk.*.debug=true"
+        }
+      ],
+      "console": "internalConsole",
+      "preLaunchTask": "CMake: build (Debug)"
+    }
+  ]
+}

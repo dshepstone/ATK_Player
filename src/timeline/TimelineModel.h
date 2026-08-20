@@ -65,6 +65,20 @@ public:
     int64_t nextBookmarkFrame(int64_t frame) const;
     int64_t previousBookmarkFrame(int64_t frame) const;
 
+    // --- Placeholder state ------------------------------------------------
+    /// True when the extent describes no real media.
+    ///
+    /// Phase 0 has no decoder, so the window installs a placeholder extent at
+    /// startup to make the transport demonstrable. Every readout that shows a
+    /// frame number must mark itself accordingly: the application must never
+    /// look as though a file is open when none is.
+    ///
+    /// Loading real media clears the flag; see PlaybackController::setSource().
+    bool isPlaceholder() const { return m_placeholder; }
+
+    /// Installs a placeholder extent and marks the model as not holding media.
+    void setPlaceholderExtent(int64_t frameCount, media::FrameRate rate);
+
     /// Resets extent, playhead, range and bookmarks. Used when media closes.
     void reset();
 
@@ -77,16 +91,20 @@ signals:
     void frameRateChanged(atk::media::FrameRate rate);
     void playbackRangeChanged(atk::timeline::PlaybackRange range);
     void bookmarksChanged();
+    void placeholderChanged(bool placeholder);
 
 private:
     /// Keeps bookmarks sorted by frame so the next/previous lookups stay simple.
     void sortBookmarks();
+
+    void setPlaceholder(bool placeholder);
 
     int64_t m_frameCount = 0;
     int64_t m_currentFrame = 0;
     media::FrameRate m_frameRate;
     PlaybackRange m_range;
     QVector<Bookmark> m_bookmarks;
+    bool m_placeholder = false;
 };
 
 } // namespace atk::timeline

@@ -119,12 +119,18 @@ The player's full state in one call.
     "frameCount": 240,
     "fps": 24.0,
     "loop": false,
-    "hasMedia": true
+    "hasMedia": true,
+    "placeholder": false
   }
 }
 ```
 
 `state` is `"playing"`, `"paused"` or `"stopped"`.
+
+`placeholder` is `true` while the frame numbers describe the Phase 0 placeholder
+extent rather than an open file. A client must not treat `currentFrame` or
+`frameCount` as referring to real media while it is set — check it, or check
+`hasMedia`, before acting on the numbers.
 
 ---
 
@@ -136,6 +142,18 @@ Opens a file in the main viewer.
 
 ```json
 { "command": "open_media", "params": { "path": "C:/shots/sh040_v012.mov" } }
+```
+
+| Parameter | Type | Required |
+|---|---|---|
+| `path` | string | yes — absolute path |
+
+#### `open_project` — *not implemented (M3)*
+
+Opens an `.atkproj` review session.
+
+```json
+{ "command": "open_project", "params": { "path": "C:/reviews/sh040.atkproj" } }
 ```
 
 | Parameter | Type | Required |
@@ -206,6 +224,11 @@ Sets the in/out range and enables it.
 
 A reversed range is normalised rather than rejected.
 
+#### `clear_loop_range`
+
+Disables the in/out range so playback covers the whole extent again. No
+parameters.
+
 ---
 
 ### Annotation
@@ -248,6 +271,20 @@ Load a source into viewer A or B.
 
 Both viewers run off one master clock; the offset shifts only which frame this
 source contributes. See [ARCHITECTURE.md](ARCHITECTURE.md).
+
+#### `set_compare_offset` — *not implemented (M4)*
+
+Adjusts a comparison source's frame offset without reloading it, so a reviewer
+can nudge two takes into alignment live.
+
+```json
+{ "command": "set_compare_offset", "params": { "slot": "b", "frameOffset": -6 } }
+```
+
+| Parameter | Type | Required |
+|---|---|---|
+| `slot` | string | yes — `"a"` or `"b"` |
+| `frameOffset` | integer | yes |
 
 ---
 

@@ -7,7 +7,6 @@ install/
 bin/
 lib/
 cmake-build-*/
-CMakeUserPresets.json
 CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake
@@ -33,15 +32,25 @@ compile_commands.json
 *.tlog
 
 # ---------------------------------------------------------------------------
+# Local build configuration
+#
+# CMakeUserPresets.json is where a developer puts their own Qt path. It is
+# machine-specific by design and must never be committed; CMakePresets.json
+# stays portable by reading QT_ROOT instead. See docs/BUILDING.md.
+# ---------------------------------------------------------------------------
+CMakeUserPresets.json
+
+# ---------------------------------------------------------------------------
 # VS Code
-# Shared, machine-independent settings may be committed deliberately; anything
-# containing a local absolute path must not be.
+#
+# tasks.json, launch.json and extensions.json are committed on purpose: they
+# reference preset names and ${workspaceFolder}, never an absolute path.
+# settings.json is not, because that is where a local Qt path ends up.
 # ---------------------------------------------------------------------------
 .vscode/*
 !.vscode/extensions.json
-.vscode/settings.json
-.vscode/launch.json
-.vscode/c_cpp_properties.json
+!.vscode/tasks.json
+!.vscode/launch.json
 .cache/
 
 # ---------------------------------------------------------------------------

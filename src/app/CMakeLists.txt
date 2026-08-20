@@ -11,6 +11,8 @@ option(ATK_CONSOLE_LOGGING
 
 qt_add_executable(ATKPlayer
     main.cpp
+    Application.cpp
+    Application.h
 )
 
 target_link_libraries(ATKPlayer

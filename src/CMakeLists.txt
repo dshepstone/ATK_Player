@@ -32,12 +32,12 @@ set(ATK_CORE_SOURCES
     project/Project.cpp
     project/ProjectSerializer.cpp
 
-    export/ExportJob.cpp
+    export/FFmpegExporter.cpp
 
     api/ApiCommands.cpp
     api/ApiServer.cpp
 
-    compare/CompareSession.cpp
+    playback/CompareSession.cpp
 )
 
 set(ATK_CORE_HEADERS
@@ -63,12 +63,12 @@ set(ATK_CORE_HEADERS
     project/Project.h
     project/ProjectSerializer.h
 
-    export/ExportJob.h
+    export/FFmpegExporter.h
 
     api/ApiCommands.h
     api/ApiServer.h
 
-    compare/CompareSession.h
+    playback/CompareSession.h
 
     platform/PlatformInfo.h
 )

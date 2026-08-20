@@ -24,7 +24,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        preset: [windows-msvc-debug, windows-msvc-release]
+        preset: [windows-debug, windows-release]
 
     steps:
       - name: Check out
@@ -39,6 +39,11 @@ jobs:
           arch: win64_msvc2022_64
           cache: true
 
+      # install-qt-action exports QT_ROOT_DIR; the presets read QT_ROOT.
+      - name: Point the build at the installed Qt
+        shell: pwsh
+        run: echo "QT_ROOT=$env:QT_ROOT_DIR" >> $env:GITHUB_ENV
+
       - name: Set up MSVC environment
         uses: ilammy/msvc-dev-cmd@v1
         with:
@@ -52,8 +57,8 @@ jobs:
 
       # The tests cover atk_core only and need no display, so they run headless.
       - name: Test
-        run: ctest --preset windows-msvc-debug --output-on-failure
-        if: matrix.preset == 'windows-msvc-debug'
+        run: ctest --preset windows-debug --output-on-failure
+        if: matrix.preset == 'windows-debug'
 
       # Proves the executable is actually runnable, not merely linkable -- a
       # missing Qt plugin only shows up at startup, never at link time.

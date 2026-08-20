@@ -13,6 +13,10 @@ TimelineModel::TimelineModel(QObject* parent)
 
 void TimelineModel::setFrameCount(int64_t count)
 {
+    // Any caller other than setPlaceholderExtent() is supplying a real extent,
+    // so the placeholder marking must not survive it.
+    setPlaceholder(false);
+
     const int64_t clamped = std::max<int64_t>(count, 0);
     if (m_frameCount == clamped) {
         return;
@@ -180,8 +184,30 @@ int64_t TimelineModel::previousBookmarkFrame(int64_t frame) const
     return it == m_bookmarks.crend() ? -1 : it->frame;
 }
 
+void TimelineModel::setPlaceholderExtent(int64_t frameCount, media::FrameRate rate)
+{
+    setFrameCount(frameCount);
+    setFrameRate(rate);
+    setCurrentFrame(0);
+    setPlaceholder(true);
+
+    qCInfo(log::timeline).noquote()
+        << "Placeholder timeline installed:" << frameCount << "frames at"
+        << rate.toDouble() << "fps -- no media is loaded";
+}
+
+void TimelineModel::setPlaceholder(bool placeholder)
+{
+    if (m_placeholder == placeholder) {
+        return;
+    }
+    m_placeholder = placeholder;
+    emit placeholderChanged(m_placeholder);
+}
+
 void TimelineModel::reset()
 {
+    setPlaceholder(false);
     clearBookmarks();
     clearPlaybackRange();
     setFrameCount(0);

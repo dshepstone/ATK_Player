@@ -58,12 +58,38 @@ include(ATKCompilerWarnings)
 # Qt 6 only for now. FFmpeg is introduced in milestone M1 and will be linked
 # dynamically; see docs/ARCHITECTURE.md.
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Qt discovery
+#
+# The tracked CMakePresets.json must not contain a machine-specific path, so
+# the Qt prefix arrives one of three ways, in order of precedence:
+#
+#   1. -DATK_QT_ROOT=... , which the presets populate from the QT_ROOT
+#      environment variable
+#   2. the QT_ROOT environment variable directly
+#   3. anything CMake already knows -- a CMAKE_PREFIX_PATH environment
+#      variable, Qt6_DIR, or a CMakeUserPresets.json override
+#
+# Nothing is appended when none is set, so option 3 keeps working.
+# ---------------------------------------------------------------------------
+set(ATK_QT_ROOT "" CACHE PATH "Qt 6 installation prefix, e.g. C:/Qt/6.9.3/msvc2022_64")
+
+if(ATK_QT_ROOT)
+    list(APPEND CMAKE_PREFIX_PATH "${ATK_QT_ROOT}")
+    message(STATUS "Qt prefix from ATK_QT_ROOT: ${ATK_QT_ROOT}")
+elseif(DEFINED ENV{QT_ROOT} AND NOT "$ENV{QT_ROOT}" STREQUAL "")
+    list(APPEND CMAKE_PREFIX_PATH "$ENV{QT_ROOT}")
+    message(STATUS "Qt prefix from QT_ROOT environment variable: $ENV{QT_ROOT}")
+endif()
+
 set(ATK_QT_COMPONENTS Core Gui Widgets)
 if(ATK_BUILD_TESTS)
     list(APPEND ATK_QT_COMPONENTS Test)
 endif()
 
 find_package(Qt6 6.5 REQUIRED COMPONENTS ${ATK_QT_COMPONENTS})
+
+message(STATUS "Qt ${Qt6_VERSION} found at ${Qt6_DIR}")
 
 qt_standard_project_setup()
 

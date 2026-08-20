@@ -17,16 +17,20 @@
       }
     },
     {
-      "name": "vcpkg",
+      "name": "qt",
       "hidden": true,
+      "description": "Locates Qt without putting a machine-specific path in this tracked file. Set QT_ROOT to your Qt prefix, e.g. C:/Qt/6.9.3/msvc2022_64. If QT_ROOT is unset, CMake still honours a CMAKE_PREFIX_PATH environment variable or a CMakeUserPresets.json override.",
+      "environment": {
+        "QT_ROOT": "$penv{QT_ROOT}"
+      },
       "cacheVariables": {
-        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+        "ATK_QT_ROOT": "$env{QT_ROOT}"
       }
     },
     {
       "name": "windows-base",
       "hidden": true,
-      "inherits": "base",
+      "inherits": [ "qt", "base" ],
       "generator": "Ninja",
       "condition": {
         "type": "equals",
@@ -43,33 +47,28 @@
       }
     },
     {
-      "name": "windows-msvc-debug",
+      "name": "windows-debug",
       "displayName": "Windows x64 Debug (Ninja + MSVC)",
-      "description": "Developer build. Requires an MSVC environment (VS Code CMake Tools kit, or a Developer Command Prompt).",
+      "description": "Primary development build. Needs an MSVC environment: the VS Code CMake Tools kit, or a Developer Command Prompt for VS 2022.",
       "inherits": "windows-base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug"
       }
     },
     {
-      "name": "windows-msvc-release",
+      "name": "windows-release",
       "displayName": "Windows x64 Release (Ninja + MSVC)",
+      "description": "Optimised build with debug information retained.",
       "inherits": "windows-base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo"
       }
     },
     {
-      "name": "windows-msvc-debug-vcpkg",
-      "displayName": "Windows x64 Debug (Ninja + MSVC + vcpkg)",
-      "description": "As windows-msvc-debug, but resolves dependencies through the vcpkg manifest. Requires VCPKG_ROOT.",
-      "inherits": [ "vcpkg", "windows-msvc-debug" ]
-    },
-    {
       "name": "windows-vs2022",
       "displayName": "Windows x64 (Visual Studio 2022 generator)",
       "description": "Multi-config fallback that locates MSVC itself, for use outside a Developer Command Prompt.",
-      "inherits": "base",
+      "inherits": [ "qt", "base" ],
       "generator": "Visual Studio 17 2022",
       "architecture": "x64",
       "condition": {
@@ -81,16 +80,12 @@
   ],
   "buildPresets": [
     {
-      "name": "windows-msvc-debug",
-      "configurePreset": "windows-msvc-debug"
+      "name": "windows-debug",
+      "configurePreset": "windows-debug"
     },
     {
-      "name": "windows-msvc-release",
-      "configurePreset": "windows-msvc-release"
-    },
-    {
-      "name": "windows-msvc-debug-vcpkg",
-      "configurePreset": "windows-msvc-debug-vcpkg"
+      "name": "windows-release",
+      "configurePreset": "windows-release"
     },
     {
       "name": "windows-vs2022-debug",
@@ -105,8 +100,15 @@
   ],
   "testPresets": [
     {
-      "name": "windows-msvc-debug",
-      "configurePreset": "windows-msvc-debug",
+      "name": "windows-debug",
+      "configurePreset": "windows-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "windows-release",
+      "configurePreset": "windows-release",
       "output": {
         "outputOnFailure": true
       }

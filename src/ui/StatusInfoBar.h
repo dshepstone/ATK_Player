@@ -34,6 +34,9 @@ private:
     QLabel* m_frameValue = nullptr;
     QLabel* m_timecodeValue = nullptr;
     QLabel* m_fpsValue = nullptr;
+    /// Shown whenever the numbers to its left describe a placeholder extent
+    /// rather than an open file.
+    QLabel* m_placeholderTag = nullptr;
 };
 
 } // namespace atk::ui

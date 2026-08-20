@@ -101,6 +101,7 @@ QStringList ApiCommandDispatcher::supportedCommands()
         QStringLiteral("list_commands"),
         QStringLiteral("get_status"),
         QStringLiteral("open_media"),
+        QStringLiteral("open_project"),
         QStringLiteral("play"),
         QStringLiteral("pause"),
         QStringLiteral("stop"),
@@ -110,9 +111,11 @@ QStringList ApiCommandDispatcher::supportedCommands()
         QStringLiteral("get_current_frame"),
         QStringLiteral("set_loop_enabled"),
         QStringLiteral("set_loop_range"),
+        QStringLiteral("clear_loop_range"),
         QStringLiteral("add_bookmark"),
         QStringLiteral("load_compare_a"),
         QStringLiteral("load_compare_b"),
+        QStringLiteral("set_compare_offset"),
     };
 }
 
@@ -150,6 +153,10 @@ ApiResponse ApiCommandDispatcher::dispatch(const QJsonObject& request)
             { QStringLiteral("fps"),          m_timeline->frameRate().toDouble() },
             { QStringLiteral("loop"),         m_playback->isLoopEnabled() },
             { QStringLiteral("hasMedia"),     m_playback->hasMedia() },
+            // True when frameCount/fps describe the Phase 0 placeholder extent
+            // rather than an open file. A client must not treat the frame
+            // numbers as referring to real media while this is set.
+            { QStringLiteral("placeholder"),  m_timeline->isPlaceholder() },
         });
     }
 
@@ -219,6 +226,11 @@ ApiResponse ApiCommandDispatcher::dispatch(const QJsonObject& request)
         return ApiResponse::success();
     }
 
+    if (command == QLatin1StringView("clear_loop_range")) {
+        m_playback->clearPlaybackRange();
+        return ApiResponse::success();
+    }
+
     if (command == QLatin1StringView("add_bookmark")) {
         timeline::Bookmark bookmark;
         // frame is optional: omitting it bookmarks the current frame, which is
@@ -242,10 +254,14 @@ ApiResponse ApiCommandDispatcher::dispatch(const QJsonObject& request)
     }
 
     if (command == QLatin1StringView("open_media")
+        || command == QLatin1StringView("open_project")
         || command == QLatin1StringView("load_compare_a")
-        || command == QLatin1StringView("load_compare_b")) {
-        // TODO(M1/M4): wire to MediaSource loading and CompareSession once
-        // decoding exists. Reported explicitly so clients can feature-detect.
+        || command == QLatin1StringView("load_compare_b")
+        || command == QLatin1StringView("set_compare_offset")) {
+        // TODO(M1/M3/M4): wire to MediaSource loading, ProjectSerializer and
+        // CompareSession once those exist. Reported as a distinct failure from
+        // an unknown command so clients can feature-detect rather than guess
+        // from a version number.
         return ApiResponse::failure(
             QStringLiteral("command %1 is accepted by this build but not implemented yet")
                 .arg(command));

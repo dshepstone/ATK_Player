@@ -3,7 +3,7 @@
 Empty in Phase 0.
 
 The transport controls currently use text glyphs from the system UI font
-(`src/ui/TransportBar.cpp`), which keeps the framework free of binary assets and
+(`src/ui/TransportControls.cpp`), which keeps the framework free of binary assets and
 licence questions while the architecture is being established.
 
 Real artwork arrives with milestone **M2**.
@@ -19,5 +19,5 @@ Real artwork arrives with milestone **M2**.
 - Loaded through a Qt resource file so they are compiled into the binary and
   cannot go missing at runtime.
 - Every icon's source, author and licence recorded in
-  [`../../THIRD_PARTY_LICENSES.md`](../../THIRD_PARTY_LICENSES.md) before it is
+  [`../../docs/THIRD_PARTY_LICENSES.md`](../../docs/THIRD_PARTY_LICENSES.md) before it is
   committed — including whether attribution must appear in the About dialog.
