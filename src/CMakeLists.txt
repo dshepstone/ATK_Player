@@ -20,6 +20,7 @@ set(ATK_CORE_SOURCES
     media/MediaMetadata.cpp
     media/MediaSource.cpp
     media/FrameCache.cpp
+    media/PlaybackQueue.cpp
     media/MediaDecoder.cpp
     media/DecoderWorker.cpp
     media/ffmpeg/FFmpegUtil.cpp
@@ -57,6 +58,7 @@ set(ATK_CORE_HEADERS
     media/MediaLibraryInfo.h
     media/DecodeGeneration.h
     media/FrameCache.h
+    media/PlaybackQueue.h
     media/MediaDecoder.h
     media/DecoderWorker.h
     media/ffmpeg/FFmpegUtil.h

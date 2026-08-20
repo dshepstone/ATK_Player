@@ -506,17 +506,19 @@ DecodeStatus MediaDecoder::pump(QString* error)
         // One stream has run far ahead of the other, which means the caller is
         // not consuming both. Refusing here keeps memory bounded instead of
         // letting the queues grow until the process dies.
+        // Trim from the BACK, never the front.
+        //
+        // The front of these queues holds the frames closest to being
+        // presented; discarding those is directly visible as a skip. The newest
+        // decoded output is the furthest from being needed, so dropping it
+        // costs only a re-decode if the playhead ever gets that far.
         qCWarning(log::media)
-            << "Decoder output queues exceeded their bound; dropping buffered output";
-        if (m_pendingVideo.size() > kMaxPendingVideo) {
-            m_pendingVideo.erase(m_pendingVideo.begin(),
-                                 m_pendingVideo.begin()
-                                     + static_cast<long>(m_pendingVideo.size() - kMaxPendingVideo));
+            << "Decoder output queues exceeded their bound; trimming newest output";
+        while (m_pendingVideo.size() > kMaxPendingVideo) {
+            m_pendingVideo.pop_back();
         }
-        if (m_pendingAudio.size() > kMaxPendingAudio) {
-            m_pendingAudio.erase(m_pendingAudio.begin(),
-                                 m_pendingAudio.begin()
-                                     + static_cast<long>(m_pendingAudio.size() - kMaxPendingAudio));
+        while (m_pendingAudio.size() > kMaxPendingAudio) {
+            m_pendingAudio.pop_back();
         }
     }
 

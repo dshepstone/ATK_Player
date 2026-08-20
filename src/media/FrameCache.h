@@ -68,6 +68,15 @@ public:
     void setBudgetBytes(int64_t bytes);
 
     int64_t usedBytes() const { return m_usedBytes; }
+
+    // --- Diagnostics ------------------------------------------------------
+    // Cheap counters, not conditionally compiled: the cost is an increment and
+    // they are the only way to tell a cache that is working from one that is
+    // evicting its own lookahead before it can be presented.
+    int64_t hitCount() const { return m_hits; }
+    int64_t missCount() const { return m_misses; }
+    int64_t evictionCount() const { return m_evictions; }
+    void resetCounters() { m_hits = 0; m_misses = 0; m_evictions = 0; }
     std::size_t count() const { return m_entries.size(); }
 
 private:
@@ -81,6 +90,9 @@ private:
     int64_t m_budgetBytes;
     int64_t m_usedBytes = 0;
     uint64_t m_sourceGeneration = 0;
+    int64_t m_hits = 0;
+    int64_t m_misses = 0;
+    int64_t m_evictions = 0;
     /// Front is most recently used.
     std::list<int64_t> m_lru;
     std::unordered_map<int64_t, Entry> m_entries;

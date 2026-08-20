@@ -13,8 +13,10 @@ const VideoFrame* FrameCache::find(int64_t frameIndex)
 {
     const auto it = m_entries.find(frameIndex);
     if (it == m_entries.end()) {
+        ++m_misses;
         return nullptr;
     }
+    ++m_hits;
     // Promote to most recently used.
     m_lru.splice(m_lru.begin(), m_lru, it->second.lruPosition);
     it->second.lruPosition = m_lru.begin();
@@ -97,6 +99,7 @@ void FrameCache::evictToBudget()
 {
     while (m_usedBytes > m_budgetBytes && !m_lru.empty()) {
         remove(m_lru.back());
+        ++m_evictions;
     }
 }
 

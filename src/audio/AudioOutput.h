@@ -61,6 +61,30 @@ public:
     /// Returns -1 when no meaningful position exists yet.
     int64_t positionUs() const;
 
+    // --- Diagnostics ------------------------------------------------------
+    //
+    // "The device opened" says nothing about whether sound is coming out. These
+    // separate real decoded audio from the silence inserted on underrun, which
+    // is the difference between working audio and a device dutifully playing
+    // nothing.
+
+    /// Milliseconds of real PCM currently queued for playback.
+    int64_t bufferedMs() const;
+
+    /// Times the device asked for audio and the buffer had none.
+    int64_t underrunCount() const;
+
+    /// Bytes of real decoded audio the device has taken.
+    int64_t realBytesConsumed() const;
+
+    /// Bytes of silence inserted because nothing was queued. After startup this
+    /// should stay at zero during healthy playback.
+    int64_t silenceBytesInserted() const;
+
+    /// True once the device has actually consumed real audio, as opposed to
+    /// having merely been opened and started.
+    bool isDeliveringAudio() const { return realBytesConsumed() > 0; }
+
     void setVolume(qreal volume);
     qreal volume() const { return m_volume; }
 

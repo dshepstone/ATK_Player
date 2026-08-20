@@ -27,6 +27,27 @@ constexpr int kMaxDisplayIntervalMs = 40;
 /// showing -- the next one is already due.
 constexpr int64_t kLateFrameToleranceUs = 100'000;
 
+/// How far ahead of the playhead to keep decoded frames, in milliseconds.
+///
+/// Expressed as time rather than a frame count so the same figure means the
+/// same thing at any frame rate, and so it does not silently become hundreds of
+/// megabytes at 4K. Long enough to ride out a slow frame, short enough that a
+/// seek throws away little work.
+constexpr int64_t kLookaheadMs = 400;
+
+/// Bounds on the derived lookahead, whatever the arithmetic produces.
+constexpr int kMinLookaheadFrames = 3;
+constexpr int kMaxLookaheadFrames = 24;
+
+/// Frames to have queued before entering Playing.
+///
+/// Starting with an empty queue guarantees the first tick misses, which is
+/// visible as a stutter at the very moment the user presses play.
+constexpr int kPrerollFrames = 4;
+
+/// How often the playback performance summary is emitted.
+constexpr int64_t kPerfReportIntervalNs = 1'000'000'000;
+
 int64_t monotonicNowNs()
 {
     static QElapsedTimer timer;
@@ -115,6 +136,10 @@ PlaybackController::PlaybackController(timeline::TimelineModel* timeline, QObjec
             this, &PlaybackController::onWorkerEndOfStream);
     connect(m_worker, &media::DecoderWorker::decodeError,
             this, &PlaybackController::onWorkerDecodeError);
+    connect(m_worker, &media::DecoderWorker::audioPrimed,
+            this, &PlaybackController::onAudioPrimed);
+    connect(this, &PlaybackController::requestLookaheadFrames,
+            m_worker, &media::DecoderWorker::setLookaheadFrames);
 
     connect(m_audioOutput.get(), &audio::AudioOutput::deviceError,
             this, [this](const QString& message) {
@@ -140,6 +165,7 @@ PlaybackController::PlaybackController(timeline::TimelineModel* timeline, QObjec
             this, [this](int64_t) { reconcileIdleState(); });
 
     m_cache.setSourceGeneration(m_generations->currentSource());
+    m_queue.setSourceGeneration(m_generations->currentSource());
 
     reconcileIdleState();
 }
@@ -223,6 +249,7 @@ void PlaybackController::openMedia(const QString& filePath)
     haltPlaybackMachinery();
     m_audioActive = false;
     m_cache.setSourceGeneration(sourceGeneration);
+    m_queue.setSourceGeneration(sourceGeneration);
     m_currentFrame = media::VideoFrame{};
     m_droppedFrames = 0;
     m_errorMessage.clear();
@@ -244,6 +271,7 @@ void PlaybackController::closeMedia()
 
     m_audioActive = false;
     m_cache.setSourceGeneration(sourceGeneration);
+    m_queue.setSourceGeneration(sourceGeneration);
     m_currentFrame = media::VideoFrame{};
     m_hasMedia = false;
     m_metadata = media::MediaMetadata{};
@@ -274,6 +302,18 @@ void PlaybackController::onWorkerMediaOpened(const media::MediaMetadata& metadat
     m_timeline->setFrameCount(std::max<int64_t>(metadata.frameCount, 0));
     m_timeline->clearPlaybackRange();
     m_timeline->setCurrentFrame(0);
+
+    // Size the playback queue for this media. A fixed byte budget that suits
+    // 1080p leaves 4K with room for only two frames of lookahead, which is not
+    // enough to absorb any decode variation at all.
+    if (!metadata.resolution.isEmpty()) {
+        const int64_t bytesPerFrame =
+            static_cast<int64_t>(metadata.resolution.width()) * metadata.resolution.height() * 4;
+        const int64_t wanted = bytesPerFrame * 6;
+        m_queue.setBudgetBytes(std::max(media::PlaybackQueue::kDefaultBudgetBytes, wanted));
+        qCDebug(log::playback) << "Playback queue budget"
+                               << (m_queue.budgetBytes() / (1024 * 1024)) << "MB";
+    }
 
     // Open the device now so the decoder can be told the exact format to
     // resample to. A machine with no audio device simply plays video.
@@ -340,7 +380,14 @@ void PlaybackController::onWorkerFrameReady(const media::VideoFrame& frame,
         return;
     }
 
+    ++m_decodedFrames;
     m_cache.insert(frame);
+
+    // Frames at or ahead of the playhead are what playback will need next, so
+    // they also go into the queue, where eviction cannot reach them.
+    if (frame.frameIndex >= m_timeline->currentFrame()) {
+        m_queue.insert(frame);
+    }
 
     // A frame arriving for the position a seek asked for completes that seek.
     if (m_pendingSeekFrame >= 0 && frame.frameIndex == m_pendingSeekFrame) {
@@ -406,6 +453,10 @@ void PlaybackController::finishPlayback()
         qCDebug(log::playback) << "Playhead reached the end; looping";
         // Whole-clip loop for M1. Range looping is M2.
         m_decoderAtEnd = false;
+    m_presentedFrames = 0;
+    m_decodedFrames = 0;
+    m_perfWindowStartNs = monotonicNowNs();
+    m_cache.resetCounters();
         seekFrame(m_timeline->effectiveStartFrame());
         m_resumeAfterSeek = true;
         return;
@@ -427,6 +478,26 @@ void PlaybackController::finishPlayback()
     setState(PlayerState::Ended);
 }
 
+void PlaybackController::onAudioPrimed(int bufferedMs)
+{
+    if (!m_audioActive || m_state != PlayerState::Playing) {
+        return;
+    }
+
+    qCInfo(log::playback).noquote()
+        << QStringLiteral("Starting audio output with %1 ms primed").arg(bufferedMs);
+
+    if (bufferedMs <= 0) {
+        // Nothing to play. Video continues on the monotonic clock rather than
+        // waiting on audio that is not coming.
+        qCWarning(log::playback)
+            << "Audio could not be primed; continuing with video-only timing";
+        return;
+    }
+
+    m_audioOutput->start(m_playbackStartUs);
+}
+
 void PlaybackController::onWorkerDecodeError(const QString& message)
 {
     qCWarning(log::playback).noquote() << "Decode error:" << message;
@@ -436,17 +507,106 @@ void PlaybackController::onWorkerDecodeError(const QString& message)
 void PlaybackController::presentFrame(const media::VideoFrame& frame)
 {
     m_currentFrame = frame;
+    ++m_presentedFrames;
+
+    // Everything before the presented frame is now past and can be released;
+    // the cache still holds it for stepping backwards.
+    m_queue.discardUpTo(frame.frameIndex);
+
     m_timeline->setCurrentFrame(frame.frameIndex);
     emit frameChanged(frame);
+}
+
+int PlaybackController::computeLookaheadFrames() const
+{
+    const media::FrameRate rate = effectiveFrameRate();
+    if (!rate.isValid()) {
+        return kMinLookaheadFrames;
+    }
+
+    // Time-based target first: the same 400 ms at any frame rate.
+    const int64_t timeBased = (kLookaheadMs * rate.numerator)
+                            / (1000LL * std::max(1, rate.denominator));
+
+    // Then bound by what the queue can actually hold. A 4K frame is ~33 MB, so
+    // without this the lookahead alone would ask for hundreds of megabytes and
+    // the queue would spend its life discarding what it just accepted.
+    int64_t byMemory = kMaxLookaheadFrames;
+    const QSize resolution = m_metadata.resolution;
+    if (!resolution.isEmpty()) {
+        const int64_t bytesPerFrame =
+            static_cast<int64_t>(resolution.width()) * resolution.height() * 4;
+        if (bytesPerFrame > 0) {
+            byMemory = m_queue.budgetBytes() / bytesPerFrame;
+        }
+    }
+
+    const int64_t target = std::min<int64_t>(std::max<int64_t>(timeBased, 1), byMemory);
+    return static_cast<int>(std::clamp<int64_t>(target, kMinLookaheadFrames, kMaxLookaheadFrames));
+}
+
+void PlaybackController::reportPerformance(bool force)
+{
+    const int64_t now = monotonicNowNs();
+    if (m_perfWindowStartNs == 0) {
+        m_perfWindowStartNs = now;
+        return;
+    }
+
+    const int64_t elapsedNs = now - m_perfWindowStartNs;
+    if (!force && elapsedNs < kPerfReportIntervalNs) {
+        return;
+    }
+    if (elapsedNs <= 0) {
+        return;
+    }
+
+    const double seconds = static_cast<double>(elapsedNs) / 1'000'000'000.0;
+    const double presentFps = static_cast<double>(m_presentedFrames) / seconds;
+    const double decodeFps = static_cast<double>(m_decodedFrames) / seconds;
+
+    qCDebug(log::playback).noquote()
+        << QStringLiteral(
+               "Playback perf: present %1 fps  decode %2 fps  queue %3 frames (%4 MB)  "
+               "cache %5 MB hit %6 miss %7 evict %8  audio %9 ms  underruns %10  drops %11  clock %12")
+               .arg(presentFps, 0, 'f', 2)
+               .arg(decodeFps, 0, 'f', 2)
+               .arg(m_queue.count())
+               .arg(m_queue.usedBytes() / (1024 * 1024))
+               .arg(m_cache.usedBytes() / (1024 * 1024))
+               .arg(m_cache.hitCount())
+               .arg(m_cache.missCount())
+               .arg(m_cache.evictionCount())
+               .arg(m_audioOutput ? m_audioOutput->bufferedMs() : 0)
+               .arg(m_audioOutput ? m_audioOutput->underrunCount() : 0)
+               .arg(m_droppedFrames)
+               .arg(usingAudioClock() ? QStringLiteral("audio") : QStringLiteral("monotonic"));
+
+    m_presentedFrames = 0;
+    m_decodedFrames = 0;
+    m_cache.resetCounters();
+    m_perfWindowStartNs = now;
 }
 
 // ---------------------------------------------------------------------------
 // Clock and display
 // ---------------------------------------------------------------------------
 
+bool PlaybackController::usingAudioClock() const
+{
+    if (!m_audioActive || !m_audioOutput || !m_audioOutput->isOpen()) {
+        return false;
+    }
+
+    // A device fed silence still advances processedUSecs(), so trusting it
+    // would let a starved audio path dictate video timing while producing no
+    // sound at all. Only real consumed audio earns the clock.
+    return m_audioOutput->isDeliveringAudio();
+}
+
 int64_t PlaybackController::masterPositionUs() const
 {
-    if (m_audioActive && m_audioOutput->isOpen()) {
+    if (usingAudioClock()) {
         const int64_t audioPosition = m_audioOutput->positionUs();
         if (audioPosition >= 0) {
             return audioPosition;
@@ -534,10 +694,20 @@ void PlaybackController::onDisplayTick()
         return;
     }
 
-    const media::VideoFrame* cached = m_cache.find(clamped);
-    if (cached != nullptr) {
+    // Queue first: it holds the lookahead and cannot be evicted from under
+    // playback. The cache is the fallback for material already played, which is
+    // what a loop or a small backward jump lands on.
+    if (const media::VideoFrame* queued = m_queue.find(clamped)) {
+        presentFrame(*queued);
+        emit requestPlayheadFrame(clamped);
+        reportPerformance(false);
+        return;
+    }
+
+    if (const media::VideoFrame* cached = m_cache.find(clamped)) {
         presentFrame(*cached);
         emit requestPlayheadFrame(clamped);
+        reportPerformance(false);
         return;
     }
 
@@ -548,13 +718,9 @@ void PlaybackController::onDisplayTick()
         positionUs - media::ffmpeg::frameIndexToMicroseconds(m_currentFrame.frameIndex, avRate);
     if (lateBy > kLateFrameToleranceUs) {
         ++m_droppedFrames;
-        if (m_droppedFrames % 30 == 1) {
-            qCDebug(log::playback)
-                << "Dropped frame; decoder behind by" << lateBy << "us, total drops"
-                << m_droppedFrames;
-        }
     }
     emit requestPlayheadFrame(clamped);
+    reportPerformance(false);
 }
 
 // ---------------------------------------------------------------------------
@@ -587,14 +753,20 @@ void PlaybackController::play()
     m_decoderAtEnd = false;
 
     if (!inPlaceholderMode()) {
+        // Sized from the frame rate and the decoded frame size, so 4K does not
+        // ask for the same frame count as 640x360 and blow the queue budget.
+        m_lookaheadFrames = computeLookaheadFrames();
+        qCDebug(log::playback) << "Lookahead target" << m_lookaheadFrames << "frames";
+
         // Playback repositions the decoder, so it supersedes any pending seek.
         const quint64 generation = m_generations->bumpRequest();
+        emit requestLookaheadFrames(m_lookaheadFrames);
         emit requestStartPlayback(from, generation);
         emit requestPlayheadFrame(from);
 
-        if (m_audioActive) {
-            m_audioOutput->start(m_playbackStartUs);
-        }
+        // The audio device is started from onAudioPrimed(), once the worker has
+        // decoded a little audio. Video begins immediately on the monotonic
+        // clock and hands over to audio as soon as it is really delivering.
     }
 
     setState(PlayerState::Playing);
@@ -639,6 +811,7 @@ void PlaybackController::stop()
     if (inPlaceholderMode()) {
         m_timeline->setCurrentFrame(start);
         m_cache.setSourceGeneration(m_generations->currentSource());
+        m_queue.setSourceGeneration(m_generations->currentSource());
 
     setState(m_timeline->frameCount() > 0 ? PlayerState::Ready : PlayerState::Empty);
         return;
@@ -692,6 +865,10 @@ void PlaybackController::seekFrame(int64_t frame)
     if (wasPlaying) {
         haltPlaybackMachinery();
     }
+
+    // The queue holds the future of the *old* position, so it goes. The cache
+    // deliberately does not -- see below.
+    m_queue.clear();
 
     // The cache is deliberately *not* cleared here. Its frames still belong to
     // the open source, so they stay valid across a seek -- that is what makes

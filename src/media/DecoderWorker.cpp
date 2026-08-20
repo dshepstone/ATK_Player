@@ -248,11 +248,25 @@ void DecoderWorker::startPlayback(qint64 fromFrameIndex, quint64 requestGenerati
         m_pendingAudioOffset = 0;
     }
 
+    // Preroll, before the run starts and before the device is told to play.
+    // Starting QAudioSink against an empty buffer means it immediately pulls
+    // silence and the audio clock cannot begin, which is what made the first
+    // moments of playback silent.
+    pumpAudioUpTo(kAudioTargetMs, kMaxAudioBytesPerStep * 16);
+    const int64_t primedMs = bufferedAudioMs();
+    if (m_decoder->metadata().hasAudio) {
+        qCDebug(log::media) << "Audio preroll:" << primedMs << "ms";
+    }
+
     m_playing = true;
     m_reachedEnd = false;
     m_playbackGeneration = requestGeneration;
     m_playheadFrame.store(fromFrameIndex);
     m_decodedAheadTo = fromFrameIndex - 1;
+
+    // Tell the controller audio is ready, so it starts the device against a
+    // primed buffer rather than against silence.
+    emit audioPrimed(static_cast<int>(primedMs));
 
     scheduleNextStep();
 }
@@ -302,7 +316,7 @@ void DecoderWorker::decodeStep()
     pumpAudio();
 
     const int64_t playhead = m_playheadFrame.load();
-    const bool farEnoughAhead = m_decodedAheadTo >= playhead + kDecodeAheadFrames;
+    const bool farEnoughAhead = m_decodedAheadTo >= playhead + m_lookaheadFrames;
 
     if (!farEnoughAhead && !m_reachedEnd) {
         VideoFrame frame;
@@ -343,7 +357,24 @@ void DecoderWorker::decodeStep()
     scheduleNextStep();
 }
 
+int64_t DecoderWorker::bufferedAudioMs() const
+{
+    if (!m_audioBuffer) {
+        return 0;
+    }
+    const AudioFormat format = m_decoder->outputAudioFormat();
+    if (!format.isValid()) {
+        return 0;
+    }
+    return format.bytesToMicroseconds(m_audioBuffer->bytesAvailable()) / 1000;
+}
+
 void DecoderWorker::pumpAudio()
+{
+    pumpAudioUpTo(kAudioTargetMs, kMaxAudioBytesPerStep);
+}
+
+void DecoderWorker::pumpAudioUpTo(int64_t targetMs, int64_t maxBytesThisCall)
 {
     if (!m_audioBuffer || !m_decoder->isOpen() || !m_decoder->metadata().hasAudio) {
         return;
@@ -352,10 +383,19 @@ void DecoderWorker::pumpAudio()
         return;
     }
 
-    // Push whatever is left of the previous chunk first, then decode more while
-    // the buffer keeps accepting it. The buffer being full is the signal to
-    // stop -- that is what paces audio decoding to real time.
-    while (true) {
+    // Already have enough queued: leave the thread free for video.
+    if (bufferedAudioMs() >= targetMs) {
+        return;
+    }
+
+    int64_t writtenThisCall = 0;
+
+    // Two bounds, both necessary. The target stops audio running arbitrarily
+    // far ahead of video; the byte cap stops a single call monopolising the
+    // decode thread when the buffer starts far below target. Without them, one
+    // pumpAudio() could decode seconds of audio -- and demux all the video
+    // packets interleaved with it -- before video decoding got a turn.
+    while (writtenThisCall < maxBytesThisCall) {
         if (m_pendingAudio.pcm.isEmpty()) {
             AudioChunk chunk;
             QString error;
@@ -389,11 +429,46 @@ void DecoderWorker::pumpAudio()
         }
 
         m_pendingAudioOffset += written;
+        writtenThisCall += written;
+
         if (m_pendingAudioOffset >= m_pendingAudio.pcm.size()) {
             m_pendingAudio = AudioChunk{};
             m_pendingAudioOffset = 0;
         }
+
+        // Reached the target mid-call: stop here rather than running to the
+        // byte cap, so audio never drifts arbitrarily far ahead of video.
+        if (bufferedAudioMs() >= targetMs) {
+            return;
+        }
     }
+}
+
+void DecoderWorker::setLookaheadFrames(int frames)
+{
+    m_lookaheadFrames = std::clamp(frames, 1, 240);
+}
+
+void DecoderWorker::primeAudio(int targetMs)
+{
+    if (!m_decoder->isOpen() || !m_decoder->metadata().hasAudio
+        || !m_decoder->outputAudioFormat().isValid()) {
+        emit audioPrimed(0);
+        return;
+    }
+
+    // Starting QAudioSink against an empty buffer means the device immediately
+    // pulls silence, and the audio clock cannot start until real bytes are
+    // consumed. Filling a little first makes the first sound heard the actual
+    // first sound of the clip.
+    //
+    // The byte cap is generous here because this runs once, before playback,
+    // rather than inside the decode loop.
+    pumpAudioUpTo(targetMs, kMaxAudioBytesPerStep * 16);
+
+    const int64_t buffered = bufferedAudioMs();
+    qCDebug(log::media) << "Audio primed to" << buffered << "ms (target" << targetMs << "ms)";
+    emit audioPrimed(static_cast<int>(buffered));
 }
 
 } // namespace atk::media

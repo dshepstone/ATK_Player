@@ -66,12 +66,27 @@ private:
     /// while a drag is in progress.
     void requestSeek(int64_t frame, bool force);
 
+    /// Frame the playhead should be drawn at: the scrub position while
+    /// dragging, the model's current frame otherwise.
+    int64_t displayFrame() const;
+
     timeline::TimelineModel* m_model = nullptr;
     bool m_scrubbing = false;
     /// Paces preview seeks during a drag so the decoder is not handed a new
     /// target on every mouse move; the exact seek is issued on release.
     QElapsedTimer m_scrubThrottle;
     int64_t m_lastRequestedFrame = -1;
+
+    /// Where the pointer is during a drag, independent of what has decoded.
+    ///
+    /// The playhead used to be drawn straight from the model, which only moves
+    /// when a decoded frame is presented -- so it could not advance faster than
+    /// FFmpeg could seek, and the cursor visibly outran it. Tracking the
+    /// requested position separately lets the playhead follow the mouse at
+    /// pointer rate while the picture catches up behind it.
+    ///
+    /// -1 when not scrubbing.
+    int64_t m_scrubFrame = -1;
 };
 
 } // namespace atk::ui

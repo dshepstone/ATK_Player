@@ -3,6 +3,7 @@
 #include "media/AudioBuffer.h"
 #include "media/DecodeGeneration.h"
 #include "media/FrameCache.h"
+#include "media/PlaybackQueue.h"
 #include "media/MediaMetadata.h"
 #include "media/VideoFrame.h"
 
@@ -146,6 +147,7 @@ private slots:
                              quint64 requestGeneration);
     void onWorkerEndOfStream(quint64 requestGeneration);
     void onWorkerDecodeError(const QString& message);
+    void onAudioPrimed(int bufferedMs);
 
     /// Chooses and displays the frame for the current master clock position.
     void onDisplayTick();
@@ -160,6 +162,7 @@ signals:
     void requestStopPlayback();
     void requestPlayheadFrame(qint64 frameIndex);
     void requestConfigureAudio(int sampleRate, int channelCount);
+    void requestLookaheadFrames(int frames);
 
 private:
     void setState(PlayerState state);
@@ -176,6 +179,16 @@ private:
     /// Ends the current playback run because the *playhead* reached the end:
     /// loops back if looping is on, otherwise settles on the final frame.
     void finishPlayback();
+
+    /// Emits the periodic performance summary, at most once a second.
+    void reportPerformance(bool force);
+
+    /// Lookahead target derived from the frame rate and the decoded frame size.
+    int computeLookaheadFrames() const;
+
+    /// True when the audio device is genuinely delivering decoded audio, and is
+    /// therefore fit to act as the master clock.
+    bool usingAudioClock() const;
 
     /// Master media position in microseconds: the audio device when there is
     /// audio, the monotonic clock otherwise.
@@ -211,6 +224,11 @@ private:
     std::shared_ptr<media::DecodeGenerations> m_generations;
 
     media::FrameCache m_cache;
+
+    /// Frames waiting to be presented. Separate from the cache so LRU eviction
+    /// cannot discard the lookahead before playback reaches it -- see
+    /// media/PlaybackQueue.h.
+    media::PlaybackQueue m_queue;
     media::VideoFrame m_currentFrame;
     QTimer* m_displayTimer = nullptr;
 
@@ -227,6 +245,15 @@ private:
     bool m_loopEnabled = false;
     bool m_resumeAfterSeek = false;
     int64_t m_droppedFrames = 0;
+
+    // --- Performance diagnostics -----------------------------------------
+    // Summarised once a second at debug level rather than logged per frame.
+    int64_t m_presentedFrames = 0;
+    int64_t m_decodedFrames = 0;
+    int64_t m_perfWindowStartNs = 0;
+    /// Frames the decoder should stay ahead by, from time and memory. Replaces
+    /// the fixed 24, which was untenable above 1080p.
+    int m_lookaheadFrames = 0;
     int64_t m_pendingSeekFrame = -1;
     /// The decoder has no more frames to produce for this run. Distinct from
     /// playback being over -- frames already decoded still have to be shown.

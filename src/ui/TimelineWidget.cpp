@@ -21,13 +21,21 @@ constexpr int kTrackInsetBottom = 18;
 constexpr int kPlayheadHandleWidth = 9;
 constexpr int kBookmarkMarkerWidth = 3;
 
+/// Minimum gap between preview *decode* requests while dragging.
+///
+/// This paces the decoder only. The playhead itself is redrawn on every mouse
+/// move, so the throttle is invisible to the user's sense of responsiveness --
+/// it only governs how often a new picture is asked for. About 30 requests a
+/// second, which a decoder can usually sustain; the exact target is always
+/// issued on release.
+///
 /// Minimum gap between preview seeks while dragging the playhead.
 ///
 /// Dragging produces mouse moves far faster than a seek can be decoded. Without
 /// pacing, the decoder would spend the whole drag servicing positions the user
 /// has already left. The exact target is always issued on release, so the final
 /// position is never a throttled approximation.
-constexpr qint64 kScrubThrottleMs = 60;
+constexpr qint64 kScrubThrottleMs = 33;
 
 } // namespace
 
@@ -55,13 +63,24 @@ void TimelineWidget::setModel(timeline::TimelineModel* model)
 
     if (m_model != nullptr) {
         const auto repaint = [this] { update(); };
-        connect(m_model, &timeline::TimelineModel::currentFrameChanged, this, repaint);
+
+        connect(m_model, &timeline::TimelineModel::currentFrameChanged,
+                this, [this](int64_t frame) {
+                    // Once the decoder has caught up with where the pointer
+                    // asked to be, the scrub override has done its job and the
+                    // playhead goes back to following the model. Clearing it any
+                    // earlier would snap the playhead back to the last decoded
+                    // position while the final seek was still in flight.
+                    if (m_scrubFrame >= 0 && !m_scrubbing && frame == m_scrubFrame) {
+                        m_scrubFrame = -1;
+                    }
+                    update();
+                });
+
         connect(m_model, &timeline::TimelineModel::frameCountChanged, this, repaint);
         connect(m_model, &timeline::TimelineModel::playbackRangeChanged, this, repaint);
         connect(m_model, &timeline::TimelineModel::bookmarksChanged, this, repaint);
     }
-
-    update();
 }
 
 QSize TimelineWidget::sizeHint() const
@@ -193,8 +212,7 @@ void TimelineWidget::paintBookmarks(QPainter& painter)
 void TimelineWidget::paintPlayhead(QPainter& painter)
 {
     const QRect track = trackRect();
-    const int64_t frame = m_model != nullptr ? m_model->currentFrame() : 0;
-    const int x = xForFrame(frame);
+    const int x = xForFrame(displayFrame());
 
     painter.setPen(theme::playhead());
     painter.drawLine(x, track.top() - 3, x, track.bottom() + 3);
@@ -223,6 +241,14 @@ void TimelineWidget::paintFrameLabels(QPainter& painter)
                      QString::number(last));
 }
 
+int64_t TimelineWidget::displayFrame() const
+{
+    if (m_scrubFrame >= 0) {
+        return m_scrubFrame;
+    }
+    return m_model != nullptr ? m_model->currentFrame() : 0;
+}
+
 void TimelineWidget::requestSeek(int64_t frame, bool force)
 {
     if (!force) {
@@ -247,8 +273,15 @@ void TimelineWidget::mousePressEvent(QMouseEvent* event)
     }
     m_scrubbing = true;
     m_scrubThrottle.start();
+
+    const int64_t frame = frameForX(event->position().toPoint().x());
+
+    // Move the playhead now, before anything is decoded.
+    m_scrubFrame = frame;
+    update();
+
     // A click is a deliberate single position, so it is never throttled.
-    requestSeek(frameForX(event->position().toPoint().x()), true);
+    requestSeek(frame, true);
 }
 
 void TimelineWidget::mouseMoveEvent(QMouseEvent* event)
@@ -257,16 +290,34 @@ void TimelineWidget::mouseMoveEvent(QMouseEvent* event)
         QWidget::mouseMoveEvent(event);
         return;
     }
-    requestSeek(frameForX(event->position().toPoint().x()), false);
+
+    const int64_t frame = frameForX(event->position().toPoint().x());
+
+    // The playhead follows the pointer immediately and unconditionally. Only
+    // the decode request below is throttled.
+    if (frame != m_scrubFrame) {
+        m_scrubFrame = frame;
+        update();
+    }
+
+    requestSeek(frame, false);
 }
 
 void TimelineWidget::mouseReleaseEvent(QMouseEvent* event)
 {
     if (event->button() == Qt::LeftButton && m_scrubbing) {
         m_scrubbing = false;
+
         // Land exactly where the pointer was let go, even if that position was
         // skipped by throttling.
-        requestSeek(frameForX(event->position().toPoint().x()), true);
+        const int64_t frame = frameForX(event->position().toPoint().x());
+        m_scrubFrame = frame;
+        requestSeek(frame, true);
+
+        // m_scrubFrame stays set until the model reports that frame, so the
+        // playhead does not snap backwards to the last decoded position while
+        // the final seek is still in flight.
+        update();
     }
     QWidget::mouseReleaseEvent(event);
 }

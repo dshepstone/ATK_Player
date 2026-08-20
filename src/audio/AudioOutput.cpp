@@ -33,11 +33,27 @@ public:
     {
     }
 
-    void resetCounters() { m_consumedBytes = 0; m_silenceBytes = 0; }
+    void resetCounters() { m_consumedBytes = 0; m_silenceBytes = 0; m_underruns = 0; }
     int64_t consumedBytes() const { return m_consumedBytes; }
     int64_t silenceBytes() const { return m_silenceBytes; }
+    int64_t underruns() const { return m_underruns; }
 
     bool isSequential() const override { return true; }
+
+    /// How much audio is ready to be read.
+    ///
+    /// This override is what makes sound come out at all. QAudioSink's pull
+    /// loop asks the device how much it has before reading, and QIODevice's
+    /// default answer for a sequential device is zero -- it only knows about its
+    /// own internal buffer, not about the ring buffer behind readData(). With a
+    /// permanent answer of zero the sink concludes there is nothing to play and
+    /// never calls readData(), so the queue fills, drains nowhere, and playback
+    /// is silent while every counter looks healthy.
+    qint64 bytesAvailable() const override
+    {
+        const qint64 queued = m_buffer ? m_buffer->bytesAvailable() : 0;
+        return queued + QIODevice::bytesAvailable();
+    }
 
 protected:
     qint64 readData(char* data, qint64 maxSize) override
@@ -52,6 +68,7 @@ protected:
         if (got < maxSize) {
             std::memset(data + got, 0, static_cast<std::size_t>(maxSize - got));
             m_silenceBytes += (maxSize - got);
+            ++m_underruns;
             return maxSize;
         }
         return got;
@@ -63,6 +80,7 @@ private:
     std::shared_ptr<AudioRingBuffer> m_buffer;
     int64_t m_consumedBytes = 0;
     int64_t m_silenceBytes = 0;
+    int64_t m_underruns = 0;
 };
 
 } // namespace
@@ -231,6 +249,32 @@ int64_t AudioOutput::positionUs() const
     // processedUSecs() is the device's own account of elapsed playback, which is
     // exactly the quantity video needs to follow.
     return m_startPtsUs + static_cast<int64_t>(m_sink->processedUSecs());
+}
+
+int64_t AudioOutput::bufferedMs() const
+{
+    if (!m_buffer || !m_format.isValid()) {
+        return 0;
+    }
+    return m_format.bytesToMicroseconds(m_buffer->bytesAvailable()) / 1000;
+}
+
+int64_t AudioOutput::underrunCount() const
+{
+    const auto* device = static_cast<const RingBufferDevice*>(m_device);
+    return device != nullptr ? device->underruns() : 0;
+}
+
+int64_t AudioOutput::realBytesConsumed() const
+{
+    const auto* device = static_cast<const RingBufferDevice*>(m_device);
+    return device != nullptr ? device->consumedBytes() : 0;
+}
+
+int64_t AudioOutput::silenceBytesInserted() const
+{
+    const auto* device = static_cast<const RingBufferDevice*>(m_device);
+    return device != nullptr ? device->silenceBytes() : 0;
 }
 
 void AudioOutput::setVolume(qreal volume)

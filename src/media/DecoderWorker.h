@@ -58,10 +58,25 @@ public:
                   QObject* parent = nullptr);
     ~DecoderWorker() override;
 
-    /// How far ahead of the playhead the worker will decode during playback.
-    /// Enough to absorb a slow frame, small enough that a seek does not throw
-    /// away much work.
-    static constexpr int kDecodeAheadFrames = 24;
+    /// Fallback lookahead until the controller supplies one sized for the
+    /// media. A fixed frame count cannot be right for every resolution: 24
+    /// frames is 190 MB at 1080p and 796 MB at 4K.
+    static constexpr int kDefaultDecodeAheadFrames = 8;
+
+    /// Audio is kept topped up to a target rather than "as full as possible".
+    ///
+    /// The original pumpAudio() looped until the ring buffer was full, which on
+    /// a 2-second buffer meant decoding two seconds of audio -- and demuxing
+    /// all the interleaved video packets that come with it -- before returning
+    /// to video work. That is a long time for the decode thread to be
+    /// unavailable, and it is what made video arrive in bursts.
+    static constexpr int64_t kAudioTargetMs = 400;
+    static constexpr int64_t kAudioLowWatermarkMs = 200;
+    static constexpr int64_t kAudioMaxMs = 750;
+
+    /// Cap on audio pushed per decode step, so one call cannot monopolise the
+    /// thread even when the buffer is far below target.
+    static constexpr int64_t kMaxAudioBytesPerStep = 64 * 1024;
 
 public slots:
     void openMedia(const QString& filePath, quint64 sourceGeneration);
@@ -80,6 +95,15 @@ public slots:
 
     /// Configures audio resampling to the device's format.
     void configureAudio(int sampleRate, int channelCount);
+
+    /// Sets how many frames ahead of the playhead to decode. Supplied by the
+    /// controller from the frame rate and frame size.
+    void setLookaheadFrames(int frames);
+
+    /// Decodes audio up to the startup target and reports how much was queued,
+    /// so the controller can start the device against primed audio rather than
+    /// against silence.
+    void primeAudio(int targetMs);
 
     /// Stops all work and releases the decoder. Called during shutdown before
     /// the thread is joined, so FFmpeg teardown happens on the owning thread.
@@ -103,12 +127,22 @@ signals:
     /// A non-fatal decode problem worth surfacing.
     void decodeError(const QString& message);
 
+    /// Emitted after primeAudio() with the milliseconds actually queued.
+    void audioPrimed(int bufferedMs);
+
 private slots:
     /// One unit of decoding. Re-posts itself while playback is active.
     void decodeStep();
 
 private:
     void pumpAudio();
+
+    /// Tops the ring buffer up to `targetMs`, writing at most
+    /// `maxBytesThisCall` bytes so one call cannot monopolise the thread.
+    void pumpAudioUpTo(int64_t targetMs, int64_t maxBytesThisCall);
+
+    /// Milliseconds of audio currently queued for the device.
+    int64_t bufferedAudioMs() const;
     void scheduleNextStep();
 
     /// True when `generation` is no longer the current request.
@@ -135,6 +169,7 @@ private:
     std::atomic<int64_t> m_playheadFrame{ 0 };
     /// Highest frame index handed to the controller during this playback run.
     int64_t m_decodedAheadTo = -1;
+    int m_lookaheadFrames = kDefaultDecodeAheadFrames;
 };
 
 } // namespace atk::media
