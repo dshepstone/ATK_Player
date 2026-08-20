@@ -1,5 +1,7 @@
 #include "ui/TimelineWidget.h"
 
+#include "media/WaveformData.h"
+
 #include "timeline/TimelineModel.h"
 #include "ui/Theme.h"
 
@@ -16,7 +18,14 @@ namespace {
 /// Horizontal room reserved at each end for the first/last frame labels.
 constexpr int kLabelMargin = 52;
 /// Vertical inset of the track inside the widget.
-constexpr int kTrackInsetTop = 20;
+///
+/// The waveform sits above the track in its own band. Keeping them separate --
+/// rather than drawing the waveform inside the track -- means the playhead
+/// crosses both, so a dialogue peak and the frame it belongs to line up
+/// vertically and can be read at a glance.
+constexpr int kWaveformHeight = 46;
+constexpr int kWaveformInsetTop = 6;
+constexpr int kTrackInsetTop = 20 + kWaveformHeight;
 constexpr int kTrackInsetBottom = 18;
 constexpr int kPlayheadHandleWidth = 9;
 constexpr int kBookmarkMarkerWidth = 3;
@@ -85,12 +94,50 @@ void TimelineWidget::setModel(timeline::TimelineModel* model)
 
 QSize TimelineWidget::sizeHint() const
 {
-    return { 800, 64 };
+    return { 800, 64 + kWaveformHeight };
 }
 
 QSize TimelineWidget::minimumSizeHint() const
 {
-    return { 240, 64 };
+    return { 240, 64 + kWaveformHeight };
+}
+
+void TimelineWidget::setWaveform(const media::WaveformData* waveform)
+{
+    m_waveform = waveform;
+    update();
+}
+
+void TimelineWidget::setMediaDuration(int64_t durationUs)
+{
+    if (m_mediaDurationUs == durationUs) {
+        return;
+    }
+    m_mediaDurationUs = durationUs;
+    update();
+}
+
+void TimelineWidget::refreshWaveform()
+{
+    // Only the waveform band changed, so the rest of the widget is left alone.
+    update(waveformRect());
+}
+
+QRect TimelineWidget::waveformRect() const
+{
+    return QRect(rect().left() + kLabelMargin, rect().top() + kWaveformInsetTop,
+                 std::max(0, rect().width() - 2 * kLabelMargin), kWaveformHeight);
+}
+
+int64_t TimelineWidget::mediaTimeForX(int x) const
+{
+    const QRect track = trackRect();
+    if (track.width() <= 0 || m_mediaDurationUs <= 0) {
+        return 0;
+    }
+    const double fraction =
+        std::clamp(double(x - track.left()) / double(track.width()), 0.0, 1.0);
+    return static_cast<int64_t>(fraction * double(m_mediaDurationUs));
 }
 
 int64_t TimelineWidget::lastFrame() const
@@ -136,11 +183,76 @@ void TimelineWidget::paintEvent(QPaintEvent* event)
     painter.setRenderHint(QPainter::Antialiasing, false);
     painter.fillRect(event->rect(), theme::panelBackground());
 
+    paintWaveform(painter);
     paintTrack(painter);
     paintRange(painter);
     paintBookmarks(painter);
     paintFrameLabels(painter);
     paintPlayhead(painter);
+}
+
+void TimelineWidget::paintWaveform(QPainter& painter)
+{
+    const QRect band = waveformRect();
+    if (!band.isValid() || band.width() <= 0) {
+        return;
+    }
+
+    // Media without audio simply has no waveform. Drawing nothing is the
+    // correct outcome, not an error worth reporting.
+    if (m_waveform == nullptr || m_waveform->isEmpty() || m_mediaDurationUs <= 0) {
+        return;
+    }
+
+    const int centreY = band.center().y();
+    const int halfHeight = band.height() / 2 - 2;
+    if (halfHeight <= 0) {
+        return;
+    }
+
+    // One column per pixel, and a pyramid level whose buckets are about that
+    // wide. Reading the finest level for a long file would mean iterating
+    // thousands of buckets per column on every repaint -- including every
+    // playhead move during playback.
+    const int64_t usPerPixel = std::max<int64_t>(1, m_mediaDurationUs / band.width());
+    const int level = m_waveform->levelForBucketDuration(usPerPixel);
+
+    const int64_t covered = m_waveform->coveredUs();
+
+    // Saved and restored around the loop: paintTrack() draws with drawRect(),
+    // which uses whatever brush is current, so leaving one set here silently
+    // repaints the track in the waveform colour.
+    painter.save();
+    painter.setPen(Qt::NoPen);
+
+    for (int x = band.left(); x <= band.right(); ++x) {
+        const int64_t startUs = mediaTimeForX(x);
+        const int64_t endUs = mediaTimeForX(x + 1);
+
+        // Analysis fills in left to right, so the tail is simply not drawn yet
+        // rather than being drawn as silence.
+        if (startUs >= covered) {
+            break;
+        }
+
+        const media::WaveformPeak peak =
+            m_waveform->peakOverRange(level, startUs, std::max(endUs, startUs + 1));
+        if (peak.isSilent()) {
+            // A one-pixel line keeps silence legible as "audio here, quiet"
+            // rather than looking identical to "no data".
+            painter.fillRect(QRect(x, centreY, 1, 1), theme::waveformSilence());
+            continue;
+        }
+
+        const int up = std::clamp(int(peak.maximum * halfHeight), 0, halfHeight);
+        const int down = std::clamp(int(-peak.minimum * halfHeight), 0, halfHeight);
+        const int top = centreY - up;
+        const int height = std::max(1, up + down);
+
+        painter.fillRect(QRect(x, top, 1, height), theme::waveform());
+    }
+
+    painter.restore();
 }
 
 void TimelineWidget::paintTrack(QPainter& painter)

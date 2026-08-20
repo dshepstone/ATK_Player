@@ -1,10 +1,13 @@
 #pragma once
 
+#include "media/MediaMetadata.h"
+
 #include <QElapsedTimer>
 #include <QWidget>
 
 #include <cstdint>
 
+namespace atk::media { class WaveformData; }
 namespace atk::timeline { class TimelineModel; }
 
 namespace atk::ui {
@@ -30,6 +33,18 @@ public:
     void setModel(timeline::TimelineModel* model);
     timeline::TimelineModel* model() const { return m_model; }
 
+    /// Waveform to draw. Not owned; the controller keeps it alive and calls
+    /// refreshWaveform() as analysis delivers more. Passing nullptr hides it.
+    void setWaveform(const media::WaveformData* waveform);
+
+    /// Media duration, needed to map waveform time onto the track. The waveform
+    /// is indexed by media time while the track is indexed by frame, and those
+    /// are only interchangeable through the real frame rate.
+    void setMediaDuration(int64_t durationUs);
+
+    /// Repaints the waveform band after new peaks arrive.
+    void refreshWaveform();
+
     QSize sizeHint() const override;
     QSize minimumSizeHint() const override;
 
@@ -53,12 +68,17 @@ protected:
 private:
     /// The horizontal strip the track occupies, inset for the frame labels.
     QRect trackRect() const;
+    QRect waveformRect() const;
+
+    /// Media time at a horizontal position, for waveform lookup.
+    int64_t mediaTimeForX(int x) const;
     /// Maps a frame to an x coordinate inside trackRect(), and back.
     int xForFrame(int64_t frame) const;
     int64_t frameForX(int x) const;
     /// Last frame index, or 0 when nothing is loaded.
     int64_t lastFrame() const;
 
+    void paintWaveform(QPainter& painter);
     void paintTrack(QPainter& painter);
     void paintRange(QPainter& painter);
     void paintBookmarks(QPainter& painter);
@@ -74,6 +94,8 @@ private:
     int64_t displayFrame() const;
 
     timeline::TimelineModel* m_model = nullptr;
+    const media::WaveformData* m_waveform = nullptr;
+    int64_t m_mediaDurationUs = -1;
     bool m_scrubbing = false;
     /// Paces preview seeks during a drag so the decoder is not handed a new
     /// target on every mouse move; the exact seek is issued on release.

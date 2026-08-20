@@ -3,7 +3,10 @@
 #include "audio/AudioOutput.h"
 #include "audio/AudioRingBuffer.h"
 #include "core/Logging.h"
+#include "audio/ScrubAudioEngine.h"
 #include "media/DecoderWorker.h"
+#include "media/ScrubAudioWorker.h"
+#include "media/WaveformWorker.h"
 #include "media/ffmpeg/FFmpegUtil.h"
 #include "timeline/TimelineModel.h"
 
@@ -161,6 +164,57 @@ PlaybackController::PlaybackController(timeline::TimelineModel* timeline, QObjec
 
     m_decodeThread->start();
 
+    // --- Waveform analysis thread -----------------------------------------
+    //
+    // Separate from the decode thread on purpose. Waveform analysis is a linear
+    // scan of the whole file; running it on the decode thread would drag the
+    // playback decoder from one end of the media to the other while the user is
+    // reviewing a shot. It owns its own AudioSourceReader and its own file
+    // handle, so nothing is shared.
+    qRegisterMetaType<QVector<media::WaveformPeak>>("QVector<atk::media::WaveformPeak>");
+
+    m_waveformThread = new QThread(this);
+    m_waveformThread->setObjectName(QStringLiteral("ATK waveform"));
+    m_waveformWorker = new media::WaveformWorker;
+    m_waveformWorker->moveToThread(m_waveformThread);
+    connect(m_waveformThread, &QThread::finished, m_waveformWorker, &QObject::deleteLater);
+
+    connect(this, &PlaybackController::requestWaveform,
+            m_waveformWorker, &media::WaveformWorker::analyse);
+    connect(m_waveformWorker, &media::WaveformWorker::peaksReady,
+            this, &PlaybackController::onWaveformPeaks);
+    connect(m_waveformWorker, &media::WaveformWorker::analysisFinished,
+            this, &PlaybackController::onWaveformFinished);
+    connect(m_waveformWorker, &media::WaveformWorker::analysisUnavailable,
+            this, &PlaybackController::onWaveformUnavailable);
+
+    // Analysis must never compete with playback or scrubbing for the CPU.
+    m_waveformThread->start(QThread::LowPriority);
+
+    // --- Scrub audio thread -----------------------------------------------
+    //
+    // Also separate, and for a sharper reason: M1 ended by making the video
+    // decoder keep its position so nearby scrub targets decode forward instead
+    // of re-seeking, and that locality is what makes slow scrubbing usable.
+    // Pulling audio grains through the same decoder would re-seek it on every
+    // mouse move and undo exactly that.
+    m_scrubAudioThread = new QThread(this);
+    m_scrubAudioThread->setObjectName(QStringLiteral("ATK scrub audio"));
+    m_scrubAudioWorker = new media::ScrubAudioWorker;
+    m_scrubAudioWorker->moveToThread(m_scrubAudioThread);
+    connect(m_scrubAudioThread, &QThread::finished, m_scrubAudioWorker, &QObject::deleteLater);
+
+    connect(this, &PlaybackController::requestScrubSource,
+            m_scrubAudioWorker, &media::ScrubAudioWorker::openSource);
+    connect(this, &PlaybackController::requestScrubGrain,
+            m_scrubAudioWorker, &media::ScrubAudioWorker::requestGrain);
+    connect(m_scrubAudioWorker, &media::ScrubAudioWorker::grainReady,
+            this, &PlaybackController::onScrubGrain);
+
+    m_scrubAudioThread->start();
+
+    m_scrubAudio = std::make_unique<audio::ScrubAudioEngine>(this);
+
     // Keep the frame rate the display timer paces against current.
     connect(m_timeline, &timeline::TimelineModel::frameRateChanged,
             this, [this](media::FrameRate) {
@@ -202,6 +256,45 @@ PlaybackController::~PlaybackController()
 
     haltPlaybackMachinery();
 
+    // The analysis and scrub threads are torn down first: both are pure
+    // producers, so silencing them before the decode thread means nothing can
+    // deliver into a controller that is already unwinding. Each is cancelled,
+    // disconnected, shut down on its own thread, then joined -- the same order
+    // the decode thread uses below.
+    if (m_scrubAudio) {
+        m_scrubAudio->close();
+    }
+
+    if (m_scrubAudioThread != nullptr) {
+        m_scrubAudioWorker->requestCancel();
+        m_scrubAudioWorker->disconnect(this);
+        disconnect(this, nullptr, m_scrubAudioWorker, nullptr);
+        QMetaObject::invokeMethod(m_scrubAudioWorker, &media::ScrubAudioWorker::shutdown,
+                                  Qt::BlockingQueuedConnection);
+        m_scrubAudioThread->quit();
+        if (!m_scrubAudioThread->wait(5000)) {
+            qCWarning(log::playback) << "Scrub audio thread did not stop; terminating";
+            m_scrubAudioThread->terminate();
+            m_scrubAudioThread->wait(1000);
+        }
+    }
+
+    if (m_waveformThread != nullptr) {
+        // Cancelled before the blocking call, or shutdown would wait for a
+        // full-file scan to finish.
+        m_waveformWorker->requestCancel();
+        m_waveformWorker->disconnect(this);
+        disconnect(this, nullptr, m_waveformWorker, nullptr);
+        QMetaObject::invokeMethod(m_waveformWorker, &media::WaveformWorker::shutdown,
+                                  Qt::BlockingQueuedConnection);
+        m_waveformThread->quit();
+        if (!m_waveformThread->wait(5000)) {
+            qCWarning(log::playback) << "Waveform thread did not stop; terminating";
+            m_waveformThread->terminate();
+            m_waveformThread->wait(1000);
+        }
+    }
+
     if (m_decodeThread != nullptr) {
         m_worker->disconnect(this);
         disconnect(this, nullptr, m_worker, nullptr);
@@ -218,6 +311,151 @@ PlaybackController::~PlaybackController()
             m_decodeThread->wait(1000);
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// M2: waveform analysis and audio scrubbing
+// ---------------------------------------------------------------------------
+
+int64_t PlaybackController::mediaTimeForFrame(int64_t frame) const
+{
+    // Both the video preview and the scrub audio go through here. Deriving
+    // audio position from a nominal fps while video used the real rational rate
+    // would put the sound a frame or two off the picture on 23.976 material --
+    // which for lip-sync review is the whole thing being wrong.
+    const media::FrameRate rate = effectiveFrameRate();
+    if (!rate.isValid()) {
+        return 0;
+    }
+    const AVRational avRate{ rate.numerator, rate.denominator };
+    return media::ffmpeg::frameIndexToMicroseconds(std::max<int64_t>(0, frame), avRate);
+}
+
+void PlaybackController::setAudioScrubEnabled(bool enabled)
+{
+    if (m_audioScrubEnabled == enabled) {
+        return;
+    }
+    m_audioScrubEnabled = enabled;
+    if (!enabled && m_scrubAudio) {
+        m_scrubAudio->flush();
+    }
+    qCInfo(log::playback) << "Audio scrub" << (enabled ? "enabled" : "disabled");
+}
+
+void PlaybackController::requestScrubAudioAt(int64_t frame)
+{
+    if (!m_audioScrubEnabled || !m_hasMedia || !m_metadata.hasAudio) {
+        qCDebug(log::playback) << "Scrub audio skipped: enabled" << m_audioScrubEnabled
+                               << "hasMedia" << m_hasMedia
+                               << "hasAudio" << m_metadata.hasAudio;
+        return;
+    }
+    if (!m_scrubAudio || !m_scrubAudio->isOpen() || m_scrubAudio->isMuted()) {
+        qCDebug(log::playback) << "Scrub audio skipped: engine"
+                               << (m_scrubAudio != nullptr)
+                               << "open" << (m_scrubAudio && m_scrubAudio->isOpen())
+                               << "muted" << (m_scrubAudio && m_scrubAudio->isMuted());
+        return;
+    }
+
+    // Same origin as the video preview -- see mediaTimeForFrame().
+    const int64_t mediaUs = mediaTimeForFrame(frame);
+
+    m_scrubAudioRequestNs = monotonicNowNs();
+    emit requestScrubGrain(mediaUs, audio::ScrubAudioEngine::kGrainDurationUs,
+                           ++m_scrubAudioSequence, m_generations->currentSource());
+}
+
+void PlaybackController::onScrubGrain(const QByteArray& pcm, qint64 requestedUs,
+                                      qint64 actualStartUs, quint64 sequence,
+                                      quint64 sourceGeneration)
+{
+    if (!m_generations->isCurrentSource(sourceGeneration)) {
+        return;
+    }
+    // A grain decoded before a newer one but delivered after it would be heard
+    // out of order, so anything older than what has already played is dropped.
+    if (sequence <= m_scrubAudioPlayedSequence) {
+        return;
+    }
+    if (!m_scrubbing || !m_audioScrubEnabled || !m_scrubAudio) {
+        return;
+    }
+
+    m_scrubAudioPlayedSequence = sequence;
+    m_scrubAudio->submitGrain(pcm);
+
+    // Reported per grain at debug level: the gap between the requested media
+    // position and where the audio really begins is the number that says
+    // whether what you hear belongs to the frame you are pointing at.
+    const int64_t latencyMs = (monotonicNowNs() - m_scrubAudioRequestNs) / 1'000'000;
+    const int64_t offsetUs = actualStartUs - requestedUs;
+    qCDebug(log::playback).noquote()
+        << QStringLiteral("Scrub grain seq %1 requested %2 us actual %3 us "
+                          "offset %4 us latency %5 ms")
+               .arg(sequence).arg(requestedUs).arg(actualStartUs)
+               .arg(offsetUs).arg(latencyMs);
+}
+
+void PlaybackController::startWaveformAnalysis(const QString& filePath,
+                                               quint64 sourceGeneration)
+{
+    // Cancel whatever is running before the new source generation is announced,
+    // so peaks from the previous file cannot be attributed to this one.
+    if (m_waveformWorker != nullptr) {
+        m_waveformWorker->requestCancel();
+    }
+
+    m_waveform.clear();
+    m_waveform.setSourceGeneration(sourceGeneration);
+    emit waveformChanged();
+
+    if (m_waveformWorker != nullptr) {
+        m_waveformWorker->clearCancel();
+        emit requestWaveform(filePath, sourceGeneration);
+    }
+}
+
+void PlaybackController::onWaveformPeaks(const QVector<media::WaveformPeak>& peaks,
+                                         quint64 sourceGeneration)
+{
+    // Peaks outstanding from a previous file must never be drawn under the
+    // current one.
+    if (!m_generations->isCurrentSource(sourceGeneration)
+        || m_waveform.sourceGeneration() != sourceGeneration) {
+        return;
+    }
+
+    m_waveform.appendBaseBuckets(peaks);
+    emit waveformChanged();
+}
+
+void PlaybackController::onWaveformFinished(qint64 totalUs, quint64 sourceGeneration)
+{
+    if (!m_generations->isCurrentSource(sourceGeneration)) {
+        return;
+    }
+
+    m_waveform.setComplete(true);
+    qCInfo(log::playback).noquote()
+        << QStringLiteral("Waveform complete: %1 s covered, %2 KB held")
+               .arg(totalUs / 1'000'000.0, 0, 'f', 2)
+               .arg(m_waveform.memoryBytes() / 1024);
+    emit waveformChanged();
+}
+
+void PlaybackController::onWaveformUnavailable(const QString& reason,
+                                               quint64 sourceGeneration)
+{
+    if (!m_generations->isCurrentSource(sourceGeneration)) {
+        return;
+    }
+    // Media without audio is ordinary; the timeline simply shows no waveform.
+    qCDebug(log::playback).noquote() << "No waveform:" << reason;
+    m_waveform.clear();
+    m_waveform.setSourceGeneration(sourceGeneration);
+    emit waveformChanged();
 }
 
 void PlaybackController::reconcileIdleState()
@@ -276,6 +514,10 @@ void PlaybackController::openMedia(const QString& filePath)
 
     setState(PlayerState::Loading);
     emit loadingChanged(true);
+
+    // Waveform analysis starts immediately and runs on its own thread, so the
+    // picture appears without waiting for it.
+    startWaveformAnalysis(filePath, sourceGeneration);
 
     emit requestOpen(filePath, sourceGeneration);
 }
@@ -352,6 +594,24 @@ void PlaybackController::onWorkerMediaOpened(const media::MediaMetadata& metadat
         }
     } else {
         m_audioActive = false;
+    }
+
+    // Scrub audio uses the same device format as playback, so cached grains
+    // never need re-resampling and the two paths sound identical.
+    if (metadata.hasAudio) {
+        const media::AudioFormat scrubFormat = m_audioActive
+            ? m_audioOutput->actualFormat()
+            : media::AudioFormat{ 48000, 2, 2 };
+
+        if (m_scrubAudio && !m_scrubAudio->isOpen()) {
+            m_scrubAudio->open(scrubFormat);
+        }
+        if (m_scrubAudio && m_scrubAudio->isOpen()) {
+            m_scrubAudio->setVolume(m_audioOutput->volume());
+            m_scrubAudio->setMuted(m_audioOutput->isMuted());
+            emit requestScrubSource(metadata.filePath, scrubFormat.sampleRate,
+                                    scrubFormat.channelCount, sourceGeneration);
+        }
     }
 
     qCInfo(log::playback).noquote()
@@ -1024,6 +1284,7 @@ void PlaybackController::beginScrub()
     m_scrubFinalPending = false;
     m_scrubDecodeInFlight = false;
     m_latestScrubFrame = m_timeline->currentFrame();
+    m_scrubAudioPlayedSequence = 0;
     setState(PlayerState::Seeking);
 }
 
@@ -1036,6 +1297,11 @@ void PlaybackController::scrubToFrame(int64_t frame)
     m_latestScrubFrame = std::clamp(frame, m_timeline->effectiveStartFrame(),
                                     end < 0 ? frame : end);
     m_navigationFrame = m_latestScrubFrame;
+
+    // Audio follows the pointer, not the decoder: the grain is requested for
+    // wherever the cursor now is, whether or not the picture has caught up.
+    // Waiting for the frame would make the sound lag behind the drag.
+    requestScrubAudioAt(m_latestScrubFrame);
 
     if (inPlaceholderMode()) {
         m_timeline->setCurrentFrame(m_latestScrubFrame);
@@ -1077,6 +1343,13 @@ void PlaybackController::endScrub(int64_t frame)
 {
     scrubToFrame(frame);
     m_scrubbing = false;
+
+    // The gesture is over, so no grain outlives it. Doing this before the exact
+    // seek also guarantees no scrub audio is still sounding when normal
+    // playback resumes and takes back the clock.
+    if (m_scrubAudio) {
+        m_scrubAudio->flush();
+    }
     m_scrubFinalPending = true;
 
     if (inPlaceholderMode()) {
@@ -1307,6 +1580,9 @@ void PlaybackController::clearPlaybackRange()
 void PlaybackController::setMuted(bool muted)
 {
     m_audioOutput->setMuted(muted);
+    if (m_scrubAudio) {
+        m_scrubAudio->setMuted(muted);
+    }
 }
 
 bool PlaybackController::isMuted() const
@@ -1317,6 +1593,9 @@ bool PlaybackController::isMuted() const
 void PlaybackController::setVolume(qreal volume)
 {
     m_audioOutput->setVolume(volume);
+    if (m_scrubAudio) {
+        m_scrubAudio->setVolume(volume);
+    }
 }
 
 qreal PlaybackController::volume() const

@@ -39,6 +39,13 @@ inline QColor timelineRange()     { return QColor(0x35, 0x5A, 0x77); }
 inline QColor playhead()          { return QColor(0xE8, 0x9A, 0x3C); }
 inline QColor tickMark()          { return QColor(0x54, 0x5A, 0x62); }
 
+/// Waveform. A desaturated blue-grey rather than the accent colour: the
+/// waveform covers a lot of the timeline, and using the accent would make the
+/// playhead -- the thing the eye needs to find -- compete with it.
+inline QColor waveform()          { return QColor(0x6E, 0x8A, 0xA6); }
+/// Marks silent regions, so "quiet" reads differently from "not analysed yet".
+inline QColor waveformSilence()   { return QColor(0x44, 0x4A, 0x52); }
+
 /// Application-wide stylesheet built from the palette above.
 QString styleSheet();
 

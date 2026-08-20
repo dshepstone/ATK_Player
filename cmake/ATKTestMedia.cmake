@@ -62,9 +62,10 @@ function(atk_add_test_media)
     set(lossless "${ATK_TEST_MEDIA_DIR}/atk_fixture_48f.mkv")
     set(lossy    "${ATK_TEST_MEDIA_DIR}/atk_fixture_48f.mp4")
     set(sync     "${ATK_TEST_MEDIA_DIR}/atk_sync_10s.mkv")
+    set(review   "${ATK_TEST_MEDIA_DIR}/atk_review_10s.mkv")
 
     add_custom_command(
-        OUTPUT "${lossless}" "${lossy}" "${sync}"
+        OUTPUT "${lossless}" "${lossy}" "${sync}" "${review}"
         COMMAND "${CMAKE_COMMAND}" -E make_directory "${ATK_TEST_MEDIA_DIR}"
 
         # Lossless fixture: FFV1 video, PCM audio, Matroska.
@@ -93,11 +94,31 @@ function(atk_add_test_media)
                 -c:a pcm_s16le
                 "${sync}"
 
+        # Audio-review fixture: known amplitude segments at known media times.
+        #
+        # Waveform rendering and scrub-audio accuracy both need audio whose
+        # content at a given moment is known in advance. Alternating silence and
+        # tone on a fixed grid lets a test assert "at 1.5 s this is loud, at
+        # 2.5 s it is silent" without depending on what an encoder chose.
+        #
+        #   0.5-1.0  quiet tone      1.5-2.0  loud tone
+        #   3.0-3.5  quiet tone      8.0-8.5  loud tone
+        #   everything else silent
+        COMMAND "${ATK_FFMPEG_EXECUTABLE}"
+                -hide_banner -loglevel error -y
+                -f lavfi -i "testsrc2=size=320x180:rate=24:duration=10"
+                -f lavfi -i "sine=frequency=440:sample_rate=48000:duration=10"
+                -filter_complex "[1:a]volume=0:enable='not(between(t,0.5,1.0)+between(t,1.5,2.0)+between(t,3.0,3.5)+between(t,8.0,8.5))',volume=0.3:enable='between(t,0.5,1.0)+between(t,3.0,3.5)'[a]"
+                -map 0:v -map "[a]"
+                -c:v ffv1 -pix_fmt yuv420p
+                -c:a pcm_s16le
+                "${review}"
+
         COMMENT "Generating deterministic test media fixtures"
         VERBATIM
     )
 
-    add_custom_target(atk_test_media DEPENDS "${lossless}" "${lossy}" "${sync}")
+    add_custom_target(atk_test_media DEPENDS "${lossless}" "${lossy}" "${sync}" "${review}")
     set_target_properties(atk_test_media PROPERTIES FOLDER "Tests")
 
     # Validate what was produced rather than trusting the recipe. If a future

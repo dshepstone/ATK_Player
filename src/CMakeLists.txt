@@ -21,6 +21,11 @@ set(ATK_CORE_SOURCES
     media/MediaSource.cpp
     media/FrameCache.cpp
     media/PlaybackQueue.cpp
+    media/AudioSourceReader.cpp
+    media/WaveformData.cpp
+    media/WaveformWorker.cpp
+    media/ScrubAudioWorker.cpp
+    audio/ScrubAudioEngine.cpp
     media/MediaDecoder.cpp
     media/DecoderWorker.cpp
     media/ffmpeg/FFmpegUtil.cpp
@@ -59,6 +64,11 @@ set(ATK_CORE_HEADERS
     media/DecodeGeneration.h
     media/FrameCache.h
     media/PlaybackQueue.h
+    media/AudioSourceReader.h
+    media/WaveformData.h
+    media/WaveformWorker.h
+    media/ScrubAudioWorker.h
+    audio/ScrubAudioEngine.h
     media/MediaDecoder.h
     media/DecoderWorker.h
     media/ffmpeg/FFmpegUtil.h

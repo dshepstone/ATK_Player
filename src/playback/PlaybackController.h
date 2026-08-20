@@ -4,6 +4,7 @@
 #include "media/DecodeGeneration.h"
 #include "media/FrameCache.h"
 #include "media/PlaybackQueue.h"
+#include "media/WaveformData.h"
 #include "media/MediaMetadata.h"
 #include "media/VideoFrame.h"
 
@@ -20,9 +21,14 @@ class QTimer;
 namespace atk::audio {
 class AudioOutput;
 class AudioRingBuffer;
+class ScrubAudioEngine;
 }
 
-namespace atk::media { class DecoderWorker; }
+namespace atk::media {
+class DecoderWorker;
+class ScrubAudioWorker;
+class WaveformWorker;
+}
 namespace atk::timeline { class TimelineModel; }
 
 namespace atk::playback {
@@ -94,6 +100,17 @@ public:
     void stop();
 
     void seekFrame(int64_t frame);
+
+    // --- Audio scrubbing and waveform (M2) --------------------------------
+
+    /// Whether dragging the timeline produces audible audio. On by default;
+    /// visual scrubbing and the waveform are unaffected when off.
+    void setAudioScrubEnabled(bool enabled);
+    bool isAudioScrubEnabled() const { return m_audioScrubEnabled; }
+
+    /// Waveform peaks for the open media. Empty until analysis produces some.
+    const media::WaveformData& waveform() const { return m_waveform; }
+
     void beginScrub();
     void scrubToFrame(int64_t frame);
     void endScrub(int64_t frame);
@@ -141,6 +158,9 @@ signals:
     void loopEnabledChanged(bool enabled);
     void mediaOpened(const atk::media::MediaMetadata& metadata);
     void mediaClosed();
+
+    /// More waveform peaks are available, or the waveform was cleared.
+    void waveformChanged();
     void errorOccurred(const QString& message);
 
     /// A new frame should be displayed.
@@ -160,6 +180,14 @@ private slots:
     void onWorkerDecodeError(const QString& message);
     void onAudioPrimed(int bufferedMs, qint64 mediaOriginUs, quint64 requestGeneration);
 
+    void onWaveformPeaks(const QVector<atk::media::WaveformPeak>& peaks,
+                         quint64 sourceGeneration);
+    void onWaveformFinished(qint64 totalUs, quint64 sourceGeneration);
+    void onWaveformUnavailable(const QString& reason, quint64 sourceGeneration);
+
+    void onScrubGrain(const QByteArray& pcm, qint64 requestedUs, qint64 actualStartUs,
+                      quint64 sequence, quint64 sourceGeneration);
+
     /// Chooses and displays the frame for the current master clock position.
     void onDisplayTick();
     void presentNextNavigationFrame();
@@ -175,6 +203,15 @@ signals:
     void requestPlayheadFrame(qint64 frameIndex);
     void requestConfigureAudio(int sampleRate, int channelCount);
     void requestLookaheadFrames(int frames);
+
+    // To the waveform thread.
+    void requestWaveform(const QString& filePath, quint64 sourceGeneration);
+
+    // To the scrub-audio thread.
+    void requestScrubSource(const QString& filePath, int sampleRate, int channelCount,
+                            quint64 sourceGeneration);
+    void requestScrubGrain(qint64 mediaUs, qint64 durationUs, quint64 sequence,
+                           quint64 sourceGeneration);
 
 private:
     void setState(PlayerState state);
@@ -216,6 +253,16 @@ private:
     /// Moves to `frame` without playing: cache lookup, else a decode request.
     void seekAndShow(int64_t frame, bool keepPlaying);
     void dispatchScrubDecode();
+
+    /// Media time of a frame index, from the real rational frame rate. This is
+    /// the single origin both the video preview and the scrub audio derive
+    /// their position from, so the two can never drift apart.
+    int64_t mediaTimeForFrame(int64_t frame) const;
+
+    /// Asks for a grain at the given scrub position, if audio scrub is on.
+    void requestScrubAudioAt(int64_t frame);
+
+    void startWaveformAnalysis(const QString& filePath, quint64 sourceGeneration);
     void finishScrubIfReady();
     void enqueueNavigationTarget(int64_t frame);
     void dispatchNavigationDecode();
@@ -273,6 +320,24 @@ private:
     quint64 m_scrubRequestGeneration = 0;
     int64_t m_scrubDecodeTarget = -1;
     int64_t m_scrubDecodeStartNs = 0;
+
+    // --- M2: waveform and scrub audio ------------------------------------
+    QThread* m_waveformThread = nullptr;
+    media::WaveformWorker* m_waveformWorker = nullptr;
+    media::WaveformData m_waveform;
+
+    QThread* m_scrubAudioThread = nullptr;
+    media::ScrubAudioWorker* m_scrubAudioWorker = nullptr;
+    std::unique_ptr<audio::ScrubAudioEngine> m_scrubAudio;
+
+    bool m_audioScrubEnabled = true;
+    /// Increments per scrub-audio request so the worker can drop stale ones.
+    quint64 m_scrubAudioSequence = 0;
+    /// Highest sequence already played, so a late older grain is not heard
+    /// after a newer one.
+    quint64 m_scrubAudioPlayedSequence = 0;
+    /// When the outstanding grain request was issued, for latency reporting.
+    int64_t m_scrubAudioRequestNs = 0;
     std::deque<int64_t> m_navigationDecodeTargets;
     std::deque<media::VideoFrame> m_navigationPresentationFrames;
     bool m_navigationDecodeInFlight = false;

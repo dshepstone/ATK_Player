@@ -36,6 +36,7 @@ enum class CommandId {
 
     // Audio
     ToggleMute,
+    ToggleAudioScrub,
     VolumeUp,
     VolumeDown,
 

@@ -74,7 +74,19 @@ on exactly the frame the status bar reports.
 
 ## M2 — Animation Review Tools
 
-Make it a review tool rather than a viewer. **Not started.**
+Make it a review tool rather than a viewer. **In progress.**
+
+Delivered so far:
+
+- **Audible timeline scrubbing.** Dragging the timeline plays short faded grains
+  at the media position under the cursor, from a dedicated audio path that never
+  touches the playback clock.
+- **Waveform on the timeline.** Amplitude peaks generated in the background and
+  drawn above the track, so dialogue, silence and impacts are visible and the
+  playhead crosses both.
+
+Still to come in M2: In/Out points and range looping, bookmarks and range
+bookmarks, viewer zoom and pan, and audio during single-frame stepping.
 
 Deferred here deliberately from M1: audio scrubbing, audible single-frame
 stepping, In/Out points, specific loop ranges, bookmarks and range bookmarks,

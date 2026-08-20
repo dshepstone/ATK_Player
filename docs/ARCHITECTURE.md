@@ -123,6 +123,72 @@ Everything left of the queued signal runs on the decode thread. Everything right
 of it runs on the GUI thread. Nothing crosses in the other direction except
 requests.
 
+### Audio review: scrubbing and the waveform (M2)
+
+Two features share one idea -- that audio is addressable by media time -- and
+each gets its own thread and its own FFmpeg contexts.
+
+```
+                         media file
+                     (opened three times)
+                             |
+        +--------------------+--------------------+
+        |                    |                    |
+   decode thread      waveform thread      scrub audio thread
+   MediaDecoder       AudioSourceReader    AudioSourceReader
+   video + audio      audio only           audio only
+        |                    |                    |
+   PlaybackQueue        WaveformData         grain cache
+   FrameCache           (peak pyramid)            |
+        |                    |               ScrubAudioEngine
+   ViewerWidget        TimelineWidget         (own QAudioSink)
+```
+
+**Why three file handles rather than one decoder.** M1 ended by making the video
+decoder *keep* its position, so a nearby scrub target decodes forward instead of
+re-seeking -- that locality is what makes slow scrubbing usable. Pulling audio
+grains through the same decoder would re-seek it on every mouse move and undo
+exactly that. Waveform analysis is worse still: it is a linear scan of the whole
+file, and running it on the playback decoder would drag the playhead's decoder
+from one end of the media to the other while the user is reviewing a shot.
+FFmpeg is happy to have a file open several times, and the paths then cannot
+interfere.
+
+**One media-time origin.** `PlaybackController::mediaTimeForFrame()` converts a
+frame index to media time through the real rational frame rate, and both the
+video preview and the scrub grain derive their position from it. Deriving audio
+position from a nominal fps while video used the exact rate would put sound a
+frame or two off picture on 23.976 material -- which for lip-sync review is the
+whole thing being wrong.
+
+**Grains, not playback.** Each scrub position produces roughly 80 ms of PCM: long
+enough to carry a syllable (below about 40 ms speech stops being identifiable
+and every grain is a click), short enough to track the pointer. A 3 ms fade at
+each end removes the click that cutting PCM at an arbitrary sample would
+otherwise produce, without blunting the consonant attack a lip-sync review
+listens for. The scrub `QAudioSink` is started once and left running; restarting
+it per grain would add device latency to every mouse move.
+
+Scrub audio is never a clock. The pointer is authoritative, and the playback
+audio path is left completely untouched so scrub PCM cannot leak into it.
+
+**Latest position wins.** Requests carry an increasing sequence number; the
+worker drops anything older than the newest before decoding and again before
+emitting, and the controller refuses a grain older than one already played. A
+fast drag therefore does not build a backlog trailing the cursor.
+
+**Waveform peaks are a pyramid.** `WaveformData` stores min/max buckets at 10 ms
+and halves them repeatedly. min/max rather than RMS because a transient -- an
+impact, a plosive -- is exactly what an animator lines action up against, and
+averaging removes it. The pyramid exists because the timeline draws about one
+bucket per pixel: reading the finest level for a long file would mean iterating
+thousands of buckets per column on every repaint, including every playhead move
+during playback. It is also the groundwork for timeline zoom, which becomes a
+choice of level rather than a new data structure.
+
+Measured on a 63-minute file: analysed in 6.1 s on a background-priority thread,
+6.9 MB of peaks retained.
+
 ### Decoder thread ownership
 
 `DecoderWorker` is moved to a dedicated `QThread` and owns a `MediaDecoder`,

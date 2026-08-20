@@ -13,6 +13,7 @@ set(ATK_TEST_SOURCES
     tst_timecode.cpp
     tst_framecache.cpp
     tst_playbackqueue.cpp
+    tst_waveformdata.cpp
     tst_timelinemodel.cpp
     tst_playbackcontroller.cpp
     tst_playbackrange.cpp
@@ -30,6 +31,8 @@ set(ATK_TEST_SOURCES
 set(ATK_FFMPEG_TEST_SOURCES
     tst_ffmpegutil.cpp
     tst_mediadecoder.cpp
+    tst_audioreview.cpp
+    tst_scrubaudio.cpp
     tst_playbackinteraction.cpp
 )
 

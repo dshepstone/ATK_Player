@@ -48,6 +48,7 @@ constexpr std::array kCommands{
 
     // Audio
     CommandDefinition{ CommandId::ToggleMute,         "audio.toggleMute",      QT_TRANSLATE_NOOP("Command", "Mute"),                 C::Audio,    "M",            true  },
+    CommandDefinition{ CommandId::ToggleAudioScrub,   "audio.toggleScrub",     QT_TRANSLATE_NOOP("Command", "Audio Scrub"),          C::Audio,    nullptr,        true  },
     CommandDefinition{ CommandId::VolumeUp,           "audio.volumeUp",        QT_TRANSLATE_NOOP("Command", "Volume Up"),            C::Audio,    "Ctrl+Up",      false },
     CommandDefinition{ CommandId::VolumeDown,         "audio.volumeDown",      QT_TRANSLATE_NOOP("Command", "Volume Down"),          C::Audio,    "Ctrl+Down",    false },
 

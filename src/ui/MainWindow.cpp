@@ -209,6 +209,11 @@ void MainWindow::connectSignals()
     connect(m_playback.get(), &playback::PlaybackController::mediaOpened,
             this, &MainWindow::onMediaOpened);
 
+    // The waveform lives in the controller and is repainted in place; only a
+    // repaint request crosses to the widget, never a copy of the peaks.
+    connect(m_playback.get(), &playback::PlaybackController::waveformChanged,
+            this, [this] { m_timelineWidget->refreshWaveform(); });
+
     connect(m_playback.get(), &playback::PlaybackController::errorOccurred,
             this, &MainWindow::onMediaError);
 
@@ -363,6 +368,12 @@ void MainWindow::onCommand(CommandId id, bool checked)
     case CommandId::CloseSource:
         m_playback->closeMedia();
         return;
+    case CommandId::ToggleAudioScrub:
+        m_playback->setAudioScrubEnabled(checked);
+        statusBar()->showMessage(
+            checked ? tr("Audio scrubbing on") : tr("Audio scrubbing off"), 1500);
+        return;
+
     case CommandId::ToggleMute: {
         m_playback->setMuted(checked);
         statusBar()->showMessage(checked ? tr("Audio muted") : tr("Audio unmuted"), 1500);
@@ -543,6 +554,11 @@ void MainWindow::onMediaOpened(const media::MediaMetadata& metadata)
             ? (static_cast<double>(metadata.resolution.width()) * metadata.pixelAspectRatio)
                   / static_cast<double>(metadata.resolution.height())
             : 0.0);
+
+    // The waveform is indexed by media time and the track by frame, so the
+    // widget needs the duration to map between them.
+    m_timelineWidget->setWaveform(&m_playback->waveform());
+    m_timelineWidget->setMediaDuration(metadata.durationUs);
 
     m_sources->setCurrentMedia(metadata.fileName, metadata.shortDescription());
     m_statusInfo->setMediaInfo(metadata.fileName, metadata.hasExactFrameCount());
