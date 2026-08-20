@@ -1,5 +1,7 @@
 #include "media/ffmpeg/FFmpegUtil.h"
 
+#include "media/MediaLibraryInfo.h"
+
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
@@ -127,3 +129,12 @@ int64_t microsecondsToFrameIndex(int64_t microseconds, AVRational frameRate)
 }
 
 } // namespace atk::media::ffmpeg
+
+namespace atk::media {
+
+QString libraryVersionSummary()
+{
+    return ffmpeg::libraryVersions();
+}
+
+} // namespace atk::media

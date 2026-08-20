@@ -15,6 +15,7 @@
         "avformat",
         "swresample",
         "swscale",
+        "avdevice",
         "ffmpeg",
         "ffprobe"
       ]
@@ -29,7 +30,7 @@
     "  avcodec, avformat  -- demuxing and decoding",
     "  swscale            -- pixel format conversion to a viewer-ready RGB frame",
     "  swresample         -- audio conversion to a device-compatible PCM format",
-    "  ffmpeg, ffprobe    -- command-line tools, used to generate and validate the",
+    "  avdevice           -- provides the 'lavfi' input device, which is how the\n                        deterministic test fixtures are generated. Not used by\n                        the application itself.\n  ffmpeg, ffprobe    -- command-line tools, used to generate and validate the",
     "                        deterministic test fixtures the integration tests",
     "                        decode. Not shipped with the application.",
     "",

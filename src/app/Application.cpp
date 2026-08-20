@@ -1,7 +1,7 @@
 #include "app/Application.h"
 
 #include "core/Logging.h"
-#include "media/ffmpeg/FFmpegUtil.h"
+#include "media/MediaLibraryInfo.h"
 #include "core/Version.h"
 #include "ui/Theme.h"
 
@@ -26,7 +26,7 @@ bool Application::initialize()
 
     log::initialize();
 
-    qCInfo(log::media).noquote() << "FFmpeg:" << media::ffmpeg::libraryVersions();
+    qCInfo(log::media).noquote() << "FFmpeg:" << media::libraryVersionSummary();
 
     parseArguments();
 

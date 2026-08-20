@@ -1,6 +1,7 @@
 #pragma once
 
 #include "media/AudioBuffer.h"
+#include "media/DecodeGeneration.h"
 #include "media/FrameCache.h"
 #include "media/MediaMetadata.h"
 #include "media/VideoFrame.h"
@@ -137,11 +138,13 @@ signals:
     void loadingChanged(bool loading);
 
 private slots:
-    void onWorkerMediaOpened(const atk::media::MediaMetadata& metadata);
-    void onWorkerMediaOpenFailed(const QString& message);
-    void onWorkerFrameReady(const atk::media::VideoFrame& frame);
-    void onWorkerFrameFailed(qint64 frameIndex, const QString& message);
-    void onWorkerEndOfStream();
+    void onWorkerMediaOpened(const atk::media::MediaMetadata& metadata,
+                             quint64 sourceGeneration);
+    void onWorkerMediaOpenFailed(const QString& message, quint64 sourceGeneration);
+    void onWorkerFrameReady(const atk::media::VideoFrame& frame, quint64 requestGeneration);
+    void onWorkerFrameFailed(qint64 frameIndex, const QString& message,
+                             quint64 requestGeneration);
+    void onWorkerEndOfStream(quint64 requestGeneration);
     void onWorkerDecodeError(const QString& message);
 
     /// Chooses and displays the frame for the current master clock position.
@@ -150,10 +153,10 @@ private slots:
 signals:
     // Requests to the decode thread. Connected to DecoderWorker slots as queued
     // connections, so nothing on the UI thread ever touches an FFmpeg context.
-    void requestOpen(const QString& filePath);
+    void requestOpen(const QString& filePath, quint64 sourceGeneration);
     void requestClose();
-    void requestFrame(qint64 frameIndex);
-    void requestStartPlayback(qint64 fromFrameIndex);
+    void requestFrame(qint64 frameIndex, quint64 requestGeneration);
+    void requestStartPlayback(qint64 fromFrameIndex, quint64 requestGeneration);
     void requestStopPlayback();
     void requestPlayheadFrame(qint64 frameIndex);
     void requestConfigureAudio(int sampleRate, int channelCount);
@@ -161,6 +164,18 @@ signals:
 private:
     void setState(PlayerState state);
     void setError(const QString& message);
+
+    /// Stops the display timer and audio, and tells the worker to stop
+    /// producing. Shared by pause, stop, seek, close and shutdown, so the order
+    /// is written once rather than repeated slightly differently in five places.
+    void haltPlaybackMachinery();
+
+    /// Moves between Empty and Ready as the timeline gains or loses an extent.
+    void reconcileIdleState();
+
+    /// Ends the current playback run because the *playhead* reached the end:
+    /// loops back if looping is on, otherwise settles on the final frame.
+    void finishPlayback();
 
     /// Master media position in microseconds: the audio device when there is
     /// audio, the monotonic clock otherwise.
@@ -192,6 +207,9 @@ private:
     bool m_audioActive = false;
 
     // --- Video ------------------------------------------------------------
+    /// Shared with the worker. Bumped here, read there.
+    std::shared_ptr<media::DecodeGenerations> m_generations;
+
     media::FrameCache m_cache;
     media::VideoFrame m_currentFrame;
     QTimer* m_displayTimer = nullptr;
@@ -210,6 +228,9 @@ private:
     bool m_resumeAfterSeek = false;
     int64_t m_droppedFrames = 0;
     int64_t m_pendingSeekFrame = -1;
+    /// The decoder has no more frames to produce for this run. Distinct from
+    /// playback being over -- frames already decoded still have to be shown.
+    bool m_decoderAtEnd = false;
 };
 
 } // namespace atk::playback

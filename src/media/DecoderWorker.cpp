@@ -16,25 +16,60 @@ namespace {
 /// noticed quickly, large enough not to lock the mutex once per sample.
 constexpr int64_t kAudioPushChunkBytes = 16 * 1024;
 
+/// Idle wait when the decode queue is already far enough ahead.
+constexpr int kIdleStepDelayMs = 4;
+
 } // namespace
 
 DecoderWorker::DecoderWorker(std::shared_ptr<audio::AudioRingBuffer> audioBuffer,
+                             std::shared_ptr<DecodeGenerations> generations,
                              QObject* parent)
     : QObject(parent)
     , m_decoder(std::make_unique<MediaDecoder>())
     , m_audioBuffer(std::move(audioBuffer))
+    , m_generations(std::move(generations))
 {
+    Q_ASSERT(m_generations != nullptr);
 }
 
 DecoderWorker::~DecoderWorker()
 {
-    // Runs on the decode thread during thread shutdown, so the decoder is
-    // destroyed by the same thread that used it.
+    // Runs on the decode thread during thread shutdown, so every FFmpeg context
+    // is destroyed by the same thread that created and used it.
     m_decoder.reset();
 }
 
-void DecoderWorker::openMedia(const QString& filePath)
+bool DecoderWorker::isStale(quint64 generation) const
 {
+    return !m_generations->isCurrentRequest(generation);
+}
+
+void DecoderWorker::shutdown()
+{
+    m_shuttingDown = true;
+    m_playing = false;
+
+    if (m_audioBuffer) {
+        m_audioBuffer->clear();
+    }
+    m_pendingAudio = AudioChunk{};
+    m_pendingAudioOffset = 0;
+
+    // Release FFmpeg here rather than leaving it to the destructor, so teardown
+    // is an explicit step that happens before the thread is joined.
+    m_decoder->close();
+}
+
+// ---------------------------------------------------------------------------
+// Media lifecycle
+// ---------------------------------------------------------------------------
+
+void DecoderWorker::openMedia(const QString& filePath, quint64 sourceGeneration)
+{
+    if (m_shuttingDown) {
+        return;
+    }
+
     m_playing = false;
     m_reachedEnd = false;
     m_pendingAudio = AudioChunk{};
@@ -45,10 +80,21 @@ void DecoderWorker::openMedia(const QString& filePath)
         m_audioBuffer->clear();
     }
 
+    // Closing first releases the previous file's contexts before the new ones
+    // are allocated, so two decoders never exist at once.
+    m_decoder->close();
+
     QString error;
     if (!m_decoder->open(filePath, &error)) {
         m_decoder->close();
-        emit mediaOpenFailed(error);
+        emit mediaOpenFailed(error, sourceGeneration);
+        return;
+    }
+
+    // Another open may have been requested while this one was running.
+    if (!m_generations->isCurrentSource(sourceGeneration)) {
+        qCDebug(log::media) << "Discarding open of" << filePath << "- superseded";
+        m_decoder->close();
         return;
     }
 
@@ -69,10 +115,15 @@ void DecoderWorker::openMedia(const QString& filePath)
         }
     }
 
-    emit mediaOpened(metadata);
+    if (!m_generations->isCurrentSource(sourceGeneration)) {
+        m_decoder->close();
+        return;
+    }
+
+    emit mediaOpened(metadata, sourceGeneration);
 
     // Show something immediately rather than waiting for the user to press play.
-    requestFrame(0);
+    requestFrame(0, m_generations->currentRequest());
 }
 
 void DecoderWorker::closeMedia()
@@ -114,10 +165,22 @@ void DecoderWorker::configureAudio(int sampleRate, int channelCount)
     }
 }
 
-void DecoderWorker::requestFrame(qint64 frameIndex)
+// ---------------------------------------------------------------------------
+// Frame requests
+// ---------------------------------------------------------------------------
+
+void DecoderWorker::requestFrame(qint64 frameIndex, quint64 requestGeneration)
 {
-    if (!m_decoder->isOpen()) {
-        emit frameFailed(frameIndex, QStringLiteral("No media is open."));
+    if (m_shuttingDown || !m_decoder->isOpen()) {
+        if (!m_shuttingDown) {
+            emit frameFailed(frameIndex, QStringLiteral("No media is open."), requestGeneration);
+        }
+        return;
+    }
+
+    // Superseded before the request was even picked up.
+    if (isStale(requestGeneration)) {
+        qCDebug(log::media) << "Skipping stale frame request" << frameIndex;
         return;
     }
 
@@ -131,23 +194,41 @@ void DecoderWorker::requestFrame(qint64 frameIndex)
 
     VideoFrame frame;
     QString error;
-    if (!m_decoder->frameAtIndex(frameIndex, frame, &error)) {
-        qCWarning(log::media).noquote()
-            << "Frame" << frameIndex << "could not be decoded:" << error;
-        emit frameFailed(frameIndex, error);
+
+    // Decoding forward from a keyframe can take a while; abandon it as soon as
+    // a newer request arrives rather than finishing work nobody wants.
+    const bool decoded = m_decoder->frameAtIndex(
+        frameIndex, frame, &error,
+        [this, requestGeneration] { return isStale(requestGeneration); });
+
+    if (isStale(requestGeneration)) {
+        qCDebug(log::media) << "Discarding frame" << frameIndex << "- superseded during decode";
         return;
     }
+
+    if (!decoded) {
+        qCWarning(log::media).noquote()
+            << "Frame" << frameIndex << "could not be decoded:" << error;
+        emit frameFailed(frameIndex, error, requestGeneration);
+        return;
+    }
+
+    frame.sourceGeneration = m_generations->currentSource();
 
     m_reachedEnd = false;
     m_decodedAheadTo = frame.frameIndex;
     m_playheadFrame.store(frame.frameIndex);
 
-    emit frameReady(frame);
+    emit frameReady(frame, requestGeneration);
 }
 
-void DecoderWorker::startPlayback(qint64 fromFrameIndex)
+// ---------------------------------------------------------------------------
+// Playback
+// ---------------------------------------------------------------------------
+
+void DecoderWorker::startPlayback(qint64 fromFrameIndex, quint64 requestGeneration)
 {
-    if (!m_decoder->isOpen()) {
+    if (m_shuttingDown || !m_decoder->isOpen() || isStale(requestGeneration)) {
         return;
     }
 
@@ -169,6 +250,7 @@ void DecoderWorker::startPlayback(qint64 fromFrameIndex)
 
     m_playing = true;
     m_reachedEnd = false;
+    m_playbackGeneration = requestGeneration;
     m_playheadFrame.store(fromFrameIndex);
     m_decodedAheadTo = fromFrameIndex - 1;
 
@@ -193,7 +275,7 @@ void DecoderWorker::setPlayheadFrame(qint64 frameIndex)
 
 void DecoderWorker::scheduleNextStep()
 {
-    if (m_stepScheduled || !m_playing) {
+    if (m_stepScheduled || !m_playing || m_shuttingDown) {
         return;
     }
     m_stepScheduled = true;
@@ -207,7 +289,13 @@ void DecoderWorker::decodeStep()
 {
     m_stepScheduled = false;
 
-    if (!m_playing || !m_decoder->isOpen()) {
+    if (!m_playing || m_shuttingDown || !m_decoder->isOpen()) {
+        return;
+    }
+
+    // A seek during playback supersedes this run; the controller restarts it.
+    if (isStale(m_playbackGeneration)) {
+        m_playing = false;
         return;
     }
 
@@ -229,10 +317,11 @@ void DecoderWorker::decodeStep()
         }
         if (status == DecodeStatus::EndOfFile) {
             m_reachedEnd = true;
-            emit endOfStream();
+            emit endOfStream(m_playbackGeneration);
         } else {
+            frame.sourceGeneration = m_generations->currentSource();
             m_decodedAheadTo = frame.frameIndex;
-            emit frameReady(frame);
+            emit frameReady(frame, m_playbackGeneration);
         }
     }
 
@@ -244,7 +333,7 @@ void DecoderWorker::decodeStep()
         // Nothing useful to do right now. Come back shortly rather than
         // spinning the event loop at full speed.
         m_stepScheduled = true;
-        QTimer::singleShot(4, this, [this] {
+        QTimer::singleShot(kIdleStepDelayMs, this, [this] {
             m_stepScheduled = false;
             scheduleNextStep();
         });

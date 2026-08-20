@@ -61,6 +61,7 @@ PlaybackController::PlaybackController(timeline::TimelineModel* timeline, QObjec
     : QObject(parent)
     , m_timeline(timeline)
     , m_audioBuffer(std::make_shared<audio::AudioRingBuffer>())
+    , m_generations(std::make_shared<media::DecodeGenerations>())
     , m_displayTimer(new QTimer(this))
 {
     Q_ASSERT(m_timeline != nullptr);
@@ -78,7 +79,7 @@ PlaybackController::PlaybackController(timeline::TimelineModel* timeline, QObjec
     m_decodeThread = new QThread(this);
     m_decodeThread->setObjectName(QStringLiteral("ATK decode"));
 
-    m_worker = new media::DecoderWorker(m_audioBuffer);
+    m_worker = new media::DecoderWorker(m_audioBuffer, m_generations);
     m_worker->moveToThread(m_decodeThread);
 
     // The worker is destroyed by its own thread, so the FFmpeg contexts it owns
@@ -131,25 +132,45 @@ PlaybackController::PlaybackController(timeline::TimelineModel* timeline, QObjec
                 }
             });
 
-    setState(m_timeline->frameCount() > 0 ? PlayerState::Ready : PlayerState::Empty);
+    // The extent can arrive after this constructor runs -- the window installs
+    // the placeholder extent immediately afterwards, and real media later still.
+    // Watching the model keeps the state honest instead of freezing whatever
+    // happened to be true at construction time.
+    connect(m_timeline, &timeline::TimelineModel::frameCountChanged,
+            this, [this](int64_t) { reconcileIdleState(); });
+
+    m_cache.setSourceGeneration(m_generations->currentSource());
+
+    reconcileIdleState();
 }
 
 PlaybackController::~PlaybackController()
 {
-    // Stop producing before tearing anything down, or the worker could emit
-    // into a half-destroyed controller.
-    m_displayTimer->stop();
-    if (m_audioOutput) {
-        m_audioOutput->stop();
-    }
+    // Shutdown order is deliberate and must not be rearranged:
+    //
+    //   1. invalidate every outstanding request, so anything still in flight is
+    //      already stale and long decode loops abandon their work;
+    //   2. stop this side producing or consuming -- timer off, audio device
+    //      stopped -- so no UI object is touched again;
+    //   3. disconnect delivery, so a queued signal already posted cannot run a
+    //      slot on a half-destroyed controller;
+    //   4. release FFmpeg on the decode thread, synchronously;
+    //   5. join the thread;
+    //   6. only then let members be destroyed.
+    //
+    // Skipping (1) makes shutdown wait for a decode nobody wants. Skipping (3)
+    // is a use-after-free waiting for the right timing.
+    m_generations->bumpSource();
+
+    haltPlaybackMachinery();
 
     if (m_decodeThread != nullptr) {
-        // Disconnect first: queued signals already in flight must not run
-        // against a controller that is being destroyed.
         m_worker->disconnect(this);
         disconnect(this, nullptr, m_worker, nullptr);
 
-        QMetaObject::invokeMethod(m_worker, &media::DecoderWorker::closeMedia,
+        // Blocking so FFmpeg teardown finishes on the thread that owns it
+        // before that thread is asked to exit.
+        QMetaObject::invokeMethod(m_worker, &media::DecoderWorker::shutdown,
                                   Qt::BlockingQueuedConnection);
 
         m_decodeThread->quit();
@@ -161,6 +182,29 @@ PlaybackController::~PlaybackController()
     }
 }
 
+void PlaybackController::reconcileIdleState()
+{
+    const bool hasExtent = m_timeline->frameCount() > 0;
+
+    // Only the two idle states are reconciled. Playing, Paused, Seeking,
+    // Loading and Error are all mid-operation or user-visible outcomes, and
+    // overwriting them from a model signal would lose information.
+    if (hasExtent && m_state == PlayerState::Empty) {
+        setState(PlayerState::Ready);
+    } else if (!hasExtent && m_state == PlayerState::Ready) {
+        setState(PlayerState::Empty);
+    }
+}
+
+void PlaybackController::haltPlaybackMachinery()
+{
+    m_displayTimer->stop();
+    emit requestStopPlayback();
+    if (m_audioOutput) {
+        m_audioOutput->stop();
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Media
 // ---------------------------------------------------------------------------
@@ -169,13 +213,16 @@ void PlaybackController::openMedia(const QString& filePath)
 {
     qCInfo(log::playback).noquote() << "Opening media:" << filePath;
 
+    // A new source invalidates every outstanding request and every cached
+    // frame at once. Bumping first means results already in flight from the
+    // previous file are stale before they can arrive.
+    const quint64 sourceGeneration = m_generations->bumpSource();
+
     // Tear the previous session down completely before the new one starts, so
     // nothing from the old file survives into the new one.
-    m_displayTimer->stop();
-    emit requestStopPlayback();
-    m_audioOutput->stop();
+    haltPlaybackMachinery();
     m_audioActive = false;
-    m_cache.clear();
+    m_cache.setSourceGeneration(sourceGeneration);
     m_currentFrame = media::VideoFrame{};
     m_droppedFrames = 0;
     m_errorMessage.clear();
@@ -185,18 +232,18 @@ void PlaybackController::openMedia(const QString& filePath)
     setState(PlayerState::Loading);
     emit loadingChanged(true);
 
-    emit requestOpen(filePath);
+    emit requestOpen(filePath, sourceGeneration);
 }
 
 void PlaybackController::closeMedia()
 {
-    m_displayTimer->stop();
-    emit requestStopPlayback();
+    const quint64 sourceGeneration = m_generations->bumpSource();
+
+    haltPlaybackMachinery();
     emit requestClose();
 
-    m_audioOutput->stop();
     m_audioActive = false;
-    m_cache.clear();
+    m_cache.setSourceGeneration(sourceGeneration);
     m_currentFrame = media::VideoFrame{};
     m_hasMedia = false;
     m_metadata = media::MediaMetadata{};
@@ -208,8 +255,15 @@ void PlaybackController::closeMedia()
     setState(PlayerState::Empty);
 }
 
-void PlaybackController::onWorkerMediaOpened(const media::MediaMetadata& metadata)
+void PlaybackController::onWorkerMediaOpened(const media::MediaMetadata& metadata,
+                                             quint64 sourceGeneration)
 {
+    // A newer open superseded this one while it was being probed.
+    if (!m_generations->isCurrentSource(sourceGeneration)) {
+        qCDebug(log::playback) << "Ignoring open result from superseded source generation";
+        return;
+    }
+
     m_metadata = metadata;
     m_hasMedia = true;
     emit loadingChanged(false);
@@ -246,8 +300,13 @@ void PlaybackController::onWorkerMediaOpened(const media::MediaMetadata& metadat
     emit mediaOpened(metadata);
 }
 
-void PlaybackController::onWorkerMediaOpenFailed(const QString& message)
+void PlaybackController::onWorkerMediaOpenFailed(const QString& message,
+                                                 quint64 sourceGeneration)
 {
+    if (!m_generations->isCurrentSource(sourceGeneration)) {
+        return;
+    }
+
     emit loadingChanged(false);
     m_hasMedia = false;
     m_metadata = media::MediaMetadata{};
@@ -261,9 +320,23 @@ void PlaybackController::onWorkerMediaOpenFailed(const QString& message)
 // Frame delivery
 // ---------------------------------------------------------------------------
 
-void PlaybackController::onWorkerFrameReady(const media::VideoFrame& frame)
+void PlaybackController::onWorkerFrameReady(const media::VideoFrame& frame,
+                                            quint64 requestGeneration)
 {
     if (!frame.isValid()) {
+        return;
+    }
+
+    // Two independent checks, because they catch different things. The source
+    // check rejects a frame from a file that is no longer open. The request
+    // check rejects a frame that was correct for a seek the user has already
+    // moved on from -- without it, releasing a drag can be followed by the
+    // picture jumping back to an earlier position as late results land.
+    if (!m_generations->isCurrentSource(frame.sourceGeneration)) {
+        return;
+    }
+    if (!m_generations->isCurrentRequest(requestGeneration)) {
+        qCDebug(log::playback) << "Dropping stale frame" << frame.frameIndex;
         return;
     }
 
@@ -290,8 +363,14 @@ void PlaybackController::onWorkerFrameReady(const media::VideoFrame& frame)
     }
 }
 
-void PlaybackController::onWorkerFrameFailed(qint64 frameIndex, const QString& message)
+void PlaybackController::onWorkerFrameFailed(qint64 frameIndex, const QString& message,
+                                             quint64 requestGeneration)
 {
+    if (!m_generations->isCurrentRequest(requestGeneration)) {
+        // Expected whenever a request was cancelled mid-decode; not an error.
+        return;
+    }
+
     qCWarning(log::playback).noquote()
         << "Frame" << frameIndex << "failed:" << message;
 
@@ -304,28 +383,46 @@ void PlaybackController::onWorkerFrameFailed(qint64 frameIndex, const QString& m
     }
 }
 
-void PlaybackController::onWorkerEndOfStream()
+void PlaybackController::onWorkerEndOfStream(quint64 requestGeneration)
 {
-    if (m_state != PlayerState::Playing) {
+    if (!m_generations->isCurrentRequest(requestGeneration)) {
         return;
     }
 
+    // The decoder having no more frames is NOT the end of playback. On a short
+    // clip the worker decodes everything within milliseconds of pressing play,
+    // long before the playhead has shown any of it. Ending here would cut a
+    // two-second clip off after a fraction of a second.
+    //
+    // Playback ends when the *playhead* reaches the end, which the display tick
+    // decides. All this does is record that no further frames are coming.
+    qCDebug(log::playback) << "Decoder reached end of stream";
+    m_decoderAtEnd = true;
+}
+
+void PlaybackController::finishPlayback()
+{
     if (m_loopEnabled) {
-        qCDebug(log::playback) << "End of stream reached; looping";
+        qCDebug(log::playback) << "Playhead reached the end; looping";
         // Whole-clip loop for M1. Range looping is M2.
-        seekFrame(0);
+        m_decoderAtEnd = false;
+        seekFrame(m_timeline->effectiveStartFrame());
         m_resumeAfterSeek = true;
         return;
     }
 
-    qCInfo(log::playback) << "End of stream reached";
-    m_displayTimer->stop();
-    emit requestStopPlayback();
-    m_audioOutput->stop();
+    qCInfo(log::playback) << "Playback reached the end";
+    haltPlaybackMachinery();
+    m_generations->bumpRequest();
 
     const int64_t last = effectiveLastFrame();
     if (last >= 0) {
-        m_timeline->setCurrentFrame(last);
+        // Settle on the final frame, displaying it if it is still cached.
+        if (const media::VideoFrame* cached = m_cache.find(last)) {
+            presentFrame(*cached);
+        } else {
+            m_timeline->setCurrentFrame(last);
+        }
     }
     setState(PlayerState::Ended);
 }
@@ -354,8 +451,12 @@ int64_t PlaybackController::masterPositionUs() const
         if (audioPosition >= 0) {
             return audioPosition;
         }
+        // Audio is configured but has not begun delivering yet -- the first
+        // buffers are still being filled. Fall through to the monotonic clock
+        // rather than stalling; audio takes over as soon as it is really
+        // playing.
     }
-    // No audio: a monotonic clock takes the master role.
+    // No audio, or audio not yet running: a monotonic clock takes the role.
     return m_playbackStartUs + (monotonicNowNs() - m_monotonicStartNs) / 1000;
 }
 
@@ -414,7 +515,7 @@ void PlaybackController::onDisplayTick()
     const int64_t end = effectiveLastFrame();
 
     if (end >= 0 && targetFrame > end) {
-        onWorkerEndOfStream();
+        finishPlayback();
         return;
     }
 
@@ -483,9 +584,12 @@ void PlaybackController::play()
     const AVRational avRate{ rate.numerator, rate.denominator };
     m_playbackStartUs = media::ffmpeg::frameIndexToMicroseconds(from, avRate);
     m_monotonicStartNs = monotonicNowNs();
+    m_decoderAtEnd = false;
 
     if (!inPlaceholderMode()) {
-        emit requestStartPlayback(from);
+        // Playback repositions the decoder, so it supersedes any pending seek.
+        const quint64 generation = m_generations->bumpRequest();
+        emit requestStartPlayback(from, generation);
         emit requestPlayheadFrame(from);
 
         if (m_audioActive) {
@@ -503,14 +607,13 @@ void PlaybackController::pause()
         return;
     }
 
-    stopDisplayTimer();
-    emit requestStopPlayback();
-
     // Stop rather than suspend: suspending leaves the device holding audio that
     // would play on resume even after a seek elsewhere.
-    if (m_audioActive) {
-        m_audioOutput->stop();
-    }
+    haltPlaybackMachinery();
+
+    // Pausing ends the playback run, so frames still being decoded for it are
+    // no longer wanted.
+    m_generations->bumpRequest();
 
     setState(PlayerState::Paused);
 }
@@ -526,12 +629,8 @@ void PlaybackController::togglePlayPause()
 
 void PlaybackController::stop()
 {
-    stopDisplayTimer();
-    emit requestStopPlayback();
-
-    if (m_audioActive) {
-        m_audioOutput->stop();
-    }
+    haltPlaybackMachinery();
+    m_generations->bumpRequest();
 
     m_resumeAfterSeek = false;
 
@@ -539,7 +638,9 @@ void PlaybackController::stop()
 
     if (inPlaceholderMode()) {
         m_timeline->setCurrentFrame(start);
-        setState(m_timeline->frameCount() > 0 ? PlayerState::Ready : PlayerState::Empty);
+        m_cache.setSourceGeneration(m_generations->currentSource());
+
+    setState(m_timeline->frameCount() > 0 ? PlayerState::Ready : PlayerState::Empty);
         return;
     }
 
@@ -577,7 +678,11 @@ void PlaybackController::seekAndShow(int64_t frame, bool keepPlaying)
     if (m_state != PlayerState::Seeking) {
         setState(PlayerState::Seeking);
     }
-    emit requestFrame(target);
+
+    // Bumping here is what makes the previous in-flight decode stale: the
+    // worker sees the change mid-loop and abandons it, and any result that
+    // still arrives is rejected on receipt.
+    emit requestFrame(target, m_generations->bumpRequest());
 }
 
 void PlaybackController::seekFrame(int64_t frame)
@@ -585,18 +690,14 @@ void PlaybackController::seekFrame(int64_t frame)
     const bool wasPlaying = m_state == PlayerState::Playing;
 
     if (wasPlaying) {
-        stopDisplayTimer();
-        emit requestStopPlayback();
-        if (m_audioActive) {
-            m_audioOutput->stop();
-        }
+        haltPlaybackMachinery();
     }
 
-    // Frames either side of the old position are no longer the ones wanted, and
-    // keeping them would let a stale frame be displayed after the seek.
-    if (!inPlaceholderMode()) {
-        m_cache.clear();
-    }
+    // The cache is deliberately *not* cleared here. Its frames still belong to
+    // the open source, so they stay valid across a seek -- that is what makes
+    // stepping back and forth over the same few seconds instant. Correctness
+    // after a seek comes from the request generation, not from discarding work.
+
 
     seekAndShow(frame, wasPlaying);
 }

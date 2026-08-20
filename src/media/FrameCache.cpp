@@ -26,8 +26,25 @@ bool FrameCache::contains(int64_t frameIndex) const
     return m_entries.find(frameIndex) != m_entries.end();
 }
 
+void FrameCache::setSourceGeneration(uint64_t generation)
+{
+    if (m_sourceGeneration == generation) {
+        return;
+    }
+    // Everything held belongs to the previous source.
+    clear();
+    m_sourceGeneration = generation;
+}
+
 void FrameCache::insert(VideoFrame frame)
 {
+    // Refuse frames from a source that is no longer open. This is the backstop
+    // that makes a missed invalidation somewhere else harmless rather than
+    // visible as a frame from the wrong file.
+    if (frame.sourceGeneration != m_sourceGeneration) {
+        return;
+    }
+
     if (!frame.isValid()) {
         return;
     }

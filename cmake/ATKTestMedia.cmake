@@ -31,6 +31,11 @@ find_program(ATK_FFPROBE_EXECUTABLE
 
 set(ATK_TEST_MEDIA_DIR "${CMAKE_BINARY_DIR}/test-media")
 
+# Captured here, at include time. Inside a function() CMAKE_CURRENT_LIST_DIR
+# refers to the *calling* file, which would resolve the validation script
+# against the project root and fail to find it.
+set(ATK_TEST_MEDIA_MODULE_DIR "${CMAKE_CURRENT_LIST_DIR}")
+
 # ---------------------------------------------------------------------------
 # atk_add_test_media()
 #
@@ -94,7 +99,7 @@ function(atk_add_test_media)
             COMMAND "${CMAKE_COMMAND}"
                     -DFFPROBE=${ATK_FFPROBE_EXECUTABLE}
                     -DMEDIA_DIR=${ATK_TEST_MEDIA_DIR}
-                    -P "${CMAKE_CURRENT_LIST_DIR}/ValidateTestMedia.cmake"
+                    -P "${ATK_TEST_MEDIA_MODULE_DIR}/ValidateTestMedia.cmake"
         )
         set_tests_properties(fixture_validation PROPERTIES FIXTURES_SETUP atk_media)
     endif()

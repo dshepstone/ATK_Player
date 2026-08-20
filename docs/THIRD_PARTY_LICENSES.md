@@ -12,7 +12,7 @@ ships, so the licence position can be reviewed rather than reconstructed.
 This file is maintained from the first commit rather than assembled before a
 release, because reconstructing it after the fact is how obligations get missed.
 
-**Status:** Phase 0 (M0). Qt is the only dependency currently linked.
+**Status:** M1. Qt and FFmpeg are both linked and both redistributed.
 
 ---
 
@@ -43,33 +43,42 @@ binary release; and whether the commercial licence would be preferable.
 
 ---
 
-## Planned
-
-### FFmpeg — milestone M1
+### FFmpeg — in use since M1
 
 | | |
 |---|---|
-| Licence | LGPL v2.1 or later for the core; some components are GPL or nonfree |
-| Linkage | **Dynamic** (planned) |
-| Used for | Video and audio decoding, and export in M5 |
-| Source | https://ffmpeg.org/ |
+| Version | **9.0.1** (vcpkg port `ffmpeg`, port-version 1) |
+| Licence | LGPL v2.1 or later, as built here |
+| Linkage | **Dynamic** — `avcodec-63.dll`, `avformat-63.dll`, `avutil-61.dll`, `swscale-10.dll`, `swresample-7.dll`, `avfilter-12.dll`, `avdevice-62.dll` |
+| Used for | Demuxing, video and audio decoding, pixel format conversion, audio resampling |
+| Source | https://ffmpeg.org/ , built from source by vcpkg |
+| Pinned by | `builtin-baseline` `45f9f39362a4c52e2b1fbe57b7e649db7f3d96d4` in `vcpkg.json` |
 
-Components intended for use: `libavformat`, `libavcodec`, `libavutil`,
-`libswscale`, `libswresample`.
+**Features enabled** (`vcpkg.json`): `avcodec`, `avformat`, `swresample`,
+`swscale`, `avdevice`, `ffmpeg`, `ffprobe`.
 
-**Engineering constraints the project intends to apply:**
+`avdevice` is present only to supply the `lavfi` input device used to generate
+deterministic test fixtures; the application does not use it. `ffmpeg` and
+`ffprobe` are development tools for generating and validating those fixtures and
+are **not** redistributed with the application.
 
-- Build with `--disable-gpl` and `--disable-nonfree`, so no GPL or nonfree
-  component is present in the binary at all.
-- Dynamic linking only.
-- If a GPL-only codec is ever genuinely required, reach it through a separate
-  process or an optional component the user installs themselves — never linked
-  into `ATKPlayer.exe`.
+**GPL and nonfree components are disabled.** The vcpkg port is configured with
+`--disable-gpl` and no `nonfree`, `x264`, `x265`, or `fdk-aac` feature is
+requested. The port's configure line records this explicitly:
 
-**To review before distribution:** the exact build configuration actually used,
-which licence each bundled library falls under, and what must ship alongside the
-binaries. Record the verbatim FFmpeg `configure` line here once the build is
-pinned, so the position can be checked rather than assumed.
+```
+--disable-libx264 --disable-libx265 --disable-libfdk-aac
+--disable-nonfree --disable-libvpx --disable-libmp3lame ...
+```
+
+ATK Player relies on FFmpeg's built-in LGPL decoders. Enabling any GPL or
+nonfree feature would change the licence position of the whole distribution and
+must not be done without a deliberate decision recorded here.
+
+**To review before distribution:** which LGPL v2.1 obligations attach to this
+usage and this linkage; what notices, licence texts and source or relinking
+provisions must accompany a binary release; and whether the full `configure`
+line should be captured verbatim in the release artefacts.
 
 ---
 

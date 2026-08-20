@@ -13,11 +13,13 @@ neither has been built or tested yet.
 | Visual Studio 2022 | 17.x | **Desktop development with C++** workload. Community edition is fine. |
 | CMake | 3.25 or newer | Visual Studio bundles 3.27, which works — no separate install needed. |
 | Ninja | any recent | Visual Studio bundles it. |
-| Qt | 6.5 or newer, **msvc2022_64** | The MSVC build, not MinGW, not ARM. |
+| Qt | 6.5 or newer, **msvc2022_64** | The MSVC build, not MinGW, not ARM. **The Multimedia module is required** (audio output). |
+| vcpkg | any recent | Supplies FFmpeg. Cloned outside the repository. |
 | Python | 3.8+ | Only needed to install Qt via `aqtinstall`. |
 | Git | any | |
 
-FFmpeg and vcpkg are **not** required. FFmpeg arrives in milestone M1.
+FFmpeg is built from source by vcpkg on first configure. That takes roughly ten
+to twenty minutes once; afterwards it is cached.
 
 ### Where the bundled tools live
 
@@ -75,6 +77,48 @@ C:\Qt\6.9.3\msvc2022_64\lib\cmake\Qt6\Qt6Config.cmake
 
 The Qt GUI installer works too — select **Qt 6.9.x → MSVC 2022 64-bit**. It just
 needs a free Qt account.
+
+---
+
+## Telling CMake where Qt and vcpkg are
+
+`CMakePresets.json` is committed, so it must not contain a path that exists only
+on one machine. Two environment variables supply them:
+
+```bash
+setx QT_ROOT     C:/Qt/6.9.3/msvc2022_64
+setx VCPKG_ROOT  C:/dev/vcpkg
+```
+
+Install vcpkg once, outside the repository:
+
+```bash
+git clone https://github.com/microsoft/vcpkg C:/dev/vcpkg
+```
+
+```bash
+C:/dev/vcpkg/bootstrap-vcpkg.bat -disableMetrics
+```
+
+The manifest in `vcpkg.json` pins the dependency set, so `cmake --preset` builds
+FFmpeg itself on first configure. Nothing needs to be installed by hand and
+vcpkg is never added to the global `PATH`.
+
+### If your checkout path contains a space
+
+FFmpeg's `configure` does not quote the `-libpath:` flag it passes to `link.exe`.
+A vcpkg installed-tree path containing a space is therefore split in two and the
+FFmpeg build fails with `LNK1181: cannot open input file`. This is a limitation
+of FFmpeg's build system, not of vcpkg or of this project.
+
+The workaround is to place the installed tree somewhere without a space:
+
+```bash
+setx ATK_VCPKG_INSTALLED_DIR C:/dev/atk-vcpkg-installed
+```
+
+Leave it unset if your checkout path has no spaces; the default
+(`build/<preset>/vcpkg_installed`) is then used.
 
 ---
 
@@ -229,17 +273,41 @@ IntelliSense resolve includes with no extra configuration.
 ctest --preset windows-debug
 ```
 
-Seven suites cover the core library:
-
 | Suite | Covers |
 |---|---|
-| `tst_timecode` | Frame ↔ SMPTE conversion, including 23.976 / 29.97 |
-| `tst_framecache` | LRU eviction, byte budget, promotion on access |
+| `fixture_validation` | ffprobe-checks the generated test media before anything decodes it |
+| `tst_timecode` | Frame to SMPTE conversion, including 23.976 / 29.97 |
+| `tst_framecache` | LRU eviction, byte budget, source-generation identity |
 | `tst_timelinemodel` | Extent, playhead clamping, ranges, bookmarks |
 | `tst_playbackcontroller` | Transport state, frame stepping, clamping, loop |
 | `tst_playbackrange` | Inclusive range arithmetic |
+| `tst_bookmark` | Bookmark fields, equality, palette bounds |
 | `tst_commanddefinitions` | Command table integrity and required shortcuts |
-| `tst_apicommands` | API request dispatch and error reporting |
+| `tst_apicommands` | API dispatch, numeric validation, error reporting |
+| `tst_ffmpegutil` | FFmpeg error translation and rational time-base arithmetic |
+| `tst_mediadecoder` | **Real decoding**: metadata, frame accuracy, seeking, audio resampling |
+
+### Generated test media
+
+`tst_mediadecoder` decodes fixtures the build generates with the `ffmpeg` tool
+vcpkg produced -- nothing binary is committed. They land in
+`build/<preset>/test-media/` and are validated with `ffprobe` before the decoder
+tests run, so a change in FFmpeg's defaults is reported directly rather than
+surfacing as a confusing decode failure.
+
+Both fixtures are 640x360, exactly 24 fps, exactly 2.0 s -- **48 frames** --
+with 48 kHz audio:
+
+| File | Video | Audio | Why |
+|---|---|---|---|
+| `atk_fixture_48f.mkv` | FFV1 (lossless, all-intra) | PCM s16le | Deterministic pixels and exact frame counting |
+| `atk_fixture_48f.mp4` | MPEG-4 Part 2 | AAC | Real inter-frame dependencies, so non-keyframe seeks are genuinely exercised |
+
+Regenerate them with:
+
+```bash
+cmake --build --preset windows-debug --target atk_test_media
+```
 
 To run one suite directly with more detail:
 

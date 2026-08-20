@@ -912,7 +912,13 @@ bool MediaDecoder::seekToFrameIndex(int64_t index, QString* error)
     return true;
 }
 
-bool MediaDecoder::frameAtIndex(int64_t index, VideoFrame& out, QString* error)
+bool MediaDecoder::cancelled(const CancelPredicate& isCancelled)
+{
+    return static_cast<bool>(isCancelled) && isCancelled();
+}
+
+bool MediaDecoder::frameAtIndex(int64_t index, VideoFrame& out, QString* error,
+                                const CancelPredicate& isCancelled)
 {
     if (!m_open || !m_metadata.hasVideo) {
         if (error) {
@@ -946,6 +952,14 @@ bool MediaDecoder::frameAtIndex(int64_t index, VideoFrame& out, QString* error)
         bool overshot = false;
 
         while (true) {
+            if (cancelled(isCancelled)) {
+                // Superseded by a newer request; the caller discards the result.
+                if (error) {
+                    *error = QStringLiteral("Decode cancelled.");
+                }
+                return false;
+            }
+
             const DecodeStatus status = nextVideoFrame(frame, error);
             if (status == DecodeStatus::Error) {
                 return false;

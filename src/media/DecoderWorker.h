@@ -1,6 +1,7 @@
 #pragma once
 
 #include "media/AudioBuffer.h"
+#include "media/DecodeGeneration.h"
 #include "media/MediaDecoder.h"
 #include "media/MediaMetadata.h"
 #include "media/VideoFrame.h"
@@ -20,29 +21,41 @@ namespace atk::media {
 /// THREAD OWNERSHIP
 /// ----------------
 /// This object is moved to a dedicated QThread and every one of its slots runs
-/// there. The MediaDecoder it owns -- and therefore every FFmpeg context -- is
-/// touched only from that thread. The UI thread never calls into it directly;
-/// it emits requests, which arrive as queued slot invocations.
+/// there. The MediaDecoder it owns -- and therefore every FFmpeg context
+/// (AVFormatContext, both AVCodecContexts, SwsContext, SwrContext, and all
+/// packet and frame allocation) -- is touched only from that thread. The UI
+/// thread never calls into it directly; it emits requests, which arrive as
+/// queued slot invocations, and receives finished frames back the same way.
 ///
-/// That is what keeps the interface responsive: a seek into the middle of a
-/// long GOP can take tens of milliseconds of decoding, and doing that on the UI
-/// thread would freeze the window every time the user dragged the playhead.
+/// That boundary is what keeps the interface responsive: a seek into the middle
+/// of a long GOP can take tens of milliseconds of decoding, and doing that on
+/// the UI thread would freeze the window every time the playhead was dragged.
+///
+/// GENERATIONS
+/// -----------
+/// Every request carries the generation it was issued under. Before a result is
+/// emitted the generation is checked, and anything superseded is dropped rather
+/// than sent. Long decode loops also poll the generation and abandon work early.
+/// Ordering alone cannot provide this: once the worker has started decoding a
+/// request, the result is coming whether or not it is still wanted. See
+/// DecodeGeneration.h.
 ///
 /// HOW PLAYBACK IS DRIVEN
 /// ----------------------
 /// decodeStep() decodes at most one video frame and then re-posts itself as a
 /// queued call rather than looping. Anything the UI has since requested -- a
 /// seek, a pause, a close -- is already sitting in the same event queue and is
-/// therefore processed before the next step. Obsolete decoding is superseded
-/// within one frame's work, with no cancellation flags to get wrong.
+/// therefore processed between steps.
 class DecoderWorker : public QObject {
     Q_OBJECT
 
 public:
     /// `audioBuffer` is shared with the audio output and may be null for
-    /// video-only use (the tests do this).
-    explicit DecoderWorker(std::shared_ptr<audio::AudioRingBuffer> audioBuffer,
-                           QObject* parent = nullptr);
+    /// video-only use (the tests do this). `generations` is shared with the
+    /// controller and must not be null.
+    DecoderWorker(std::shared_ptr<audio::AudioRingBuffer> audioBuffer,
+                  std::shared_ptr<DecodeGenerations> generations,
+                  QObject* parent = nullptr);
     ~DecoderWorker() override;
 
     /// How far ahead of the playhead the worker will decode during playback.
@@ -51,14 +64,14 @@ public:
     static constexpr int kDecodeAheadFrames = 24;
 
 public slots:
-    void openMedia(const QString& filePath);
+    void openMedia(const QString& filePath, quint64 sourceGeneration);
     void closeMedia();
 
     /// Decodes and emits exactly this frame. Used by stepping and seeking.
-    void requestFrame(qint64 frameIndex);
+    void requestFrame(qint64 frameIndex, quint64 requestGeneration);
 
     /// Begins continuous decoding from `fromFrameIndex`.
-    void startPlayback(qint64 fromFrameIndex);
+    void startPlayback(qint64 fromFrameIndex, quint64 requestGeneration);
     void stopPlayback();
 
     /// Tells the worker where the playhead is, so it knows how far to decode
@@ -68,19 +81,24 @@ public slots:
     /// Configures audio resampling to the device's format.
     void configureAudio(int sampleRate, int channelCount);
 
+    /// Stops all work and releases the decoder. Called during shutdown before
+    /// the thread is joined, so FFmpeg teardown happens on the owning thread.
+    void shutdown();
+
 signals:
-    void mediaOpened(const atk::media::MediaMetadata& metadata);
-    void mediaOpenFailed(const QString& message);
+    void mediaOpened(const atk::media::MediaMetadata& metadata, quint64 sourceGeneration);
+    void mediaOpenFailed(const QString& message, quint64 sourceGeneration);
     void mediaClosed();
 
-    /// A decoded, display-ready frame. Delivered for both stepping and playback.
-    void frameReady(const atk::media::VideoFrame& frame);
+    /// A decoded, display-ready frame, tagged with the request it satisfies.
+    /// The frame itself carries its source generation.
+    void frameReady(const atk::media::VideoFrame& frame, quint64 requestGeneration);
 
     /// The requested frame could not be produced.
-    void frameFailed(qint64 frameIndex, const QString& message);
+    void frameFailed(qint64 frameIndex, const QString& message, quint64 requestGeneration);
 
     /// Decoding reached the end of the video stream.
-    void endOfStream();
+    void endOfStream(quint64 requestGeneration);
 
     /// A non-fatal decode problem worth surfacing.
     void decodeError(const QString& message);
@@ -93,8 +111,12 @@ private:
     void pumpAudio();
     void scheduleNextStep();
 
+    /// True when `generation` is no longer the current request.
+    bool isStale(quint64 generation) const;
+
     std::unique_ptr<MediaDecoder> m_decoder;
     std::shared_ptr<audio::AudioRingBuffer> m_audioBuffer;
+    std::shared_ptr<DecodeGenerations> m_generations;
 
     /// Audio decoded but not yet accepted by the ring buffer, held so no
     /// samples are lost when the buffer is momentarily full.
@@ -104,6 +126,10 @@ private:
     bool m_playing = false;
     bool m_stepScheduled = false;
     bool m_reachedEnd = false;
+    bool m_shuttingDown = false;
+
+    /// Generation the current playback run was started under.
+    quint64 m_playbackGeneration = 0;
 
     /// Last playhead position reported by the controller.
     std::atomic<int64_t> m_playheadFrame{ 0 };

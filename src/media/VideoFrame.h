@@ -19,6 +19,14 @@ namespace atk::media {
 /// be derived by exact rational arithmetic rather than by counting frames, which
 /// is what makes stepping survive a seek.
 struct VideoFrame {
+    /// Which open-media generation produced this frame.
+    ///
+    /// Travels with the frame so a late arrival can be matched against the
+    /// currently open file. Without it, a frame decoded from the previous
+    /// source is indistinguishable from a current one once it reaches the UI.
+    /// See DecodeGeneration.h.
+    uint64_t sourceGeneration = 0;
+
     /// Zero-based frame index within the source. -1 when unset.
     int64_t frameIndex = -1;
     /// Presentation timestamp in the video stream's own time base.

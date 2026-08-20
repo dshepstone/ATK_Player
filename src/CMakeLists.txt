@@ -54,6 +54,8 @@ set(ATK_CORE_HEADERS
     media/MediaSource.h
     media/VideoFrame.h
     media/AudioBuffer.h
+    media/MediaLibraryInfo.h
+    media/DecodeGeneration.h
     media/FrameCache.h
     media/MediaDecoder.h
     media/DecoderWorker.h

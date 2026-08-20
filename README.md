@@ -16,36 +16,45 @@ a media player second.
 
 ## Current status
 
-**Version 0.1.0-dev — Phase 0 (milestone M0), application framework.**
+**Version 0.2.0-dev — milestone M1, FFmpeg single-video playback.**
 
-The framework is in place and the application runs. Media playback is not
-implemented yet.
+ATK Player now opens and plays real video with synchronised audio.
 
 **What works today**
 
-- The application builds and launches on Windows as `ATKPlayer.exe`.
-- The full interface is present: menu bar, sources panel, viewer, timeline,
-  transport controls and status readout.
-- The transport is real: play/pause toggles state visibly, and stepping, seeking,
-  looping and in/out ranges all drive the timeline model.
-- Because there is no decoder yet, the window installs a **placeholder** 100-frame
-  extent at startup so the transport is usable and verifiable. Every readout says
-  so — the status bar shows `NO MEDIA — placeholder values`, and the API reports
-  `"placeholder": true`. Nothing pretends a file is open.
-- Scrubbing the timeline, setting range in/out (`I` / `O`) and dropping
-  bookmarks (`B`) work against the model and redraw.
-- Every command runs through one central table, so keyboard shortcuts, menu
-  entries and transport buttons are the same objects.
-- The external-API command dispatcher is implemented and unit-tested.
+- **Opening one video** — File → Open Media, or `ATKPlayer.exe <file>` from the
+  command line. FFmpeg decides what is readable, so the format list is a
+  convenience rather than a gate.
+- **FFmpeg decoding** of MP4, MOV, MKV, AVI and anything else the LGPL build
+  demuxes.
+- **Normal audio playback**, decoded and resampled with FFmpeg and played through
+  Qt Multimedia's `QAudioSink`.
+- **Play / pause** with real video and audio.
+- **Frame stepping** — Right and Left arrows move exactly one *decoded
+  presentation* frame, not one nominal frame duration. Backward stepping seeks to
+  an earlier keyframe and decodes forward to land on the right picture.
+- **Timeline seek** by click or drag, against the real duration.
+- **Whole-clip looping** (`L`).
+- **Stop** (`Esc`) returns to frame 0 without unloading the media.
+- **Real frame, timecode and FPS readout**, with an estimated total frame count
+  marked as such rather than presented as exact.
+- Decoding runs on its own thread, so the interface stays responsive while
+  seeking.
+
+With no media loaded the window still installs a clearly-marked **placeholder**
+100-frame extent so the transport is demonstrable; the status bar says
+`NO MEDIA — placeholder values` and the API reports `"placeholder": true`. That
+marking disappears the moment a real file opens.
 
 **What does not work yet**
 
-- **No media can be opened.** `FFmpegDecoder` is a documented stub, so the
-  viewer shows its empty state and the frame counter is a placeholder.
-- Projects cannot be saved or loaded.
-- A/B comparison exists as an architecture, not as a second viewer.
+- Audio scrubbing, and audio during single-frame stepping (M2).
+- In/Out points and range looping (M2) — `I` and `O` set the model but the loop
+  is whole-clip only.
+- Bookmarks UI, range bookmarks, viewer zoom and pan (M2).
+- Playlists (M3), A/B comparison (M4), export (M5).
 - The API server opens no socket — only the dispatcher underneath it is real.
-- Audio, export and the DCC integrations are not started.
+- Maya and Harmony integrations, the MSI installer, macOS and Linux.
 
 Menu entries for unimplemented commands are present and report themselves in the
 status bar rather than doing nothing silently.

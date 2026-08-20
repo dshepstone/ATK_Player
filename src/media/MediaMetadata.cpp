@@ -1,5 +1,7 @@
 #include "media/MediaMetadata.h"
 
+#include <QStringList>
+
 namespace atk::media {
 
 int64_t MediaMetadata::effectiveFrameCount() const

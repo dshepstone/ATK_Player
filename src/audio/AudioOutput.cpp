@@ -201,20 +201,36 @@ int64_t AudioOutput::positionUs() const
         return -1;
     }
 
-    const auto* device = qobject_cast<const RingBufferDevice*>(m_device);
-    if (device == nullptr) {
+    if (m_device == nullptr) {
         return -1;
     }
 
-    // Media time consumed from the buffer, minus what the device is still
-    // holding but has not played. Silence inserted on underrun is excluded, so
-    // the clock never runs ahead of the audio actually heard.
-    const int64_t consumedUs = m_format.bytesToMicroseconds(device->consumedBytes());
-    const int64_t queuedBytes =
-        std::max<int64_t>(0, m_sink->bufferSize() - m_sink->bytesFree());
-    const int64_t queuedUs = m_format.bytesToMicroseconds(queuedBytes);
+    // static_cast, not qobject_cast: RingBufferDevice is a private type in this
+    // translation unit with no Q_OBJECT macro, and m_device is only ever
+    // assigned in start() from a RingBufferDevice this class allocated. The
+    // dynamic type is therefore known, and adding moc machinery to a file-local
+    // helper just to re-derive it would be ceremony.
+    const auto* device = static_cast<const RingBufferDevice*>(m_device);
 
-    return std::max<int64_t>(m_startPtsUs, m_startPtsUs + consumedUs - queuedUs);
+    // Until the device has actually taken real audio, there is no audio clock
+    // to report. Saying "position 0" here instead would be worse than useless:
+    // the caller treats any non-negative answer as authoritative, so a device
+    // that never starts delivering would pin the playhead at zero and freeze
+    // playback outright. Returning -1 lets the caller fall back to the
+    // monotonic clock, so video plays even if audio never arrives.
+    if (device->consumedBytes() <= 0) {
+        return -1;
+    }
+
+    // Qt reports how much audio the device has actually processed since
+    // start(). Deriving the position from bytes pulled out of the ring buffer
+    // instead does not work: QAudioSink pulls well ahead of what it is playing,
+    // so the clock runs fast -- measurably about double on a small buffer, which
+    // ends a two-second clip in one second.
+    //
+    // processedUSecs() is the device's own account of elapsed playback, which is
+    // exactly the quantity video needs to follow.
+    return m_startPtsUs + static_cast<int64_t>(m_sink->processedUSecs());
 }
 
 void AudioOutput::setVolume(qreal volume)

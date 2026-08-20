@@ -3,6 +3,7 @@
 #include <QTest>
 
 extern "C" {
+#include <libavutil/avutil.h>
 #include <libavutil/error.h>
 }
 

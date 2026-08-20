@@ -9,6 +9,7 @@
 
 #include <cstdint>
 #include <deque>
+#include <functional>
 
 namespace atk::media {
 
@@ -63,6 +64,15 @@ public:
     /// Produces the next video frame in presentation order.
     DecodeStatus nextVideoFrame(VideoFrame& out, QString* error);
 
+    /// Asked repeatedly during long decode loops; returning true abandons the
+    /// work in progress.
+    ///
+    /// Seeking to a frame deep inside a long GOP can mean decoding hundreds of
+    /// pictures. If the user has already moved on, finishing that decode is
+    /// pure waste and delays the frame they actually want, so the loops check
+    /// this and give up early.
+    using CancelPredicate = std::function<bool()>;
+
     /// Decodes exactly frame `index`, seeking first when it is not simply the
     /// next frame.
     ///
@@ -70,7 +80,8 @@ public:
     /// the keyframe at or before the target and then decodes forward to the
     /// requested presentation frame, so the frame returned is the one asked
     /// for -- never the nearest keyframe.
-    bool frameAtIndex(int64_t index, VideoFrame& out, QString* error);
+    bool frameAtIndex(int64_t index, VideoFrame& out, QString* error,
+                      const CancelPredicate& isCancelled = {});
 
     /// The index the next call to nextVideoFrame() is expected to produce.
     int64_t nextFrameIndex() const { return m_nextVideoFrameIndex; }
@@ -130,6 +141,9 @@ private:
     int64_t frameIndexForTimestamp(int64_t pts) const;
 
     void resetStreamState();
+
+    /// True when `isCancelled` is set and reports cancellation.
+    static bool cancelled(const CancelPredicate& isCancelled);
 
     // --- FFmpeg objects, all RAII-owned -----------------------------------
     ffmpeg::FormatContextPtr m_format;

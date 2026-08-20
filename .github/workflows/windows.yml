@@ -37,6 +37,9 @@ jobs:
           host: windows
           target: desktop
           arch: win64_msvc2022_64
+          # Multimedia is not part of the base package and is required for
+          # audio output.
+          modules: qtmultimedia
           cache: true
 
       # install-qt-action exports QT_ROOT_DIR; the presets read QT_ROOT.
@@ -49,13 +52,41 @@ jobs:
         with:
           arch: x64
 
+      # vcpkg supplies FFmpeg. The runner ships a checkout already; use it
+      # rather than cloning, so the toolchain path is stable.
+      - name: Point the build at vcpkg
+        shell: pwsh
+        run: |
+          if (-not $env:VCPKG_INSTALLATION_ROOT) {
+            throw "VCPKG_INSTALLATION_ROOT is not set on this runner"
+          }
+          echo "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" >> $env:GITHUB_ENV
+          # FFmpeg's configure does not quote -libpath:, so the installed tree
+          # must not sit under a path containing a space. The runner's workspace
+          # has none, but pinning it keeps the build off any that might.
+          echo "ATK_VCPKG_INSTALLED_DIR=C:/atkvcpkg" >> $env:GITHUB_ENV
+
+      # Building FFmpeg from source takes ten to twenty minutes, so the binary
+      # artefacts are cached. The key covers the manifest and the pinned
+      # baseline, which is exactly what determines the result.
+      - name: Cache vcpkg binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/AppData/Local/vcpkg/archives
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-
+
       - name: Configure
         run: cmake --preset ${{ matrix.preset }}
 
       - name: Build
         run: cmake --build --preset ${{ matrix.preset }}
 
-      # The tests cover atk_core only and need no display, so they run headless.
+      # All suites run headless. The media integration tests decode fixtures
+      # generated during the build by the ffmpeg tool vcpkg produced, so no
+      # binary test media is committed and no audio device is needed -- audio is
+      # only decoded and resampled here, never played.
       - name: Test
         run: ctest --preset windows-debug --output-on-failure
         if: matrix.preset == 'windows-debug'
