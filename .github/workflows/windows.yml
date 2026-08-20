@@ -52,6 +52,12 @@ jobs:
         with:
           arch: x64
 
+      # msvc-dev-cmd supplies the compiler but not Ninja, and the presets use
+      # the Ninja generator. Without this the configure fails with
+      # "CMake was unable to find a build program corresponding to Ninja".
+      - name: Set up Ninja
+        uses: seanmiddleditch/gha-setup-ninja@v5
+
       # vcpkg supplies FFmpeg. The runner ships a checkout already; use it
       # rather than cloning, so the toolchain path is stable.
       - name: Point the build at vcpkg
@@ -65,6 +71,30 @@ jobs:
           # must not sit under a path containing a space. The runner's workspace
           # has none, but pinning it keeps the build off any that might.
           echo "ATK_VCPKG_INSTALLED_DIR=C:/atkvcpkg" >> $env:GITHUB_ENV
+
+      # The runner ships a vcpkg checkout, but not necessarily deep enough to
+      # contain the baseline vcpkg.json pins. Without the commit present,
+      # `git show <baseline>:versions/baseline.json` fails and the install
+      # aborts. Fetching just that commit keeps the pin authoritative rather
+      # than silently falling back to whatever the runner happens to have.
+      - name: Fetch the pinned vcpkg baseline
+        shell: pwsh
+        run: |
+          $baseline = (Get-Content vcpkg.json -Raw | ConvertFrom-Json).'builtin-baseline'
+          if (-not $baseline) { throw "vcpkg.json has no builtin-baseline" }
+          Write-Host "Pinned baseline: $baseline"
+
+          # Fetching an object that is already present is cheap, so this runs
+          # unconditionally rather than probing first.
+          git -C "$env:VCPKG_INSTALLATION_ROOT" fetch --depth 1 origin $baseline
+
+          # Verify by the thing vcpkg actually does, rather than by an exit
+          # code: it reads versions/baseline.json out of that commit.
+          $probe = git -C "$env:VCPKG_INSTALLATION_ROOT" cat-file -t "$baseline"
+          if ($probe -ne "commit") {
+            throw "vcpkg baseline $baseline is still not available after fetching"
+          }
+          Write-Host "Baseline is present."
 
       # Building FFmpeg from source takes ten to twenty minutes, so the binary
       # artefacts are cached. The key covers the manifest and the pinned
