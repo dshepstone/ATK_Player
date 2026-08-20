@@ -59,6 +59,7 @@ private slots:
     void placeholderExtentIsMarkedAsSuch();
     void hasNoMediaInPhaseZero();
     void transportIsInertWithoutAnExtent();
+    void frameStepAudioIsOffAndIndependentByDefault();
 };
 
 void TestPlaybackController::startsReady()
@@ -70,6 +71,18 @@ void TestPlaybackController::startsReady()
     QVERIFY(!fixture.playback.isPlaying());
     QVERIFY(!fixture.playback.hasMedia());
     QCOMPARE(fixture.playback.currentFrame(), qint64(0));
+}
+
+void TestPlaybackController::frameStepAudioIsOffAndIndependentByDefault()
+{
+    Fixture fixture;
+    QVERIFY(fixture.playback.isAudioScrubEnabled());
+    QVERIFY(!fixture.playback.isFrameStepAudioEnabled());
+    fixture.playback.setFrameStepAudioEnabled(true);
+    QVERIFY(fixture.playback.isFrameStepAudioEnabled());
+    QVERIFY(fixture.playback.isAudioScrubEnabled());
+    fixture.playback.setAudioScrubEnabled(false);
+    QVERIFY(fixture.playback.isFrameStepAudioEnabled());
 }
 
 void TestPlaybackController::playThenPauseTogglesState()

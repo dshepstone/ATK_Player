@@ -37,6 +37,7 @@ enum class CommandId {
     // Audio
     ToggleMute,
     ToggleAudioScrub,
+    ToggleFrameStepAudio,
     VolumeUp,
     VolumeDown,
 
@@ -47,6 +48,9 @@ enum class CommandId {
     ZoomActualSize,
     ToggleFullScreen,
     ToggleSourcesPanel,
+    TimelineZoomIn,
+    TimelineZoomOut,
+    TimelineZoomFit,
 
     // Help
     About,

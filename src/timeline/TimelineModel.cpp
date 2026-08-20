@@ -22,7 +22,9 @@ void TimelineModel::setFrameCount(int64_t count)
         return;
     }
     m_frameCount = clamped;
+    m_viewport.reset(m_frameCount);
     emit frameCountChanged(m_frameCount);
+    emit viewportChanged(m_viewport.startFrame(), m_viewport.endFrame());
 
     // The playhead and range may now sit outside the source.
     if (m_range.enabled) {
@@ -32,6 +34,42 @@ void TimelineModel::setFrameCount(int64_t count)
         setPlaybackRange(adjusted);
     }
     setCurrentFrame(m_currentFrame);
+}
+
+void TimelineModel::fitViewport()
+{
+    const auto oldStart = m_viewport.startFrame();
+    const auto oldEnd = m_viewport.endFrame();
+    m_viewport.fit();
+    if (oldStart != m_viewport.startFrame() || oldEnd != m_viewport.endFrame())
+        emit viewportChanged(m_viewport.startFrame(), m_viewport.endFrame());
+}
+
+void TimelineModel::zoomViewport(double factor, int64_t anchorFrame)
+{
+    const auto oldStart = m_viewport.startFrame();
+    const auto oldEnd = m_viewport.endFrame();
+    m_viewport.zoom(factor, anchorFrame);
+    if (oldStart != m_viewport.startFrame() || oldEnd != m_viewport.endFrame())
+        emit viewportChanged(m_viewport.startFrame(), m_viewport.endFrame());
+}
+
+void TimelineModel::panViewport(int64_t deltaFrames)
+{
+    const auto oldStart = m_viewport.startFrame();
+    const auto oldEnd = m_viewport.endFrame();
+    m_viewport.pan(deltaFrames);
+    if (oldStart != m_viewport.startFrame() || oldEnd != m_viewport.endFrame())
+        emit viewportChanged(m_viewport.startFrame(), m_viewport.endFrame());
+}
+
+void TimelineModel::ensureFrameVisible(int64_t frame)
+{
+    const auto oldStart = m_viewport.startFrame();
+    const auto oldEnd = m_viewport.endFrame();
+    m_viewport.ensureVisible(frame);
+    if (oldStart != m_viewport.startFrame() || oldEnd != m_viewport.endFrame())
+        emit viewportChanged(m_viewport.startFrame(), m_viewport.endFrame());
 }
 
 void TimelineModel::setFrameRate(media::FrameRate rate)

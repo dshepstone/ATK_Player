@@ -84,9 +84,15 @@ Delivered so far:
 - **Waveform on the timeline.** Amplitude peaks generated in the background and
   drawn above the track, so dialogue, silence and impacts are visible and the
   playhead crosses both.
+- **Optional frame-step audio.** A separate, default-off command gives forward
+  and backward arrow stepping centred review grains without compromising the
+  exact visual navigation queue.
+- **Timeline viewport.** Command and cursor-anchored zoom, fit, middle-drag and
+  Shift-wheel pan, adaptive visible-range ruler labels, playhead edge-follow,
+  and viewport-aware multi-resolution waveform rendering.
 
 Still to come in M2: In/Out points and range looping, bookmarks and range
-bookmarks, viewer zoom and pan, and audio during single-frame stepping.
+bookmarks, and viewer zoom and pan.
 
 Deferred here deliberately from M1: audio scrubbing, audible single-frame
 stepping, In/Out points, specific loop ranges, bookmarks and range bookmarks,
@@ -94,7 +100,6 @@ finer cache controls, and viewer zoom and pan.
 
 - Bookmark editing: name, note, colour, and a bookmark list panel
 - In/out range editing by dragging the range handles on the timeline
-- Timeline zoom and pan for long clips
 - Viewer pan and zoom, with a magnifier for close inspection
 - Frame-by-frame navigation refinements: play backwards, shuttle speeds
 - Onion skinning / previous-frame ghosting

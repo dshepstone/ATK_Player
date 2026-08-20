@@ -49,6 +49,7 @@ constexpr std::array kCommands{
     // Audio
     CommandDefinition{ CommandId::ToggleMute,         "audio.toggleMute",      QT_TRANSLATE_NOOP("Command", "Mute"),                 C::Audio,    "M",            true  },
     CommandDefinition{ CommandId::ToggleAudioScrub,   "audio.toggleScrub",     QT_TRANSLATE_NOOP("Command", "Audio Scrub"),          C::Audio,    nullptr,        true  },
+    CommandDefinition{ CommandId::ToggleFrameStepAudio,"audio.toggleFrameStep",QT_TRANSLATE_NOOP("Command", "Frame-step Audio"),     C::Audio,    nullptr,        true  },
     CommandDefinition{ CommandId::VolumeUp,           "audio.volumeUp",        QT_TRANSLATE_NOOP("Command", "Volume Up"),            C::Audio,    "Ctrl+Up",      false },
     CommandDefinition{ CommandId::VolumeDown,         "audio.volumeDown",      QT_TRANSLATE_NOOP("Command", "Volume Down"),          C::Audio,    "Ctrl+Down",    false },
 
@@ -59,6 +60,9 @@ constexpr std::array kCommands{
     CommandDefinition{ CommandId::ZoomActualSize,     "view.zoomActualSize",   QT_TRANSLATE_NOOP("Command", "Actual Size"),          C::View,     "Ctrl+1",       false },
     CommandDefinition{ CommandId::ToggleFullScreen,   "view.toggleFullScreen", QT_TRANSLATE_NOOP("Command", "Full Screen"),          C::View,     "F11",          true  },
     CommandDefinition{ CommandId::ToggleSourcesPanel, "view.toggleSources",    QT_TRANSLATE_NOOP("Command", "Sources Panel"),        C::View,     "F4",           true  },
+    CommandDefinition{ CommandId::TimelineZoomIn,     "view.timelineZoomIn",   QT_TRANSLATE_NOOP("Command", "Timeline Zoom In"),     C::View,     "=",            false },
+    CommandDefinition{ CommandId::TimelineZoomOut,    "view.timelineZoomOut",  QT_TRANSLATE_NOOP("Command", "Timeline Zoom Out"),    C::View,     "-",            false },
+    CommandDefinition{ CommandId::TimelineZoomFit,    "view.timelineZoomFit",  QT_TRANSLATE_NOOP("Command", "Fit Entire Timeline"), C::View,     "F",            false },
 
     // Help
     CommandDefinition{ CommandId::About,              "help.about",            QT_TRANSLATE_NOOP("Command", "About ATK Player"),     C::Help,     nullptr,        false },

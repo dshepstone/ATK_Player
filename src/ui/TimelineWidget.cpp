@@ -8,8 +8,10 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPaintEvent>
+#include <QWheelEvent>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 
 namespace atk::ui {
@@ -45,6 +47,17 @@ constexpr int kBookmarkMarkerWidth = 3;
 /// has already left. The exact target is always issued on release, so the final
 /// position is never a throttled approximation.
 constexpr qint64 kScrubThrottleMs = 33;
+
+QString rulerTime(int64_t us)
+{
+    const int64_t totalSeconds = std::max<int64_t>(0, us) / 1'000'000;
+    const int64_t hours = totalSeconds / 3600;
+    const int64_t minutes = (totalSeconds / 60) % 60;
+    const int64_t seconds = totalSeconds % 60;
+    return hours > 0
+        ? QStringLiteral("%1:%2:%3").arg(hours).arg(minutes, 2, 10, QLatin1Char('0')).arg(seconds, 2, 10, QLatin1Char('0'))
+        : QStringLiteral("%1:%2").arg(minutes).arg(seconds, 2, 10, QLatin1Char('0'));
+}
 
 } // namespace
 
@@ -83,13 +96,30 @@ void TimelineWidget::setModel(timeline::TimelineModel* model)
                     if (m_scrubFrame >= 0 && !m_scrubbing && frame == m_scrubFrame) {
                         m_scrubFrame = -1;
                     }
+                    if (!m_scrubbing) m_model->ensureFrameVisible(frame);
                     update();
                 });
 
         connect(m_model, &timeline::TimelineModel::frameCountChanged, this, repaint);
         connect(m_model, &timeline::TimelineModel::playbackRangeChanged, this, repaint);
         connect(m_model, &timeline::TimelineModel::bookmarksChanged, this, repaint);
+        connect(m_model, &timeline::TimelineModel::viewportChanged, this, repaint);
     }
+}
+
+void TimelineWidget::zoomIn()
+{
+    if (m_model) m_model->zoomViewport(1.5, m_model->currentFrame());
+}
+
+void TimelineWidget::zoomOut()
+{
+    if (m_model) m_model->zoomViewport(1.0 / 1.5, m_model->currentFrame());
+}
+
+void TimelineWidget::fitEntire()
+{
+    if (m_model) m_model->fitViewport();
 }
 
 QSize TimelineWidget::sizeHint() const
@@ -135,8 +165,14 @@ int64_t TimelineWidget::mediaTimeForX(int x) const
     if (track.width() <= 0 || m_mediaDurationUs <= 0) {
         return 0;
     }
-    const double fraction =
-        std::clamp(double(x - track.left()) / double(track.width()), 0.0, 1.0);
+    const double fraction = std::clamp(double(x - track.left()) / double(track.width()), 0.0, 1.0);
+    const int64_t frame = m_model ? m_model->viewport().frameAtFraction(fraction) : 0;
+    const auto rate = m_model ? m_model->frameRate() : media::FrameRate{};
+    if (rate.isValid()) {
+        const long double us = static_cast<long double>(frame) * 1'000'000.0L
+                             * rate.denominator / rate.numerator;
+        return std::clamp<int64_t>(static_cast<int64_t>(us), 0, m_mediaDurationUs);
+    }
     return static_cast<int64_t>(fraction * double(m_mediaDurationUs));
 }
 
@@ -156,25 +192,23 @@ QRect TimelineWidget::trackRect() const
 int TimelineWidget::xForFrame(int64_t frame) const
 {
     const QRect track = trackRect();
-    const int64_t last = lastFrame();
-    if (last <= 0 || track.width() <= 0) {
+    if (!m_model || track.width() <= 0) {
         return track.left();
     }
-    const double t = static_cast<double>(std::clamp<int64_t>(frame, 0, last))
-                   / static_cast<double>(last);
+    if (!m_model->viewport().contains(frame)) return -1;
+    const double t = m_model->viewport().fractionForFrame(frame);
     return track.left() + static_cast<int>(t * track.width());
 }
 
 int64_t TimelineWidget::frameForX(int x) const
 {
     const QRect track = trackRect();
-    const int64_t last = lastFrame();
-    if (last <= 0 || track.width() <= 0) {
+    if (!m_model || track.width() <= 0) {
         return 0;
     }
     const double t = static_cast<double>(std::clamp(x, track.left(), track.right()) - track.left())
                    / static_cast<double>(track.width());
-    return static_cast<int64_t>(t * static_cast<double>(last) + 0.5);
+    return m_model->viewport().frameAtFraction(t);
 }
 
 void TimelineWidget::paintEvent(QPaintEvent* event)
@@ -214,7 +248,8 @@ void TimelineWidget::paintWaveform(QPainter& painter)
     // wide. Reading the finest level for a long file would mean iterating
     // thousands of buckets per column on every repaint -- including every
     // playhead move during playback.
-    const int64_t usPerPixel = std::max<int64_t>(1, m_mediaDurationUs / band.width());
+    const int64_t visibleUs = std::max<int64_t>(1, mediaTimeForX(band.right()) - mediaTimeForX(band.left()));
+    const int64_t usPerPixel = std::max<int64_t>(1, visibleUs / band.width());
     const int level = m_waveform->levelForBucketDuration(usPerPixel);
 
     const int64_t covered = m_waveform->coveredUs();
@@ -297,8 +332,9 @@ void TimelineWidget::paintRange(QPainter& painter)
     }
 
     const QRect track = trackRect();
-    const int left = xForFrame(range.startFrame);
-    const int right = xForFrame(range.endFrame);
+    const int left = xForFrame(std::max(range.startFrame, m_model->viewport().startFrame()));
+    const int right = xForFrame(std::min(range.endFrame, m_model->viewport().endFrame()));
+    if (left < 0 || right < 0 || right < left) return;
     const QRect fill(left, track.top() + 1, std::max(1, right - left), track.height() - 2);
     painter.fillRect(fill, theme::timelineRange());
 
@@ -317,6 +353,7 @@ void TimelineWidget::paintBookmarks(QPainter& painter)
     const QRect track = trackRect();
     for (const timeline::Bookmark& bookmark : m_model->bookmarks()) {
         const int x = xForFrame(bookmark.frame);
+        if (x < 0) continue;
         const QColor color = bookmark.hasColor() ? timeline::bookmarkColor(bookmark.colorIndex)
                                                  : theme::accent();
         painter.fillRect(QRect(x - kBookmarkMarkerWidth / 2, track.top() - 6,
@@ -329,6 +366,7 @@ void TimelineWidget::paintPlayhead(QPainter& painter)
 {
     const QRect track = trackRect();
     const int x = xForFrame(displayFrame());
+    if (x < 0) return;
 
     painter.setPen(theme::playhead());
     painter.drawLine(x, track.top() - 3, x, track.bottom() + 3);
@@ -349,12 +387,25 @@ void TimelineWidget::paintFrameLabels(QPainter& painter)
     // First frame, left of the track.
     painter.drawText(QRect(0, track.top(), kLabelMargin - 6, track.height()),
                      Qt::AlignRight | Qt::AlignVCenter,
-                     QString::number(0));
+                     QString::number(m_model ? m_model->viewport().startFrame() : 0));
 
     // Last frame, right of the track.
     painter.drawText(QRect(track.right() + 6, track.top(), kLabelMargin - 6, track.height()),
                      Qt::AlignLeft | Qt::AlignVCenter,
-                     QString::number(last));
+                     QString::number(m_model ? m_model->viewport().endFrame() : last));
+
+    // Time labels describe the viewport rather than the whole source. Their
+    // pixel spacing is bounded, so zooming never turns the ruler into a wall
+    // of text while still revealing finer time positions as the span narrows.
+    if (m_mediaDurationUs > 0 && track.width() > 0) {
+        const int divisions = std::max(1, track.width() / 96);
+        for (int i = 0; i <= divisions; ++i) {
+            const int x = track.left() + (track.width() * i) / divisions;
+            const QString label = rulerTime(mediaTimeForX(x));
+            painter.drawText(QRect(x - 36, waveformRect().top(), 72, 14),
+                             Qt::AlignHCenter | Qt::AlignTop, label);
+        }
+    }
 }
 
 int64_t TimelineWidget::displayFrame() const
@@ -383,6 +434,12 @@ void TimelineWidget::requestSeek(int64_t frame, bool force)
 
 void TimelineWidget::mousePressEvent(QMouseEvent* event)
 {
+    if (event->button() == Qt::MiddleButton) {
+        m_panning = true;
+        m_lastPanX = event->position().toPoint().x();
+        setCursor(Qt::ClosedHandCursor);
+        return;
+    }
     if (event->button() != Qt::LeftButton) {
         QWidget::mousePressEvent(event);
         return;
@@ -403,6 +460,14 @@ void TimelineWidget::mousePressEvent(QMouseEvent* event)
 
 void TimelineWidget::mouseMoveEvent(QMouseEvent* event)
 {
+    if (m_panning && m_model) {
+        const int x = event->position().toPoint().x();
+        const int width = std::max(1, trackRect().width());
+        const int64_t delta = static_cast<int64_t>(std::llround(
+            double(m_lastPanX - x) * m_model->viewport().visibleFrameCount() / width));
+        if (delta != 0) { m_model->panViewport(delta); m_lastPanX = x; }
+        return;
+    }
     if (!m_scrubbing) {
         QWidget::mouseMoveEvent(event);
         return;
@@ -422,6 +487,11 @@ void TimelineWidget::mouseMoveEvent(QMouseEvent* event)
 
 void TimelineWidget::mouseReleaseEvent(QMouseEvent* event)
 {
+    if (event->button() == Qt::MiddleButton && m_panning) {
+        m_panning = false;
+        unsetCursor();
+        return;
+    }
     if (event->button() == Qt::LeftButton && m_scrubbing) {
         m_scrubbing = false;
 
@@ -438,6 +508,20 @@ void TimelineWidget::mouseReleaseEvent(QMouseEvent* event)
         update();
     }
     QWidget::mouseReleaseEvent(event);
+}
+
+void TimelineWidget::wheelEvent(QWheelEvent* event)
+{
+    if (!m_model || event->angleDelta().y() == 0) { QWidget::wheelEvent(event); return; }
+    const int steps = event->angleDelta().y() / 120;
+    if (event->modifiers().testFlag(Qt::ControlModifier)) {
+        const int64_t anchor = frameForX(event->position().toPoint().x());
+        m_model->zoomViewport(std::pow(1.25, steps), anchor);
+    } else if (event->modifiers().testFlag(Qt::ShiftModifier)) {
+        const int64_t amount = std::max<int64_t>(1, m_model->viewport().visibleFrameCount() / 10);
+        m_model->panViewport(-steps * amount);
+    } else { QWidget::wheelEvent(event); return; }
+    event->accept();
 }
 
 void TimelineWidget::mouseDoubleClickEvent(QMouseEvent* event)

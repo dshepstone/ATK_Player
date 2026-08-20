@@ -310,14 +310,24 @@ playback permanently out of sync with audio. Instead each tick asks the clock
 "what frame should be on screen *now*", so a hiccup costs one stale frame and
 nothing more.
 
+**Frame-step audio reuses the scrub path.** It is a separate, session-only
+option that defaults off. Each arrow press remains an exact visual navigation
+input, while the audio worker and sink discard or replace obsolete grains so
+sound follows the newest useful target without creating a queue. Forward steps
+submit normal PCM and backward steps submit reversed PCM. Starting normal
+playback invalidates outstanding requests and flushes the review sink first.
+
 `PlaybackController` owns the clock, advances the timeline playhead, and applies
 looping and range limits. It is a `QObject` with signals but no widgets. This is
 the class the UI, the API and the DCC integrations all drive.
 
 ### `src/timeline/` — where we are and what is marked
 
-`TimelineModel` holds the extent, the playhead, the in/out range and the
-bookmarks, and emits signals when they change. The playhead lives here rather
+`TimelineModel` holds the extent, the playhead, the in/out range, bookmarks and
+the independent `TimelineViewport`, and emits signals when they change. The
+viewport is display state only: zooming or panning cannot seek, alter In/Out,
+restart waveform analysis or change looping. It starts fitted to the source,
+clamps to its extent and preserves a ten-frame minimum span. The playhead lives here rather
 than in the timeline widget so that the viewer, the timeline, the status bar and
 the API all read one value and cannot disagree.
 
@@ -336,6 +346,13 @@ media arrives in M1 the marking disappears on its own and cannot be left stale.
 `PlaybackRange` is inclusive: frames 10–20 is eleven frames. `Bookmark` stores a
 palette *index* rather than an RGB value, so restyling the application restyles
 existing bookmarks instead of stranding them on old colours.
+
+Every timeline x mapping runs through the viewport. Ctrl+wheel anchors zoom at
+the pointer, middle-drag and Shift+wheel pan, and the command actions zoom at
+the playhead or fit the whole source. During playback and stepping an edge
+margin advances the viewport only when needed. Waveform painting queries only
+the visible media-time interval and selects the existing peak-pyramid level
+from visible microseconds per pixel; no analysis data is rebuilt on view changes.
 
 `Timecode` converts frames to SMPTE and back, non-drop-frame. For 23.976 and
 29.97 material this means displayed timecode drifts from wall-clock time — which

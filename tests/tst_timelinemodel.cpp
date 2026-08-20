@@ -26,6 +26,9 @@ private slots:
     void bookmarksStaySortedAndUnique();
     void bookmarkNavigation();
     void resetClearsEverything();
+    void viewportZoomIsAnchorStableAndClamped();
+    void viewportPansAndFollowsPlayhead();
+    void viewportMappingIsDeterministic();
 };
 
 void TestTimelineModel::startsEmpty()
@@ -238,6 +241,49 @@ void TestTimelineModel::resetClearsEverything()
     QVERIFY(model.bookmarks().isEmpty());
     QVERIFY(!model.playbackRange().enabled);
     QVERIFY(!model.frameRate().isValid());
+}
+
+void TestTimelineModel::viewportZoomIsAnchorStableAndClamped()
+{
+    TimelineModel model;
+    model.setFrameCount(1000);
+    QCOMPARE(model.viewport().startFrame(), qint64(0));
+    QCOMPARE(model.viewport().endFrame(), qint64(999));
+
+    const double anchorFraction = model.viewport().fractionForFrame(250);
+    model.zoomViewport(2.0, 250);
+    QCOMPARE(model.viewport().visibleFrameCount(), qint64(500));
+    QVERIFY(qAbs(model.viewport().fractionForFrame(250) - anchorFraction) < 0.003);
+
+    for (int i = 0; i < 30; ++i) model.zoomViewport(2.0, 250);
+    QCOMPARE(model.viewport().visibleFrameCount(), qint64(10));
+    model.fitViewport();
+    QCOMPARE(model.viewport().visibleFrameCount(), qint64(1000));
+}
+
+void TestTimelineModel::viewportPansAndFollowsPlayhead()
+{
+    TimelineModel model;
+    model.setFrameCount(1000);
+    model.zoomViewport(5.0, 500);
+    const qint64 span = model.viewport().visibleFrameCount();
+    model.panViewport(10000);
+    QCOMPARE(model.viewport().endFrame(), qint64(999));
+    QCOMPARE(model.viewport().visibleFrameCount(), span);
+    model.ensureFrameVisible(0);
+    QVERIFY(model.viewport().contains(0));
+}
+
+void TestTimelineModel::viewportMappingIsDeterministic()
+{
+    TimelineModel model;
+    model.setFrameCount(101);
+    model.zoomViewport(2.0, 50);
+    QCOMPARE(model.viewport().frameAtFraction(0.0), model.viewport().startFrame());
+    QCOMPARE(model.viewport().frameAtFraction(1.0), model.viewport().endFrame());
+    const qint64 frame = model.viewport().frameAtFraction(0.37);
+    QVERIFY(qAbs(model.viewport().fractionForFrame(frame) - 0.37) <=
+            1.0 / double(model.viewport().visibleFrameCount() - 1));
 }
 
 QTEST_GUILESS_MAIN(TestTimelineModel)

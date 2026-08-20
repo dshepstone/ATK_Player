@@ -44,6 +44,9 @@ public:
 
     /// Repaints the waveform band after new peaks arrive.
     void refreshWaveform();
+    void zoomIn();
+    void zoomOut();
+    void fitEntire();
 
     QSize sizeHint() const override;
     QSize minimumSizeHint() const override;
@@ -64,6 +67,7 @@ protected:
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
     void mouseDoubleClickEvent(QMouseEvent* event) override;
+    void wheelEvent(QWheelEvent* event) override;
 
 private:
     /// The horizontal strip the track occupies, inset for the frame labels.
@@ -97,6 +101,8 @@ private:
     const media::WaveformData* m_waveform = nullptr;
     int64_t m_mediaDurationUs = -1;
     bool m_scrubbing = false;
+    bool m_panning = false;
+    int m_lastPanX = 0;
     /// Paces preview seeks during a drag so the decoder is not handed a new
     /// target on every mouse move; the exact seek is issued on release.
     QElapsedTimer m_scrubThrottle;

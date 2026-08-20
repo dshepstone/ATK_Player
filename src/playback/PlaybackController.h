@@ -108,6 +108,11 @@ public:
     void setAudioScrubEnabled(bool enabled);
     bool isAudioScrubEnabled() const { return m_audioScrubEnabled; }
 
+    /// Whether deliberate frame steps produce a short grain. Independent of
+    /// timeline dragging and off by default.
+    void setFrameStepAudioEnabled(bool enabled);
+    bool isFrameStepAudioEnabled() const { return m_frameStepAudioEnabled; }
+
     /// Waveform peaks for the open media. Empty until analysis produces some.
     const media::WaveformData& waveform() const { return m_waveform; }
 
@@ -172,6 +177,8 @@ signals:
 
     /// Emitted while an open is in progress so the viewer can show its state.
     void loadingChanged(bool loading);
+    /// Diagnostic observation of an accepted review-audio request.
+    void reviewAudioRequested(qint64 mediaUs, bool reversed, quint64 sequence);
 
 private slots:
     void onWorkerMediaOpened(const atk::media::MediaMetadata& metadata,
@@ -265,6 +272,9 @@ private:
 
     /// Asks for a grain at the given scrub position, if audio scrub is on.
     void requestScrubAudioAt(int64_t frame);
+    void requestFrameStepAudioAt(int64_t frame, bool reversed);
+    void requestReviewAudioAt(int64_t frame, bool reversed, bool timelineScrub);
+    void cancelReviewAudio();
 
     void startWaveformAnalysis(const QString& filePath, quint64 sourceGeneration);
     void finishScrubIfReady();
@@ -335,6 +345,8 @@ private:
     std::unique_ptr<audio::ScrubAudioEngine> m_scrubAudio;
 
     bool m_audioScrubEnabled = true;
+    bool m_frameStepAudioEnabled = false;
+    bool m_reviewAudioForScrub = false;
     /// Increments per scrub-audio request so the worker can drop stale ones.
     quint64 m_scrubAudioSequence = 0;
     /// Highest sequence already played, so a late older grain is not heard

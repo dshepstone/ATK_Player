@@ -1,4 +1,5 @@
 #include "playback/PlaybackController.h"
+#include "media/ffmpeg/FFmpegUtil.h"
 
 #include "timeline/TimelineModel.h"
 
@@ -74,7 +75,45 @@ private slots:
     void manualMediaScrubProfile();
     void explicitSeekResetsLogicalTarget();
     void realTimePlaybackCrossesLoopBoundary();
+    void frameStepAudioUsesExactTargetAndDirection();
 };
+
+void TestPlaybackInteraction::frameStepAudioUsesExactTargetAndDirection()
+{
+    Fixture fixture;
+    QVERIFY(fixture.open());
+    QTRY_COMPARE_WITH_TIMEOUT(fixture.playback.currentVideoFrame().frameIndex, qint64(0), 5000);
+    QSignalSpy requests(&fixture.playback, &PlaybackController::reviewAudioRequested);
+
+    fixture.playback.stepForward();
+    QCOMPARE(requests.count(), 0); // independently off by default
+
+    fixture.playback.setFrameStepAudioEnabled(true);
+    fixture.playback.stepForward();
+    QCOMPARE(requests.count(), 1);
+    const auto rate = fixture.playback.metadata().frameRate;
+    const qint64 expectedUs = atk::media::ffmpeg::frameIndexToMicroseconds(
+        2, AVRational{rate.numerator, rate.denominator});
+    QCOMPARE(requests.at(0).at(0).toLongLong(), expectedUs);
+    QCOMPARE(requests.at(0).at(1).toBool(), false);
+
+    fixture.playback.stepBackward();
+    QCOMPARE(requests.count(), 2);
+    QCOMPARE(requests.at(1).at(1).toBool(), true);
+
+    fixture.playback.setMuted(true);
+    fixture.playback.stepForward();
+    QCOMPARE(requests.count(), 2);
+
+    fixture.playback.setMuted(false);
+    for (int i = 0; i < 10; ++i) fixture.playback.stepForward();
+    QCOMPARE(fixture.playback.navigationFrame(), qint64(12));
+    QCOMPARE(requests.count(), 12);
+
+    fixture.playback.play(); // must invalidate and flush pending review PCM
+    QCOMPARE(fixture.playback.state(), PlayerState::Playing);
+    fixture.playback.pause();
+}
 
 void TestPlaybackInteraction::manualMediaScrubProfile_data()
 {

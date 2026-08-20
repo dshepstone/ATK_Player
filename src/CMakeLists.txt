@@ -39,6 +39,7 @@ set(ATK_CORE_SOURCES
     timeline/Bookmark.cpp
     timeline/Timecode.cpp
     timeline/TimelineModel.cpp
+    timeline/TimelineViewport.cpp
 
     project/Project.cpp
     project/ProjectSerializer.cpp
@@ -84,6 +85,7 @@ set(ATK_CORE_HEADERS
     timeline/PlaybackRange.h
     timeline/Timecode.h
     timeline/TimelineModel.h
+    timeline/TimelineViewport.h
 
     project/Project.h
     project/ProjectSerializer.h

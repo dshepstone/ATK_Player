@@ -3,6 +3,7 @@
 #include "media/MediaMetadata.h"
 #include "timeline/Bookmark.h"
 #include "timeline/PlaybackRange.h"
+#include "timeline/TimelineViewport.h"
 
 #include <QObject>
 #include <QVector>
@@ -48,6 +49,12 @@ public:
     void setRangeOutAtCurrentFrame();
     void clearPlaybackRange();
 
+    const TimelineViewport& viewport() const { return m_viewport; }
+    void fitViewport();
+    void zoomViewport(double factor, int64_t anchorFrame);
+    void panViewport(int64_t deltaFrames);
+    void ensureFrameVisible(int64_t frame);
+
     /// First and last frame playback should visit, honouring the range when
     /// enabled and the full extent otherwise.
     int64_t effectiveStartFrame() const;
@@ -92,6 +99,7 @@ signals:
     void playbackRangeChanged(atk::timeline::PlaybackRange range);
     void bookmarksChanged();
     void placeholderChanged(bool placeholder);
+    void viewportChanged(qint64 startFrame, qint64 endFrame);
 
 private:
     /// Keeps bookmarks sorted by frame so the next/previous lookups stay simple.
@@ -103,6 +111,7 @@ private:
     int64_t m_currentFrame = 0;
     media::FrameRate m_frameRate;
     PlaybackRange m_range;
+    TimelineViewport m_viewport;
     QVector<Bookmark> m_bookmarks;
     bool m_placeholder = false;
 };

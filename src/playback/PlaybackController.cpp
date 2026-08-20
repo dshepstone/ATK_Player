@@ -337,10 +337,23 @@ void PlaybackController::setAudioScrubEnabled(bool enabled)
         return;
     }
     m_audioScrubEnabled = enabled;
-    if (!enabled && m_scrubAudio) {
-        m_scrubAudio->flush();
-    }
+    if (!enabled && m_reviewAudioForScrub) cancelReviewAudio();
     qCInfo(log::playback) << "Audio scrub" << (enabled ? "enabled" : "disabled");
+}
+
+void PlaybackController::setFrameStepAudioEnabled(bool enabled)
+{
+    if (m_frameStepAudioEnabled == enabled) return;
+    m_frameStepAudioEnabled = enabled;
+    if (!enabled && !m_reviewAudioForScrub) cancelReviewAudio();
+    qCInfo(log::playback) << "Frame-step audio" << (enabled ? "enabled" : "disabled");
+}
+
+void PlaybackController::cancelReviewAudio()
+{
+    ++m_scrubAudioSequence; // invalidates any grain already crossing threads
+    m_scrubAudioPlayedSequence = m_scrubAudioSequence;
+    if (m_scrubAudio) m_scrubAudio->flush();
 }
 
 void PlaybackController::requestScrubAudioAt(int64_t frame)
@@ -359,9 +372,6 @@ void PlaybackController::requestScrubAudioAt(int64_t frame)
         return;
     }
 
-    // Same origin as the video preview -- see mediaTimeForFrame().
-    const int64_t mediaUs = mediaTimeForFrame(frame);
-
     // Direction comes from the pointer's own movement rather than from any
     // decoder state, so it is correct even when the picture is still catching up.
     if (m_lastScrubAudioFrame >= 0 && frame != m_lastScrubAudioFrame) {
@@ -369,9 +379,28 @@ void PlaybackController::requestScrubAudioAt(int64_t frame)
     }
     m_lastScrubAudioFrame = frame;
 
+    requestReviewAudioAt(frame, m_scrubAudioReversed, true);
+}
+
+void PlaybackController::requestFrameStepAudioAt(int64_t frame, bool reversed)
+{
+    if (!m_frameStepAudioEnabled) return;
+    requestReviewAudioAt(frame, reversed, false);
+}
+
+void PlaybackController::requestReviewAudioAt(int64_t frame, bool reversed, bool timelineScrub)
+{
+    if (!m_hasMedia || !m_metadata.hasAudio || !m_scrubAudio
+        || !m_scrubAudio->isOpen() || m_scrubAudio->isMuted()) return;
+    m_reviewAudioForScrub = timelineScrub;
+    m_scrubAudioReversed = reversed;
     m_scrubAudioRequestNs = monotonicNowNs();
-    emit requestScrubGrain(mediaUs, audio::ScrubAudioEngine::kGrainDurationUs,
-                           ++m_scrubAudioSequence, m_generations->currentSource());
+    const int64_t mediaUs = mediaTimeForFrame(frame);
+    const quint64 sequence = ++m_scrubAudioSequence;
+    emit reviewAudioRequested(mediaUs, reversed, sequence);
+    emit requestScrubGrain(mediaUs,
+                           audio::ScrubAudioEngine::kGrainDurationUs,
+                           sequence, m_generations->currentSource());
 }
 
 void PlaybackController::onScrubGrain(const QByteArray& pcm, qint64 requestedUs,
@@ -383,10 +412,13 @@ void PlaybackController::onScrubGrain(const QByteArray& pcm, qint64 requestedUs,
     }
     // A grain decoded before a newer one but delivered after it would be heard
     // out of order, so anything older than what has already played is dropped.
-    if (sequence <= m_scrubAudioPlayedSequence) {
+    if (sequence != m_scrubAudioSequence || sequence <= m_scrubAudioPlayedSequence) {
         return;
     }
-    if (!m_scrubbing || !m_audioScrubEnabled || !m_scrubAudio) {
+    const bool allowed = m_reviewAudioForScrub
+        ? (m_scrubbing && m_audioScrubEnabled)
+        : (!m_scrubbing && m_frameStepAudioEnabled && m_state != PlayerState::Playing);
+    if (!allowed || !m_scrubAudio) {
         return;
     }
 
@@ -576,6 +608,7 @@ void PlaybackController::onWorkerMediaOpened(const media::MediaMetadata& metadat
     // clears the placeholder marking on the model.
     m_timeline->setFrameRate(metadata.frameRate);
     m_timeline->setFrameCount(std::max<int64_t>(metadata.frameCount, 0));
+    m_timeline->fitViewport();
     m_timeline->clearPlaybackRange();
     m_timeline->setCurrentFrame(0);
     resetNavigationTarget();
@@ -1117,6 +1150,7 @@ void PlaybackController::onDisplayTick()
 void PlaybackController::play()
 {
     cancelNavigation();
+    cancelReviewAudio();
     if (m_state == PlayerState::Playing || m_state == PlayerState::Error) {
         return;
     }
@@ -1530,6 +1564,7 @@ void PlaybackController::stepForward()
         return;
     }
     m_navigationFrame = target;
+    requestFrameStepAudioAt(target, false);
     qCDebug(log::playback) << "Step input ns" << monotonicNowNs()
                            << "forward displayed" << m_timeline->currentFrame()
                            << "logical target" << m_navigationFrame;
@@ -1546,6 +1581,7 @@ void PlaybackController::stepBackward()
         return;
     }
     m_navigationFrame = target;
+    requestFrameStepAudioAt(target, true);
     qCDebug(log::playback) << "Step input ns" << monotonicNowNs()
                            << "backward displayed" << m_timeline->currentFrame()
                            << "logical target" << m_navigationFrame;

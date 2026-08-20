@@ -384,6 +384,10 @@ void MainWindow::onCommand(CommandId id, bool checked)
         statusBar()->showMessage(
             checked ? tr("Audio scrubbing on") : tr("Audio scrubbing off"), 1500);
         return;
+    case CommandId::ToggleFrameStepAudio:
+        m_playback->setFrameStepAudioEnabled(checked);
+        statusBar()->showMessage(checked ? tr("Frame-step audio on") : tr("Frame-step audio off"), 1500);
+        return;
 
     case CommandId::ToggleMute: {
         m_playback->setMuted(checked);
@@ -399,6 +403,15 @@ void MainWindow::onCommand(CommandId id, bool checked)
         m_playback->setVolume(m_playback->volume() - 0.1);
         statusBar()->showMessage(
             tr("Volume %1%").arg(qRound(m_playback->volume() * 100)), 1500);
+        return;
+    case CommandId::TimelineZoomIn:
+        m_timelineWidget->zoomIn();
+        return;
+    case CommandId::TimelineZoomOut:
+        m_timelineWidget->zoomOut();
+        return;
+    case CommandId::TimelineZoomFit:
+        m_timelineWidget->fitEntire();
         return;
 
     case CommandId::OpenProject:
