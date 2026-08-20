@@ -1,0 +1,27 @@
+#pragma once
+
+// ---------------------------------------------------------------------------
+// Generated from src/core/Version.h.in by CMake. Do not edit the generated
+// header; change the project() version in the top-level CMakeLists.txt.
+// ---------------------------------------------------------------------------
+
+namespace atk::version {
+
+inline constexpr int kMajor = @PROJECT_VERSION_MAJOR@;
+inline constexpr int kMinor = @PROJECT_VERSION_MINOR@;
+inline constexpr int kPatch = @PROJECT_VERSION_PATCH@;
+
+/// Pre-release suffix such as "dev" or "rc1". Empty for final releases.
+inline constexpr const char* kSuffix = "@ATK_VERSION_SUFFIX@";
+
+/// Full human-readable version, e.g. "0.1.0-dev".
+inline constexpr const char* kString = "@ATK_VERSION_STRING@";
+
+/// Product name as shown in the UI and in log output.
+inline constexpr const char* kApplicationName = "ATK Player";
+
+/// Organisation identifiers used for QSettings paths.
+inline constexpr const char* kOrganizationName = "ATK";
+inline constexpr const char* kOrganizationDomain = "atkplayer.local";
+
+} // namespace atk::version

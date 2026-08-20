@@ -1,0 +1,155 @@
+# Roadmap
+
+Milestones are ordered by dependency, not by preference. Each one should leave
+the application in a state that runs and is worth using — no milestone is a
+half-landed refactor.
+
+**Current milestone: M0 — complete.**
+
+---
+
+## M0 — Application Framework ✅
+
+Establish an architecture that the rest of the work can be built on top of
+incrementally.
+
+- [x] CMake project with `atk_core`, `atk_ui`, `ATKPlayer` and test targets
+- [x] `CMakePresets.json` for Ninja + MSVC and the Visual Studio generator
+- [x] Qt 6 main window: menu bar, sources panel, viewer, timeline, transport,
+      status readout
+- [x] Reusable `ViewerWidget` and `TimelineWidget`
+- [x] Central command table driving menus, shortcuts and transport buttons from
+      one definition
+- [x] Default shortcuts: Space, ←, →, Home, End, L, I, O, B
+- [x] Transport that visibly changes state, with stepping, seeking, looping and
+      in/out ranges wired to the timeline model
+- [x] Placeholder architecture for media, playback, projects, export, A/B
+      comparison and the external API
+- [x] Platform abstraction with Windows, macOS and Linux implementations
+- [x] Logging with per-subsystem categories and a startup banner
+- [x] Version defined once in CMake and surfaced in the title bar
+- [x] Unit tests for the core library
+- [x] Documentation: architecture, building, roadmap, API, licences
+- [x] Windows CI workflow
+
+---
+
+## M1 — FFmpeg Single Video Playback
+
+Make the player play something. This is the milestone that turns the framework
+into an application.
+
+- Link FFmpeg dynamically, LGPL components only
+- Implement `FFmpegDecoder`: probe, seek, decode
+- Populate `MediaMetadata` — resolution, exact rational frame rate, duration,
+  frame count
+- Decode on a dedicated thread feeding `FrameCache`; the UI thread never blocks
+- File → Open Media, with drag and drop onto the viewer
+- Real-time playback at the source frame rate, with dropped-frame handling
+- Frame-accurate seeking and stepping
+- Viewer fit modes: fit in window, 1:1, and the aspect-ratio handling that goes
+  with them
+
+**Done when** a 1080p clip opens, plays at the correct rate, and stepping lands
+on exactly the frame the status bar reports.
+
+---
+
+## M2 — Animation Review Tools
+
+Make it a review tool rather than a viewer.
+
+- Bookmark editing: name, note, colour, and a bookmark list panel
+- In/out range editing by dragging the range handles on the timeline
+- Timeline zoom and pan for long clips
+- Viewer pan and zoom, with a magnifier for close inspection
+- Frame-by-frame navigation refinements: play backwards, shuttle speeds
+- Onion skinning / previous-frame ghosting
+- Configurable keyboard shortcuts, loaded into `CommandRegistry` from settings
+- Icons in `assets/icons/`, replacing the placeholder text glyphs
+- Preferences dialog
+
+---
+
+## M3 — Projects and Playlists
+
+Make a review session something you can save and hand to someone else.
+
+- Implement `ProjectSerializer` for the `.atkproj` JSON format
+- Playlist: multiple sources, reordering, switching between them
+- Per-source review state persisted — bookmarks, ranges, frame offsets
+- Recent projects, and reopening the last session
+- Relative media paths so a review folder stays portable between machines
+- Missing-media handling that asks for a new path instead of failing silently
+
+---
+
+## M4 — A/B Comparison
+
+- Second `ViewerWidget` bound to `CompareSession`
+- Horizontal, vertical and wipe layouts
+- Both viewers driven by the single master `PlaybackClock`
+- Per-source frame offset, adjustable live, for aligning takes with different
+  handles
+- Sources at different frame rates resolved through the master time base
+- Difference and split-screen display modes
+
+---
+
+## M5 — Export and External API
+
+The milestone that connects ATK Player to the rest of a pipeline.
+
+- Implement `ExportJob`: video, image sequence and single frame
+- Burn-in of frame numbers, bookmarks and notes
+- Export runs off the UI thread with progress and cancellation
+- Implement `ApiServer`: newline-delimited JSON over a **loopback-only** TCP
+  socket, off by default
+- Python client library in `integrations/python/`
+- Maya integration built on the Python client
+- Harmony integration via the Python client or a script bridge
+
+---
+
+## M6 — Windows MSI Installer
+
+- WiX or equivalent installer definition in `packaging/windows/`
+- Bundled Qt and FFmpeg runtimes with their licence texts
+- File associations for supported media and for `.atkproj`
+- Start-menu entry and optional per-user install
+- Code signing
+- CI builds the installer on tagged releases
+
+---
+
+## M7 — macOS
+
+- Build and test the existing source tree on macOS
+- Complete `PlatformInfo_Mac.cpp`, including display-sleep inhibition
+- `.app` bundle with the correct `Info.plist`, a `.dmg`, notarisation
+- Native menu-bar placement and macOS keyboard conventions
+- Retina / high-DPI verification in the viewer
+- macOS CI job
+
+---
+
+## M8 — Linux
+
+- Build and test on Ubuntu LTS as the reference distribution
+- Complete `PlatformInfo_Linux.cpp`, including D-Bus screensaver inhibition
+- AppImage as the primary distribution, with `.deb` if there is demand
+- Wayland and X11 verification
+- Linux CI job
+
+---
+
+## Not scheduled
+
+Ideas that are worth keeping but do not have a milestone yet:
+
+- Audio playback and waveform display
+- Drawn annotations over frames
+- Colour management (OCIO), for review that has to match a grading pipeline
+- Image-sequence support: EXR, DPX, PNG
+- Network review sessions with a synchronised remote playhead
+- A GPU decode and display path

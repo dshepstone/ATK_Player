@@ -1,0 +1,106 @@
+# ---------------------------------------------------------------------------
+# Build output
+# ---------------------------------------------------------------------------
+build/
+out/
+install/
+bin/
+lib/
+cmake-build-*/
+CMakeUserPresets.json
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+.ninja_deps
+.ninja_log
+*.ninja
+
+# ---------------------------------------------------------------------------
+# Visual Studio / MSVC
+# ---------------------------------------------------------------------------
+.vs/
+*.sln
+*.vcxproj
+*.vcxproj.*
+*.user
+*.suo
+*.pdb
+*.idb
+*.ilk
+*.obj
+*.exp
+*.tlog
+
+# ---------------------------------------------------------------------------
+# VS Code
+# Shared, machine-independent settings may be committed deliberately; anything
+# containing a local absolute path must not be.
+# ---------------------------------------------------------------------------
+.vscode/*
+!.vscode/extensions.json
+.vscode/settings.json
+.vscode/launch.json
+.vscode/c_cpp_properties.json
+.cache/
+
+# ---------------------------------------------------------------------------
+# Qt
+# ---------------------------------------------------------------------------
+*_autogen/
+moc_*.cpp
+moc_*.h
+qrc_*.cpp
+ui_*.h
+*.moc
+.qmake.stash
+Makefile
+
+# ---------------------------------------------------------------------------
+# Dependencies
+# ---------------------------------------------------------------------------
+vcpkg_installed/
+vcpkg-manifest-install.log
+third_party/prebuilt/
+
+# ---------------------------------------------------------------------------
+# Binaries that must never be committed
+# ---------------------------------------------------------------------------
+*.exe
+*.dll
+*.so
+*.so.*
+*.dylib
+*.a
+*.lib
+*.app/
+
+# ---------------------------------------------------------------------------
+# Packaging output
+# ---------------------------------------------------------------------------
+*.msi
+*.msix
+*.dmg
+*.AppImage
+*.deb
+*.rpm
+packaging/**/staging/
+
+# ---------------------------------------------------------------------------
+# Editors / OS
+# ---------------------------------------------------------------------------
+*.swp
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------------------------------------------------------------------------
+# Python (integrations/)
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+aqtinstall.log

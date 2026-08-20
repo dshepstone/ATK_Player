@@ -1,0 +1,198 @@
+#include "timeline/TimelineModel.h"
+
+#include "core/Logging.h"
+
+#include <algorithm>
+
+namespace atk::timeline {
+
+TimelineModel::TimelineModel(QObject* parent)
+    : QObject(parent)
+{
+}
+
+void TimelineModel::setFrameCount(int64_t count)
+{
+    const int64_t clamped = std::max<int64_t>(count, 0);
+    if (m_frameCount == clamped) {
+        return;
+    }
+    m_frameCount = clamped;
+    emit frameCountChanged(m_frameCount);
+
+    // The playhead and range may now sit outside the source.
+    if (m_range.enabled) {
+        PlaybackRange adjusted = m_range;
+        adjusted.startFrame = std::min(adjusted.startFrame, std::max<int64_t>(lastFrame(), 0));
+        adjusted.endFrame   = std::min(adjusted.endFrame,   std::max<int64_t>(lastFrame(), 0));
+        setPlaybackRange(adjusted);
+    }
+    setCurrentFrame(m_currentFrame);
+}
+
+void TimelineModel::setFrameRate(media::FrameRate rate)
+{
+    if (m_frameRate == rate) {
+        return;
+    }
+    m_frameRate = rate;
+    emit frameRateChanged(m_frameRate);
+}
+
+void TimelineModel::setCurrentFrame(int64_t frame)
+{
+    int64_t target = frame;
+
+    if (m_frameCount <= 0) {
+        target = 0;
+    } else {
+        target = std::clamp<int64_t>(target, effectiveStartFrame(), effectiveEndFrame());
+    }
+
+    if (m_currentFrame == target) {
+        return;
+    }
+    m_currentFrame = target;
+    emit currentFrameChanged(m_currentFrame);
+}
+
+void TimelineModel::setPlaybackRange(const PlaybackRange& range)
+{
+    PlaybackRange normalised = range;
+    if (normalised.endFrame < normalised.startFrame) {
+        std::swap(normalised.startFrame, normalised.endFrame);
+    }
+    normalised.startFrame = std::max<int64_t>(normalised.startFrame, 0);
+
+    if (m_range == normalised) {
+        return;
+    }
+    m_range = normalised;
+    emit playbackRangeChanged(m_range);
+
+    // Pull the playhead back inside the new range.
+    setCurrentFrame(m_currentFrame);
+}
+
+void TimelineModel::setRangeInAtCurrentFrame()
+{
+    PlaybackRange range = m_range;
+    range.startFrame = m_currentFrame;
+    if (!range.enabled) {
+        // First I press with no range yet: run from here to the end.
+        range.endFrame = std::max<int64_t>(lastFrame(), m_currentFrame);
+        range.enabled = true;
+    } else if (range.endFrame < range.startFrame) {
+        range.endFrame = range.startFrame;
+    }
+    setPlaybackRange(range);
+}
+
+void TimelineModel::setRangeOutAtCurrentFrame()
+{
+    PlaybackRange range = m_range;
+    range.endFrame = m_currentFrame;
+    if (!range.enabled) {
+        range.startFrame = 0;
+        range.enabled = true;
+    } else if (range.startFrame > range.endFrame) {
+        range.startFrame = range.endFrame;
+    }
+    setPlaybackRange(range);
+}
+
+void TimelineModel::clearPlaybackRange()
+{
+    setPlaybackRange(PlaybackRange{});
+}
+
+int64_t TimelineModel::effectiveStartFrame() const
+{
+    if (m_range.enabled && m_range.isValid()) {
+        return std::min(m_range.startFrame, std::max<int64_t>(lastFrame(), 0));
+    }
+    return 0;
+}
+
+int64_t TimelineModel::effectiveEndFrame() const
+{
+    const int64_t last = std::max<int64_t>(lastFrame(), 0);
+    if (m_range.enabled && m_range.isValid()) {
+        return std::min(m_range.endFrame, last);
+    }
+    return last;
+}
+
+void TimelineModel::addBookmark(const Bookmark& bookmark)
+{
+    // Replace rather than duplicate: one bookmark per frame. Removed inline so
+    // only a single bookmarksChanged() is emitted for the whole operation.
+    const auto existing = std::find_if(m_bookmarks.begin(), m_bookmarks.end(),
+                                       [&](const Bookmark& b) { return b.frame == bookmark.frame; });
+    if (existing != m_bookmarks.end()) {
+        m_bookmarks.erase(existing);
+    }
+
+    m_bookmarks.push_back(bookmark);
+    sortBookmarks();
+    qCInfo(log::timeline) << "Bookmark added at frame" << bookmark.frame;
+    emit bookmarksChanged();
+}
+
+void TimelineModel::removeBookmarkAt(int64_t frame)
+{
+    const auto it = std::find_if(m_bookmarks.begin(), m_bookmarks.end(),
+                                 [frame](const Bookmark& b) { return b.frame == frame; });
+    if (it == m_bookmarks.end()) {
+        return;
+    }
+    m_bookmarks.erase(it);
+    emit bookmarksChanged();
+}
+
+void TimelineModel::clearBookmarks()
+{
+    if (m_bookmarks.isEmpty()) {
+        return;
+    }
+    m_bookmarks.clear();
+    emit bookmarksChanged();
+}
+
+const Bookmark* TimelineModel::bookmarkAt(int64_t frame) const
+{
+    const auto it = std::find_if(m_bookmarks.cbegin(), m_bookmarks.cend(),
+                                 [frame](const Bookmark& b) { return b.frame == frame; });
+    return it == m_bookmarks.cend() ? nullptr : &(*it);
+}
+
+int64_t TimelineModel::nextBookmarkFrame(int64_t frame) const
+{
+    const auto it = std::find_if(m_bookmarks.cbegin(), m_bookmarks.cend(),
+                                 [frame](const Bookmark& b) { return b.frame > frame; });
+    return it == m_bookmarks.cend() ? -1 : it->frame;
+}
+
+int64_t TimelineModel::previousBookmarkFrame(int64_t frame) const
+{
+    const auto it = std::find_if(m_bookmarks.crbegin(), m_bookmarks.crend(),
+                                 [frame](const Bookmark& b) { return b.frame < frame; });
+    return it == m_bookmarks.crend() ? -1 : it->frame;
+}
+
+void TimelineModel::reset()
+{
+    clearBookmarks();
+    clearPlaybackRange();
+    setFrameCount(0);
+    setCurrentFrame(0);
+    setFrameRate(media::FrameRate{});
+}
+
+void TimelineModel::sortBookmarks()
+{
+    std::sort(m_bookmarks.begin(), m_bookmarks.end(),
+              [](const Bookmark& a, const Bookmark& b) { return a.frame < b.frame; });
+}
+
+} // namespace atk::timeline
