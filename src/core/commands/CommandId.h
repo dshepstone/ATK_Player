@@ -17,6 +17,9 @@ enum class CommandId {
     CloseSource,
     Quit,
 
+    // Edit
+    Preferences,
+
     // Playback transport
     PlayPause,
     Stop,

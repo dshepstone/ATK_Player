@@ -7,8 +7,10 @@
 # ---------------------------------------------------------------------------
 
 set(ATK_UI_SOURCES
+    ApplicationSettings.cpp
     BookmarkPanel.cpp
     MainWindow.cpp
+    PreferencesDialog.cpp
     Resources.cpp
     SourcesPanel.cpp
     StatusInfoBar.cpp
@@ -23,8 +25,10 @@ set(ATK_UI_SOURCES
 )
 
 set(ATK_UI_HEADERS
+    ApplicationSettings.h
     BookmarkPanel.h
     MainWindow.h
+    PreferencesDialog.h
     Resources.h
     SourcesPanel.h
     StatusInfoBar.h
