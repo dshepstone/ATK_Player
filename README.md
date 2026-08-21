@@ -16,9 +16,11 @@ a media player second.
 
 ## Current status
 
-**Version 0.2.0-dev — milestone M1, FFmpeg single-video playback.**
+**Version 0.2.0-dev — M2 animation-review tools complete.**
 
-ATK Player now opens and plays real video with synchronised audio.
+ATK Player now provides frame-accurate video/audio review, exact ranges,
+bookmarks, waveform/audio scrubbing, viewer navigation and persistent global
+preferences. M3 Projects & Playlists is next.
 
 **What works today**
 
@@ -40,6 +42,10 @@ ATK Player now opens and plays real video with synchronised audio.
   marked as such rather than presented as exact.
 - Decoding runs on its own thread, so the interface stays responsive while
   seeking.
+- **Preferences** live under Edit → Preferences. Review toggles, volume,
+  configurable shortcuts and optional window/dock layout persist between runs.
+  Shortcut conflicts are identified before assignment and cleared shortcuts are
+  remembered.
 
 With no media loaded the window still installs a clearly-marked **placeholder**
 100-frame extent so the transport is demonstrable; the status bar says
@@ -48,16 +54,29 @@ marking disappears the moment a real file opens.
 
 **What does not work yet**
 
-- Audio scrubbing, and audio during single-frame stepping (M2).
-- In/Out points and range looping (M2) — `I` and `O` set the model but the loop
-  is whole-clip only.
-- Bookmarks UI, range bookmarks, viewer zoom and pan (M2).
+- Project/playlist persistence is M3; current bookmarks and review ranges are
+  session-only.
 - Playlists (M3), A/B comparison (M4), export (M5).
 - The API server opens no socket — only the dispatcher underneath it is real.
 - Maya and Harmony integrations, the MSI installer, macOS and Linux.
 
 Menu entries for unimplemented commands are present and report themselves in the
 status bar rather than doing nothing silently.
+
+### High-value default shortcuts
+
+| Action | Shortcut |
+|---|---|
+| Play / Pause | Space |
+| Previous / Next Frame | Left / Right |
+| Add Point Bookmark | B |
+| Previous / Next Bookmark | Alt+Left / Alt+Right |
+| Fit Entire Timeline | F |
+| Fit Viewer / Viewer 100% | Ctrl+0 / Ctrl+1 |
+
+Range Bookmark creation remains explicit in the Bookmarks panel; `Shift+B` is
+unassigned by default. All commands, including Add Range Bookmark, can be given
+a custom binding in Preferences.
 
 ---
 

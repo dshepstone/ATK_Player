@@ -72,9 +72,9 @@ on exactly the frame the status bar reports.
 
 ---
 
-## M2 — Animation Review Tools
+## M2 — Animation Review Tools ✅ COMPLETE
 
-Make it a review tool rather than a viewer. **In progress.**
+Make it a review tool rather than a viewer. **Complete; ready for human acceptance.**
 
 Delivered so far:
 
@@ -106,20 +106,12 @@ Delivered so far:
   zoom, bounded middle-mouse pan, double-click Fit, and a compact status-bar
   percentage. Navigation persists through playback and frame changes and is
   deliberately independent of the timeline and playback state.
-
-Still to come in M2: further review refinements.
-
-Deferred here deliberately from M1: audio scrubbing, audible single-frame
-stepping, In/Out points, specific loop ranges, bookmarks and range bookmarks,
-finer cache controls.
-
-- In/out range editing by dragging the range handles on the timeline
-- Viewer magnifier for close inspection
-- Frame-by-frame navigation refinements: play backwards, shuttle speeds
-- Onion skinning / previous-frame ghosting
-- Configurable keyboard shortcuts, loaded into `CommandRegistry` from settings
-- Icons in `assets/icons/`, replacing the placeholder text glyphs
-- Preferences dialog
+- **Application polish and preferences.** A central QSettings service persists
+  review toggles, volume, shortcut overrides and optional window/dock layout.
+  Edit → Preferences provides predictable draft/OK/Cancel semantics, conflict-
+  checked configurable shortcuts, clear/reset actions and deterministic full
+  reset. Native Qt command icons replace transport text glyphs and tooltips show
+  current effective shortcuts.
 
 The supplied 32×32 ATK Player PNG is embedded for runtime application/window
 identity. A true multi-resolution Windows `.ico` remains M6 packaging work when
@@ -129,6 +121,12 @@ a larger master asset is available.
 scrubbing, bookmarks with names/notes/colours, In/Out points, loop ranges, and
 viewer zoom and pan.
 
+### Future Review Enhancements
+
+These are deliberately beyond M2 and do not block M3: viewer magnification,
+reverse/shuttle playback, onion skinning/previous-frame ghosting, and finer
+cache controls.
+
 ---
 
 ## M3 — Projects and Playlists
@@ -137,8 +135,9 @@ Make a review session something you can save and hand to someone else.
 
 - Implement `ProjectSerializer` for the `.atkproj` JSON format
 - Playlist: multiple sources, reordering, switching between them
-- Per-source review state persisted — bookmarks, ranges, frame offsets
-- Recent projects, and reopening the last session
+- Per-source review state persisted — bookmarks, Range Bookmarks, review ranges
+  and frame offsets where required
+- Recent projects and reopening the last session
 - Relative media paths so a review folder stays portable between machines
 - Missing-media handling that asks for a new path instead of failing silently
 

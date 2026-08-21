@@ -552,9 +552,35 @@ From that single table:
 the same `QAction`, so they cannot disagree about what a command does or whether
 it is currently enabled.
 
-Making shortcuts user-configurable (M2) therefore means loading overrides into
-`CommandRegistry::applyShortcutOverrides()` — keyed by the stable string key, so
-an override file survives display names being reworded. No widget changes.
+`ApplicationSettings` is the sole QSettings wrapper. Production uses the stable
+`ATK` / `ATK Player` identity established by `Application`; tests inject an INI
+path. It validates booleans and volume, stores window geometry/dock state, and
+stores only shortcut overrides under `shortcuts/<stable-command-key>`. A missing
+override means use `CommandDefinition::defaultShortcut`; a present empty value
+means the user intentionally cleared it. Unknown keys and invalid values fall
+back safely instead of changing command behaviour.
+
+`PreferencesDialog` edits a draft containing General, Review and Shortcuts
+settings. Cancel discards the draft. OK writes through `ApplicationSettings`,
+updates each existing QAction through `CommandRegistry`, and updates checked
+review actions/controllers together. Conflict replacement clears the previous
+assignment explicitly. Reset Selected and Reset All read defaults from
+`CommandDefinitions`; Reset Preferences clears the QSettings namespace, never
+session media or model data.
+
+The registry also accepts shortcut-override events in text editors so normal
+typing and Copy/Paste/Cut/Select All/Undo/Redo are not stolen by window-wide
+review actions. QAction `changed` signals refresh transport tooltips, so menus,
+buttons and effective shortcuts update without restart.
+
+Window geometry and QMainWindow dock state are restored only when the global
+restore-layout preference is enabled. Corrupt state falls back to the default
+left Sources/right Bookmarks layout, and off-screen geometry is moved onto the
+primary screen.
+
+Settings are machine-local application preferences only. Bookmarks, saved
+ranges, media sources, current frame, viewer transform and playlists remain M3
+`.atkproj` project state and never enter QSettings.
 
 The stable key is also the identifier the external API uses, which is why it must
 not change once released.
