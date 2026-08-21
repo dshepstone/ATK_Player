@@ -8,8 +8,34 @@
 #include <QPushButton>
 #include <QHBoxLayout>
 #include <QVBoxLayout>
+#include <QMenu>
 
 namespace atk::ui {
+namespace {
+QString durationText(qint64 durationUs)
+{
+    if (durationUs < 0) return {};
+    const qint64 total = durationUs / 1'000'000;
+    const qint64 hours = total / 3600, minutes = (total / 60) % 60, seconds = total % 60;
+    return hours > 0 ? QStringLiteral("%1:%2:%3").arg(hours).arg(minutes, 2, 10, QLatin1Char('0')).arg(seconds, 2, 10, QLatin1Char('0'))
+                     : QStringLiteral("%1:%2").arg(minutes, 2, 10, QLatin1Char('0')).arg(seconds, 2, 10, QLatin1Char('0'));
+}
+
+QString metadataText(const media::MediaMetadata& metadata)
+{
+    QStringList parts;
+    if (metadata.resolution.isValid()) parts << QStringLiteral("%1×%2").arg(metadata.resolution.width()).arg(metadata.resolution.height());
+    if (metadata.frameRate.isValid()) {
+        QString fps = QString::number(metadata.frameRate.toDouble(), 'f',
+                                      metadata.frameRate.denominator == 1 ? 0 : 3);
+        while (fps.contains(QLatin1Char('.')) && fps.endsWith(QLatin1Char('0'))) fps.chop(1);
+        if (fps.endsWith(QLatin1Char('.'))) fps.chop(1);
+        parts << QStringLiteral("%1 fps").arg(fps);
+    }
+    if (metadata.durationUs >= 0) parts << durationText(metadata.durationUs);
+    return parts.join(QStringLiteral(" · "));
+}
+}
 
 SourcesPanel::SourcesPanel(QWidget* parent)
     : QWidget(parent)
@@ -26,6 +52,7 @@ SourcesPanel::SourcesPanel(QWidget* parent)
     m_list->setSelectionMode(QAbstractItemView::SingleSelection);
     m_list->setDragDropMode(QAbstractItemView::InternalMove);
     m_list->setDefaultDropAction(Qt::MoveAction);
+    m_list->setContextMenuPolicy(Qt::CustomContextMenu);
     layout->addWidget(m_list, 1);
 
     auto* controls = new QHBoxLayout;
@@ -60,6 +87,19 @@ SourcesPanel::SourcesPanel(QWidget* parent)
                 const int target = destination > first ? destination - 1 : destination;
                 emit moveRequested(first, target);
             });
+    connect(m_list, &QWidget::customContextMenuRequested, this, [this](const QPoint& position) {
+        if (QListWidgetItem* item = m_list->itemAt(position)) m_list->setCurrentItem(item);
+        if (selectedIndex() < 0) return;
+        QMenu menu(this);
+        QAction* activate = menu.addAction(tr("Activate"));
+        QAction* relink = menu.addAction(tr("Relink Media..."));
+        menu.addSeparator();
+        QAction* remove = menu.addAction(tr("Remove"));
+        QAction* selected = menu.exec(m_list->viewport()->mapToGlobal(position));
+        if (selected == activate) emit sourceActivated(selectedIndex());
+        else if (selected == relink) emit relinkRequested(selectedIndex());
+        else if (selected == remove) emit removeRequested(selectedIndex());
+    });
 
     setMinimumWidth(200);
     refresh();
@@ -85,7 +125,7 @@ void SourcesPanel::setProject(project::Project* project)
         connect(m_project, &project::Project::entriesChanged,
                 this, &SourcesPanel::refresh);
         connect(m_project, &project::Project::activeIndexChanged,
-                this, [this](int index) { m_list->setCurrentRow(index); });
+                this, [this](int) { refresh(); });
     }
 
     refresh();
@@ -131,10 +171,24 @@ void SourcesPanel::refresh()
         for (const project::SourceEntry& entry : m_project->entries()) {
             if (entry.source) {
                 const QString name = entry.displayName.isEmpty() ? entry.source->displayName() : entry.displayName;
-                auto* item = new QListWidgetItem(QStringLiteral("%1  %2%3").arg(order++).arg(name,
-                    entry.missing ? tr("  [Missing]") : QString()), m_list);
+                QString state;
+                switch (entry.availability) {
+                case project::SourceAvailability::Unknown: state = tr("Unknown"); break;
+                case project::SourceAvailability::Probing: state = tr("Probing…"); break;
+                case project::SourceAvailability::Ready: state = metadataText(entry.source->metadata()); break;
+                case project::SourceAvailability::Missing: state = tr("Missing"); break;
+                case project::SourceAvailability::Error: state = tr("Unreadable"); break;
+                }
+                const bool current = m_project->activeIndex() == order - 1;
+                auto* item = new QListWidgetItem(QStringLiteral("%1 %2  %3%4").arg(current ? QStringLiteral("▶") : QStringLiteral(" "))
+                    .arg(order++).arg(name, state.isEmpty() ? QString() : QStringLiteral(" — ") + state), m_list);
                 item->setData(Qt::UserRole, entry.id);
-                if (entry.missing) item->setForeground(palette().color(QPalette::Disabled, QPalette::Text));
+                item->setToolTip(entry.availabilityError.isEmpty() ? entry.source->filePath()
+                    : QStringLiteral("%1\n%2").arg(entry.source->filePath(), entry.availabilityError));
+                QFont font = item->font(); font.setBold(current); item->setFont(font);
+                if (entry.availability == project::SourceAvailability::Missing
+                    || entry.availability == project::SourceAvailability::Error)
+                    item->setForeground(palette().color(QPalette::Disabled, QPalette::Text));
             }
         }
         m_list->setCurrentRow(m_project->activeIndex());

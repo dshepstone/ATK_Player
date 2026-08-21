@@ -3,6 +3,7 @@
 #include "core/Logging.h"
 
 #include <utility>
+#include <algorithm>
 
 namespace atk::project {
 
@@ -130,6 +131,65 @@ void Project::replace(QString name, QString filePath, QVector<SourceEntry> entri
     emit activeIndexChanged(m_activeIndex);
     emit compareAssignmentChanged();
     setModified(false);
+}
+
+bool Project::relinkSource(const QUuid& id, std::shared_ptr<media::MediaSource> source,
+                           int64_t replacementFrameCount)
+{
+    const int index = indexForId(id);
+    if (index < 0 || !source || replacementFrameCount <= 0) return false;
+    SourceEntry& entry = m_entries[index];
+    entry.source = std::move(source);
+    entry.storedPath.clear();
+    entry.displayName = entry.source->displayName();
+    entry.missing = false;
+    entry.availability = entry.source->metadata().isValid()
+        ? SourceAvailability::Ready : SourceAvailability::Unknown;
+    entry.availabilityError.clear();
+    const int64_t last = replacementFrameCount - 1;
+    QVector<timeline::Bookmark> retained;
+    for (timeline::Bookmark bookmark : entry.bookmarks) {
+        if (bookmark.frame > last) continue;
+        if (bookmark.endFrame > last) bookmark.endFrame = last;
+        if (bookmark.type == timeline::BookmarkType::Range && bookmark.endFrame == bookmark.frame)
+            bookmark.type = timeline::BookmarkType::Point;
+        retained.append(std::move(bookmark));
+    }
+    entry.bookmarks = std::move(retained);
+    if (entry.playbackRange.enabled) {
+        entry.playbackRange.startFrame = std::min(entry.playbackRange.startFrame, last);
+        entry.playbackRange.endFrame = std::clamp(entry.playbackRange.endFrame,
+                                                   entry.playbackRange.startFrame, last);
+    }
+    emit entriesChanged();
+    setModified(true);
+    return true;
+}
+
+bool Project::beginProbe(const QUuid& id, const QString& path, quint64 token)
+{
+    const int index = indexForId(id);
+    if (index < 0 || !m_entries[index].source || m_entries[index].source->filePath() != path) return false;
+    auto& entry = m_entries[index];
+    entry.probeToken = token; entry.availability = SourceAvailability::Probing;
+    entry.availabilityError.clear(); emit entriesChanged(); return true;
+}
+
+bool Project::applyProbeResult(const QUuid& id, const QString& path, quint64 token,
+                               const media::MediaMetadata& metadata, const QString& error,
+                               bool missing)
+{
+    const int index = indexForId(id);
+    if (index < 0) return false;
+    auto& entry = m_entries[index];
+    if (!entry.source || entry.source->filePath() != path || entry.probeToken != token) return false;
+    entry.missing = missing;
+    entry.availabilityError = error;
+    if (missing) entry.availability = SourceAvailability::Missing;
+    else if (!error.isEmpty() || !metadata.isValid()) entry.availability = SourceAvailability::Error;
+    else { entry.availability = SourceAvailability::Ready; entry.source->setMetadata(metadata); }
+    emit entriesChanged();
+    return true;
 }
 
 void Project::clear()

@@ -5,6 +5,7 @@
 #include "core/Logging.h"
 #include "core/Version.h"
 #include "media/MediaSource.h"
+#include "media/PlaylistProbeWorker.h"
 #include "project/Project.h"
 #include "project/ProjectSerializer.h"
 #include "timeline/TimelineModel.h"
@@ -19,6 +20,7 @@
 #include "ui/TimelineRangeSlider.h"
 #include "ui/TransportControls.h"
 #include "ui/ViewerWidget.h"
+#include "ui/VideoFullscreenWindow.h"
 #include "ui/commands/CommandRegistry.h"
 
 #include <QFileDialog>
@@ -31,6 +33,8 @@
 #include <QSpinBox>
 #include <QStyle>
 #include <QWidgetAction>
+#include <QThread>
+#include <QWindow>
 
 #include <QAction>
 #include <QCloseEvent>
@@ -113,7 +117,12 @@ MainWindow::MainWindow(const QString& settingsIniPath, QWidget* parent)
 
 MainWindow::~MainWindow()
 {
+    exitVideoFullScreen();
     saveApplicationLayout();
+    if (m_probeThread) {
+        m_probeThread->quit();
+        m_probeThread->wait();
+    }
 }
 
 void MainWindow::buildModels()
@@ -126,6 +135,37 @@ void MainWindow::buildModels()
     m_playback->setVolume(m_settings->volume());
     m_playback->setMuted(m_settings->muted());
     m_project  = std::make_unique<project::Project>();
+    m_probeThread = new QThread(this);
+    m_probeWorker = new media::PlaylistProbeWorker;
+    m_probeWorker->moveToThread(m_probeThread);
+    connect(m_probeThread, &QThread::finished, m_probeWorker, &QObject::deleteLater);
+    connect(m_probeWorker, &media::PlaylistProbeWorker::probeFinished, this,
+        [this](QUuid id, const QString& path, quint64 token, const media::MediaMetadata& metadata,
+               const QString& error, bool missing) {
+            if (token == m_pendingRelinkToken && id == m_pendingRelinkId && path == m_pendingRelinkPath) {
+                m_pendingRelinkToken = 0;
+                if (m_pendingRelinkProjectGeneration != m_projectGeneration) return;
+                if (missing || !error.isEmpty() || !metadata.isValid()) {
+                    QMessageBox::critical(this, tr("Relink Media"),
+                        missing ? tr("The selected media file is missing.")
+                                : tr("ATK Player could not open the replacement media: %1").arg(error));
+                    return;
+                }
+                const int index = m_project->indexForId(id);
+                if (index < 0) return;
+                auto replacement = std::make_shared<media::MediaSource>(path);
+                replacement->setMetadata(metadata);
+                const int64_t frameCount = metadata.effectiveFrameCount();
+                if (frameCount <= 0 || !m_project->relinkSource(id, replacement, frameCount)) return;
+                if (index == m_project->activeIndex()) {
+                    m_project->setActiveIndex(-1);
+                    activatePlaylistIndex(index, false);
+                }
+                return;
+            }
+            m_project->applyProbeResult(id, path, token, metadata, error, missing);
+        });
+    m_probeThread->start();
     m_compare  = std::make_unique<playback::CompareSession>();
     m_apiServer = std::make_unique<api::ApiServer>(m_playback.get(), m_timeline.get());
 
@@ -145,6 +185,7 @@ void MainWindow::buildWidgets()
     // --- Central column: viewer, timeline, transport ----------------------
     auto* central = new QWidget(this);
     auto* column = new QVBoxLayout(central);
+    m_centralLayout = column;
     column->setContentsMargins(0, 0, 0, 0);
     column->setSpacing(0);
 
@@ -274,6 +315,10 @@ void MainWindow::buildMenus()
     if (QAction* sourcesAction = m_commands->action(CommandId::ToggleSourcesPanel)) {
         sourcesAction->setChecked(true);
     }
+    if (QAction* fileAction = menuBar()->actions().value(0); fileAction && fileAction->menu()) {
+        m_recentProjectsMenu = fileAction->menu()->addMenu(tr("Recent Projects"));
+        refreshRecentProjectsMenu();
+    }
     if (QAction* bookmarksAction = m_commands->action(CommandId::ToggleBookmarksPanel)) {
         bookmarksAction->setChecked(true);
     }
@@ -289,6 +334,9 @@ void MainWindow::buildMenus()
     }
     if (QAction* muteAction = m_commands->action(CommandId::ToggleMute)) {
         muteAction->setChecked(m_settings->muted());
+    }
+    if (QAction* videoFullScreen = m_commands->action(CommandId::ToggleVideoFullScreen)) {
+        videoFullScreen->setEnabled(false);
     }
 }
 
@@ -309,6 +357,7 @@ void MainWindow::connectSignals()
     connect(m_sources, &SourcesPanel::addMediaRequested, this, &MainWindow::addMediaDialog);
     connect(m_sources, &SourcesPanel::removeRequested, this, &MainWindow::removePlaylistIndex);
     connect(m_sources, &SourcesPanel::moveRequested, this, &MainWindow::movePlaylistIndex);
+    connect(m_sources, &SourcesPanel::relinkRequested, this, [this](int) { relinkSelectedMedia(); });
     connect(m_sources, &SourcesPanel::sourceActivated, this,
             [this](int index) { activatePlaylistIndex(index); });
 
@@ -341,6 +390,7 @@ void MainWindow::connectSignals()
 
     connect(m_playback.get(), &playback::PlaybackController::mediaClosed,
             this, [this] {
+                exitVideoFullScreen();
                 m_viewer->setEmpty();
                 m_viewer->setSourceAspectRatio(0.0);
                 m_sources->clearCurrentMedia();
@@ -481,6 +531,15 @@ void MainWindow::onCommand(CommandId id, bool checked)
     switch (id) {
     // --- Transport: fully wired ------------------------------------------
     case CommandId::PlayPause:
+        if (!m_playback->isPlaying() && !m_playback->isLoopEnabled()
+            && m_project->activeIndex() >= 0
+            && m_playback->currentFrame() == m_timeline->effectiveEndFrame()) {
+            const int next = nextUsablePlaylistIndex();
+            if (next >= 0) {
+                activatePlaylistIndex(next, true);
+                return;
+            }
+        }
         m_playback->togglePlayPause();
         return;
     case CommandId::Stop:
@@ -515,6 +574,8 @@ void MainWindow::onCommand(CommandId id, bool checked)
         movePlaylistIndex(m_sources->selectedIndex(), m_sources->selectedIndex() - 1); return;
     case CommandId::MovePlaylistItemDown:
         movePlaylistIndex(m_sources->selectedIndex(), m_sources->selectedIndex() + 1); return;
+    case CommandId::RelinkMedia:
+        relinkSelectedMedia(); return;
 
     // --- Range and bookmarks: fully wired ---------------------------------
     case CommandId::SetRangeIn:
@@ -585,6 +646,10 @@ void MainWindow::onCommand(CommandId id, bool checked)
             showNormal();
         }
         return;
+    case CommandId::ToggleVideoFullScreen:
+        if (checked) enterVideoFullScreen();
+        else exitVideoFullScreen();
+        return;
     case CommandId::ToggleSourcesPanel:
         m_sourcesDock->setVisible(checked);
         return;
@@ -604,9 +669,9 @@ void MainWindow::onCommand(CommandId id, bool checked)
             this,
             tr("About ATK Player"),
             tr("<h3>%1 %2</h3>"
-               "<p><b>Animation Review Player</b></p>"
-               "<p>Frame-accurate playback, synchronized audio, timeline review "
-               "ranges, bookmarks and animator-focused navigation.</p>"
+               "<p><b>Animation Tool Kit - Media Player</b></p>"
+               "<p>This is the companion app for the Animation Tool Kit - Maya tools series.</p>"
+               "<p><b>Created By David Shepstone</b></p>"
                "<p>This is an independent open-source development build.</p>")
                 .arg(QString::fromLatin1(version::kApplicationName),
                      QString::fromLatin1(version::kString)));
@@ -728,6 +793,7 @@ void MainWindow::applyPreferences(const PreferencesDialog& dialog)
     m_settings->setAudioScrubEnabled(dialog.audioScrubEnabled());
     m_settings->setFrameStepAudioEnabled(dialog.frameStepAudioEnabled());
     m_settings->setBookmarkSnapEnabled(dialog.bookmarkSnapEnabled());
+    m_settings->setReopenLastProject(dialog.reopenLastProject());
 
     const auto setToggle = [this](CommandId id, bool checked) {
         if (QAction* action = m_commands->action(id)) {
@@ -803,9 +869,14 @@ void MainWindow::onPlayerStateChanged(playback::PlayerState state)
         statusBar()->showMessage(tr("Paused"), 1500);
         break;
     case PlayerState::Ended:
-        if (m_playlistPlaybackActive && !m_playback->isLoopEnabled()
-            && m_project->activeIndex() + 1 < m_project->entries().size()) {
-            activatePlaylistIndex(m_project->activeIndex() + 1, true);
+        if (m_playlistPlaybackActive && !m_playback->isLoopEnabled()) {
+            const int next = nextUsablePlaylistIndex();
+            if (next >= 0) {
+                activatePlaylistIndex(next, true);
+                break;
+            }
+            m_playlistPlaybackActive = false;
+            statusBar()->showMessage(tr("End of playlist"), 2000);
         } else {
             m_playlistPlaybackActive = false;
             statusBar()->showMessage(tr("End of playlist"), 2000);
@@ -834,6 +905,10 @@ void MainWindow::updateTransportEnabled()
     const bool hasExtent = m_timeline->frameCount() > 0;
     const bool notErrored = m_playback->state() != playback::PlayerState::Error;
     const bool enabled = hasExtent && notErrored;
+
+    if (QAction* action = m_commands->action(CommandId::ToggleVideoFullScreen)) {
+        action->setEnabled(m_playback->hasMedia());
+    }
 
     for (const commands::CommandId id : { commands::CommandId::PlayPause,
                                           commands::CommandId::Stop,
@@ -928,6 +1003,7 @@ void MainWindow::openMediaDialog()
 void MainWindow::openMediaFile(const QString& filePath)
 {
     if (!confirmDiscardChanges()) return;
+    ++m_projectGeneration;
     m_restoringSourceState = true;
     m_project->clear();
     m_project->setName(QStringLiteral("Untitled"));
@@ -970,6 +1046,18 @@ void MainWindow::onMediaOpened(const media::MediaMetadata& metadata)
     }
 }
 
+int MainWindow::nextUsablePlaylistIndex() const
+{
+    for (int i = m_project->activeIndex() + 1; i < m_project->entries().size(); ++i) {
+        const auto availability = m_project->entries().at(i).availability;
+        if (availability != project::SourceAvailability::Missing
+            && availability != project::SourceAvailability::Error) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 void MainWindow::onMediaError(const QString& message)
 {
     m_restoringSourceState = false;
@@ -999,7 +1087,23 @@ void MainWindow::addMediaFiles(const QStringList& paths)
         m_project->setActiveIndex(-1);
         activatePlaylistIndex(0);
     }
+    startPlaylistProbes();
     updateWindowTitle();
+}
+
+void MainWindow::startProbe(const QUuid& id, const QString& path)
+{
+    const quint64 token = m_nextProbeToken++;
+    if (!m_project->beginProbe(id, path, token)) return;
+    QMetaObject::invokeMethod(m_probeWorker, [worker = m_probeWorker, id, path, token] {
+        worker->probe(id, path, token);
+    }, Qt::QueuedConnection);
+}
+
+void MainWindow::startPlaylistProbes()
+{
+    for (const auto& entry : m_project->entries())
+        if (entry.source) startProbe(entry.id, entry.source->filePath());
 }
 
 void MainWindow::saveActiveReviewState()
@@ -1030,7 +1134,8 @@ void MainWindow::activatePlaylistIndex(int index, bool continuePlayback)
     if (index < 0 || index >= m_project->entries().size() || index == m_project->activeIndex()) return;
     saveActiveReviewState();
     const auto& entry = m_project->entries().at(index);
-    if (!entry.source || entry.missing) {
+    if (!entry.source || entry.availability == project::SourceAvailability::Missing
+        || entry.availability == project::SourceAvailability::Error) {
         statusBar()->showMessage(tr("Missing media: %1").arg(entry.displayName), 5000);
         if (continuePlayback && index + 1 < m_project->entries().size()) activatePlaylistIndex(index + 1, true);
         return;
@@ -1074,6 +1179,7 @@ bool MainWindow::confirmDiscardChanges()
 void MainWindow::newProject()
 {
     if (!confirmDiscardChanges()) return;
+    ++m_projectGeneration;
     m_playback->closeMedia();
     m_project->replace(QStringLiteral("Untitled"), QString(), {}, QUuid{});
 }
@@ -1090,17 +1196,28 @@ bool MainWindow::openProjectFile(const QString& path)
 {
     project::Project loaded;
     const auto result = project::ProjectSerializer::load(loaded, path);
-    if (!result.ok) { QMessageBox::critical(this, tr("Open Project"), result.errorMessage); return false; }
+    if (!result.ok) {
+        if (!m_suppressProjectOpenError) QMessageBox::critical(this, tr("Open Project"), result.errorMessage);
+        return false;
+    }
+    ++m_projectGeneration;
     m_playback->closeMedia();
     m_project->replace(loaded.name(), loaded.filePath(), loaded.entries(), loaded.currentSourceId());
-    const int current = m_project->activeIndex();
-    if (current >= 0 && !m_project->entries().at(current).missing) {
-        const QString mediaPath = m_project->entries().at(current).source->filePath();
-        m_project->setActiveIndex(-1);
-        const int restoredIndex = m_project->indexForId(loaded.currentSourceId());
-        activatePlaylistIndex(restoredIndex);
-        Q_UNUSED(mediaPath);
+    int current = m_project->activeIndex();
+    if (current >= 0 && m_project->entries().at(current).missing) {
+        int usable = -1;
+        for (int i = current + 1; i < m_project->entries().size(); ++i) if (!m_project->entries().at(i).missing) { usable = i; break; }
+        if (usable < 0) for (int i = current - 1; i >= 0; --i) if (!m_project->entries().at(i).missing) { usable = i; break; }
+        current = usable;
     }
+    if (current >= 0 && !m_project->entries().at(current).missing) {
+        m_project->setActiveIndex(-1);
+        activatePlaylistIndex(current);
+    } else {
+        m_project->setActiveIndex(-1);
+    }
+    m_settings->addRecentProject(path); refreshRecentProjectsMenu();
+    startPlaylistProbes();
     updateWindowTitle(); return true;
 }
 
@@ -1111,7 +1228,62 @@ bool MainWindow::saveProjectTo(const QString& path)
     if (!result.ok) { QMessageBox::critical(this, tr("Save Project"), result.errorMessage); return false; }
     m_project->setFilePath(QFileInfo(path).absoluteFilePath());
     m_project->setName(QFileInfo(path).completeBaseName());
-    m_project->setModified(false); updateWindowTitle(); return true;
+    m_project->setModified(false);
+    m_settings->addRecentProject(path); refreshRecentProjectsMenu();
+    updateWindowTitle(); return true;
+}
+
+void MainWindow::refreshRecentProjectsMenu()
+{
+    if (!m_recentProjectsMenu) return;
+    m_recentProjectsMenu->clear();
+    const QStringList recent = m_settings->recentProjects();
+    for (const QString& path : recent) {
+        QAction* action = m_recentProjectsMenu->addAction(QFileInfo(path).fileName());
+        action->setToolTip(path);
+        action->setEnabled(QFileInfo::exists(path));
+        connect(action, &QAction::triggered, this, [this, path] {
+            if (confirmDiscardChanges()) openProjectFile(path);
+        });
+    }
+    if (!recent.isEmpty()) m_recentProjectsMenu->addSeparator();
+    QAction* clear = m_recentProjectsMenu->addAction(tr("Clear Recent Projects"));
+    clear->setEnabled(!recent.isEmpty());
+    connect(clear, &QAction::triggered, this, [this] { m_settings->clearRecentProjects(); refreshRecentProjectsMenu(); });
+}
+
+void MainWindow::reopenLastProjectIfEnabled()
+{
+    if (!m_settings->reopenLastProject()) return;
+    const QString path = m_settings->lastProjectPath();
+    m_suppressProjectOpenError = true;
+    const bool opened = !path.isEmpty() && QFileInfo::exists(path) && openProjectFile(path);
+    m_suppressProjectOpenError = false;
+    if (!opened) {
+        m_settings->setLastProjectPath(QString());
+        statusBar()->showMessage(tr("The last project could not be reopened."), 5000);
+    }
+}
+
+void MainWindow::relinkSelectedMedia()
+{
+    const int index = m_sources->selectedIndex();
+    if (index < 0 || index >= m_project->entries().size()) return;
+    const auto id = m_project->entries().at(index).id;
+    const QString path = QFileDialog::getOpenFileName(this, tr("Relink Media"), QString(),
+        tr("Video Files (*.mp4 *.mov *.avi *.mkv *.m4v *.webm *.mpg *.mpeg *.wmv *.flv);;All Files (*.*)"));
+    const QFileInfo info(path);
+    if (path.isEmpty()) return;
+    if (!info.exists() || !info.isFile()) { QMessageBox::critical(this, tr("Relink Media"), tr("The selected media file does not exist.")); return; }
+    m_pendingRelinkId = id;
+    m_pendingRelinkPath = info.absoluteFilePath();
+    m_pendingRelinkToken = m_nextProbeToken++;
+    m_pendingRelinkProjectGeneration = m_projectGeneration;
+    QMetaObject::invokeMethod(m_probeWorker,
+        [worker = m_probeWorker, id, path = m_pendingRelinkPath, token = m_pendingRelinkToken] {
+            worker->probe(id, path, token);
+        }, Qt::QueuedConnection);
+    statusBar()->showMessage(tr("Validating replacement media..."));
 }
 
 bool MainWindow::saveProject()
@@ -1130,8 +1302,83 @@ bool MainWindow::saveProjectAs()
 
 void MainWindow::closeEvent(QCloseEvent* event)
 {
+    if (isVideoFullScreen()) exitVideoFullScreen();
     if (confirmDiscardChanges()) { saveApplicationLayout(); event->accept(); }
     else event->ignore();
+}
+
+bool MainWindow::isVideoFullScreen() const
+{
+    return m_videoFullscreenWindow && m_videoFullscreenWindow->isVisible();
+}
+
+void MainWindow::enterVideoFullScreen()
+{
+    QAction* action = m_commands->action(CommandId::ToggleVideoFullScreen);
+    if (isVideoFullScreen() || !m_playback->hasMedia()) {
+        if (action) {
+            QSignalBlocker blocker(action);
+            action->setChecked(isVideoFullScreen());
+        }
+        return;
+    }
+
+    m_normalViewerTransform = m_viewer->transform();
+    m_normalViewerSize = m_viewer->size();
+    m_centralLayout->removeWidget(m_viewer);
+
+    if (!m_videoFullscreenWindow) {
+        m_videoFullscreenWindow = new VideoFullscreenWindow(this);
+        m_videoFullscreenWindow->installCommandActions(m_commands->allActions());
+        connect(m_videoFullscreenWindow, &VideoFullscreenWindow::exitRequested,
+                this, &MainWindow::exitVideoFullScreen);
+    }
+
+    QScreen* targetScreen = m_viewer->screen();
+    if (!targetScreen) targetScreen = screen();
+    m_viewer->setVideoOnlyPresentation(true);
+    m_videoFullscreenWindow->hostViewer(m_viewer);
+    m_viewer->fitImage();
+    m_videoFullscreenWindow->winId();
+    if (targetScreen && m_videoFullscreenWindow->windowHandle()) {
+        m_videoFullscreenWindow->windowHandle()->setScreen(targetScreen);
+    }
+    m_videoFullscreenWindow->showFullScreen();
+    m_videoFullscreenWindow->activateWindow();
+    m_viewer->setFocus(Qt::ShortcutFocusReason);
+
+    if (action) {
+        QSignalBlocker blocker(action);
+        action->setChecked(true);
+    }
+}
+
+void MainWindow::exitVideoFullScreen()
+{
+    QAction* action = m_commands ? m_commands->action(CommandId::ToggleVideoFullScreen) : nullptr;
+    if (!isVideoFullScreen()) {
+        if (action) {
+            QSignalBlocker blocker(action);
+            action->setChecked(false);
+        }
+        return;
+    }
+
+    m_videoFullscreenWindow->releaseViewer();
+    m_videoFullscreenWindow->hide();
+    m_viewer->setParent(centralWidget());
+    m_viewer->resize(m_normalViewerSize);
+    m_centralLayout->insertWidget(0, m_viewer, 1);
+    m_centralLayout->activate();
+    m_viewer->setVideoOnlyPresentation(false);
+    m_viewer->restoreTransform(m_normalViewerTransform);
+    m_viewer->show();
+    activateWindow();
+
+    if (action) {
+        QSignalBlocker blocker(action);
+        action->setChecked(false);
+    }
 }
 
 void MainWindow::updateWindowTitle()

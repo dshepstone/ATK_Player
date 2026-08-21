@@ -352,6 +352,12 @@ remain the registry-backed Viewer Fit and Viewer 100% commands; `F` remains
 exclusively Timeline Fit Entire Clip. Painting uses smooth minification through
 100% and pixel-oriented sampling above 100%.
 
+Video Full Screen temporarily reparents this same `ViewerWidget` into a
+frameless `VideoFullscreenWindow`; it does not create another controller,
+decoder, audio output or frame-delivery path. The normal transform is captured,
+fullscreen presentation starts in Fit on true black, and the captured zoom/pan
+is restored when the viewer returns to the unchanged main-window layout.
+
 ### `src/timeline/` — where we are and what is marked
 
 `TimelineModel` holds the extent, playhead, bookmarks and the active animation
@@ -480,7 +486,7 @@ offset. Review state belongs to the source it was made against, so switching
 between two takes restores each one's own notes.
 
 Every `SourceEntry` has a UUID independent of its row and path. Reordering,
-renaming and future relinking therefore preserve identity. It owns Point and
+renaming and relinking therefore preserve identity. It owns Point and
 Range Bookmarks (including stable IDs, notes and palette colours) and its active
 inclusive review range. `Project` owns order, current source, file path and dirty
 state; playback position and viewer repaint do not dirty it.
@@ -492,6 +498,30 @@ Media below the project directory is stored relatively and resolved from the
 project location. Missing files remain as marked playlist entries so other clips
 and review metadata survive. Current frame is deliberately not persisted; source
 activation starts from its review-range start. Viewer transforms reset to Fit.
+
+Source availability is explicit runtime state: `Unknown`, `Probing`, `Ready`,
+`Missing`, or `Error`. These states and probed metadata are derived from the
+filesystem/media and are deliberately neither serialized nor project-dirtying,
+so existing v1 files remain fully compatible. A dedicated `PlaylistProbeWorker`
+owns short-lived `MediaDecoder` instances on one background thread. It opens
+containers only for stream metadata; it never decodes frames, fills the playback
+cache, creates waveform work, or touches audio output.
+
+Every probe result carries the source UUID, exact path and a monotonically
+increasing request token. The project accepts it only when all three still match.
+That routes results correctly after row reorder and rejects work made stale by
+remove, relink, or project replacement. The worker thread is stopped and joined
+before the project and UI models are destroyed.
+
+Relink is a validation transaction rather than a path edit. FFmpeg must first
+open the candidate and report valid media with a usable frame extent. Failure
+leaves the source path, UUID, review state, current source and dirty state
+unchanged. Success replaces only the media behind the stable UUID. Point
+bookmarks beyond a shorter replacement are discarded; range bookmarks that
+start within it are clamped (and become points if they collapse); the active
+review range is clamped. Relinking the active source reopens it through the
+normal generation-safe playback path without autoplay; relinking another row
+does not switch playback.
 
 The Playlist panel separates row selection from activation. Only one source owns
 live decoder/audio/waveform workers. Switching uses `PlaybackController::openMedia`,
@@ -602,6 +632,13 @@ primary screen.
 Settings are machine-local application preferences only, including volume and
 mute. `.atkproj` owns sources, playlist order, UUIDs, bookmarks and saved review
 ranges. Current frame and viewer transform remain transient in this increment.
+
+Recent project paths are normalized, de-duplicated and capped at ten. A project
+is promoted only after a successful open or save. Reopen Last Project is opt-in
+and applies only when startup has no explicit command-line target; an explicit
+`.atkproj` always wins, while an explicit media path retains Open Media behavior.
+If the remembered project is gone or invalid, startup remains usable, clears the
+bad last-project pointer, and reports the failure without a blocking dialog.
 
 The stable key is also the identifier the external API uses, which is why it must
 not change once released.

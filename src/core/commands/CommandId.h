@@ -37,6 +37,7 @@ enum class CommandId {
     RemovePlaylistItem,
     MovePlaylistItemUp,
     MovePlaylistItemDown,
+    RelinkMedia,
 
     // Range and annotation
     SetRangeIn,
@@ -62,6 +63,7 @@ enum class CommandId {
     ZoomFit,
     ZoomActualSize,
     ToggleFullScreen,
+    ToggleVideoFullScreen,
     ToggleSourcesPanel,
     ToggleBookmarksPanel,
     TimelineZoomIn,

@@ -25,7 +25,12 @@ int main(int argc, char* argv[])
     // loading state rather than appearing only once decoding finishes.
     const QString requested = application.requestedMediaPath();
     if (!requested.isEmpty()) {
-        window.openMediaFile(requested);
+        if (requested.endsWith(QStringLiteral(".atkproj"), Qt::CaseInsensitive))
+            window.openProjectFile(requested);
+        else
+            window.openMediaFile(requested);
+    } else {
+        window.reopenLastProjectIfEnabled();
     }
 
     qCInfo(atk::log::app) << "Entering event loop";

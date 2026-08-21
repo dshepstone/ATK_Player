@@ -20,7 +20,110 @@ private slots:
     void missingMediaRemainsInProject();
     void rejectsMalformedAndUnsupportedFilesWithoutMutation();
     void removeCurrentChoosesNoImplicitIdentityAndDuplicatesAreAllowed();
+    void relinkPreservesIdentityAndValidReviewState();
+    void probeResultsRouteByStableIdentityAndToken();
+    void loadsOriginalVersionOneSchemaWithoutDerivedMetadata();
 };
+
+void TestProject::loadsOriginalVersionOneSchemaWithoutDerivedMetadata()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString mediaPath = directory.filePath(QStringLiteral("clip.mp4"));
+    QFile mediaFile(mediaPath);
+    QVERIFY(mediaFile.open(QIODevice::WriteOnly));
+    mediaFile.write("fixture");
+    mediaFile.close();
+
+    const QUuid sourceId = QUuid::createUuid();
+    const QString projectPath = directory.filePath(QStringLiteral("legacy.atkproj"));
+    QFile projectFile(projectPath);
+    QVERIFY(projectFile.open(QIODevice::WriteOnly));
+    projectFile.write(QStringLiteral(R"({
+        "format":"ATKProject",
+        "version":1,
+        "name":"Legacy Review",
+        "currentSourceId":"%1",
+        "sources":[{
+            "id":"%1",
+            "path":"clip.mp4",
+            "displayName":"Legacy Clip",
+            "frameOffset":0,
+            "playbackRange":{"enabled":true,"startFrame":3,"endFrame":12},
+            "bookmarks":[]
+        }]
+    })").arg(sourceId.toString(QUuid::WithoutBraces)).toUtf8());
+    projectFile.close();
+
+    project::Project loaded;
+    const auto result = project::ProjectSerializer::load(loaded, projectPath);
+    QVERIFY2(result.ok, qPrintable(result.errorMessage));
+    QCOMPARE(loaded.name(), QStringLiteral("Legacy Review"));
+    QCOMPARE(loaded.entries().size(), 1);
+    QCOMPARE(loaded.entries()[0].id, sourceId);
+    QCOMPARE(loaded.currentSourceId(), sourceId);
+    QCOMPARE(loaded.entries()[0].availability, project::SourceAvailability::Unknown);
+    QVERIFY(!loaded.entries()[0].source->metadata().isValid());
+    QVERIFY(!loaded.isModified());
+}
+
+void TestProject::probeResultsRouteByStableIdentityAndToken()
+{
+    project::Project project;
+    project.addSource(std::make_shared<media::MediaSource>(QStringLiteral("a.mp4")));
+    project.addSource(std::make_shared<media::MediaSource>(QStringLiteral("b.mp4")));
+    const QUuid a = project.entries()[0].id;
+    const QString path = project.entries()[0].source->filePath();
+    project.setModified(false);
+    QVERIFY(project.beginProbe(a, path, 10));
+    project.moveSource(0, 1);
+    project.setModified(false);
+    media::MediaMetadata metadata; metadata.hasVideo = true; metadata.resolution = {1920, 1080};
+    metadata.frameRate = media::FrameRate::fromInteger(24); metadata.durationUs = 1'000'000;
+    QVERIFY(project.applyProbeResult(a, path, 10, metadata, {}, false));
+    QCOMPARE(project.entries()[project.indexForId(a)].source->metadata().resolution, QSize(1920, 1080));
+    QVERIFY(!project.isModified());
+    QVERIFY(project.beginProbe(a, path, 11));
+    QVERIFY(!project.applyProbeResult(a, path, 10, metadata, {}, false));
+    project.setModified(false);
+    QVERIFY(project.applyProbeResult(a, path, 11, {}, QStringLiteral("unsupported media"), false));
+    QCOMPARE(project.entries()[project.indexForId(a)].availability, project::SourceAvailability::Error);
+    QCOMPARE(project.entries()[project.indexForId(a)].source->filePath(), path);
+    QVERIFY(!project.isModified());
+    QVERIFY(project.beginProbe(a, path, 12));
+    const int index = project.indexForId(a); project.removeSourceAt(index); project.setModified(false);
+    QVERIFY(!project.applyProbeResult(a, path, 12, metadata, {}, false));
+    QVERIFY(!project.isModified());
+
+    project::SourceEntry replacementEntry;
+    replacementEntry.id = a;
+    replacementEntry.source = std::make_shared<media::MediaSource>(path);
+    project.replace(QStringLiteral("Replacement project"), {}, {replacementEntry}, a);
+    QVERIFY(!project.applyProbeResult(a, path, 12, metadata, {}, false));
+    QVERIFY(!project.entries()[0].source->metadata().isValid());
+    QVERIFY(!project.isModified());
+}
+
+void TestProject::relinkPreservesIdentityAndValidReviewState()
+{
+    project::Project project;
+    project.addSource(std::make_shared<media::MediaSource>(QStringLiteral("missing.mp4")));
+    auto& entry = project.mutableEntries()[0]; entry.missing = true; entry.playbackRange = {10, 80, true};
+    timeline::Bookmark valid; valid.id = 7; valid.frame = 20; valid.endFrame = 20;
+    timeline::Bookmark invalid; invalid.id = 8; invalid.frame = 70; invalid.endFrame = 70;
+    timeline::Bookmark partial; partial.id = 9; partial.type = timeline::BookmarkType::Range;
+    partial.frame = 40; partial.endFrame = 70;
+    timeline::Bookmark beyond; beyond.id = 10; beyond.type = timeline::BookmarkType::Range;
+    beyond.frame = 60; beyond.endFrame = 80;
+    entry.bookmarks = {valid, invalid, partial, beyond}; const QUuid id = entry.id;
+    project.setModified(false);
+    QVERIFY(project.relinkSource(id, std::make_shared<media::MediaSource>(QStringLiteral("replacement.mp4")), 50));
+    QCOMPARE(project.entries()[0].id, id);
+    partial.endFrame = 49;
+    QCOMPARE(project.entries()[0].bookmarks, QVector<timeline::Bookmark>({valid, partial}));
+    QCOMPARE(project.entries()[0].playbackRange, timeline::PlaybackRange({10, 49, true}));
+    QVERIFY(project.isModified());
+}
 
 void TestProject::removeCurrentChoosesNoImplicitIdentityAndDuplicatesAreAllowed()
 {

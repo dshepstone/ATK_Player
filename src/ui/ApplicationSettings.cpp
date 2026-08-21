@@ -5,6 +5,8 @@
 
 #include <QKeySequence>
 #include <QSettings>
+#include <QFileInfo>
+#include <QDir>
 
 #include <algorithm>
 
@@ -18,6 +20,9 @@ constexpr auto kFrameStepAudio = "review/frameStepAudio";
 constexpr auto kBookmarkSnap = "review/bookmarkSnap";
 constexpr auto kVolume = "review/volume";
 constexpr auto kMuted = "review/muted";
+constexpr auto kReopenLast = "projects/reopenLast";
+constexpr auto kRecentProjects = "projects/recent";
+constexpr auto kLastProject = "projects/lastPath";
 constexpr auto kShortcutGroup = "shortcuts";
 }
 
@@ -50,6 +55,9 @@ bool ApplicationSettings::audioScrubEnabled() const { return readBool(kAudioScru
 bool ApplicationSettings::frameStepAudioEnabled() const { return readBool(kFrameStepAudio, defaultFrameStepAudioEnabled()); }
 bool ApplicationSettings::bookmarkSnapEnabled() const { return readBool(kBookmarkSnap, defaultBookmarkSnapEnabled()); }
 bool ApplicationSettings::muted() const { return readBool(kMuted, defaultMuted()); }
+bool ApplicationSettings::reopenLastProject() const { return readBool(kReopenLast, defaultReopenLastProject()); }
+QStringList ApplicationSettings::recentProjects() const { return m_settings->value(QString::fromLatin1(kRecentProjects)).toStringList(); }
+QString ApplicationSettings::lastProjectPath() const { return m_settings->value(QString::fromLatin1(kLastProject)).toString(); }
 
 double ApplicationSettings::volume() const
 {
@@ -64,6 +72,22 @@ void ApplicationSettings::setFrameStepAudioEnabled(bool value) { m_settings->set
 void ApplicationSettings::setBookmarkSnapEnabled(bool value) { m_settings->setValue(QString::fromLatin1(kBookmarkSnap), value); }
 void ApplicationSettings::setVolume(double value) { m_settings->setValue(QString::fromLatin1(kVolume), std::clamp(value, 0.0, 1.0)); }
 void ApplicationSettings::setMuted(bool value) { m_settings->setValue(QString::fromLatin1(kMuted), value); }
+void ApplicationSettings::setReopenLastProject(bool value) { m_settings->setValue(QString::fromLatin1(kReopenLast), value); }
+void ApplicationSettings::addRecentProject(const QString& path)
+{
+    const QString normalized = QDir::cleanPath(QFileInfo(path).absoluteFilePath());
+    QStringList recent = recentProjects();
+    for (auto it = recent.begin(); it != recent.end();) {
+        if (QString::compare(*it, normalized, Qt::CaseInsensitive) == 0) it = recent.erase(it);
+        else ++it;
+    }
+    recent.prepend(normalized);
+    while (recent.size() > maximumRecentProjects()) recent.removeLast();
+    m_settings->setValue(QString::fromLatin1(kRecentProjects), recent);
+    setLastProjectPath(normalized);
+}
+void ApplicationSettings::clearRecentProjects() { m_settings->remove(QString::fromLatin1(kRecentProjects)); }
+void ApplicationSettings::setLastProjectPath(const QString& path) { m_settings->setValue(QString::fromLatin1(kLastProject), path); }
 
 QByteArray ApplicationSettings::windowGeometry() const { return m_settings->value(QString::fromLatin1(kGeometry)).toByteArray(); }
 QByteArray ApplicationSettings::windowState() const { return m_settings->value(QString::fromLatin1(kWindowState)).toByteArray(); }

@@ -178,5 +178,4 @@ private:
 
 } // namespace atk::media
 
-Q_DECLARE_METATYPE(atk::media::MediaMetadata)
 Q_DECLARE_METATYPE(atk::media::VideoFrame)

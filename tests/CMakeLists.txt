@@ -35,6 +35,7 @@ set(ATK_FFMPEG_TEST_SOURCES
     tst_audioreview.cpp
     tst_scrubaudio.cpp
     tst_playbackinteraction.cpp
+    tst_playlistprobe.cpp
 )
 
 set(ATK_UI_TEST_SOURCES
@@ -42,6 +43,8 @@ set(ATK_UI_TEST_SOURCES
     tst_bookmarkeditor.cpp
     tst_timelinewidgets.cpp
     tst_viewertransform.cpp
+    tst_playlistend.cpp
+    tst_videofullscreen.cpp
 )
 
 foreach(test_source IN LISTS ATK_TEST_SOURCES ATK_FFMPEG_TEST_SOURCES ATK_UI_TEST_SOURCES)
@@ -91,7 +94,8 @@ foreach(test_source IN LISTS ATK_TEST_SOURCES ATK_FFMPEG_TEST_SOURCES ATK_UI_TES
         FOLDER "Tests"
     )
 
-    if(test_name STREQUAL "tst_playbackinteraction" OR test_name STREQUAL "tst_bookmarkeditor")
+    if(test_name STREQUAL "tst_playbackinteraction" OR test_name STREQUAL "tst_bookmarkeditor"
+       OR test_name STREQUAL "tst_playlistend" OR test_name STREQUAL "tst_videofullscreen")
         # This GUI-linked Windows test has no inherited console handle on the
         # hosted runner, so CTest cannot show Qt Test's assertion text. Keep a
         # text report beside the executable; the always-uploaded CI artifact
@@ -100,6 +104,15 @@ foreach(test_source IN LISTS ATK_TEST_SOURCES ATK_FFMPEG_TEST_SOURCES ATK_UI_TES
             -o "$<TARGET_FILE_DIR:${test_name}>/${test_name}-results.txt,txt")
     else()
         add_test(NAME ${test_name} COMMAND ${test_name})
+    endif()
+
+    if(test_name STREQUAL "tst_playlistend" OR test_name STREQUAL "tst_videofullscreen")
+        target_compile_definitions(${test_name}
+            PRIVATE ATK_TEST_MEDIA_DIR="${ATK_TEST_MEDIA_DIR}"
+                    ATK_VERSION_STRING="${ATK_VERSION_STRING}")
+        if(TARGET atk_test_media)
+            add_dependencies(${test_name} atk_test_media)
+        endif()
     endif()
 
     # On Windows the test executables need the Qt and FFmpeg DLLs on PATH at run

@@ -27,6 +27,7 @@ public:
     bool audioScrubEnabled() const;
     bool frameStepAudioEnabled() const;
     bool bookmarkSnapEnabled() const;
+    bool reopenLastProject() const;
     bool resetAllRequested() const { return m_resetAllRequested; }
     const QHash<QString, QString>& shortcuts() const { return m_shortcuts; }
 
@@ -45,6 +46,7 @@ private:
     void updateShortcutRow(const QString& commandKey);
 
     QCheckBox* m_restoreLayout = nullptr;
+    QCheckBox* m_reopenLast = nullptr;
     QCheckBox* m_audioScrub = nullptr;
     QCheckBox* m_frameStepAudio = nullptr;
     QCheckBox* m_bookmarkSnap = nullptr;

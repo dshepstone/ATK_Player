@@ -4,9 +4,11 @@
 #include "core/commands/CommandId.h"
 #include "media/MediaMetadata.h"
 #include "playback/PlaybackController.h"
+#include "ui/ViewerTransform.h"
 
 #include <QMainWindow>
 #include <QStringList>
+#include <QUuid>
 
 #include <memory>
 
@@ -15,10 +17,14 @@ class QLabel;
 class QSpinBox;
 class QSlider;
 class QCloseEvent;
+class QMenu;
+class QThread;
+class QVBoxLayout;
 
 namespace atk::api { class ApiServer; }
 namespace atk::playback { class CompareSession; }
 namespace atk::project { class Project; }
+namespace atk::media { class PlaylistProbeWorker; }
 namespace atk::timeline { class TimelineModel; }
 
 namespace atk::ui {
@@ -33,6 +39,7 @@ class TimelineWidget;
 class TimelineRangeSlider;
 class TransportControls;
 class ViewerWidget;
+class VideoFullscreenWindow;
 
 /// The application window.
 ///
@@ -70,6 +77,11 @@ public:
     void openMediaFile(const QString& filePath);
     playback::PlaybackController* playbackController() const { return m_playback.get(); }
     project::Project* project() const { return m_project.get(); }
+    bool openProjectFile(const QString& path);
+    void reopenLastProjectIfEnabled();
+    bool isVideoFullScreen() const;
+    void enterVideoFullScreen();
+    void exitVideoFullScreen();
 
 protected:
     void closeEvent(QCloseEvent* event) override;
@@ -95,16 +107,20 @@ private:
     void addMediaFiles(const QStringList& paths);
     void newProject();
     void openProjectDialog();
-    bool openProjectFile(const QString& path);
     bool saveProject();
     bool saveProjectAs();
     bool saveProjectTo(const QString& path);
     bool confirmDiscardChanges();
     void activatePlaylistIndex(int index, bool continuePlayback = false);
+    int nextUsablePlaylistIndex() const;
     void saveActiveReviewState();
     void restoreActiveReviewState();
     void removePlaylistIndex(int index);
     void movePlaylistIndex(int from, int to);
+    void relinkSelectedMedia();
+    void refreshRecentProjectsMenu();
+    void startPlaylistProbes();
+    void startProbe(const QUuid& id, const QString& path);
 
 
     std::unique_ptr<ApplicationSettings> m_settings;
@@ -121,6 +137,10 @@ private:
     BookmarkPanel* m_bookmarks = nullptr;
 
     ViewerWidget* m_viewer = nullptr;
+    VideoFullscreenWindow* m_videoFullscreenWindow = nullptr;
+    QVBoxLayout* m_centralLayout = nullptr;
+    ViewerTransform m_normalViewerTransform;
+    QSize m_normalViewerSize;
     TimelineWidget* m_timelineWidget = nullptr;
     TimelineRangeSlider* m_timelineRangeSlider = nullptr;
     QSpinBox* m_reviewStartFrame = nullptr;
@@ -132,10 +152,20 @@ private:
     QLabel* m_viewerZoomStatus = nullptr;
     QDockWidget* m_sourcesDock = nullptr;
     QDockWidget* m_bookmarksDock = nullptr;
+    QMenu* m_recentProjectsMenu = nullptr;
     bool m_skipLayoutSaveOnce = false;
     bool m_restoringSourceState = false;
     bool m_playAfterSourceOpen = false;
     bool m_playlistPlaybackActive = false;
+    QThread* m_probeThread = nullptr;
+    media::PlaylistProbeWorker* m_probeWorker = nullptr;
+    quint64 m_nextProbeToken = 1;
+    QUuid m_pendingRelinkId;
+    QString m_pendingRelinkPath;
+    quint64 m_pendingRelinkToken = 0;
+    quint64 m_pendingRelinkProjectGeneration = 0;
+    quint64 m_projectGeneration = 1;
+    bool m_suppressProjectOpenError = false;
 
     /// Directory the last Open Media dialog was pointed at.
     QString m_lastMediaDirectory;
