@@ -176,6 +176,12 @@ void MainWindow::buildWidgets()
     m_statusInfo = new StatusInfoBar(this);
     m_statusInfo->setModel(m_timeline.get());
     statusBar()->addPermanentWidget(m_statusInfo, 1);
+    m_viewerZoomStatus = new QLabel(tr("Fit"), this);
+    m_viewerZoomStatus->setObjectName(QStringLiteral("ViewerZoomStatus"));
+    m_viewerZoomStatus->setMinimumWidth(72);
+    m_viewerZoomStatus->setAlignment(Qt::AlignCenter);
+    m_viewerZoomStatus->setProperty("atkRole", "statusCaption");
+    statusBar()->addPermanentWidget(m_viewerZoomStatus);
     statusBar()->setSizeGripEnabled(true);
 }
 
@@ -224,6 +230,13 @@ void MainWindow::connectSignals()
 {
     connect(m_commands, &CommandRegistry::commandTriggered,
             this, &MainWindow::onCommand);
+
+    connect(m_viewer, &ViewerWidget::zoomChanged, this,
+            [this](qreal percent, bool fitMode) {
+        const QString value = tr("%1%").arg(qRound(percent));
+        m_viewerZoomStatus->setText(fitMode ? tr("Fit %1").arg(value) : value);
+    });
+    m_viewer->resetNavigationToFit();
 
     connect(m_playback.get(), &playback::PlaybackController::stateChanged,
             this, &MainWindow::onPlayerStateChanged);
@@ -429,10 +442,16 @@ void MainWindow::onCommand(CommandId id, bool checked)
 
     // --- View: fully wired ------------------------------------------------
     case CommandId::ZoomFit:
-        m_viewer->setFitMode(ViewerWidget::FitMode::FitInWindow);
+        m_viewer->fitImage();
         return;
     case CommandId::ZoomActualSize:
-        m_viewer->setFitMode(ViewerWidget::FitMode::ActualSize);
+        m_viewer->showActualSize();
+        return;
+    case CommandId::ZoomIn:
+        m_viewer->zoomIn();
+        return;
+    case CommandId::ZoomOut:
+        m_viewer->zoomOut();
         return;
     case CommandId::ToggleFullScreen:
         if (checked) {
@@ -507,8 +526,6 @@ void MainWindow::onCommand(CommandId id, bool checked)
     case CommandId::OpenProject:
     case CommandId::SaveProject:
     case CommandId::SaveProjectAs:
-    case CommandId::ZoomIn:
-    case CommandId::ZoomOut:
         reportNotImplemented(id);
         return;
     }
@@ -663,6 +680,7 @@ void MainWindow::openMediaFile(const QString& filePath)
 
 void MainWindow::onMediaOpened(const media::MediaMetadata& metadata)
 {
+    m_viewer->resetNavigationToFit();
     m_viewer->setSourceAspectRatio(
         metadata.resolution.height() > 0
             ? (static_cast<double>(metadata.resolution.width()) * metadata.pixelAspectRatio)

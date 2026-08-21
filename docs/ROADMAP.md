@@ -96,16 +96,20 @@ Delivered so far:
 - **Session bookmarks.** Stable single-frame markers, exact click navigation,
   wrapping next/previous commands, deletion, and default-on pixel-based scrub
   snapping. Persistence and the full bookmark editor remain later work.
+- **Viewer zoom and pan.** Viewer Fit, device-pixel 100%, cursor-anchored wheel
+  zoom, bounded middle-mouse pan, double-click Fit, and a compact status-bar
+  percentage. Navigation persists through playback and frame changes and is
+  deliberately independent of the timeline and playback state.
 
-Still to come in M2: range bookmarks and viewer zoom and pan.
+Still to come in M2: range bookmarks and further review refinements.
 
 Deferred here deliberately from M1: audio scrubbing, audible single-frame
 stepping, In/Out points, specific loop ranges, bookmarks and range bookmarks,
-finer cache controls, and viewer zoom and pan.
+finer cache controls.
 
 - Bookmark editing: name, note, colour, and a bookmark list panel
 - In/out range editing by dragging the range handles on the timeline
-- Viewer pan and zoom, with a magnifier for close inspection
+- Viewer magnifier for close inspection
 - Frame-by-frame navigation refinements: play backwards, shuttle speeds
 - Onion skinning / previous-frame ghosting
 - Configurable keyboard shortcuts, loaded into `CommandRegistry` from settings

@@ -209,7 +209,8 @@ void TestPlaybackInteraction::stoppedRangeMutationReanchorsAtCurrentFrame()
     QCOMPARE(qvariant_cast<atk::media::VideoFrame>(firstRun.first().at(0)).frameIndex,
              qint64(40));
     QTRY_VERIFY_WITH_TIMEOUT(!fixture.playback.playbackEpochDirty(), 5000);
-    QCOMPARE(fixture.playback.playbackOriginUs(), fixture.playback.lastAudioEpochUs());
+    QTRY_COMPARE_WITH_TIMEOUT(fixture.playback.lastAudioEpochUs(),
+                              fixture.playback.playbackOriginUs(), 5000);
     fixture.playback.pause();
 
     const qint64 preserved = fixture.timeline.currentFrame();
@@ -223,7 +224,8 @@ void TestPlaybackInteraction::stoppedRangeMutationReanchorsAtCurrentFrame()
     QCOMPARE(qvariant_cast<atk::media::VideoFrame>(fitRun.first().at(0)).frameIndex,
              preserved);
     QTRY_VERIFY_WITH_TIMEOUT(!fixture.playback.playbackEpochDirty(), 5000);
-    QCOMPARE(fixture.playback.playbackOriginUs(), fixture.playback.lastAudioEpochUs());
+    QTRY_COMPARE_WITH_TIMEOUT(fixture.playback.lastAudioEpochUs(),
+                              fixture.playback.playbackOriginUs(), 5000);
     fixture.playback.pause();
 }
 

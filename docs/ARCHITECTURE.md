@@ -321,6 +321,37 @@ playback invalidates outstanding requests and flushes the review sink first.
 looping and range limits. It is a `QObject` with signals but no widgets. This is
 the class the UI, the API and the DCC integrations all drive.
 
+### `ViewerTransform` — render navigation, never playback state
+
+`ViewerWidget` owns a plain, testable `ViewerTransform`. It contains only the
+source display size, widget viewport size, zoom scale, pan translation and
+Fit/Custom mode. It never owns time, a decoder position, a playback generation,
+audio state or a `TimelineViewport`; changing the transform therefore cannot
+seek, flush media, dirty a playback epoch or alter the active review range.
+
+Transform coordinates are QWidget logical pixels. Source coordinates are image
+pixels after pixel-aspect-ratio display correction. Fit uses the smaller of the
+horizontal and vertical viewport ratios and centres the full image. The 100%
+command uses a logical scale of `1 / devicePixelRatio`, so one source pixel maps
+to one physical display pixel. `viewerToImage()` and `imageToViewer()` provide
+the deterministic mapping used by cursor-anchored wheel zoom.
+
+Fit mode follows widget resizes and resets pan to centre. Starting a wheel zoom
+or middle-mouse drag enters Custom mode; Custom preserves its scale and the
+image point at the viewport centre across resizes. Pan is clamped so every edge
+of an oversized image remains reachable, while an image smaller than the
+viewport stays centred on that axis. A successful source replacement resets to
+Fit; ordinary frame delivery, playback, stepping and scrubbing retain the
+transform. A material frame-size change refits in Fit mode and preserves a
+sensible centre focus in Custom mode.
+
+Wheel zoom is multiplicative (1.1 per standard wheel notch), bounded from 5%
+to 800%, and keeps the source point under the cursor fixed where edge clamping
+allows. Double-clicking the viewer invokes Viewer Fit. `Ctrl+0` and `Ctrl+1`
+remain the registry-backed Viewer Fit and Viewer 100% commands; `F` remains
+exclusively Timeline Fit Entire Clip. Painting uses smooth minification through
+100% and pixel-oriented sampling above 100%.
+
 ### `src/timeline/` — where we are and what is marked
 
 `TimelineModel` holds the extent, playhead, bookmarks and the active animation

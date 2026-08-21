@@ -14,6 +14,7 @@ set(ATK_UI_SOURCES
     TimelineWidget.cpp
     TimelineRangeSlider.cpp
     TransportControls.cpp
+    ViewerTransform.cpp
     ViewerWidget.cpp
     commands/CommandRegistry.cpp
 )
@@ -26,6 +27,7 @@ set(ATK_UI_HEADERS
     TimelineWidget.h
     TimelineRangeSlider.h
     TransportControls.h
+    ViewerTransform.h
     ViewerWidget.h
     commands/CommandRegistry.h
 )

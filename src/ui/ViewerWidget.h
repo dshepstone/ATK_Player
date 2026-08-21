@@ -1,6 +1,7 @@
 #pragma once
 
 #include "media/VideoFrame.h"
+#include "ui/ViewerTransform.h"
 
 #include <QWidget>
 
@@ -19,11 +20,10 @@ class ViewerWidget : public QWidget {
     Q_OBJECT
 
 public:
-    /// How the picture is fitted into the widget.
+    /// Compatibility names used by the existing command surface.
     enum class FitMode {
-        FitInWindow, ///< scale down to fit, never scale up past 1:1
-        ActualSize,  ///< 1:1 pixels, centred
-        Stretch,     ///< fill, ignoring aspect ratio
+        FitInWindow,
+        ActualSize,
     };
     Q_ENUM(FitMode)
 
@@ -60,8 +60,15 @@ public:
     void setSourceAspectRatio(double ratio);
     void clear();
 
-    FitMode fitMode() const { return m_fitMode; }
+    FitMode fitMode() const { return m_transform.isFit() ? FitMode::FitInWindow : FitMode::ActualSize; }
     void setFitMode(FitMode mode);
+    void fitImage();
+    void showActualSize();
+    void zoomIn();
+    void zoomOut();
+    void resetNavigationToFit();
+
+    const ViewerTransform& transform() const { return m_transform; }
 
     /// Headline shown when there is nothing to display.
     void setPlaceholderText(const QString& text);
@@ -75,12 +82,23 @@ public:
 
     QSize sizeHint() const override;
 
+signals:
+    void zoomChanged(qreal percent, bool fitMode);
+
 protected:
     void paintEvent(QPaintEvent* event) override;
+    void resizeEvent(QResizeEvent* event) override;
+    void wheelEvent(QWheelEvent* event) override;
+    void mousePressEvent(QMouseEvent* event) override;
+    void mouseMoveEvent(QMouseEvent* event) override;
+    void mouseReleaseEvent(QMouseEvent* event) override;
+    void mouseDoubleClickEvent(QMouseEvent* event) override;
 
 private:
     /// Where the picture lands inside the widget for the current fit mode.
-    QRect targetRectFor(const QSize& imageSize) const;
+    QSizeF displaySourceSize() const;
+    void syncTransformSource(bool resetToFit = false);
+    void notifyNavigationChanged();
     void paintEmptyState(QPainter& painter);
     void paintMessage(QPainter& painter, const QString& headline, const QString& detail);
 
@@ -88,7 +106,9 @@ private:
     State m_state = State::Empty;
     QString m_errorMessage;
     double m_sourceAspectRatio = 0.0;
-    FitMode m_fitMode = FitMode::FitInWindow;
+    ViewerTransform m_transform;
+    bool m_middlePanning = false;
+    QPointF m_lastPanPosition;
     QString m_placeholderText;
     QString m_placeholderSubtext;
     QString m_cornerLabel;

@@ -58,8 +58,8 @@ constexpr std::array kCommands{
     // View
     CommandDefinition{ CommandId::ZoomIn,             "view.zoomIn",           QT_TRANSLATE_NOOP("Command", "Zoom In"),              C::View,     "Ctrl+=",       false },
     CommandDefinition{ CommandId::ZoomOut,            "view.zoomOut",          QT_TRANSLATE_NOOP("Command", "Zoom Out"),             C::View,     "Ctrl+-",       false },
-    CommandDefinition{ CommandId::ZoomFit,            "view.zoomFit",          QT_TRANSLATE_NOOP("Command", "Fit in Window"),        C::View,     "Ctrl+0",       false },
-    CommandDefinition{ CommandId::ZoomActualSize,     "view.zoomActualSize",   QT_TRANSLATE_NOOP("Command", "Actual Size"),          C::View,     "Ctrl+1",       false },
+    CommandDefinition{ CommandId::ZoomFit,            "view.zoomFit",          QT_TRANSLATE_NOOP("Command", "Viewer Fit"),           C::View,     "Ctrl+0",       false },
+    CommandDefinition{ CommandId::ZoomActualSize,     "view.zoomActualSize",   QT_TRANSLATE_NOOP("Command", "Viewer 100%"),          C::View,     "Ctrl+1",       false },
     CommandDefinition{ CommandId::ToggleFullScreen,   "view.toggleFullScreen", QT_TRANSLATE_NOOP("Command", "Full Screen"),          C::View,     "F11",          true  },
     CommandDefinition{ CommandId::ToggleSourcesPanel, "view.toggleSources",    QT_TRANSLATE_NOOP("Command", "Sources Panel"),        C::View,     "F4",           true  },
     CommandDefinition{ CommandId::TimelineZoomIn,     "view.timelineZoomIn",   QT_TRANSLATE_NOOP("Command", "Timeline Zoom In"),     C::View,     "=",            false },
