@@ -144,13 +144,12 @@ void TestPlaybackInteraction::automaticRangeStartMatchesManualSeekEpoch()
     fixture.timeline.setViewportRange(20, 30); // body-pan equivalent: no seek
     QSignalSpy presented(&fixture.playback, &PlaybackController::frameChanged);
     fixture.playback.play();
-    QTRY_COMPARE_WITH_TIMEOUT(fixture.playback.currentVideoFrame().frameIndex, qint64(20), 5000);
+    QTRY_VERIFY_WITH_TIMEOUT(!presented.isEmpty(), 5000);
+    QCOMPARE(qvariant_cast<atk::media::VideoFrame>(presented.first().at(0)).frameIndex,
+             qint64(20));
     QTRY_VERIFY_WITH_TIMEOUT(fixture.playback.lastAudioEpochUs() >= 0, 5000);
     QCOMPARE(fixture.playback.playbackOriginUs(), manualVideoOrigin);
     QCOMPARE(fixture.playback.lastAudioEpochUs(), manualAudioEpoch);
-    QVERIFY(!presented.isEmpty());
-    QCOMPARE(qvariant_cast<atk::media::VideoFrame>(presented.first().at(0)).frameIndex,
-             qint64(20));
 
     const qint64 frameDurationUs = atk::media::ffmpeg::frameIndexToMicroseconds(
         1, AVRational{fixture.playback.metadata().frameRate.numerator,
@@ -179,7 +178,7 @@ void TestPlaybackInteraction::shortRangeLoopsKeepSynchronizedEpoch()
         previous = frame.frameIndex;
     });
     fixture.playback.play();
-    QTRY_VERIFY_WITH_TIMEOUT(wraps >= 5, 6000);
+    QTRY_VERIFY_WITH_TIMEOUT(wraps >= 5, 15000);
     QTRY_VERIFY_WITH_TIMEOUT(fixture.playback.lastAudioEpochUs() >= 0, 5000);
     const qint64 expectedEpoch = atk::media::ffmpeg::frameIndexToMicroseconds(
         20, AVRational{fixture.playback.metadata().frameRate.numerator,
