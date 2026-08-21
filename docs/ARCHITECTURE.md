@@ -375,6 +375,15 @@ asynchronous exact seek to the selected start. Only the returned frame PTS may
 establish the new video/audio playback epoch; the audio sink starts after that
 seek and preroll, using the same path as manual seek-then-Play.
 
+Any review-range mutation made while stopped marks the normal playback epoch
+dirty without starting decode or audio work. The next Play re-anchors at the
+current frame when it remains inside the inclusive range, otherwise at the
+selected start. The flag remains set through the asynchronous exact seek and is
+cleared only after the authoritative decoded frame and audio epoch are ready.
+An explicit stopped review seek follows the same rule because displaying a
+frame does not itself preroll normal playback audio. An ordinary Pause followed
+by Play, with no intervening review mutation, keeps its normal resume behavior.
+
 At review zoom levels the ruler is frame-first: at 18 pixels per frame it labels
 every integer frame, at 6 pixels per frame it retains every tick with sparser
 labels, and below that it chooses nice major/minor frame intervals. PTS remains

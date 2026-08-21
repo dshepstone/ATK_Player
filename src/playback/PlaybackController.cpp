@@ -555,6 +555,8 @@ void PlaybackController::openMedia(const QString& filePath)
     m_errorMessage.clear();
     m_pendingSeekFrame = -1;
     m_resumeAfterSeek = false;
+    m_playbackEpochDirty = false;
+    m_playbackReanchorInProgress = false;
     m_scrubbing = false;
     m_scrubDecodeInFlight = false;
     m_scrubFinalPending = false;
@@ -586,6 +588,8 @@ void PlaybackController::closeMedia()
     m_hasMedia = false;
     m_metadata = media::MediaMetadata{};
     m_droppedFrames = 0;
+    m_playbackEpochDirty = false;
+    m_playbackReanchorInProgress = false;
     m_scrubbing = false;
     m_scrubDecodeInFlight = false;
     m_scrubFinalPending = false;
@@ -814,6 +818,7 @@ void PlaybackController::onWorkerFrameFailed(qint64 frameIndex, const QString& m
     if (m_pendingSeekFrame == frameIndex) {
         m_pendingSeekFrame = -1;
         m_resumeAfterSeek = false;
+        m_playbackReanchorInProgress = false;
         if (m_state == PlayerState::Seeking) {
             setState(PlayerState::Ready);
         }
@@ -880,6 +885,8 @@ void PlaybackController::restartPlaybackAtFrame(int64_t frame)
     haltPlaybackMachinery();
     m_queue.clear();
     m_navigationFrame = target;
+    m_playbackEpochDirty = true;
+    m_playbackReanchorInProgress = true;
 
     if (inPlaceholderMode()) {
         m_timeline->setCurrentFrame(target);
@@ -897,7 +904,22 @@ void PlaybackController::restartPlaybackAtFrame(int64_t frame)
 
 void PlaybackController::onReviewRangeChanged()
 {
-    if (m_state != PlayerState::Playing) return;
+    if (m_state != PlayerState::Playing) {
+        // Placeholder playback has no decoder or audio epoch to invalidate.
+        if (inPlaceholderMode()) return;
+        const bool mutableReviewState = m_state == PlayerState::Ready
+            || m_state == PlayerState::Paused || m_state == PlayerState::Ended
+            || m_state == PlayerState::Seeking;
+        if (!mutableReviewState) return;
+        m_playbackEpochDirty = true;
+        m_playbackReanchorInProgress = false;
+        qCInfo(log::playback) << "Review range changed; playback epoch dirty"
+                              << m_timeline->effectiveStartFrame()
+                              << m_timeline->effectiveEndFrame()
+                              << "current" << m_timeline->currentFrame()
+                              << "generation" << m_generations->currentRequest();
+        return;
+    }
 
     const int64_t current = m_timeline->currentFrame();
     const int64_t start = m_timeline->effectiveStartFrame();
@@ -935,6 +957,8 @@ void PlaybackController::onAudioPrimed(int bufferedMs, qint64 mediaOriginUs,
         qCWarning(log::playback)
             << "Audio could not be primed; continuing with video-only timing";
         m_monotonicStartNs = monotonicNowNs();
+        m_playbackEpochDirty = false;
+        m_playbackReanchorInProgress = false;
         startDisplayTimer();
         return;
     }
@@ -943,6 +967,8 @@ void PlaybackController::onAudioPrimed(int bufferedMs, qint64 mediaOriginUs,
         m_playbackStartUs = mediaOriginUs;
         m_lastAudioEpochUs = mediaOriginUs;
     }
+    m_playbackEpochDirty = false;
+    m_playbackReanchorInProgress = false;
     qCDebug(log::playback) << "Playback epoch media us" << m_playbackStartUs;
     m_audioOutput->start(m_playbackStartUs);
     m_monotonicStartNs = monotonicNowNs();
@@ -1225,8 +1251,10 @@ void PlaybackController::play()
     const bool requiresRangeStart = from < rangeStart || from > rangeEnd
         || (from == rangeEnd && rangeEnd > rangeStart)
         || (m_state == PlayerState::Ended && rangeEnd > rangeStart);
-    if (requiresRangeStart) {
-        restartPlaybackAtFrame(rangeStart);
+    if (!m_playbackReanchorInProgress
+        && (requiresRangeStart || m_playbackEpochDirty)) {
+        const int64_t target = requiresRangeStart ? rangeStart : from;
+        restartPlaybackAtFrame(target);
         return;
     }
 
@@ -1260,6 +1288,8 @@ void PlaybackController::play()
 
     setState(PlayerState::Playing);
     if (inPlaceholderMode() || !m_audioActive) {
+        m_playbackEpochDirty = false;
+        m_playbackReanchorInProgress = false;
         startDisplayTimer();
     }
 }
@@ -1360,6 +1390,13 @@ void PlaybackController::seekFrame(int64_t frame)
 {
     cancelNavigation();
     const bool wasPlaying = m_state == PlayerState::Playing;
+
+    if (!wasPlaying && !inPlaceholderMode()) {
+        // An exact review seek establishes the displayed frame, but it does not
+        // preroll normal playback audio. Re-anchor that epoch on the next Play.
+        m_playbackEpochDirty = true;
+        m_playbackReanchorInProgress = false;
+    }
 
     if (wasPlaying) {
         haltPlaybackMachinery();

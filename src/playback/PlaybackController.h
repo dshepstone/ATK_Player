@@ -147,6 +147,7 @@ public:
     /// Diagnostics used by synchronization regression tests.
     int64_t playbackOriginUs() const { return m_playbackStartUs; }
     int64_t lastAudioEpochUs() const { return m_lastAudioEpochUs; }
+    bool playbackEpochDirty() const { return m_playbackEpochDirty; }
 
     /// The most recently displayed frame. Invalid before the first decode.
     const media::VideoFrame& currentVideoFrame() const { return m_currentFrame; }
@@ -327,6 +328,10 @@ private:
     int64_t m_lastAudioEpochUs = -1;
     /// Monotonic reference captured when playback started, in nanoseconds.
     int64_t m_monotonicStartNs = 0;
+    /// A stopped review mutation invalidated the reusable normal-playback
+    /// epoch. Cleared only after an authoritative restart is ready.
+    bool m_playbackEpochDirty = false;
+    bool m_playbackReanchorInProgress = false;
 
     media::MediaMetadata m_metadata;
     QString m_errorMessage;
