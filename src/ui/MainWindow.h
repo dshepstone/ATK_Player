@@ -10,6 +10,7 @@
 #include <memory>
 
 class QDockWidget;
+class QLabel;
 class QSpinBox;
 
 namespace atk::api { class ApiServer; }
@@ -92,6 +93,7 @@ private:
     TransportControls* m_transport = nullptr;
     SourcesPanel* m_sources = nullptr;
     StatusInfoBar* m_statusInfo = nullptr;
+    QLabel* m_viewerZoomStatus = nullptr;
     QDockWidget* m_sourcesDock = nullptr;
 
     /// Directory the last Open Media dialog was pointed at.

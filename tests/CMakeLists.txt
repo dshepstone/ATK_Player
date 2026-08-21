@@ -38,6 +38,7 @@ set(ATK_FFMPEG_TEST_SOURCES
 
 set(ATK_UI_TEST_SOURCES
     tst_timelinewidgets.cpp
+    tst_viewertransform.cpp
 )
 
 foreach(test_source IN LISTS ATK_TEST_SOURCES ATK_FFMPEG_TEST_SOURCES ATK_UI_TEST_SOURCES)

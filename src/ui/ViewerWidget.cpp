@@ -5,8 +5,13 @@
 
 #include <QElapsedTimer>
 #include <QFontMetrics>
+#include <QMouseEvent>
 #include <QPaintEvent>
 #include <QPainter>
+#include <QResizeEvent>
+#include <QWheelEvent>
+
+#include <cmath>
 
 namespace atk::ui {
 
@@ -20,6 +25,8 @@ ViewerWidget::ViewerWidget(QWidget* parent)
     setMinimumSize(320, 180);
     setFocusPolicy(Qt::StrongFocus);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    m_transform.setDevicePixelRatio(devicePixelRatioF());
+    m_transform.setViewportSize(size());
 }
 
 ViewerWidget::~ViewerWidget() = default;
@@ -38,6 +45,7 @@ void ViewerWidget::setFrame(const media::VideoFrame& frame)
     m_frame = frame;
     m_state = State::Loaded;
     m_errorMessage.clear();
+    syncTransformSource();
     qCDebug(log::ui) << "Viewer update frame" << frame.frameIndex;
     update();
 }
@@ -78,15 +86,49 @@ void ViewerWidget::setSourceAspectRatio(double ratio)
         return;
     }
     m_sourceAspectRatio = ratio > 0.0 ? ratio : 0.0;
+    syncTransformSource();
     update();
 }
 
 void ViewerWidget::setFitMode(FitMode mode)
 {
-    if (m_fitMode == mode) {
-        return;
-    }
-    m_fitMode = mode;
+    if (mode == FitMode::FitInWindow) fitImage();
+    else showActualSize();
+}
+
+void ViewerWidget::fitImage()
+{
+    m_transform.fit();
+    notifyNavigationChanged();
+    update();
+}
+
+void ViewerWidget::showActualSize()
+{
+    m_transform.setActualSize();
+    notifyNavigationChanged();
+    update();
+}
+
+void ViewerWidget::zoomIn()
+{
+    m_transform.zoomAt(ViewerTransform::kWheelStepFactor, rect().center());
+    notifyNavigationChanged();
+    update();
+}
+
+void ViewerWidget::zoomOut()
+{
+    m_transform.zoomAt(1.0 / ViewerTransform::kWheelStepFactor, rect().center());
+    notifyNavigationChanged();
+    update();
+}
+
+void ViewerWidget::resetNavigationToFit()
+{
+    syncTransformSource(true);
+    m_transform.fit();
+    notifyNavigationChanged();
     update();
 }
 
@@ -112,52 +154,39 @@ void ViewerWidget::setCornerLabel(const QString& label)
     update();
 }
 
-QRect ViewerWidget::targetRectFor(const QSize& imageSize) const
+QSizeF ViewerWidget::displaySourceSize() const
 {
-    const QRect bounds = rect();
-    if (imageSize.isEmpty()) {
-        return bounds;
-    }
-
-    // Non-square source pixels (anamorphic material) must be corrected here,
-    // or the picture is displayed at the wrong shape.
-    QSize displaySize = imageSize;
+    if (!m_frame.isValid()) return {};
+    QSizeF displaySize = m_frame.image.size();
     if (m_sourceAspectRatio > 0.0) {
         const double imageRatio =
-            static_cast<double>(imageSize.width()) / static_cast<double>(imageSize.height());
+            static_cast<double>(m_frame.image.width()) / static_cast<double>(m_frame.image.height());
         if (!qFuzzyCompare(imageRatio, m_sourceAspectRatio)) {
             displaySize.setWidth(
-                qRound(static_cast<double>(imageSize.height()) * m_sourceAspectRatio));
+                static_cast<double>(m_frame.image.height()) * m_sourceAspectRatio);
         }
     }
+    return displaySize;
+}
 
-    switch (m_fitMode) {
-    case FitMode::Stretch:
-        return bounds;
+void ViewerWidget::syncTransformSource(bool resetToFit)
+{
+    const QSizeF oldSource = m_transform.sourceSize();
+    const qreal oldZoom = m_transform.zoomRatio();
+    const bool oldFit = m_transform.isFit();
+    m_transform.setDevicePixelRatio(devicePixelRatioF());
+    m_transform.setViewportSize(size());
+    m_transform.setSourceSize(displaySourceSize(), resetToFit);
+    if (oldSource != m_transform.sourceSize()
+        || !qFuzzyCompare(oldZoom, m_transform.zoomRatio())
+        || oldFit != m_transform.isFit()) {
+        notifyNavigationChanged();
+    }
+}
 
-    case FitMode::ActualSize: {
-        // 1:1 pixels, centred. A frame larger than the widget is allowed to
-        // overhang; scrolling to the region of interest arrives with pan/zoom
-        // in milestone M2.
-        const QPoint topLeft(bounds.x() + (bounds.width() - displaySize.width()) / 2,
-                             bounds.y() + (bounds.height() - displaySize.height()) / 2);
-        return { topLeft, displaySize };
-    }
-
-    case FitMode::FitInWindow:
-    default: {
-        QSize scaled = displaySize;
-        scaled.scale(bounds.size(), Qt::KeepAspectRatio);
-        // Never upscale past 1:1 -- magnifying a frame silently would misrepresent
-        // the material being reviewed.
-        if (scaled.width() > displaySize.width()) {
-            scaled = displaySize;
-        }
-        const QPoint topLeft(bounds.x() + (bounds.width() - scaled.width()) / 2,
-                             bounds.y() + (bounds.height() - scaled.height()) / 2);
-        return { topLeft, scaled };
-    }
-    }
+void ViewerWidget::notifyNavigationChanged()
+{
+    emit zoomChanged(m_transform.zoomRatio() * 100.0, m_transform.isFit());
 }
 
 void ViewerWidget::paintEvent(QPaintEvent* event)
@@ -170,8 +199,11 @@ void ViewerWidget::paintEvent(QPaintEvent* event)
     switch (m_state) {
     case State::Loaded:
         if (m_frame.isValid()) {
-            painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
-            painter.drawImage(targetRectFor(m_frame.image.size()), m_frame.image);
+            // Smooth minification keeps fitted playback clean; above 100%,
+            // nearest-like sampling exposes source pixels for frame inspection.
+            painter.setRenderHint(QPainter::SmoothPixmapTransform,
+                                  m_transform.zoomRatio() <= 1.0);
+            painter.drawImage(m_transform.imageRect(), m_frame.image);
         }
         break;
 
@@ -199,6 +231,76 @@ void ViewerWidget::paintEvent(QPaintEvent* event)
         qCDebug(log::ui) << "Viewer painted frame" << m_frame.frameIndex
                          << "in us" << paintTimer.nsecsElapsed() / 1000;
     }
+}
+
+void ViewerWidget::resizeEvent(QResizeEvent* event)
+{
+    QWidget::resizeEvent(event);
+    m_transform.setDevicePixelRatio(devicePixelRatioF());
+    m_transform.setViewportSize(event->size());
+    notifyNavigationChanged();
+}
+
+void ViewerWidget::wheelEvent(QWheelEvent* event)
+{
+    qreal steps = event->angleDelta().y() / 120.0;
+    if (qFuzzyIsNull(steps) && !event->pixelDelta().isNull()) {
+        steps = event->pixelDelta().y() / 100.0;
+    }
+    if (!qFuzzyIsNull(steps)) {
+        m_transform.zoomAt(std::pow(ViewerTransform::kWheelStepFactor, steps), event->position());
+        notifyNavigationChanged();
+        update();
+        event->accept();
+        return;
+    }
+    QWidget::wheelEvent(event);
+}
+
+void ViewerWidget::mousePressEvent(QMouseEvent* event)
+{
+    if (event->button() == Qt::MiddleButton) {
+        m_middlePanning = true;
+        m_lastPanPosition = event->position();
+        setCursor(Qt::ClosedHandCursor);
+        event->accept();
+        return;
+    }
+    QWidget::mousePressEvent(event);
+}
+
+void ViewerWidget::mouseMoveEvent(QMouseEvent* event)
+{
+    if (m_middlePanning) {
+        m_transform.panBy(event->position() - m_lastPanPosition);
+        m_lastPanPosition = event->position();
+        notifyNavigationChanged();
+        update();
+        event->accept();
+        return;
+    }
+    QWidget::mouseMoveEvent(event);
+}
+
+void ViewerWidget::mouseReleaseEvent(QMouseEvent* event)
+{
+    if (event->button() == Qt::MiddleButton && m_middlePanning) {
+        m_middlePanning = false;
+        unsetCursor();
+        event->accept();
+        return;
+    }
+    QWidget::mouseReleaseEvent(event);
+}
+
+void ViewerWidget::mouseDoubleClickEvent(QMouseEvent* event)
+{
+    if (event->button() == Qt::LeftButton) {
+        fitImage();
+        event->accept();
+        return;
+    }
+    QWidget::mouseDoubleClickEvent(event);
 }
 
 void ViewerWidget::paintEmptyState(QPainter& painter)
