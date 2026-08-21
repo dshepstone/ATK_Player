@@ -4,6 +4,9 @@
 #include "media/MediaLibraryInfo.h"
 #include "core/Version.h"
 #include "ui/Theme.h"
+#include "ui/Resources.h"
+
+#include <QIcon>
 
 namespace atk::app {
 
@@ -16,6 +19,7 @@ Application::~Application() = default;
 
 bool Application::initialize()
 {
+    ui::ensureResourcesInitialized();
     // Identity first: QStandardPaths derives the settings and data directories
     // from these, and PlatformInfo::applicationDataDirectory() is consulted by
     // the logging banner immediately afterwards.
@@ -23,6 +27,7 @@ bool Application::initialize()
     setApplicationVersion(versionString());
     setOrganizationName(QString::fromLatin1(version::kOrganizationName));
     setOrganizationDomain(QString::fromLatin1(version::kOrganizationDomain));
+    setWindowIcon(QIcon(QStringLiteral(":/icons/ATK_Player_Icon.png")));
 
     log::initialize();
 

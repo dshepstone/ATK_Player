@@ -904,6 +904,7 @@ void PlaybackController::restartPlaybackAtFrame(int64_t frame)
 
 void PlaybackController::onReviewRangeChanged()
 {
+    if (m_applyingReviewRange) return;
     if (m_state != PlayerState::Playing) {
         // Placeholder playback has no decoder or audio epoch to invalidate.
         if (inPlaceholderMode()) return;
@@ -938,6 +939,17 @@ void PlaybackController::onReviewRangeChanged()
     m_navigationFrame = end;
     seekAndShow(end, false);
     setState(PlayerState::Ended);
+}
+
+void PlaybackController::activateReviewRange(int64_t startFrame, int64_t endFrame)
+{
+    const bool continuePlaying = isPlaying();
+    m_applyingReviewRange = true;
+    m_timeline->setViewportRange(startFrame, endFrame);
+    m_applyingReviewRange = false;
+    const int64_t start = m_timeline->effectiveStartFrame();
+    if (continuePlaying) restartPlaybackAtFrame(start);
+    else seekFrame(start);
 }
 
 void PlaybackController::onAudioPrimed(int bufferedMs, qint64 mediaOriginUs,

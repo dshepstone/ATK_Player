@@ -64,13 +64,18 @@ public:
 
     // --- Bookmarks --------------------------------------------------------
     const QVector<Bookmark>& bookmarks() const { return m_bookmarks; }
-    /// Adds a bookmark, replacing any existing one on the same frame.
-    void addBookmark(const Bookmark& bookmark);
+    /// Adds a validated bookmark and returns its stable ID. Point bookmarks
+    /// remain unique per frame; ranges may overlap or share a start.
+    quint64 addBookmark(const Bookmark& bookmark);
+    bool updateBookmark(const Bookmark& bookmark);
     void removeBookmarkAt(int64_t frame);
     void removeBookmark(quint64 id);
     void clearBookmarks();
     /// Returns nullptr when the frame carries no bookmark.
     const Bookmark* bookmarkAt(int64_t frame) const;
+    const Bookmark* bookmark(quint64 id) const;
+    const Bookmark* nextBookmark(int64_t frame) const;
+    const Bookmark* previousBookmark(int64_t frame) const;
     /// Nearest bookmark strictly after/before `frame`, or -1 when there is none.
     int64_t nextBookmarkFrame(int64_t frame) const;
     int64_t previousBookmarkFrame(int64_t frame) const;

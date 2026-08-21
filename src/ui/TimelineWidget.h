@@ -51,6 +51,8 @@ public:
     bool isBookmarkSnapEnabled() const { return m_bookmarkSnapEnabled; }
     int positionForFrame(int64_t frame) const { return xForFrame(frame); }
     int64_t frameAtPosition(int x) const { return frameForX(x); }
+    QRect rangeBookmarkRect(quint64 id) const;
+    quint64 bookmarkAtPosition(const QPoint& point) const;
 
     QSize sizeHint() const override;
     QSize minimumSizeHint() const override;
@@ -62,10 +64,12 @@ signals:
     void scrubStarted();
     void scrubPreviewRequested(qint64 frame);
     void scrubFinished(qint64 frame);
-    /// A bookmark marker was double-clicked.
-    void bookmarkActivated(qint64 frame);
+    void bookmarkSelected(quint64 id);
+    /// A point marker or range band was double-clicked.
+    void bookmarkActivated(quint64 id);
 
 protected:
+    bool event(QEvent* event) override;
     void paintEvent(QPaintEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;

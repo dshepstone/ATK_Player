@@ -95,19 +95,21 @@ Delivered so far:
   fields, adaptive per-frame ticks/labels, and double-click Fit Entire Clip.
 - **Session bookmarks.** Stable single-frame markers, exact click navigation,
   wrapping next/previous commands, deletion, and default-on pixel-based scrub
-  snapping. Persistence and the full bookmark editor remain later work.
+  snapping. The dockable editor now manages names, multiline notes, palette
+  colours and exact one-based frame positions. Inclusive range bookmarks save
+  the active review range, render as compact timeline bands, and activate that
+  same `TimelineViewport`; persistence remains M3 work.
 - **Viewer zoom and pan.** Viewer Fit, device-pixel 100%, cursor-anchored wheel
   zoom, bounded middle-mouse pan, double-click Fit, and a compact status-bar
   percentage. Navigation persists through playback and frame changes and is
   deliberately independent of the timeline and playback state.
 
-Still to come in M2: range bookmarks and further review refinements.
+Still to come in M2: further review refinements.
 
 Deferred here deliberately from M1: audio scrubbing, audible single-frame
 stepping, In/Out points, specific loop ranges, bookmarks and range bookmarks,
 finer cache controls.
 
-- Bookmark editing: name, note, colour, and a bookmark list panel
 - In/out range editing by dragging the range handles on the timeline
 - Viewer magnifier for close inspection
 - Frame-by-frame navigation refinements: play backwards, shuttle speeds
@@ -115,6 +117,10 @@ finer cache controls.
 - Configurable keyboard shortcuts, loaded into `CommandRegistry` from settings
 - Icons in `assets/icons/`, replacing the placeholder text glyphs
 - Preferences dialog
+
+The supplied 32×32 ATK Player PNG is embedded for runtime application/window
+identity. A true multi-resolution Windows `.ico` remains M6 packaging work when
+a larger master asset is available.
 
 **Capabilities this milestone delivers:** timeline scrubbing with audio
 scrubbing, bookmarks with names/notes/colours, In/Out points, loop ranges, and

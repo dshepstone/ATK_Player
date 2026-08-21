@@ -21,6 +21,7 @@ namespace atk::timeline { class TimelineModel; }
 namespace atk::ui {
 
 class CommandRegistry;
+class BookmarkPanel;
 class SourcesPanel;
 class StatusInfoBar;
 class TimelineWidget;
@@ -73,6 +74,7 @@ private:
     void reportNotImplemented(commands::CommandId id);
 
     void updateWindowTitle();
+    void activateBookmark(quint64 id);
 
 
     // Session models. Declared before the widgets that observe them so
@@ -84,6 +86,7 @@ private:
     std::unique_ptr<api::ApiServer> m_apiServer;
 
     CommandRegistry* m_commands = nullptr;
+    BookmarkPanel* m_bookmarks = nullptr;
 
     ViewerWidget* m_viewer = nullptr;
     TimelineWidget* m_timelineWidget = nullptr;
@@ -95,6 +98,7 @@ private:
     StatusInfoBar* m_statusInfo = nullptr;
     QLabel* m_viewerZoomStatus = nullptr;
     QDockWidget* m_sourcesDock = nullptr;
+    QDockWidget* m_bookmarksDock = nullptr;
 
     /// Directory the last Open Media dialog was pointed at.
     QString m_lastMediaDirectory;

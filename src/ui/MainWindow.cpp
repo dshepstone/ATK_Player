@@ -7,6 +7,7 @@
 #include "project/Project.h"
 #include "project/ProjectSerializer.h"
 #include "timeline/TimelineModel.h"
+#include "ui/BookmarkPanel.h"
 #include "ui/SourcesPanel.h"
 #include "ui/StatusInfoBar.h"
 #include "ui/Theme.h"
@@ -18,6 +19,7 @@
 
 #include <QFileDialog>
 #include <QHBoxLayout>
+#include <QIcon>
 #include <QLabel>
 #include <QSlider>
 #include <QSpinBox>
@@ -77,6 +79,7 @@ MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
 {
     setObjectName(QStringLiteral("AtkMainWindow"));
+    setWindowIcon(QIcon(QStringLiteral(":/icons/ATK_Player_Icon.png")));
 
     buildModels();
     buildWidgets();
@@ -172,6 +175,15 @@ void MainWindow::buildWidgets()
     m_sourcesDock->setTitleBarWidget(emptyTitleBar);
     addDockWidget(Qt::LeftDockWidgetArea, m_sourcesDock);
 
+    m_bookmarks = new BookmarkPanel(this);
+    m_bookmarks->setModel(m_timeline.get());
+    m_bookmarksDock = new QDockWidget(tr("Bookmarks"), this);
+    m_bookmarksDock->setObjectName(QStringLiteral("BookmarksDock"));
+    m_bookmarksDock->setWidget(m_bookmarks);
+    m_bookmarksDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+    m_bookmarksDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetClosable);
+    addDockWidget(Qt::RightDockWidgetArea, m_bookmarksDock);
+
     // --- Status bar -------------------------------------------------------
     m_statusInfo = new StatusInfoBar(this);
     m_statusInfo->setModel(m_timeline.get());
@@ -220,6 +232,9 @@ void MainWindow::buildMenus()
     // Reflect state that the window owns rather than the action.
     if (QAction* sourcesAction = m_commands->action(CommandId::ToggleSourcesPanel)) {
         sourcesAction->setChecked(true);
+    }
+    if (QAction* bookmarksAction = m_commands->action(CommandId::ToggleBookmarksPanel)) {
+        bookmarksAction->setChecked(true);
     }
     if (QAction* snapAction = m_commands->action(CommandId::ToggleBookmarkSnap)) {
         snapAction->setChecked(true);
@@ -296,11 +311,12 @@ void MainWindow::connectSignals()
     connect(m_timelineWidget, &TimelineWidget::scrubFinished,
             m_playback.get(), &playback::PlaybackController::endScrub);
 
+    connect(m_timelineWidget, &TimelineWidget::bookmarkSelected,
+            m_bookmarks, &BookmarkPanel::selectBookmark);
     connect(m_timelineWidget, &TimelineWidget::bookmarkActivated,
-            this, [this](qint64 frame) {
-                m_timeline->ensureFrameVisible(frame);
-                m_playback->seekFrame(frame);
-            });
+            this, &MainWindow::activateBookmark);
+    connect(m_bookmarks, &BookmarkPanel::bookmarkActivated,
+            this, &MainWindow::activateBookmark);
 
     connect(m_project.get(), &project::Project::modifiedChanged,
             this, [this](bool) { updateWindowTitle(); });
@@ -369,6 +385,12 @@ void MainWindow::connectSignals()
                     action->setChecked(visible);
                 }
             });
+    connect(m_bookmarksDock, &QDockWidget::visibilityChanged, this, [this](bool visible) {
+        if (QAction* action = m_commands->action(CommandId::ToggleBookmarksPanel)) {
+            QSignalBlocker blocker(action);
+            action->setChecked(visible);
+        }
+    });
 }
 
 void MainWindow::onCommand(CommandId id, bool checked)
@@ -413,29 +435,39 @@ void MainWindow::onCommand(CommandId id, bool checked)
     case CommandId::AddBookmark: {
         timeline::Bookmark bookmark;
         bookmark.frame = m_timeline->currentFrame();
-        m_timeline->addBookmark(bookmark);
-        statusBar()->showMessage(tr("Bookmark added at frame %1").arg(bookmark.frame), 2000);
+        bookmark.endFrame = bookmark.frame;
+        const quint64 bookmarkId = m_timeline->addBookmark(bookmark);
+        m_bookmarks->selectBookmark(bookmarkId);
+        statusBar()->showMessage(tr("Bookmark added at frame %1").arg(bookmark.frame + 1), 2000);
+        return;
+    }
+    case CommandId::AddRangeBookmark: {
+        timeline::Bookmark bookmark;
+        bookmark.type = timeline::BookmarkType::Range;
+        bookmark.frame = m_timeline->viewport().startFrame();
+        bookmark.endFrame = m_timeline->viewport().endFrame();
+        const quint64 bookmarkId = m_timeline->addBookmark(bookmark);
+        m_bookmarks->selectBookmark(bookmarkId);
+        statusBar()->showMessage(tr("Range bookmark added: %1–%2")
+            .arg(bookmark.frame + 1).arg(bookmark.endFrame + 1), 2000);
         return;
     }
     case CommandId::NextBookmark: {
-        const int64_t frame = m_timeline->nextBookmarkFrame(m_timeline->currentFrame());
-        if (frame >= 0) {
-            m_timeline->ensureFrameVisible(frame);
-            m_playback->seekFrame(frame);
-        }
+        if (const timeline::Bookmark* bookmark = m_timeline->nextBookmark(m_timeline->currentFrame()))
+            activateBookmark(bookmark->id);
         return;
     }
     case CommandId::PreviousBookmark: {
-        const int64_t frame = m_timeline->previousBookmarkFrame(m_timeline->currentFrame());
-        if (frame >= 0) {
-            m_timeline->ensureFrameVisible(frame);
-            m_playback->seekFrame(frame);
-        }
+        if (const timeline::Bookmark* bookmark = m_timeline->previousBookmark(m_timeline->currentFrame()))
+            activateBookmark(bookmark->id);
         return;
     }
-    case CommandId::DeleteBookmark:
-        m_timeline->removeBookmarkAt(m_timeline->currentFrame());
+    case CommandId::DeleteBookmark: {
+        const quint64 selected = m_bookmarks->selectedBookmarkId();
+        if (selected) m_timeline->removeBookmark(selected);
+        else m_timeline->removeBookmarkAt(m_timeline->currentFrame());
         return;
+    }
     case CommandId::ToggleBookmarkSnap:
         m_timelineWidget->setBookmarkSnapEnabled(checked);
         return;
@@ -462,6 +494,9 @@ void MainWindow::onCommand(CommandId id, bool checked)
         return;
     case CommandId::ToggleSourcesPanel:
         m_sourcesDock->setVisible(checked);
+        return;
+    case CommandId::ToggleBookmarksPanel:
+        m_bookmarksDock->setVisible(checked);
         return;
 
     // --- Application ------------------------------------------------------
@@ -542,6 +577,20 @@ void MainWindow::reportNotImplemented(CommandId id)
                               << (definition != nullptr ? definition->key : "unknown");
 
     statusBar()->showMessage(tr("%1 is not implemented yet.").arg(name), 3000);
+}
+
+void MainWindow::activateBookmark(quint64 id)
+{
+    const timeline::Bookmark* bookmark = m_timeline->bookmark(id);
+    if (!bookmark) return;
+    const timeline::Bookmark selected = *bookmark;
+    m_bookmarks->selectBookmark(id);
+    if (selected.isRange()) {
+        m_playback->activateReviewRange(selected.frame, selected.endFrame);
+    } else {
+        m_timeline->ensureFrameVisible(selected.frame);
+        m_playback->seekFrame(selected.frame);
+    }
 }
 
 void MainWindow::onPlayerStateChanged(playback::PlayerState state)

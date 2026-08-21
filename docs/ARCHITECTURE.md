@@ -421,13 +421,44 @@ labels, and below that it chooses nice major/minor frame intervals. PTS remains
 the playback authority; integer frame display is only a precise view of the
 rational mapping.
 
-Bookmarks are session markers owned by `TimelineModel`. Each has a stable ID,
-exact frame-derived media time, optional label/note and palette colour. They are
-sorted, unique per frame, cleared at the source boundary, and next/previous
-navigation wraps. Timeline snapping uses an eight-pixel screen threshold so its
-feel does not change with zoom. A future `.atkproj` representation can serialize
-`id`, `frame`, `mediaTimeUs`, `label`, `note` and `colorIndex`; M2 deliberately
-does not create a sidecar format.
+Bookmarks are session markers owned by `TimelineModel`. One stable-ID model
+represents points (`frame == endFrame`) and inclusive ranges (`frame <
+endFrame`); both retain exact rational frame-derived media time, optional
+name/note and a controlled palette index. UI frame fields and labels are
+one-based while the model remains zero-based like the rest of the timeline.
+Reversed edits are rejected; editing a range to equal endpoints explicitly
+converts it to a point. Point bookmarks remain unique per frame, while range
+bookmarks may overlap or share starts. Ordering is by start frame then stable ID.
+
+`BookmarkPanel` is a dockable view/editor of that model, not duplicate state.
+It lists compact name/range rows and edits name, multiline note, colour and
+point/range bounds. Metadata and bound edits only update bookmark data; they do
+not seek, reset audio, change a playback generation, mutate `TimelineViewport`
+or touch `ViewerTransform`. Deletion is by stable ID, so moving a bookmark does
+not invalidate selection. Source replacement clears all bookmarks because M2
+bookmarks remain session-only; M3 `.atkproj` persistence will own saved review
+state.
+
+Range bookmarks save the existing active `TimelineViewport`, rather than
+creating another In/Out authority. Activation restores the inclusive viewport
+and seeks exactly to its start; while playing it uses
+`PlaybackController::activateReviewRange()` to perform one synchronized restart
+and preserve Loop state. Mixed point/range next/previous navigation orders by
+start and wraps. Scrub snapping considers a point frame or the two range
+boundaries only, never every interior frame.
+
+`TimelineWidget` paints ranges as clipped inclusive boundary bands in three
+deterministic compact lanes, so overlaps remain distinguishable without one
+widget per frame. Single-click selects a band/marker; double-click activates it.
+Tooltips include the name, one-based point/range and non-empty note. Geometry is
+derived from `TimelineViewport`, so zoom and pan cannot drift from bookmark
+frames.
+
+The runtime ATK icon is the original 32×32 PNG embedded at
+`:/icons/ATK_Player_Icon.png` and applied to `QApplication` and `MainWindow`.
+The resource survives build-tree runs and Qt deployment without absolute paths.
+It is intentionally not upscaled into a fake master; a proper multi-resolution
+Windows `.ico` remains M6 packaging work when a larger source is available.
 
 `Timecode` converts frames to SMPTE and back, non-drop-frame. For 23.976 and
 29.97 material this means displayed timecode drifts from wall-clock time — which

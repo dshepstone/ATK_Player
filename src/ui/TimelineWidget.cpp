@@ -6,9 +6,11 @@
 #include "ui/Theme.h"
 
 #include <QMouseEvent>
+#include <QHelpEvent>
 #include <QPainter>
 #include <QPaintEvent>
 #include <QWheelEvent>
+#include <QToolTip>
 
 #include <algorithm>
 #include <cmath>
@@ -31,6 +33,8 @@ constexpr int kTrackInsetTop = 20 + kWaveformHeight;
 constexpr int kTrackInsetBottom = 18;
 constexpr int kPlayheadHandleWidth = 9;
 constexpr int kBookmarkMarkerWidth = 3;
+constexpr int kRangeBandHeight = 4;
+constexpr int kRangeLaneCount = 3;
 
 /// Minimum gap between preview *decode* requests while dragging.
 ///
@@ -70,6 +74,24 @@ TimelineWidget::TimelineWidget(QWidget* parent)
 }
 
 TimelineWidget::~TimelineWidget() = default;
+
+bool TimelineWidget::event(QEvent* event)
+{
+    if (event->type() == QEvent::ToolTip && m_model) {
+        auto* help = static_cast<QHelpEvent*>(event);
+        const quint64 id = bookmarkAtPosition(help->pos());
+        if (const timeline::Bookmark* bookmark = m_model->bookmark(id)) {
+            QString text = QStringLiteral("%1\n%2 %3")
+                .arg(bookmark->displayLabel(), bookmark->isRange() ? tr("Frames") : tr("Frame"),
+                     bookmark->frameLabel());
+            if (!bookmark->note.isEmpty()) text += QLatin1Char('\n') + bookmark->note;
+            QToolTip::showText(help->globalPos(), text, this);
+            return true;
+        }
+        QToolTip::hideText();
+    }
+    return QWidget::event(event);
+}
 
 void TimelineWidget::setModel(timeline::TimelineModel* model)
 {
@@ -357,6 +379,16 @@ void TimelineWidget::paintBookmarks(QPainter& painter)
 
     const QRect track = trackRect();
     for (const timeline::Bookmark& bookmark : m_model->bookmarks()) {
+        if (bookmark.isRange()) {
+            const QRect band = rangeBookmarkRect(bookmark.id);
+            if (!band.isEmpty()) {
+                QColor color = bookmark.hasColor() ? timeline::bookmarkColor(bookmark.colorIndex)
+                                                    : theme::accent();
+                color.setAlpha(190);
+                painter.fillRect(band, color);
+            }
+            continue;
+        }
         const int x = xForFrame(bookmark.frame);
         if (x < 0) continue;
         const QColor color = bookmark.hasColor() ? timeline::bookmarkColor(bookmark.colorIndex)
@@ -416,6 +448,46 @@ void TimelineWidget::paintFrameLabels(QPainter& painter)
     }
 }
 
+QRect TimelineWidget::rangeBookmarkRect(quint64 id) const
+{
+    if (!m_model) return {};
+    const timeline::Bookmark* bookmark = m_model->bookmark(id);
+    if (!bookmark || !bookmark->isRange()) return {};
+    const auto& viewport = m_model->viewport();
+    if (bookmark->endFrame < viewport.startFrame() || bookmark->frame > viewport.endFrame()) return {};
+    const QRect track = trackRect();
+    const qreal count = std::max<qreal>(1.0, viewport.visibleFrameCount());
+    const auto boundaryX = [&](qreal boundary) {
+        return track.left() + (boundary - viewport.startFrame()) * track.width() / count;
+    };
+    const int left = qRound(boundaryX(std::max<int64_t>(bookmark->frame, viewport.startFrame())));
+    const int right = qRound(boundaryX(std::min<int64_t>(bookmark->endFrame + 1,
+                                                         viewport.endFrame() + 1)));
+    int rangeOrdinal = 0;
+    for (const timeline::Bookmark& candidate : m_model->bookmarks()) {
+        if (!candidate.isRange()) continue;
+        if (candidate.id == id) break;
+        ++rangeOrdinal;
+    }
+    const int lane = rangeOrdinal % kRangeLaneCount;
+    return QRect(left, track.top() - 7 - lane * (kRangeBandHeight + 1),
+                 std::max(1, right - left), kRangeBandHeight);
+}
+
+quint64 TimelineWidget::bookmarkAtPosition(const QPoint& point) const
+{
+    if (!m_model) return 0;
+    for (const timeline::Bookmark& bookmark : m_model->bookmarks()) {
+        if (bookmark.isRange() && rangeBookmarkRect(bookmark.id).adjusted(-2, -2, 2, 2).contains(point))
+            return bookmark.id;
+    }
+    for (const timeline::Bookmark& bookmark : m_model->bookmarks()) {
+        if (!bookmark.isRange() && std::abs(xForFrame(bookmark.frame) - point.x()) <= 5)
+            return bookmark.id;
+    }
+    return 0;
+}
+
 int64_t TimelineWidget::displayFrame() const
 {
     if (m_scrubFrame >= 0) {
@@ -431,12 +503,15 @@ int64_t TimelineWidget::snapFrame(int64_t frame, int x) const
     int64_t best = frame;
     int bestDistance = kSnapPixels + 1;
     for (const timeline::Bookmark& bookmark : m_model->bookmarks()) {
-        const int markerX = xForFrame(bookmark.frame);
-        if (markerX < 0) continue;
-        const int distance = std::abs(markerX - x);
-        if (distance <= kSnapPixels && distance < bestDistance) {
-            best = bookmark.frame;
-            bestDistance = distance;
+        for (const int64_t candidate : {bookmark.frame, bookmark.endFrame}) {
+            if (!bookmark.isRange() && candidate != bookmark.frame) continue;
+            const int markerX = xForFrame(candidate);
+            if (markerX < 0) continue;
+            const int distance = std::abs(markerX - x);
+            if (distance <= kSnapPixels && distance < bestDistance) {
+                best = candidate;
+                bestDistance = distance;
+            }
         }
     }
     return best;
@@ -472,12 +547,10 @@ void TimelineWidget::mousePressEvent(QMouseEvent* event)
     }
     const int clickX = event->position().toPoint().x();
     if (m_model) {
-        for (const timeline::Bookmark& bookmark : m_model->bookmarks()) {
-            const int markerX = xForFrame(bookmark.frame);
-            if (markerX >= 0 && std::abs(markerX - clickX) <= 5) {
-                emit bookmarkActivated(bookmark.frame);
-                return;
-            }
+        const quint64 id = bookmarkAtPosition(event->position().toPoint());
+        if (id != 0) {
+            emit bookmarkSelected(id);
+            return;
         }
     }
     m_scrubbing = true;
@@ -569,13 +642,10 @@ void TimelineWidget::mouseDoubleClickEvent(QMouseEvent* event)
         return;
     }
 
-    // Snap to a bookmark when the click lands near its marker.
-    const int clickX = event->position().toPoint().x();
-    for (const timeline::Bookmark& bookmark : m_model->bookmarks()) {
-        if (std::abs(xForFrame(bookmark.frame) - clickX) <= 4) {
-            emit bookmarkActivated(bookmark.frame);
-            return;
-        }
+    const quint64 id = bookmarkAtPosition(event->position().toPoint());
+    if (id != 0) {
+        emit bookmarkActivated(id);
+        return;
     }
     QWidget::mouseDoubleClickEvent(event);
 }

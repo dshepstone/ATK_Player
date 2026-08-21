@@ -7,7 +7,9 @@
 # ---------------------------------------------------------------------------
 
 set(ATK_UI_SOURCES
+    BookmarkPanel.cpp
     MainWindow.cpp
+    Resources.cpp
     SourcesPanel.cpp
     StatusInfoBar.cpp
     Theme.cpp
@@ -17,10 +19,13 @@ set(ATK_UI_SOURCES
     ViewerTransform.cpp
     ViewerWidget.cpp
     commands/CommandRegistry.cpp
+    atk_resources.qrc
 )
 
 set(ATK_UI_HEADERS
+    BookmarkPanel.h
     MainWindow.h
+    Resources.h
     SourcesPanel.h
     StatusInfoBar.h
     Theme.h
@@ -45,6 +50,7 @@ atk_set_compiler_warnings(atk_ui)
 
 set_target_properties(atk_ui PROPERTIES
     AUTOMOC ON
+    AUTORCC ON
     FOLDER "Libraries"
     POSITION_INDEPENDENT_CODE ON
 )
