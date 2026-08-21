@@ -86,7 +86,34 @@ private slots:
     void stoppedRangeMutationReanchorsAtCurrentFrame();
     void ordinaryPauseResumeKeepsEpochClean();
     void shortRangeLoopsKeepSynchronizedEpoch();
+    void playingRangeBookmarkActivationRestartsExactly();
 };
+
+void TestPlaybackInteraction::playingRangeBookmarkActivationRestartsExactly()
+{
+    Fixture fixture;
+    QVERIFY(fixture.open());
+    fixture.playback.setLoopEnabled(true);
+    fixture.playback.play();
+    QTRY_VERIFY_WITH_TIMEOUT(fixture.timeline.currentFrame() >= 3, 5000);
+
+    QSignalSpy frames(&fixture.playback, &PlaybackController::frameChanged);
+    fixture.playback.activateReviewRange(20, 30);
+    QTRY_VERIFY_WITH_TIMEOUT(!frames.isEmpty(), 5000);
+    QCOMPARE(qvariant_cast<atk::media::VideoFrame>(frames.first().at(0)).frameIndex, qint64(20));
+    QCOMPARE(fixture.timeline.viewport().startFrame(), qint64(20));
+    QCOMPARE(fixture.timeline.viewport().endFrame(), qint64(30));
+    QVERIFY(fixture.playback.isLoopEnabled());
+    QTRY_COMPARE_WITH_TIMEOUT(fixture.playback.state(), PlayerState::Playing, 5000);
+    QTRY_COMPARE_WITH_TIMEOUT(fixture.playback.lastAudioEpochUs(),
+                              fixture.playback.playbackOriginUs(), 5000);
+    const auto rate = fixture.playback.metadata().frameRate;
+    const qint64 frameUs = atk::media::ffmpeg::frameIndexToMicroseconds(
+        1, AVRational{rate.numerator, rate.denominator});
+    QVERIFY(qAbs(fixture.playback.lastAudioEpochUs() - fixture.playback.playbackOriginUs())
+            < frameUs);
+    fixture.playback.pause();
+}
 
 void TestPlaybackInteraction::frameStepAudioUsesExactTargetAndDirection()
 {

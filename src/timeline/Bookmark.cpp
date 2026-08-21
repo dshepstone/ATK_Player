@@ -22,7 +22,14 @@ constexpr std::array<QRgb, 8> kPalette{
 
 QString Bookmark::displayLabel() const
 {
-    return hasName() ? name : QStringLiteral("Frame %1").arg(frame);
+    return hasName() ? name : frameLabel();
+}
+
+QString Bookmark::frameLabel() const
+{
+    return isRange()
+        ? QStringLiteral("%1–%2").arg(frame + 1).arg(endFrame + 1)
+        : QString::number(frame + 1);
 }
 
 QColor bookmarkColor(int colorIndex)

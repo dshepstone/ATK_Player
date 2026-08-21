@@ -51,6 +51,17 @@ public:
     bool isBookmarkSnapEnabled() const { return m_bookmarkSnapEnabled; }
     int positionForFrame(int64_t frame) const { return xForFrame(frame); }
     int64_t frameAtPosition(int x) const { return frameForX(x); }
+    QRect rangeBookmarkRect(quint64 id) const;
+    QRect rangeBookmarkStartCapRect(quint64 id) const;
+    QRect rangeBookmarkEndCapRect(quint64 id) const;
+    bool rangeBookmarkShowsLabel(quint64 id) const;
+    quint64 bookmarkAtPosition(const QPoint& point) const;
+    int64_t displayedFrame() const { return displayFrame(); }
+    void setSelectedBookmark(quint64 id) { m_selectedBookmarkId = id; update(); }
+    quint64 selectedBookmarkId() const { return m_selectedBookmarkId; }
+    /// Drops only the pointer-preview overlay. The next painted position still
+    /// comes from TimelineModel's authoritative presented frame.
+    void followAuthoritativeFrame() { m_scrubbing = false; m_scrubFrame = -1; update(); }
 
     QSize sizeHint() const override;
     QSize minimumSizeHint() const override;
@@ -62,10 +73,12 @@ signals:
     void scrubStarted();
     void scrubPreviewRequested(qint64 frame);
     void scrubFinished(qint64 frame);
-    /// A bookmark marker was double-clicked.
-    void bookmarkActivated(qint64 frame);
+    void bookmarkSelected(quint64 id);
+    /// A point marker or range band was double-clicked.
+    void bookmarkActivated(quint64 id);
 
 protected:
+    bool event(QEvent* event) override;
     void paintEvent(QPaintEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
@@ -123,6 +136,7 @@ private:
     /// -1 when not scrubbing.
     int64_t m_scrubFrame = -1;
     bool m_bookmarkSnapEnabled = true;
+    quint64 m_selectedBookmarkId = 0;
 };
 
 } // namespace atk::ui

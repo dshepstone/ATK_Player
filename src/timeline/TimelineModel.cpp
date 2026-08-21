@@ -171,24 +171,34 @@ int64_t TimelineModel::effectiveEndFrame() const
     return m_viewport.endFrame();
 }
 
-void TimelineModel::addBookmark(const Bookmark& bookmark)
+quint64 TimelineModel::addBookmark(const Bookmark& bookmark)
 {
     const int64_t frame = std::clamp<int64_t>(bookmark.frame, 0, std::max<int64_t>(lastFrame(), 0));
-    const auto existing = std::find_if(m_bookmarks.begin(), m_bookmarks.end(),
-                                       [frame](const Bookmark& b) { return b.frame == frame; });
+    const auto existing = std::find_if(m_bookmarks.begin(), m_bookmarks.end(), [frame, &bookmark](const Bookmark& b) {
+        return bookmark.type == BookmarkType::Point && !b.isRange() && b.frame == frame;
+    });
     // Add on an occupied frame selects the existing marker conceptually; it
     // never duplicates or silently replaces its stable ID/annotation.
-    if (existing != m_bookmarks.end()) return;
+    if (existing != m_bookmarks.end()) return existing->id;
 
     Bookmark stored = bookmark;
     stored.frame = frame;
+    stored.endFrame = std::clamp<int64_t>(stored.endFrame, stored.frame,
+                                          std::max<int64_t>(lastFrame(), stored.frame));
+    if (stored.type == BookmarkType::Range && stored.endFrame == stored.frame)
+        stored.type = BookmarkType::Point;
+    if (stored.type == BookmarkType::Point) stored.endFrame = stored.frame;
     stored.mediaTimeUs = mediaTimeForFrame(stored.frame);
     if (stored.id == 0) stored.id = m_nextBookmarkId++;
-    if (stored.name.isEmpty()) stored.name = QStringLiteral("Bookmark %1").arg(stored.id);
+    else m_nextBookmarkId = std::max(m_nextBookmarkId, stored.id + 1);
+    if (stored.name.isEmpty()) stored.name = stored.isRange()
+        ? QStringLiteral("Range %1").arg(stored.id)
+        : QStringLiteral("Bookmark %1").arg(stored.id);
     m_bookmarks.push_back(stored);
     sortBookmarks();
     qCInfo(log::timeline) << "Bookmark added at frame" << bookmark.frame;
     emit bookmarksChanged();
+    return stored.id;
 }
 
 void TimelineModel::removeBookmark(quint64 id)
@@ -198,6 +208,30 @@ void TimelineModel::removeBookmark(quint64 id)
     if (it == m_bookmarks.end()) return;
     m_bookmarks.erase(it);
     emit bookmarksChanged();
+}
+
+bool TimelineModel::updateBookmark(const Bookmark& bookmark)
+{
+    const auto it = std::find_if(m_bookmarks.begin(), m_bookmarks.end(),
+                                 [&bookmark](const Bookmark& b) { return b.id == bookmark.id; });
+    if (it == m_bookmarks.end() || bookmark.frame > bookmark.endFrame) return false;
+    Bookmark stored = bookmark;
+    stored.frame = std::clamp<int64_t>(stored.frame, 0, std::max<int64_t>(lastFrame(), 0));
+    stored.endFrame = std::clamp<int64_t>(stored.endFrame, stored.frame,
+                                          std::max<int64_t>(lastFrame(), stored.frame));
+    if (stored.type == BookmarkType::Range && stored.frame == stored.endFrame)
+        stored.type = BookmarkType::Point;
+    if (stored.type == BookmarkType::Point) stored.endFrame = stored.frame;
+    if (!stored.isRange()) {
+        const auto duplicate = std::find_if(m_bookmarks.cbegin(), m_bookmarks.cend(),
+            [&stored](const Bookmark& b) { return b.id != stored.id && !b.isRange() && b.frame == stored.frame; });
+        if (duplicate != m_bookmarks.cend()) return false;
+    }
+    stored.mediaTimeUs = mediaTimeForFrame(stored.frame);
+    *it = stored;
+    sortBookmarks();
+    emit bookmarksChanged();
+    return true;
 }
 
 void TimelineModel::removeBookmarkAt(int64_t frame)
@@ -223,24 +257,41 @@ void TimelineModel::clearBookmarks()
 const Bookmark* TimelineModel::bookmarkAt(int64_t frame) const
 {
     const auto it = std::find_if(m_bookmarks.cbegin(), m_bookmarks.cend(),
-                                 [frame](const Bookmark& b) { return b.frame == frame; });
+                                 [frame](const Bookmark& b) { return !b.isRange() && b.frame == frame; });
     return it == m_bookmarks.cend() ? nullptr : &(*it);
+}
+
+const Bookmark* TimelineModel::bookmark(quint64 id) const
+{
+    const auto it = std::find_if(m_bookmarks.cbegin(), m_bookmarks.cend(),
+                                 [id](const Bookmark& b) { return b.id == id; });
+    return it == m_bookmarks.cend() ? nullptr : &(*it);
+}
+
+const Bookmark* TimelineModel::nextBookmark(int64_t frame) const
+{
+    const auto it = std::find_if(m_bookmarks.cbegin(), m_bookmarks.cend(),
+                                 [frame](const Bookmark& b) { return b.frame > frame; });
+    return it == m_bookmarks.cend() ? (m_bookmarks.isEmpty() ? nullptr : &m_bookmarks.front()) : &(*it);
+}
+
+const Bookmark* TimelineModel::previousBookmark(int64_t frame) const
+{
+    const auto it = std::find_if(m_bookmarks.crbegin(), m_bookmarks.crend(),
+                                 [frame](const Bookmark& b) { return b.frame < frame; });
+    return it == m_bookmarks.crend() ? (m_bookmarks.isEmpty() ? nullptr : &m_bookmarks.back()) : &(*it);
 }
 
 int64_t TimelineModel::nextBookmarkFrame(int64_t frame) const
 {
-    const auto it = std::find_if(m_bookmarks.cbegin(), m_bookmarks.cend(),
-                                 [frame](const Bookmark& b) { return b.frame > frame; });
-    return it == m_bookmarks.cend() ? (m_bookmarks.isEmpty() ? -1 : m_bookmarks.front().frame)
-                                    : it->frame;
+    const Bookmark* result = nextBookmark(frame);
+    return result ? result->frame : -1;
 }
 
 int64_t TimelineModel::previousBookmarkFrame(int64_t frame) const
 {
-    const auto it = std::find_if(m_bookmarks.crbegin(), m_bookmarks.crend(),
-                                 [frame](const Bookmark& b) { return b.frame < frame; });
-    return it == m_bookmarks.crend() ? (m_bookmarks.isEmpty() ? -1 : m_bookmarks.back().frame)
-                                     : it->frame;
+    const Bookmark* result = previousBookmark(frame);
+    return result ? result->frame : -1;
 }
 
 int64_t TimelineModel::mediaTimeForFrame(int64_t frame) const
@@ -286,7 +337,9 @@ void TimelineModel::reset()
 void TimelineModel::sortBookmarks()
 {
     std::sort(m_bookmarks.begin(), m_bookmarks.end(),
-              [](const Bookmark& a, const Bookmark& b) { return a.frame < b.frame; });
+              [](const Bookmark& a, const Bookmark& b) {
+                  return a.frame != b.frame ? a.frame < b.frame : a.id < b.id;
+              });
 }
 
 } // namespace atk::timeline

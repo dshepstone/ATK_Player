@@ -8,6 +8,8 @@
 
 namespace atk::timeline {
 
+enum class BookmarkType { Point, Range };
+
 /// A marked frame, used for review notes.
 ///
 /// Name, note and colour are all optional: pressing B during review drops a
@@ -19,7 +21,11 @@ struct Bookmark {
     static constexpr int kNoColor = -1;
 
     quint64 id = 0;
+    BookmarkType type = BookmarkType::Point;
+    /// Zero-based inclusive start. Kept as `frame` for API compatibility.
     int64_t frame = 0;
+    /// Zero-based inclusive end. Equals frame for point bookmarks.
+    int64_t endFrame = 0;
     int64_t mediaTimeUs = 0;
     QString name;
     QString note;
@@ -28,9 +34,11 @@ struct Bookmark {
     bool hasName() const { return !name.isEmpty(); }
     bool hasNote() const { return !note.isEmpty(); }
     bool hasColor() const { return colorIndex != kNoColor; }
+    bool isRange() const { return type == BookmarkType::Range && endFrame > frame; }
 
     /// Label for the timeline tooltip: the name if set, otherwise the frame.
     QString displayLabel() const;
+    QString frameLabel() const;
 
     friend bool operator==(const Bookmark&, const Bookmark&) = default;
 };

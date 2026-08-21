@@ -22,7 +22,8 @@ void TestBookmark::defaultsAreEmpty()
     QVERIFY(!bookmark.hasName());
     QVERIFY(!bookmark.hasNote());
     QVERIFY(!bookmark.hasColor());
-    QCOMPARE(bookmark.displayLabel(), QStringLiteral("Frame 0"));
+    QCOMPARE(bookmark.displayLabel(), QStringLiteral("1"));
+    QCOMPARE(bookmark.frameLabel(), QStringLiteral("1"));
 }
 
 void TestBookmark::optionalFieldsAndLabel()

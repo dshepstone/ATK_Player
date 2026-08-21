@@ -130,6 +130,9 @@ public:
 
     void setPlaybackRange(int64_t startFrame, int64_t endFrame);
     void clearPlaybackRange();
+    /// Applies the single active review range and lands exactly on its start.
+    /// If already playing, continues through the synchronized restart path.
+    void activateReviewRange(int64_t startFrame, int64_t endFrame);
 
     // --- Audio ------------------------------------------------------------
     void setMuted(bool muted);
@@ -331,6 +334,7 @@ private:
     /// A stopped review mutation invalidated the reusable normal-playback
     /// epoch. Cleared only after an authoritative restart is ready.
     bool m_playbackEpochDirty = false;
+    bool m_applyingReviewRange = false;
     bool m_playbackReanchorInProgress = false;
 
     media::MediaMetadata m_metadata;

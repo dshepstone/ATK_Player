@@ -5,6 +5,7 @@
 
 using atk::media::FrameRate;
 using atk::timeline::Bookmark;
+using atk::timeline::BookmarkType;
 using atk::timeline::PlaybackRange;
 using atk::timeline::TimelineModel;
 
@@ -26,6 +27,8 @@ private slots:
     void bookmarksStaySortedAndUnique();
     void bookmarkNavigation();
     void bookmarkIdsDeleteAndSourceReset();
+    void rangeBookmarksValidateEditAndOrder();
+    void bookmarkMetadataEditsKeepStableIdentity();
     void resetClearsEverything();
     void viewportZoomIsAnchorStableAndClamped();
     void viewportPansAndFollowsPlayhead();
@@ -245,6 +248,69 @@ void TestTimelineModel::bookmarkIdsDeleteAndSourceReset()
 
     model.addBookmark(bookmark);
     model.reset(); // source replacement/close boundary
+    QVERIFY(model.bookmarks().isEmpty());
+}
+
+void TestTimelineModel::rangeBookmarksValidateEditAndOrder()
+{
+    TimelineModel model;
+    model.setFrameRate(FrameRate{24000, 1001});
+    model.setFrameCount(250);
+    Bookmark range;
+    range.type = BookmarkType::Range;
+    range.frame = 138;
+    range.endFrame = 300;
+    const quint64 rangeId = model.addBookmark(range);
+    const Bookmark* stored = model.bookmark(rangeId);
+    QVERIFY(stored && stored->isRange());
+    QCOMPARE(stored->frame, qint64(138));
+    QCOMPARE(stored->endFrame, qint64(249));
+    QCOMPARE(stored->frameLabel(), QStringLiteral("139–250"));
+
+    Bookmark point;
+    point.frame = 50;
+    point.endFrame = 50;
+    const quint64 pointId = model.addBookmark(point);
+    QCOMPARE(model.bookmarks().front().id, pointId);
+
+    Bookmark edited = *model.bookmark(rangeId);
+    edited.frame = 100;
+    edited.endFrame = 120;
+    QVERIFY(model.updateBookmark(edited));
+    QCOMPARE(model.bookmark(rangeId)->mediaTimeUs, model.mediaTimeForFrame(100));
+    edited.frame = 121;
+    edited.endFrame = 120;
+    QVERIFY(!model.updateBookmark(edited));
+    QCOMPARE(model.bookmark(rangeId)->frame, qint64(100));
+
+    edited = *model.bookmark(rangeId);
+    edited.endFrame = edited.frame;
+    QVERIFY(model.updateBookmark(edited));
+    QVERIFY(!model.bookmark(rangeId)->isRange());
+    QCOMPARE(model.bookmark(rangeId)->id, rangeId);
+}
+
+void TestTimelineModel::bookmarkMetadataEditsKeepStableIdentity()
+{
+    TimelineModel model;
+    model.setFrameCount(200);
+    Bookmark bookmark;
+    bookmark.frame = bookmark.endFrame = 20;
+    const quint64 id = model.addBookmark(bookmark);
+    QSignalSpy viewport(&model, &TimelineModel::viewportChanged);
+    QSignalSpy playhead(&model, &TimelineModel::currentFrameChanged);
+    Bookmark edited = *model.bookmark(id);
+    edited.name = QStringLiteral("Contact");
+    edited.note = QStringLiteral("Push silhouette\nWatch wrist");
+    edited.colorIndex = 4;
+    QVERIFY(model.updateBookmark(edited));
+    QCOMPARE(model.bookmark(id)->id, id);
+    QCOMPARE(model.bookmark(id)->name, edited.name);
+    QCOMPARE(model.bookmark(id)->note, edited.note);
+    QCOMPARE(model.bookmark(id)->colorIndex, 4);
+    QCOMPARE(viewport.count(), 0);
+    QCOMPARE(playhead.count(), 0);
+    model.removeBookmark(id);
     QVERIFY(model.bookmarks().isEmpty());
 }
 

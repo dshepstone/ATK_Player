@@ -1,0 +1,5 @@
+<RCC>
+  <qresource prefix="/icons">
+    <file alias="ATK_Player_Icon.png">../../assets/icons/ATK_Player_Icon.png</file>
+  </qresource>
+</RCC>

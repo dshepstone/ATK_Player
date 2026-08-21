@@ -180,6 +180,7 @@ void TestTimelineWidgets::sliderDoubleClickFitsWithoutMovingPlayhead()
     TimelineModel* model = slider->model();
     model->setCurrentFrame(42);
     model->setViewportRange(20, 40);
+    const qsizetype bookmarkCount = model->bookmarks().size();
     QSignalSpy playhead(model, &TimelineModel::currentFrameChanged);
     QTest::mouseDClick(slider, Qt::LeftButton, {}, slider->selectionRect().center());
     QCOMPARE(model->viewport().startFrame(), qint64(0));
@@ -188,6 +189,7 @@ void TestTimelineWidgets::sliderDoubleClickFitsWithoutMovingPlayhead()
     QCOMPARE(end->value(), 100);
     QCOMPARE(model->currentFrame(), qint64(42));
     QCOMPARE(playhead.count(), 0);
+    QCOMPARE(model->bookmarks().size(), bookmarkCount);
 
     model->setViewportRange(20, 40);
     QTest::mouseDClick(slider, Qt::LeftButton, {},
