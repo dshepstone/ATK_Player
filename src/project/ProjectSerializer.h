@@ -19,10 +19,6 @@ struct SerializerResult {
 
 /// Reads and writes the ATK Player project format.
 ///
-/// PHASE 0 STATUS: not implemented. Both methods fail with an explanatory
-/// message so callers exercise the error path from day one rather than
-/// discovering it in M3.
-///
 /// PLANNED FORMAT -- ".atkproj", UTF-8 JSON, one object per file:
 ///
 ///     {
@@ -60,13 +56,9 @@ public:
     static QString fileDialogFilter();
 
     /// Writes `project` to `filePath`.
-    /// TODO(M3): implement using QJsonDocument, writing to a temporary file and
-    ///           renaming into place so an interrupted save cannot corrupt an
-    ///           existing project.
     static SerializerResult save(const Project& project, const QString& filePath);
 
     /// Replaces the contents of `project` with the file at `filePath`.
-    /// TODO(M3): implement, validating formatVersion before touching `project`.
     static SerializerResult load(Project& project, const QString& filePath);
 };
 
