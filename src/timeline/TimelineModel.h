@@ -37,7 +37,8 @@ public:
 
     // --- Playhead ---------------------------------------------------------
     int64_t currentFrame() const { return m_currentFrame; }
-    /// Clamps to the active range, or to [0, lastFrame] when no range is set.
+    /// Clamps to the source extent. Changing the review range alone must not
+    /// move a stopped playhead.
     void setCurrentFrame(int64_t frame);
 
     // --- Range ------------------------------------------------------------
@@ -56,8 +57,8 @@ public:
     void setViewportRange(int64_t startFrame, int64_t endFrame);
     void ensureFrameVisible(int64_t frame);
 
-    /// First and last frame playback should visit, honouring the range when
-    /// enabled and the full extent otherwise.
+    /// First and last frame playback should visit. The visible viewport is the
+    /// single active review range.
     int64_t effectiveStartFrame() const;
     int64_t effectiveEndFrame() const;
 

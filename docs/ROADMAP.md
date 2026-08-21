@@ -87,17 +87,17 @@ Delivered so far:
 - **Optional frame-step audio.** A separate, default-off command gives forward
   and backward arrow stepping centred review grains without compromising the
   exact visual navigation queue.
-- **Timeline viewport.** Command and cursor-anchored zoom, fit, middle-drag and
-  Shift-wheel pan, adaptive visible-range ruler labels, playhead edge-follow,
-  and viewport-aware multi-resolution waveform rendering.
-- **Animation timeline controls.** A Maya-style lower visible-range slider with
-  independent handles and body pan, plus adaptive per-frame ticks and labels.
+- **Active animation-review range.** `TimelineViewport` is both the visible
+  interval and inclusive playback boundary. Loop-off stops on the selected end;
+  Loop-on wraps end to start. F restores whole-clip playback.
+- **Animation timeline controls.** A Maya-style lower review-range slider with
+  independent handles and body pan, synchronized one-based numeric start/end
+  fields, adaptive per-frame ticks/labels, and double-click Fit Entire Clip.
 - **Session bookmarks.** Stable single-frame markers, exact click navigation,
   wrapping next/previous commands, deletion, and default-on pixel-based scrub
   snapping. Persistence and the full bookmark editor remain later work.
 
-Still to come in M2: In/Out points and range looping, bookmarks and range
-bookmarks, and viewer zoom and pan.
+Still to come in M2: range bookmarks and viewer zoom and pan.
 
 Deferred here deliberately from M1: audio scrubbing, audible single-frame
 stepping, In/Out points, specific loop ranges, bookmarks and range bookmarks,

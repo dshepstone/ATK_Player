@@ -110,6 +110,8 @@ PlaybackController::PlaybackController(timeline::TimelineModel* timeline, QObjec
     m_navigationTimer->setTimerType(Qt::PreciseTimer);
     connect(m_navigationTimer, &QTimer::timeout,
             this, &PlaybackController::presentNextNavigationFrame);
+    connect(m_timeline, &timeline::TimelineModel::viewportChanged,
+            this, [this] { onReviewRangeChanged(); });
 
     // --- Decode thread ----------------------------------------------------
     m_decodeThread = new QThread(this);
@@ -839,14 +841,21 @@ void PlaybackController::finishPlayback()
 {
     if (m_loopEnabled) {
         qCDebug(log::playback) << "Playhead reached the end; looping";
-        // Whole-clip loop for M1. Range looping is M2.
         m_decoderAtEnd = false;
     m_presentedFrames = 0;
     m_decodedFrames = 0;
     m_perfWindowStartNs = monotonicNowNs();
     m_cache.resetCounters();
-        seekFrame(m_timeline->effectiveStartFrame());
-        m_resumeAfterSeek = true;
+        const int64_t start = m_timeline->effectiveStartFrame();
+        if (inPlaceholderMode()) {
+            haltPlaybackMachinery();
+            m_timeline->setCurrentFrame(start);
+            m_navigationFrame = start;
+            setState(PlayerState::Paused);
+            play();
+        } else {
+            seekFrame(start);
+        }
         return;
     }
 
@@ -863,6 +872,29 @@ void PlaybackController::finishPlayback()
             m_timeline->setCurrentFrame(last);
         }
     }
+    setState(PlayerState::Ended);
+}
+
+void PlaybackController::onReviewRangeChanged()
+{
+    if (m_state != PlayerState::Playing) return;
+
+    const int64_t current = m_timeline->currentFrame();
+    const int64_t start = m_timeline->effectiveStartFrame();
+    const int64_t end = m_timeline->effectiveEndFrame();
+    if (current >= start && current <= end) return;
+
+    if (m_loopEnabled || current < start) {
+        seekFrame(start);
+        return;
+    }
+
+    // Loop-off range contraction beyond the playhead settles on the new
+    // inclusive final frame and stops there.
+    haltPlaybackMachinery();
+    m_generations->bumpRequest();
+    m_navigationFrame = end;
+    seekAndShow(end, false);
     setState(PlayerState::Ended);
 }
 
@@ -1163,6 +1195,13 @@ void PlaybackController::play()
     }
 
     int64_t from = m_timeline->currentFrame();
+    const int64_t rangeStart = m_timeline->effectiveStartFrame();
+    const int64_t rangeEnd = m_timeline->effectiveEndFrame();
+
+    if (from < rangeStart || from > rangeEnd) {
+        from = rangeStart;
+        m_timeline->setCurrentFrame(from);
+    }
 
     // Playing from the very end restarts rather than playing nothing.
     if ((m_state == PlayerState::Ended || from >= effectiveLastFrame())

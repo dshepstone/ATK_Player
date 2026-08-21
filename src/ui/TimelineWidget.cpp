@@ -96,7 +96,6 @@ void TimelineWidget::setModel(timeline::TimelineModel* model)
                     if (m_scrubFrame >= 0 && !m_scrubbing && frame == m_scrubFrame) {
                         m_scrubFrame = -1;
                     }
-                    if (!m_scrubbing) m_model->ensureFrameVisible(frame);
                     update();
                 });
 
@@ -222,7 +221,6 @@ void TimelineWidget::paintEvent(QPaintEvent* event)
 
     paintWaveform(painter);
     paintTrack(painter);
-    paintRange(painter);
     paintBookmarks(painter);
     paintFrameLabels(painter);
     paintPlayhead(painter);
@@ -346,32 +344,9 @@ void TimelineWidget::paintTrack(QPainter& painter)
         painter.drawLine(x, track.bottom() - (major ? 8 : 4), x, track.bottom() - 1);
         if (major) {
             painter.drawText(QRect(x - 28, track.top() + 1, 56, 14),
-                             Qt::AlignHCenter | Qt::AlignTop, QString::number(frame));
+                             Qt::AlignHCenter | Qt::AlignTop, QString::number(frame + 1));
         }
     }
-}
-
-void TimelineWidget::paintRange(QPainter& painter)
-{
-    if (m_model == nullptr) {
-        return;
-    }
-    const timeline::PlaybackRange& range = m_model->playbackRange();
-    if (!range.enabled || !range.isValid() || lastFrame() <= 0) {
-        return;
-    }
-
-    const QRect track = trackRect();
-    const int left = xForFrame(std::max(range.startFrame, m_model->viewport().startFrame()));
-    const int right = xForFrame(std::min(range.endFrame, m_model->viewport().endFrame()));
-    if (left < 0 || right < 0 || right < left) return;
-    const QRect fill(left, track.top() + 1, std::max(1, right - left), track.height() - 2);
-    painter.fillRect(fill, theme::timelineRange());
-
-    // In/out ticks at the boundaries.
-    painter.setPen(theme::accent());
-    painter.drawLine(left, track.top(), left, track.bottom());
-    painter.drawLine(right, track.top(), right, track.bottom());
 }
 
 void TimelineWidget::paintBookmarks(QPainter& painter)
@@ -417,12 +392,12 @@ void TimelineWidget::paintFrameLabels(QPainter& painter)
     // First frame, left of the track.
     painter.drawText(QRect(0, track.top(), kLabelMargin - 6, track.height()),
                      Qt::AlignRight | Qt::AlignVCenter,
-                     QString::number(m_model ? m_model->viewport().startFrame() : 0));
+                     QString::number(m_model ? m_model->viewport().startFrame() + 1 : 1));
 
     // Last frame, right of the track.
     painter.drawText(QRect(track.right() + 6, track.top(), kLabelMargin - 6, track.height()),
                      Qt::AlignLeft | Qt::AlignVCenter,
-                     QString::number(m_model ? m_model->viewport().endFrame() : last));
+                     QString::number((m_model ? m_model->viewport().endFrame() : last) + 1));
 
     // Time labels describe the viewport rather than the whole source. Their
     // pixel spacing is bounded, so zooming never turns the ruler into a wall

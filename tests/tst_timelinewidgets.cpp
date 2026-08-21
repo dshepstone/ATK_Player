@@ -1,8 +1,10 @@
 #include "timeline/TimelineModel.h"
 #include "ui/TimelineRangeSlider.h"
 #include "ui/TimelineWidget.h"
+#include "ui/MainWindow.h"
 
 #include <QSignalSpy>
+#include <QSpinBox>
 #include <QTest>
 
 using atk::media::FrameRate;
@@ -19,6 +21,8 @@ private slots:
     void frameMappingIsExactAtReviewZoom();
     void bookmarkMarkerAndSnapStayAligned();
     void rationalRatesKeepIntegerFrameDisplay();
+    void numericFieldsTrackEveryReviewRangeInput();
+    void sliderDoubleClickFitsWithoutMovingPlayhead();
 };
 
 void TestTimelineWidgets::sliderTracksModelBothWays()
@@ -134,6 +138,66 @@ void TestTimelineWidgets::rationalRatesKeepIntegerFrameDisplay()
         QCOMPARE(model.mediaTimeForFrame(107), static_cast<qint64>(
             static_cast<long double>(107) * 1'000'000.0L * rate.denominator / rate.numerator));
     }
+}
+
+void TestTimelineWidgets::numericFieldsTrackEveryReviewRangeInput()
+{
+    atk::ui::MainWindow window;
+    auto* slider = window.findChild<TimelineRangeSlider*>(QStringLiteral("TimelineReviewRangeSlider"));
+    auto* start = window.findChild<QSpinBox*>(QStringLiteral("ReviewRangeStartFrame"));
+    auto* end = window.findChild<QSpinBox*>(QStringLiteral("ReviewRangeEndFrame"));
+    QVERIFY(slider && start && end);
+    TimelineModel* model = slider->model();
+    QCOMPARE(start->value(), 1);
+    QCOMPARE(end->value(), 100);
+
+    model->setViewportRange(19, 29);
+    QCOMPARE(start->value(), 20);
+    QCOMPARE(end->value(), 30);
+    start->setValue(15);
+    QCOMPARE(model->viewport().startFrame(), qint64(14));
+    end->setValue(40);
+    QCOMPARE(model->viewport().endFrame(), qint64(39));
+
+    model->zoomViewport(2.0, 25);
+    QCOMPARE(start->value(), int(model->viewport().startFrame() + 1));
+    QCOMPARE(end->value(), int(model->viewport().endFrame() + 1));
+    model->panViewport(5);
+    QCOMPARE(start->value(), int(model->viewport().startFrame() + 1));
+    QCOMPARE(end->value(), int(model->viewport().endFrame() + 1));
+    QVERIFY(end->value() - start->value() + 1 >= 10);
+}
+
+void TestTimelineWidgets::sliderDoubleClickFitsWithoutMovingPlayhead()
+{
+    atk::ui::MainWindow window;
+    auto* slider = window.findChild<TimelineRangeSlider*>(QStringLiteral("TimelineReviewRangeSlider"));
+    auto* start = window.findChild<QSpinBox*>(QStringLiteral("ReviewRangeStartFrame"));
+    auto* end = window.findChild<QSpinBox*>(QStringLiteral("ReviewRangeEndFrame"));
+    QVERIFY(slider && start && end);
+    slider->resize(900, 24);
+    TimelineModel* model = slider->model();
+    model->setCurrentFrame(42);
+    model->setViewportRange(20, 40);
+    QSignalSpy playhead(model, &TimelineModel::currentFrameChanged);
+    QTest::mouseDClick(slider, Qt::LeftButton, {}, slider->selectionRect().center());
+    QCOMPARE(model->viewport().startFrame(), qint64(0));
+    QCOMPARE(model->viewport().endFrame(), qint64(99));
+    QCOMPARE(start->value(), 1);
+    QCOMPARE(end->value(), 100);
+    QCOMPARE(model->currentFrame(), qint64(42));
+    QCOMPARE(playhead.count(), 0);
+
+    model->setViewportRange(20, 40);
+    QTest::mouseDClick(slider, Qt::LeftButton, {},
+                      QPoint(slider->positionForSourceFrame(80), slider->selectionRect().center().y()));
+    QCOMPARE(model->viewport().startFrame(), qint64(0));
+    QCOMPARE(model->viewport().endFrame(), qint64(99));
+
+    model->setViewportRange(20, 40);
+    QTest::mouseDClick(start, Qt::LeftButton, {}, start->rect().center());
+    QCOMPARE(model->viewport().startFrame(), qint64(20));
+    QCOMPARE(model->viewport().endFrame(), qint64(40));
 }
 
 QTEST_MAIN(TestTimelineWidgets)

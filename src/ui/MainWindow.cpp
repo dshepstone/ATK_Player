@@ -20,6 +20,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QSlider>
+#include <QSpinBox>
 #include <QWidgetAction>
 
 #include <QAction>
@@ -127,9 +128,27 @@ void MainWindow::buildWidgets()
     m_timelineWidget->setModel(m_timeline.get());
     column->addWidget(m_timelineWidget);
     m_timelineRangeSlider = new TimelineRangeSlider(central);
+    m_timelineRangeSlider->setObjectName(QStringLiteral("TimelineReviewRangeSlider"));
     m_timelineRangeSlider->setModel(m_timeline.get());
-    m_timelineRangeSlider->setToolTip(tr("Drag the ends to resize the visible timeline; drag the centre to pan"));
-    column->addWidget(m_timelineRangeSlider);
+    m_reviewStartFrame = new QSpinBox(central);
+    m_reviewStartFrame->setObjectName(QStringLiteral("ReviewRangeStartFrame"));
+    m_reviewStartFrame->setKeyboardTracking(false);
+    m_reviewStartFrame->setToolTip(tr("First frame in the visible review range. Playback is constrained to this range."));
+    m_reviewEndFrame = new QSpinBox(central);
+    m_reviewEndFrame->setObjectName(QStringLiteral("ReviewRangeEndFrame"));
+    m_reviewEndFrame->setKeyboardTracking(false);
+    m_reviewEndFrame->setToolTip(tr("Last frame in the visible review range. Playback is constrained to this range."));
+    for (QSpinBox* field : {m_reviewStartFrame, m_reviewEndFrame}) {
+        field->setFixedWidth(72);
+        field->setAlignment(Qt::AlignCenter);
+    }
+    auto* reviewRangeRow = new QHBoxLayout;
+    reviewRangeRow->setContentsMargins(8, 0, 8, 0);
+    reviewRangeRow->setSpacing(6);
+    reviewRangeRow->addWidget(m_reviewStartFrame);
+    reviewRangeRow->addWidget(m_timelineRangeSlider, 1);
+    reviewRangeRow->addWidget(m_reviewEndFrame);
+    column->addLayout(reviewRangeRow);
 
     m_transport = new TransportControls(m_commands, central);
     column->addWidget(m_transport);
@@ -276,7 +295,42 @@ void MainWindow::connectSignals()
     // The frame count only becomes final once media is open, and the transport
     // depends on whether there is an extent at all.
     connect(m_timeline.get(), &timeline::TimelineModel::frameCountChanged,
-            this, [this](qint64) { updateTransportEnabled(); });
+            this, [this](qint64 count) {
+                updateTransportEnabled();
+                const int maximum = static_cast<int>(std::max<qint64>(1, count));
+                m_reviewStartFrame->setRange(1, maximum);
+                m_reviewEndFrame->setRange(1, maximum);
+            });
+
+    const auto refreshReviewFields = [this](qint64 start, qint64 end) {
+        QSignalBlocker blockStart(m_reviewStartFrame);
+        QSignalBlocker blockEnd(m_reviewEndFrame);
+        const int maximum = static_cast<int>(std::max<qint64>(1, m_timeline->frameCount()));
+        m_reviewStartFrame->setRange(1, maximum);
+        m_reviewEndFrame->setRange(1, maximum);
+        // The model is zero-based; all visible frame numbers are one-based.
+        m_reviewStartFrame->setValue(static_cast<int>(start + 1));
+        m_reviewEndFrame->setValue(static_cast<int>(end + 1));
+        const int minimumSpan = static_cast<int>(std::min<qint64>(
+            timeline::TimelineViewport::kMinimumVisibleFrames,
+            m_timeline->frameCount()));
+        m_reviewStartFrame->setMaximum(std::max(1, m_reviewEndFrame->value() - minimumSpan + 1));
+        m_reviewEndFrame->setMinimum(std::min(m_reviewEndFrame->maximum(),
+            m_reviewStartFrame->value() + minimumSpan - 1));
+    };
+    connect(m_timeline.get(), &timeline::TimelineModel::viewportChanged,
+            this, refreshReviewFields);
+    connect(m_reviewStartFrame, &QSpinBox::valueChanged, this, [this](int) {
+        m_timeline->setViewportRange(m_reviewStartFrame->value() - 1,
+                                     m_timeline->viewport().endFrame());
+    });
+    connect(m_reviewEndFrame, &QSpinBox::valueChanged, this, [this](int) {
+        m_timeline->setViewportRange(m_timeline->viewport().startFrame(),
+                                     m_reviewEndFrame->value() - 1);
+    });
+    connect(m_timelineRangeSlider, &TimelineRangeSlider::fitEntireRequested,
+            m_timelineWidget, &TimelineWidget::fitEntire);
+    refreshReviewFields(m_timeline->viewport().startFrame(), m_timeline->viewport().endFrame());
 
     connect(m_sourcesDock, &QDockWidget::visibilityChanged,
             this, [this](bool visible) {

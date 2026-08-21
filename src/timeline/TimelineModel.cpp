@@ -97,7 +97,7 @@ void TimelineModel::setCurrentFrame(int64_t frame)
     if (m_frameCount <= 0) {
         target = 0;
     } else {
-        target = std::clamp<int64_t>(target, effectiveStartFrame(), effectiveEndFrame());
+        target = std::clamp<int64_t>(target, 0, lastFrame());
     }
 
     if (m_currentFrame == target) {
@@ -125,9 +125,8 @@ void TimelineModel::setPlaybackRange(const PlaybackRange& range)
     }
     m_range = normalised;
     emit playbackRangeChanged(m_range);
-
-    // Pull the playhead back inside the new range.
-    setCurrentFrame(m_currentFrame);
+    if (normalised.enabled) setViewportRange(normalised.startFrame, normalised.endFrame);
+    else fitViewport();
 }
 
 void TimelineModel::setRangeInAtCurrentFrame()
@@ -164,19 +163,12 @@ void TimelineModel::clearPlaybackRange()
 
 int64_t TimelineModel::effectiveStartFrame() const
 {
-    if (m_range.enabled && m_range.isValid()) {
-        return std::min(m_range.startFrame, std::max<int64_t>(lastFrame(), 0));
-    }
-    return 0;
+    return m_viewport.startFrame();
 }
 
 int64_t TimelineModel::effectiveEndFrame() const
 {
-    const int64_t last = std::max<int64_t>(lastFrame(), 0);
-    if (m_range.enabled && m_range.isValid()) {
-        return std::min(m_range.endFrame, last);
-    }
-    return last;
+    return m_viewport.endFrame();
 }
 
 void TimelineModel::addBookmark(const Bookmark& bookmark)

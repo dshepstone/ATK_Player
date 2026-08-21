@@ -239,6 +239,7 @@ private:
     /// Ends the current playback run because the *playhead* reached the end:
     /// loops back if looping is on, otherwise settles on the final frame.
     void finishPlayback();
+    void onReviewRangeChanged();
 
     /// Emits the periodic performance summary, at most once a second.
     void reportPerformance(bool force);

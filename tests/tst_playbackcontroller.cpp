@@ -55,6 +55,10 @@ private slots:
 
     void rangeConstrainsStepping();
     void clearRangeRestoresFullExtent();
+    void reviewRangeStopsOnInclusiveEnd();
+    void playOutsideRangeRestartsAtStart();
+    void loopWrapsWithoutEscapingRange();
+    void activeRangeChangeWhilePlayingIsImmediate();
 
     void placeholderExtentIsMarkedAsSuch();
     void hasNoMediaInPhaseZero();
@@ -311,6 +315,84 @@ void TestPlaybackController::clearRangeRestoresFullExtent()
 
     fixture.playback.goToEnd();
     QCOMPARE(fixture.playback.currentFrame(), qint64(99));
+}
+
+void TestPlaybackController::reviewRangeStopsOnInclusiveEnd()
+{
+    Fixture fixture(100, 100);
+    fixture.timeline.setViewportRange(20, 30);
+    fixture.playback.seekFrame(25);
+    QSignalSpy frames(&fixture.timeline, &TimelineModel::currentFrameChanged);
+    fixture.playback.play();
+    QTRY_COMPARE_WITH_TIMEOUT(fixture.playback.state(), PlayerState::Ended, 1500);
+    QCOMPARE(fixture.playback.currentFrame(), qint64(30));
+    bool presentedEnd = false;
+    for (const auto& change : frames) {
+        const qint64 frame = change.at(0).toLongLong();
+        QVERIFY2(frame <= 30, "Playback escaped the inclusive review end");
+        presentedEnd |= frame == 30;
+    }
+    QVERIFY(presentedEnd);
+
+    fixture.playback.play();
+    QCOMPARE(fixture.playback.currentFrame(), qint64(20));
+    QTRY_COMPARE_WITH_TIMEOUT(fixture.playback.state(), PlayerState::Ended, 1500);
+    QCOMPARE(fixture.playback.currentFrame(), qint64(30));
+}
+
+void TestPlaybackController::playOutsideRangeRestartsAtStart()
+{
+    Fixture fixture(100, 100);
+    fixture.timeline.setViewportRange(20, 30);
+    fixture.timeline.setCurrentFrame(80);
+    fixture.playback.play();
+    QCOMPARE(fixture.playback.currentFrame(), qint64(20));
+    QTRY_COMPARE_WITH_TIMEOUT(fixture.playback.state(), PlayerState::Ended, 1500);
+}
+
+void TestPlaybackController::loopWrapsWithoutEscapingRange()
+{
+    Fixture fixture(100, 100);
+    fixture.timeline.setViewportRange(20, 30);
+    fixture.timeline.setCurrentFrame(20);
+    fixture.playback.setLoopEnabled(true);
+    QSignalSpy frames(&fixture.timeline, &TimelineModel::currentFrameChanged);
+    fixture.playback.play();
+    QTRY_VERIFY_WITH_TIMEOUT([&] {
+        int starts = 0;
+        for (const auto& change : frames) starts += change.at(0).toLongLong() == 20;
+        return starts >= 3;
+    }(), 2500);
+    fixture.playback.pause();
+    bool presentedEnd = false;
+    for (const auto& change : frames) {
+        const qint64 frame = change.at(0).toLongLong();
+        QVERIFY(frame >= 20 && frame <= 30);
+        presentedEnd |= frame == 30;
+    }
+    QVERIFY(presentedEnd);
+}
+
+void TestPlaybackController::activeRangeChangeWhilePlayingIsImmediate()
+{
+    Fixture loopOff(100, 50);
+    loopOff.timeline.setViewportRange(10, 60);
+    loopOff.timeline.setCurrentFrame(40);
+    loopOff.playback.play();
+    loopOff.timeline.setViewportRange(10, 30);
+    QTRY_COMPARE_WITH_TIMEOUT(loopOff.playback.currentFrame(), qint64(30), 500);
+    QCOMPARE(loopOff.playback.state(), PlayerState::Ended);
+
+    Fixture loopOn(100, 50);
+    loopOn.timeline.setViewportRange(10, 60);
+    loopOn.timeline.setCurrentFrame(40);
+    loopOn.playback.setLoopEnabled(true);
+    loopOn.playback.play();
+    loopOn.timeline.setViewportRange(10, 30);
+    QTRY_VERIFY_WITH_TIMEOUT(loopOn.playback.currentFrame() >= 10
+                            && loopOn.playback.currentFrame() <= 30, 500);
+    QVERIFY(loopOn.playback.isPlaying());
+    loopOn.playback.pause();
 }
 
 void TestPlaybackController::placeholderExtentIsMarkedAsSuch()

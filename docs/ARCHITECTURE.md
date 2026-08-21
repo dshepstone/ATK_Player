@@ -323,11 +323,13 @@ the class the UI, the API and the DCC integrations all drive.
 
 ### `src/timeline/` — where we are and what is marked
 
-`TimelineModel` holds the extent, the playhead, the in/out range, bookmarks and
-the independent `TimelineViewport`, and emits signals when they change. The
-viewport is display state only: zooming or panning cannot seek, alter In/Out,
-restart waveform analysis or change looping. It starts fitted to the source,
-clamps to its extent and preserves a ten-frame minimum span. The playhead lives here rather
+`TimelineModel` holds the extent, playhead, bookmarks and the active animation
+review range in `TimelineViewport`, and emits signals when they change. That
+range is both the visible frame viewport and the inclusive forward-playback
+boundary; there is no second user-facing playback range. Changing it while
+stopped does not seek, restart waveform analysis or decode scrub audio. It
+starts fitted to the source, clamps to its extent and preserves a ten-frame
+minimum span. The playhead lives here rather
 than in the timeline widget so that the viewer, the timeline, the status bar and
 the API all read one value and cannot disagree.
 
@@ -347,19 +349,23 @@ media arrives in M1 the marking disappears on its own and cannot be left stale.
 palette *index* rather than an RGB value, so restyling the application restyles
 existing bookmarks instead of stranding them on old colours.
 
-Every timeline x mapping runs through the viewport. Ctrl+wheel anchors zoom at
+Every timeline x mapping runs through the active review range. Ctrl+wheel anchors zoom at
 the pointer, middle-drag and Shift+wheel pan, and the command actions zoom at
-the playhead or fit the whole source. During playback and stepping an edge
-margin advances the viewport only when needed. Waveform painting queries only
+the playhead or fit the whole source. Playback never auto-pans the range: with
+Loop off it presents and stops on the inclusive selected end; with Loop on it
+wraps from that end to the selected start. Waveform painting queries only
 the visible media-time interval and selects the existing peak-pyramid level
 from visible microseconds per pixel; no analysis data is rebuilt on view changes.
 
-`TimelineRangeSlider` is a second view/controller for that same viewport, not a
-second zoom state. Its full groove is the source extent; either edge edits one
-visible bound while the other stays anchored, and dragging the body pans the
-unchanged span. The ten-frame minimum and source clamping remain enforced by
-`TimelineViewport`. Programmatic zoom, wheel gestures and the slider therefore
-cannot drift apart.
+`TimelineRangeSlider` and its one-based start/end `QSpinBox` fields are views and
+controllers for that same range, not duplicate state. Its full groove is the
+source extent; either edge edits one bound while the other stays anchored, and
+dragging the body pans the unchanged span. The ten-frame minimum and source
+clamping remain enforced by `TimelineViewport`. Programmatic zoom, wheel
+gestures, fields and slider therefore cannot drift apart. F or a double-click
+anywhere in the slider groove calls the same Fit Entire Clip operation without
+moving the playhead. Future project persistence may serialize this range; M2
+does not.
 
 At review zoom levels the ruler is frame-first: at 18 pixels per frame it labels
 every integer frame, at 6 pixels per frame it retains every tick with sparser

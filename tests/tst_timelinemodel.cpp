@@ -15,7 +15,7 @@ private slots:
     void startsEmpty();
     void clampsPlayheadToExtent();
     void emitsCurrentFrameChangedOnlyOnChange();
-    void rangeConfinesPlayhead();
+    void reviewRangeDoesNotMoveStoppedPlayhead();
     void setRangeInFromCurrentFrame();
     void setRangeOutFromCurrentFrame();
     void normalisesReversedRange();
@@ -69,7 +69,7 @@ void TestTimelineModel::emitsCurrentFrameChangedOnlyOnChange()
     QCOMPARE(spy.count(), 1);
 }
 
-void TestTimelineModel::rangeConfinesPlayhead()
+void TestTimelineModel::reviewRangeDoesNotMoveStoppedPlayhead()
 {
     TimelineModel model;
     model.setFrameCount(100);
@@ -77,11 +77,11 @@ void TestTimelineModel::rangeConfinesPlayhead()
 
     model.setPlaybackRange(PlaybackRange{ 10, 20, true });
 
-    // Setting the range must pull the playhead inside it immediately.
-    QCOMPARE(model.currentFrame(), qint64(20));
+    // View/range edits are UI state and must not seek stopped media.
+    QCOMPARE(model.currentFrame(), qint64(90));
 
     model.setCurrentFrame(0);
-    QCOMPARE(model.currentFrame(), qint64(10));
+    QCOMPARE(model.currentFrame(), qint64(0));
 }
 
 void TestTimelineModel::setRangeInFromCurrentFrame()

@@ -88,7 +88,6 @@ private:
 
     void paintWaveform(QPainter& painter);
     void paintTrack(QPainter& painter);
-    void paintRange(QPainter& painter);
     void paintBookmarks(QPainter& painter);
     void paintPlayhead(QPainter& painter);
     void paintFrameLabels(QPainter& painter);

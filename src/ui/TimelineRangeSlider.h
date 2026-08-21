@@ -24,11 +24,15 @@ public:
     QSize sizeHint() const override { return {800, 24}; }
     QSize minimumSizeHint() const override { return {180, 24}; }
 
+signals:
+    void fitEntireRequested();
+
 protected:
     void paintEvent(QPaintEvent*) override;
     void mousePressEvent(QMouseEvent*) override;
     void mouseMoveEvent(QMouseEvent*) override;
     void mouseReleaseEvent(QMouseEvent*) override;
+    void mouseDoubleClickEvent(QMouseEvent*) override;
 
 private:
     enum class DragMode { None, Left, Body, Right };

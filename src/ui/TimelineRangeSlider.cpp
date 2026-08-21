@@ -19,6 +19,7 @@ TimelineRangeSlider::TimelineRangeSlider(QWidget* parent) : QWidget(parent)
 {
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     setCursor(Qt::SizeHorCursor);
+    setToolTip(tr("Drag handles to resize the review range. Drag centre to pan. Double-click to show the full clip."));
 }
 
 void TimelineRangeSlider::setModel(timeline::TimelineModel* model)
@@ -121,6 +122,17 @@ void TimelineRangeSlider::mouseMoveEvent(QMouseEvent* event)
 void TimelineRangeSlider::mouseReleaseEvent(QMouseEvent* event)
 {
     if (event->button() == Qt::LeftButton) m_dragMode = DragMode::None;
+}
+
+void TimelineRangeSlider::mouseDoubleClickEvent(QMouseEvent* event)
+{
+    if (event->button() == Qt::LeftButton && grooveRect().contains(event->position().toPoint())) {
+        m_dragMode = DragMode::None;
+        emit fitEntireRequested();
+        event->accept();
+        return;
+    }
+    QWidget::mouseDoubleClickEvent(event);
 }
 
 } // namespace atk::ui

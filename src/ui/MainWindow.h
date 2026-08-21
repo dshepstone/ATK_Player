@@ -10,6 +10,7 @@
 #include <memory>
 
 class QDockWidget;
+class QSpinBox;
 
 namespace atk::api { class ApiServer; }
 namespace atk::playback { class CompareSession; }
@@ -86,6 +87,8 @@ private:
     ViewerWidget* m_viewer = nullptr;
     TimelineWidget* m_timelineWidget = nullptr;
     TimelineRangeSlider* m_timelineRangeSlider = nullptr;
+    QSpinBox* m_reviewStartFrame = nullptr;
+    QSpinBox* m_reviewEndFrame = nullptr;
     TransportControls* m_transport = nullptr;
     SourcesPanel* m_sources = nullptr;
     StatusInfoBar* m_statusInfo = nullptr;
