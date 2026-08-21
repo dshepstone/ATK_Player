@@ -61,6 +61,7 @@ public:
     /// Opens a file directly, bypassing the dialog. Used by the command line
     /// and, later, by file associations and the external API.
     void openMediaFile(const QString& filePath);
+    playback::PlaybackController* playbackController() const { return m_playback.get(); }
 
 private:
     void onPlayerStateChanged(playback::PlayerState state);

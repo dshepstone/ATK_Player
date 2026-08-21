@@ -6,6 +6,7 @@
 #include <QComboBox>
 #include <QEvent>
 #include <QFormLayout>
+#include <QGroupBox>
 #include <QLabel>
 #include <QIcon>
 #include <QLineEdit>
@@ -28,10 +29,40 @@ BookmarkPanel::BookmarkPanel(QWidget* parent) : QWidget(parent)
     m_list = new QListWidget(this);
     m_list->setObjectName(QStringLiteral("BookmarkList"));
     layout->addWidget(m_list, 1);
-    m_empty = new QLabel(tr("No bookmarks yet.\nPress B to add a point or Shift+B to save the review range."), this);
+    m_empty = new QLabel(tr("No bookmarks yet.\nPress B to add a point, or create a range below."), this);
     m_empty->setAlignment(Qt::AlignCenter);
     m_empty->setWordWrap(true);
     layout->addWidget(m_empty);
+
+    m_addPoint = new QPushButton(tr("Add Point Bookmark (B)"), this);
+    m_addPoint->setObjectName(QStringLiteral("AddPointBookmark"));
+    layout->addWidget(m_addPoint);
+
+    auto* creationGroup = new QGroupBox(tr("Create Range Bookmark"), this);
+    auto* creationLayout = new QFormLayout(creationGroup);
+    m_createStart = new QSpinBox(creationGroup);
+    m_createStart->setObjectName(QStringLiteral("RangeCreationStart"));
+    m_createStart->setKeyboardTracking(false);
+    m_createEnd = new QSpinBox(creationGroup);
+    m_createEnd->setObjectName(QStringLiteral("RangeCreationEnd"));
+    m_createEnd->setKeyboardTracking(false);
+    creationLayout->addRow(tr("Start"), m_createStart);
+    creationLayout->addRow(tr("End"), m_createEnd);
+    m_useReviewRange = new QPushButton(tr("Use Current Review Range"), creationGroup);
+    m_useReviewRange->setObjectName(QStringLiteral("UseCurrentReviewRange"));
+    creationLayout->addRow(m_useReviewRange);
+    m_addRange = new QPushButton(tr("Add Range Bookmark"), creationGroup);
+    m_addRange->setObjectName(QStringLiteral("AddRangeBookmark"));
+    creationLayout->addRow(m_addRange);
+    m_createError = new QLabel(creationGroup);
+    m_createError->setObjectName(QStringLiteral("RangeCreationError"));
+    m_createError->setWordWrap(true);
+    m_createError->setStyleSheet(QStringLiteral("color: palette(highlight);"));
+    creationLayout->addRow(m_createError);
+    layout->addWidget(creationGroup);
+
+    auto* selectedGroup = new QGroupBox(tr("Selected Bookmark"), this);
+    auto* selectedLayout = new QVBoxLayout(selectedGroup);
 
     auto* form = new QFormLayout;
     m_name = new QLineEdit(this);
@@ -64,14 +95,16 @@ BookmarkPanel::BookmarkPanel(QWidget* parent) : QWidget(parent)
     m_note->setPlaceholderText(tr("Review note"));
     m_note->installEventFilter(this);
     form->addRow(tr("Note"), m_note);
-    layout->addLayout(form);
+    selectedLayout->addLayout(form);
     m_delete = new QPushButton(tr("Delete Bookmark"), this);
     m_delete->setObjectName(QStringLiteral("DeleteSelectedBookmark"));
-    layout->addWidget(m_delete);
+    selectedLayout->addWidget(m_delete);
+    layout->addWidget(selectedGroup);
 
     connect(m_list, &QListWidget::currentItemChanged, this, [this](QListWidgetItem* item) {
         m_selectedId = item ? item->data(Qt::UserRole).toULongLong() : 0;
         loadSelection();
+        if (!m_refreshing) emit bookmarkSelected(m_selectedId);
     });
     connect(m_list, &QListWidget::itemDoubleClicked, this, [this](QListWidgetItem* item) {
         emit bookmarkActivated(item->data(Qt::UserRole).toULongLong());
@@ -81,6 +114,9 @@ BookmarkPanel::BookmarkPanel(QWidget* parent) : QWidget(parent)
     connect(m_start, &QSpinBox::editingFinished, this, &BookmarkPanel::commitFrames);
     connect(m_end, &QSpinBox::editingFinished, this, &BookmarkPanel::commitFrames);
     connect(m_delete, &QPushButton::clicked, this, &BookmarkPanel::deleteSelection);
+    connect(m_addPoint, &QPushButton::clicked, this, &BookmarkPanel::addPointRequested);
+    connect(m_useReviewRange, &QPushButton::clicked, this, &BookmarkPanel::useCurrentReviewRange);
+    connect(m_addRange, &QPushButton::clicked, this, &BookmarkPanel::addDraftRange);
     loadSelection();
 }
 
@@ -96,7 +132,39 @@ void BookmarkPanel::setModel(timeline::TimelineModel* model)
     m_model = model;
     if (m_model) connect(m_model, &timeline::TimelineModel::bookmarksChanged,
                          this, &BookmarkPanel::rebuildList);
+    if (m_model) connect(m_model, &timeline::TimelineModel::frameCountChanged,
+                         this, [this] { updateCreationBounds(); });
+    updateCreationBounds();
+    useCurrentReviewRange();
     rebuildList();
+}
+
+void BookmarkPanel::updateCreationBounds()
+{
+    const int maximum = static_cast<int>(std::max<int64_t>(1, m_model ? m_model->frameCount() : 1));
+    m_createStart->setRange(1, maximum);
+    m_createEnd->setRange(1, maximum);
+}
+
+void BookmarkPanel::useCurrentReviewRange()
+{
+    if (!m_model) return;
+    updateCreationBounds();
+    m_createStart->setValue(static_cast<int>(m_model->viewport().startFrame() + 1));
+    m_createEnd->setValue(static_cast<int>(m_model->viewport().endFrame() + 1));
+    m_createError->clear();
+}
+
+void BookmarkPanel::addDraftRange()
+{
+    const qint64 start = m_createStart->value() - 1;
+    const qint64 end = m_createEnd->value() - 1;
+    if (start >= end) {
+        m_createError->setText(tr("Start must be before End (at least two frames)."));
+        return;
+    }
+    m_createError->clear();
+    emit addRangeRequested(start, end);
 }
 
 void BookmarkPanel::selectBookmark(quint64 id)

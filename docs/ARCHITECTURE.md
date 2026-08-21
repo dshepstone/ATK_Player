@@ -431,28 +431,37 @@ converts it to a point. Point bookmarks remain unique per frame, while range
 bookmarks may overlap or share starts. Ordering is by start frame then stable ID.
 
 `BookmarkPanel` is a dockable view/editor of that model, not duplicate state.
-It lists compact name/range rows and edits name, multiline note, colour and
-point/range bounds. Metadata and bound edits only update bookmark data; they do
+It lists compact name/range rows and clearly separates selected-bookmark editing
+from range creation. B creates one point bookmark. A new range requires an
+explicit panel action: users type one-based Start/End fields directly, or press
+Use Current Review Range to copy the current `TimelineViewport` before optional
+fine tuning. The creation UI rejects equal or reversed endpoints; manipulating
+the slider alone never creates bookmarks, and slider double-click remains Fit
+Entire Clip. The editor changes name, multiline note, colour and point/range
+bounds. Metadata and bound edits only update bookmark data; they do
 not seek, reset audio, change a playback generation, mutate `TimelineViewport`
 or touch `ViewerTransform`. Deletion is by stable ID, so moving a bookmark does
 not invalidate selection. Source replacement clears all bookmarks because M2
 bookmarks remain session-only; M3 `.atkproj` persistence will own saved review
 state.
 
-Range bookmarks save the existing active `TimelineViewport`, rather than
-creating another In/Out authority. Activation restores the inclusive viewport
+Range bookmarks use exact bounds copied or entered from the existing active
+`TimelineViewport`, rather than creating another In/Out authority. Activation restores the inclusive viewport
 and seeks exactly to its start; while playing it uses
 `PlaybackController::activateReviewRange()` to perform one synchronized restart
 and preserve Loop state. Mixed point/range next/previous navigation orders by
 start and wraps. Scrub snapping considers a point frame or the two range
 boundaries only, never every interior frame.
 
-`TimelineWidget` paints ranges as clipped inclusive boundary bands in three
-deterministic compact lanes, so overlaps remain distinguishable without one
-widget per frame. Single-click selects a band/marker; double-click activates it.
+`TimelineWidget` paints ranges in a dedicated compact strip as low-opacity,
+clipped inclusive bands with solid boundary caps and names when width permits.
+Selection strengthens the outline without changing geometry. Three deterministic
+lanes keep overlaps distinguishable without one widget per frame. Single-click selects a band/marker; double-click activates it.
 Tooltips include the name, one-based point/range and non-empty note. Geometry is
 derived from `TimelineViewport`, so zoom and pan cannot drift from bookmark
-frames.
+frames. Bookmark navigation also cancels any superseded pointer-preview overlay;
+the visible playhead then follows `TimelineModel::currentFrameChanged` from the
+controller's authoritative presented frame rather than retaining stale pixels.
 
 The runtime ATK icon is the original 32×32 PNG embedded at
 `:/icons/ATK_Player_Icon.png` and applied to `QApplication` and `MainWindow`.

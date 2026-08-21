@@ -43,7 +43,7 @@ constexpr std::array kCommands{
     CommandDefinition{ CommandId::SetRangeOut,        "playback.setRangeOut",  QT_TRANSLATE_NOOP("Command", "Set Range Out"),        C::Playback, "O",            false },
     CommandDefinition{ CommandId::ClearRange,         "playback.clearRange",   QT_TRANSLATE_NOOP("Command", "Clear Range"),          C::Playback, nullptr,        false },
     CommandDefinition{ CommandId::AddBookmark,        "playback.addBookmark",  QT_TRANSLATE_NOOP("Command", "Add Bookmark"),         C::Playback, "B",            false },
-    CommandDefinition{ CommandId::AddRangeBookmark,   "playback.addRangeBookmark",QT_TRANSLATE_NOOP("Command", "Add Range Bookmark"),C::Playback, "Shift+B",      false },
+    CommandDefinition{ CommandId::AddRangeBookmark,   "playback.addRangeBookmark",QT_TRANSLATE_NOOP("Command", "Add Range Bookmark"),C::Playback, nullptr,        false },
     CommandDefinition{ CommandId::NextBookmark,       "playback.nextBookmark", QT_TRANSLATE_NOOP("Command", "Next Bookmark"),        C::Playback, "Alt+Right",    false },
     CommandDefinition{ CommandId::PreviousBookmark,   "playback.prevBookmark", QT_TRANSLATE_NOOP("Command", "Previous Bookmark"),    C::Playback, "Alt+Left",     false },
     CommandDefinition{ CommandId::DeleteBookmark,     "playback.deleteBookmark",QT_TRANSLATE_NOOP("Command", "Delete Bookmark"),     C::Playback, "Ctrl+Shift+B", false },

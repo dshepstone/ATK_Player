@@ -29,12 +29,15 @@ constexpr int kLabelMargin = 52;
 /// vertically and can be read at a glance.
 constexpr int kWaveformHeight = 46;
 constexpr int kWaveformInsetTop = 6;
-constexpr int kTrackInsetTop = 20 + kWaveformHeight;
+// A compact bookmark strip sits between the waveform and ruler. Three range
+// lanes fit here without painting over waveform peaks.
+constexpr int kTrackInsetTop = 34 + kWaveformHeight;
 constexpr int kTrackInsetBottom = 18;
 constexpr int kPlayheadHandleWidth = 9;
 constexpr int kBookmarkMarkerWidth = 3;
-constexpr int kRangeBandHeight = 4;
+constexpr int kRangeBandHeight = 6;
 constexpr int kRangeLaneCount = 3;
+constexpr int kRangeCapWidth = 3;
 
 /// Minimum gap between preview *decode* requests while dragging.
 ///
@@ -145,12 +148,12 @@ void TimelineWidget::fitEntire()
 
 QSize TimelineWidget::sizeHint() const
 {
-    return { 800, 64 + kWaveformHeight };
+    return { 800, 84 + kWaveformHeight };
 }
 
 QSize TimelineWidget::minimumSizeHint() const
 {
-    return { 240, 64 + kWaveformHeight };
+    return { 240, 84 + kWaveformHeight };
 }
 
 void TimelineWidget::setWaveform(const media::WaveformData* waveform)
@@ -384,8 +387,20 @@ void TimelineWidget::paintBookmarks(QPainter& painter)
             if (!band.isEmpty()) {
                 QColor color = bookmark.hasColor() ? timeline::bookmarkColor(bookmark.colorIndex)
                                                     : theme::accent();
-                color.setAlpha(190);
-                painter.fillRect(band, color);
+                QColor fill = color;
+                fill.setAlpha(bookmark.id == m_selectedBookmarkId ? 150 : 85);
+                painter.fillRect(band, fill);
+                painter.fillRect(rangeBookmarkStartCapRect(bookmark.id), color);
+                painter.fillRect(rangeBookmarkEndCapRect(bookmark.id), color);
+                if (bookmark.id == m_selectedBookmarkId) {
+                    painter.setPen(color.lighter(130));
+                    painter.drawRect(band.adjusted(0, 0, -1, -1));
+                }
+                if (rangeBookmarkShowsLabel(bookmark.id)) {
+                    painter.setPen(palette().text().color());
+                    painter.drawText(band.adjusted(kRangeCapWidth + 3, -5, -kRangeCapWidth - 2, 5),
+                                     Qt::AlignLeft | Qt::AlignVCenter, bookmark.displayLabel());
+                }
             }
             continue;
         }
@@ -474,6 +489,29 @@ QRect TimelineWidget::rangeBookmarkRect(quint64 id) const
                  std::max(1, right - left), kRangeBandHeight);
 }
 
+QRect TimelineWidget::rangeBookmarkStartCapRect(quint64 id) const
+{
+    const QRect band = rangeBookmarkRect(id);
+    return band.isEmpty() ? QRect{} : QRect(band.left(), band.top() - 1, kRangeCapWidth, band.height() + 2);
+}
+
+QRect TimelineWidget::rangeBookmarkEndCapRect(quint64 id) const
+{
+    const QRect band = rangeBookmarkRect(id);
+    return band.isEmpty() ? QRect{} : QRect(band.right() - kRangeCapWidth + 1, band.top() - 1,
+                                            kRangeCapWidth, band.height() + 2);
+}
+
+bool TimelineWidget::rangeBookmarkShowsLabel(quint64 id) const
+{
+    if (!m_model) return false;
+    const timeline::Bookmark* bookmark = m_model->bookmark(id);
+    const QRect band = rangeBookmarkRect(id);
+    if (!bookmark || band.isEmpty()) return false;
+    return band.width() >= fontMetrics().horizontalAdvance(bookmark->displayLabel())
+                          + 2 * kRangeCapWidth + 10;
+}
+
 quint64 TimelineWidget::bookmarkAtPosition(const QPoint& point) const
 {
     if (!m_model) return 0;
@@ -549,6 +587,7 @@ void TimelineWidget::mousePressEvent(QMouseEvent* event)
     if (m_model) {
         const quint64 id = bookmarkAtPosition(event->position().toPoint());
         if (id != 0) {
+            setSelectedBookmark(id);
             emit bookmarkSelected(id);
             return;
         }

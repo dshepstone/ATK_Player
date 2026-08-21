@@ -317,6 +317,22 @@ void MainWindow::connectSignals()
             this, &MainWindow::activateBookmark);
     connect(m_bookmarks, &BookmarkPanel::bookmarkActivated,
             this, &MainWindow::activateBookmark);
+    connect(m_bookmarks, &BookmarkPanel::bookmarkSelected,
+            m_timelineWidget, &TimelineWidget::setSelectedBookmark);
+    connect(m_bookmarks, &BookmarkPanel::addPointRequested, this, [this] {
+        if (QAction* action = m_commands->action(CommandId::AddBookmark)) action->trigger();
+    });
+    connect(m_bookmarks, &BookmarkPanel::addRangeRequested, this,
+            [this](qint64 start, qint64 end) {
+                timeline::Bookmark bookmark;
+                bookmark.type = timeline::BookmarkType::Range;
+                bookmark.frame = start;
+                bookmark.endFrame = end;
+                const quint64 id = m_timeline->addBookmark(bookmark);
+                m_bookmarks->selectBookmark(id);
+                statusBar()->showMessage(tr("Range bookmark added: %1–%2")
+                    .arg(start + 1).arg(end + 1), 2000);
+            });
 
     connect(m_project.get(), &project::Project::modifiedChanged,
             this, [this](bool) { updateWindowTitle(); });
@@ -442,14 +458,9 @@ void MainWindow::onCommand(CommandId id, bool checked)
         return;
     }
     case CommandId::AddRangeBookmark: {
-        timeline::Bookmark bookmark;
-        bookmark.type = timeline::BookmarkType::Range;
-        bookmark.frame = m_timeline->viewport().startFrame();
-        bookmark.endFrame = m_timeline->viewport().endFrame();
-        const quint64 bookmarkId = m_timeline->addBookmark(bookmark);
-        m_bookmarks->selectBookmark(bookmarkId);
-        statusBar()->showMessage(tr("Range bookmark added: %1–%2")
-            .arg(bookmark.frame + 1).arg(bookmark.endFrame + 1), 2000);
+        m_bookmarksDock->show();
+        m_bookmarks->useCurrentReviewRange();
+        statusBar()->showMessage(tr("Enter or confirm range bounds in the Bookmarks panel"), 2000);
         return;
     }
     case CommandId::NextBookmark: {
@@ -585,6 +596,11 @@ void MainWindow::activateBookmark(quint64 id)
     if (!bookmark) return;
     const timeline::Bookmark selected = *bookmark;
     m_bookmarks->selectBookmark(id);
+    // A released timeline scrub can leave a temporary pointer-position overlay
+    // until its exact target is presented. Bookmark navigation supersedes that
+    // request; retaining the overlay would paint an abandoned frame even after
+    // the controller/model/viewer reached the bookmark.
+    m_timelineWidget->followAuthoritativeFrame();
     if (selected.isRange()) {
         m_playback->activateReviewRange(selected.frame, selected.endFrame);
     } else {

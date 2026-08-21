@@ -96,9 +96,12 @@ Delivered so far:
 - **Session bookmarks.** Stable single-frame markers, exact click navigation,
   wrapping next/previous commands, deletion, and default-on pixel-based scrub
   snapping. The dockable editor now manages names, multiline notes, palette
-  colours and exact one-based frame positions. Inclusive range bookmarks save
-  the active review range, render as compact timeline bands, and activate that
-  same `TimelineViewport`; persistence remains M3 work.
+  colours and exact one-based frame positions. Inclusive ranges are created
+  explicitly in the panel by typing Start/End or copying the active review
+  range, then render as labelled, capped bands in a compact timeline strip and
+  activate that same `TimelineViewport`. Slider changes alone never create a
+  bookmark and slider double-click remains Fit Entire Clip. Mixed navigation's
+  playhead follows the authoritative presented frame; persistence remains M3 work.
 - **Viewer zoom and pan.** Viewer Fit, device-pixel 100%, cursor-anchored wheel
   zoom, bounded middle-mouse pan, double-click Fit, and a compact status-bar
   percentage. Navigation persists through playback and frame changes and is
