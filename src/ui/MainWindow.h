@@ -6,6 +6,7 @@
 #include "playback/PlaybackController.h"
 
 #include <QMainWindow>
+#include <QStringList>
 
 #include <memory>
 
@@ -13,6 +14,7 @@ class QDockWidget;
 class QLabel;
 class QSpinBox;
 class QSlider;
+class QCloseEvent;
 
 namespace atk::api { class ApiServer; }
 namespace atk::playback { class CompareSession; }
@@ -67,6 +69,10 @@ public:
     /// and, later, by file associations and the external API.
     void openMediaFile(const QString& filePath);
     playback::PlaybackController* playbackController() const { return m_playback.get(); }
+    project::Project* project() const { return m_project.get(); }
+
+protected:
+    void closeEvent(QCloseEvent* event) override;
 
 private:
     void onPlayerStateChanged(playback::PlayerState state);
@@ -85,6 +91,20 @@ private:
     void applyPreferences(const PreferencesDialog& dialog);
     void restoreApplicationLayout();
     void saveApplicationLayout();
+    void addMediaDialog();
+    void addMediaFiles(const QStringList& paths);
+    void newProject();
+    void openProjectDialog();
+    bool openProjectFile(const QString& path);
+    bool saveProject();
+    bool saveProjectAs();
+    bool saveProjectTo(const QString& path);
+    bool confirmDiscardChanges();
+    void activatePlaylistIndex(int index, bool continuePlayback = false);
+    void saveActiveReviewState();
+    void restoreActiveReviewState();
+    void removePlaylistIndex(int index);
+    void movePlaylistIndex(int from, int to);
 
 
     std::unique_ptr<ApplicationSettings> m_settings;
@@ -113,6 +133,9 @@ private:
     QDockWidget* m_sourcesDock = nullptr;
     QDockWidget* m_bookmarksDock = nullptr;
     bool m_skipLayoutSaveOnce = false;
+    bool m_restoringSourceState = false;
+    bool m_playAfterSourceOpen = false;
+    bool m_playlistPlaybackActive = false;
 
     /// Directory the last Open Media dialog was pointed at.
     QString m_lastMediaDirectory;

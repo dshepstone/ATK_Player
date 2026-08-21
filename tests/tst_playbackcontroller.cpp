@@ -64,7 +64,21 @@ private slots:
     void hasNoMediaInPhaseZero();
     void transportIsInertWithoutAnExtent();
     void frameStepAudioIsOffAndIndependentByDefault();
+    void timestampSkipClampsToReviewRange();
 };
+
+void TestPlaybackController::timestampSkipClampsToReviewRange()
+{
+    Fixture fixture(1000, 24);
+    fixture.timeline.setViewportRange(100, 500);
+    fixture.playback.seekFrame(300);
+    fixture.playback.skipBySeconds(10);
+    QCOMPARE(fixture.playback.navigationFrame(), qint64(500));
+    fixture.playback.skipBySeconds(-10);
+    QCOMPARE(fixture.playback.navigationFrame(), qint64(260));
+    fixture.playback.skipBySeconds(-100);
+    QCOMPARE(fixture.playback.navigationFrame(), qint64(100));
+}
 
 void TestPlaybackController::startsReady()
 {

@@ -4,6 +4,7 @@
 #include "playback/CompareSession.h"
 #include "core/Logging.h"
 #include "core/Version.h"
+#include "media/MediaSource.h"
 #include "project/Project.h"
 #include "project/ProjectSerializer.h"
 #include "timeline/TimelineModel.h"
@@ -32,6 +33,7 @@
 #include <QWidgetAction>
 
 #include <QAction>
+#include <QCloseEvent>
 #include <QApplication>
 #include <QCoreApplication>
 #include <QDockWidget>
@@ -122,6 +124,7 @@ void MainWindow::buildModels()
     m_playback->setAudioScrubEnabled(m_settings->audioScrubEnabled());
     m_playback->setFrameStepAudioEnabled(m_settings->frameStepAudioEnabled());
     m_playback->setVolume(m_settings->volume());
+    m_playback->setMuted(m_settings->muted());
     m_project  = std::make_unique<project::Project>();
     m_compare  = std::make_unique<playback::CompareSession>();
     m_apiServer = std::make_unique<api::ApiServer>(m_playback.get(), m_timeline.get());
@@ -178,6 +181,12 @@ void MainWindow::buildWidgets()
     column->addLayout(reviewRangeRow);
 
     m_transport = new TransportControls(m_commands, central);
+    m_transport->setVolumePercent(qRound(m_playback->volume() * 100));
+    m_transport->setMuted(m_playback->isMuted());
+    connect(m_transport, &TransportControls::volumeChanged, this, [this](int value) {
+        m_playback->setVolume(value / 100.0); m_settings->setVolume(value / 100.0);
+        if (m_volumeSlider && m_volumeSlider->value() != value) m_volumeSlider->setValue(value);
+    });
     column->addWidget(m_transport);
 
     setCentralWidget(central);
@@ -186,7 +195,7 @@ void MainWindow::buildWidgets()
     m_sources = new SourcesPanel(this);
     m_sources->setProject(m_project.get());
 
-    m_sourcesDock = new QDockWidget(tr("Sources"), this);
+    m_sourcesDock = new QDockWidget(tr("Playlist"), this);
     m_sourcesDock->setObjectName(QStringLiteral("SourcesDock"));
     m_sourcesDock->setWidget(m_sources);
     m_sourcesDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetClosable);
@@ -278,6 +287,9 @@ void MainWindow::buildMenus()
     if (QAction* stepAction = m_commands->action(CommandId::ToggleFrameStepAudio)) {
         stepAction->setChecked(m_settings->frameStepAudioEnabled());
     }
+    if (QAction* muteAction = m_commands->action(CommandId::ToggleMute)) {
+        muteAction->setChecked(m_settings->muted());
+    }
 }
 
 void MainWindow::connectSignals()
@@ -294,6 +306,11 @@ void MainWindow::connectSignals()
 
     connect(m_playback.get(), &playback::PlaybackController::stateChanged,
             this, &MainWindow::onPlayerStateChanged);
+    connect(m_sources, &SourcesPanel::addMediaRequested, this, &MainWindow::addMediaDialog);
+    connect(m_sources, &SourcesPanel::removeRequested, this, &MainWindow::removePlaylistIndex);
+    connect(m_sources, &SourcesPanel::moveRequested, this, &MainWindow::movePlaylistIndex);
+    connect(m_sources, &SourcesPanel::sourceActivated, this,
+            [this](int index) { activatePlaylistIndex(index); });
 
     // Decoded frames reach the viewer through the controller, so the viewer
     // never talks to the decoder and never decodes inside a paint event.
@@ -375,6 +392,17 @@ void MainWindow::connectSignals()
 
     connect(m_project.get(), &project::Project::modifiedChanged,
             this, [this](bool) { updateWindowTitle(); });
+    connect(m_timeline.get(), &timeline::TimelineModel::bookmarksChanged, this, [this] {
+        if (m_restoringSourceState || m_project->activeIndex() < 0) return;
+        m_project->mutableEntries()[m_project->activeIndex()].bookmarks = m_timeline->bookmarks();
+        m_project->setModified(true);
+    });
+    connect(m_timeline.get(), &timeline::TimelineModel::viewportChanged, this,
+            [this](qint64 start, qint64 end) {
+                if (m_restoringSourceState || m_project->activeIndex() < 0) return;
+                m_project->mutableEntries()[m_project->activeIndex()].playbackRange = {start, end, true};
+                m_project->setModified(true);
+            });
 
     // The frame count only becomes final once media is open, and the transport
     // depends on whether there is an extent at all.
@@ -473,6 +501,20 @@ void MainWindow::onCommand(CommandId id, bool checked)
     case CommandId::ToggleLoop:
         m_playback->setLoopEnabled(checked);
         return;
+    case CommandId::SkipBack10Seconds:
+        m_playback->skipBySeconds(-10); return;
+    case CommandId::SkipForward10Seconds:
+        m_playback->skipBySeconds(10); return;
+    case CommandId::PreviousPlaylistItem:
+        activatePlaylistIndex(m_project->activeIndex() - 1, m_playback->isPlaying()); return;
+    case CommandId::NextPlaylistItem:
+        activatePlaylistIndex(m_project->activeIndex() + 1, m_playback->isPlaying()); return;
+    case CommandId::RemovePlaylistItem:
+        removePlaylistIndex(m_sources->selectedIndex()); return;
+    case CommandId::MovePlaylistItemUp:
+        movePlaylistIndex(m_sources->selectedIndex(), m_sources->selectedIndex() - 1); return;
+    case CommandId::MovePlaylistItemDown:
+        movePlaylistIndex(m_sources->selectedIndex(), m_sources->selectedIndex() + 1); return;
 
     // --- Range and bookmarks: fully wired ---------------------------------
     case CommandId::SetRangeIn:
@@ -574,6 +616,10 @@ void MainWindow::onCommand(CommandId id, bool checked)
     case CommandId::OpenMedia:
         openMediaDialog();
         return;
+    case CommandId::NewProject:
+        newProject(); return;
+    case CommandId::AddMediaToPlaylist:
+        addMediaDialog(); return;
     case CommandId::CloseSource:
         m_playback->closeMedia();
         return;
@@ -591,12 +637,15 @@ void MainWindow::onCommand(CommandId id, bool checked)
 
     case CommandId::ToggleMute: {
         m_playback->setMuted(checked);
+        m_settings->setMuted(checked);
+        m_transport->setMuted(checked);
         statusBar()->showMessage(checked ? tr("Audio muted") : tr("Audio unmuted"), 1500);
         return;
     }
     case CommandId::VolumeUp:
         m_playback->setVolume(m_playback->volume() + 0.1);
         if (m_volumeSlider) m_volumeSlider->setValue(qRound(m_playback->volume() * 100));
+        m_transport->setVolumePercent(qRound(m_playback->volume() * 100));
         m_settings->setVolume(m_playback->volume());
         statusBar()->showMessage(
             tr("Volume %1%").arg(qRound(m_playback->volume() * 100)), 1500);
@@ -604,6 +653,7 @@ void MainWindow::onCommand(CommandId id, bool checked)
     case CommandId::VolumeDown:
         m_playback->setVolume(m_playback->volume() - 0.1);
         if (m_volumeSlider) m_volumeSlider->setValue(qRound(m_playback->volume() * 100));
+        m_transport->setVolumePercent(qRound(m_playback->volume() * 100));
         m_settings->setVolume(m_playback->volume());
         statusBar()->showMessage(
             tr("Volume %1%").arg(qRound(m_playback->volume() * 100)), 1500);
@@ -618,11 +668,9 @@ void MainWindow::onCommand(CommandId id, bool checked)
         m_timelineWidget->fitEntire();
         return;
 
-    case CommandId::OpenProject:
-    case CommandId::SaveProject:
-    case CommandId::SaveProjectAs:
-        reportNotImplemented(id);
-        return;
+    case CommandId::OpenProject: openProjectDialog(); return;
+    case CommandId::SaveProject: saveProject(); return;
+    case CommandId::SaveProjectAs: saveProjectAs(); return;
     }
 }
 
@@ -670,7 +718,11 @@ void MainWindow::applyPreferences(const PreferencesDialog& dialog)
         m_settings->resetAll();
         m_skipLayoutSaveOnce = true;
         m_playback->setVolume(ApplicationSettings::defaultVolume());
+        m_playback->setMuted(ApplicationSettings::defaultMuted());
+        m_settings->setMuted(ApplicationSettings::defaultMuted());
+        m_transport->setMuted(false);
         if (m_volumeSlider) m_volumeSlider->setValue(100);
+        if (QAction* mute = m_commands->action(CommandId::ToggleMute)) mute->setChecked(false);
     }
     m_settings->setRestoreWindowLayout(dialog.restoreWindowLayout());
     m_settings->setAudioScrubEnabled(dialog.audioScrubEnabled());
@@ -743,13 +795,21 @@ void MainWindow::onPlayerStateChanged(playback::PlayerState state)
 
     switch (state) {
     case PlayerState::Playing:
+        m_playlistPlaybackActive = true;
         statusBar()->showMessage(tr("Playing"), 1500);
         break;
     case PlayerState::Paused:
+        m_playlistPlaybackActive = false;
         statusBar()->showMessage(tr("Paused"), 1500);
         break;
     case PlayerState::Ended:
-        statusBar()->showMessage(tr("End of media"), 2000);
+        if (m_playlistPlaybackActive && !m_playback->isLoopEnabled()
+            && m_project->activeIndex() + 1 < m_project->entries().size()) {
+            activatePlaylistIndex(m_project->activeIndex() + 1, true);
+        } else {
+            m_playlistPlaybackActive = false;
+            statusBar()->showMessage(tr("End of playlist"), 2000);
+        }
         break;
     case PlayerState::Loading:
         m_viewer->setLoading();
@@ -838,6 +898,7 @@ void MainWindow::buildAudioControls()
     connect(m_volumeSlider, &QSlider::valueChanged, this, [this](int value) {
         m_playback->setVolume(value / 100.0);
         m_settings->setVolume(value / 100.0);
+        m_transport->setVolumePercent(value);
     });
 
     auto* action = new QWidgetAction(audioMenu);
@@ -866,7 +927,13 @@ void MainWindow::openMediaDialog()
 
 void MainWindow::openMediaFile(const QString& filePath)
 {
-    m_playback->openMedia(filePath);
+    if (!confirmDiscardChanges()) return;
+    m_restoringSourceState = true;
+    m_project->clear();
+    m_project->setName(QStringLiteral("Untitled"));
+    m_project->setFilePath(QString());
+    m_restoringSourceState = false;
+    addMediaFiles({filePath});
 }
 
 void MainWindow::onMediaOpened(const media::MediaMetadata& metadata)
@@ -883,17 +950,29 @@ void MainWindow::onMediaOpened(const media::MediaMetadata& metadata)
     m_timelineWidget->setWaveform(&m_playback->waveform());
     m_timelineWidget->setMediaDuration(metadata.durationUs);
 
-    m_sources->setCurrentMedia(metadata.fileName, metadata.shortDescription());
+    if (m_project->activeIndex() >= 0) {
+        auto& entry = m_project->mutableEntries()[m_project->activeIndex()];
+        entry.missing = false;
+        entry.source->setMetadata(metadata);
+        restoreActiveReviewState();
+    } else {
+        m_sources->setCurrentMedia(metadata.fileName, metadata.shortDescription());
+    }
     m_statusInfo->setMediaInfo(metadata.fileName, metadata.hasExactFrameCount());
 
     updateTransportEnabled();
     updateWindowTitle();
 
     statusBar()->showMessage(tr("Opened %1").arg(metadata.fileName), 3000);
+    if (m_playAfterSourceOpen) {
+        m_playAfterSourceOpen = false;
+        m_playback->play();
+    }
 }
 
 void MainWindow::onMediaError(const QString& message)
 {
+    m_restoringSourceState = false;
     m_sources->clearCurrentMedia();
     m_statusInfo->clearMediaInfo();
     updateTransportEnabled();
@@ -901,15 +980,167 @@ void MainWindow::onMediaError(const QString& message)
     statusBar()->showMessage(message, 8000);
 }
 
+void MainWindow::addMediaDialog()
+{
+    const QString filter = tr("Video Files (*.mp4 *.mov *.avi *.mkv *.m4v *.webm *.mpg *.mpeg *.wmv *.flv);;All Files (*.*)");
+    const QStringList paths = QFileDialog::getOpenFileNames(
+        this, tr("Add Media to Playlist"), m_lastMediaDirectory, filter);
+    if (!paths.isEmpty()) { m_lastMediaDirectory = QFileInfo(paths.first()).absolutePath(); addMediaFiles(paths); }
+}
+
+void MainWindow::addMediaFiles(const QStringList& paths)
+{
+    const bool wasEmpty = m_project->entries().isEmpty();
+    for (const QString& path : paths) {
+        if (path.isEmpty()) continue;
+        m_project->addSource(std::make_shared<media::MediaSource>(QFileInfo(path).absoluteFilePath()));
+    }
+    if (wasEmpty && !m_project->entries().isEmpty()) {
+        m_project->setActiveIndex(-1);
+        activatePlaylistIndex(0);
+    }
+    updateWindowTitle();
+}
+
+void MainWindow::saveActiveReviewState()
+{
+    if (m_project->activeIndex() < 0 || m_restoringSourceState) return;
+    auto& entry = m_project->mutableEntries()[m_project->activeIndex()];
+    entry.bookmarks = m_timeline->bookmarks();
+    entry.playbackRange = {m_timeline->viewport().startFrame(), m_timeline->viewport().endFrame(), true};
+}
+
+void MainWindow::restoreActiveReviewState()
+{
+    if (m_project->activeIndex() < 0) return;
+    const auto& entry = m_project->entries().at(m_project->activeIndex());
+    m_restoringSourceState = true;
+    m_timeline->clearBookmarks();
+    for (const auto& bookmark : entry.bookmarks) m_timeline->addBookmark(bookmark);
+    if (entry.playbackRange.enabled && entry.playbackRange.isValid())
+        m_playback->activateReviewRange(entry.playbackRange.startFrame, entry.playbackRange.endFrame);
+    else
+        m_timeline->fitViewport();
+    m_viewer->resetNavigationToFit();
+    m_restoringSourceState = false;
+}
+
+void MainWindow::activatePlaylistIndex(int index, bool continuePlayback)
+{
+    if (index < 0 || index >= m_project->entries().size() || index == m_project->activeIndex()) return;
+    saveActiveReviewState();
+    const auto& entry = m_project->entries().at(index);
+    if (!entry.source || entry.missing) {
+        statusBar()->showMessage(tr("Missing media: %1").arg(entry.displayName), 5000);
+        if (continuePlayback && index + 1 < m_project->entries().size()) activatePlaylistIndex(index + 1, true);
+        return;
+    }
+    m_project->setActiveIndex(index);
+    m_playAfterSourceOpen = continuePlayback;
+    m_restoringSourceState = true;
+    m_playback->openMedia(entry.source->filePath());
+}
+
+void MainWindow::removePlaylistIndex(int index)
+{
+    if (index < 0 || index >= m_project->entries().size()) return;
+    const bool current = index == m_project->activeIndex();
+    if (current) saveActiveReviewState();
+    const int next = index + 1 < m_project->entries().size() ? index : index - 1;
+    m_project->removeSourceAt(index);
+    if (current) {
+        if (next >= 0 && next < m_project->entries().size()) activatePlaylistIndex(next);
+        else m_playback->closeMedia();
+    }
+}
+
+void MainWindow::movePlaylistIndex(int from, int to)
+{
+    if (from < 0 || to < 0 || from >= m_project->entries().size() || to >= m_project->entries().size()) return;
+    m_project->moveSource(from, to);
+}
+
+bool MainWindow::confirmDiscardChanges()
+{
+    if (!m_project->isModified()) return true;
+    const auto choice = QMessageBox::warning(this, tr("Unsaved Project"),
+        tr("Save changes to the current project?"),
+        QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel, QMessageBox::Save);
+    if (choice == QMessageBox::Cancel) return false;
+    if (choice == QMessageBox::Save) return saveProject();
+    return true;
+}
+
+void MainWindow::newProject()
+{
+    if (!confirmDiscardChanges()) return;
+    m_playback->closeMedia();
+    m_project->replace(QStringLiteral("Untitled"), QString(), {}, QUuid{});
+}
+
+void MainWindow::openProjectDialog()
+{
+    if (!confirmDiscardChanges()) return;
+    const QString path = QFileDialog::getOpenFileName(this, tr("Open Project"), QString(),
+                                                      project::ProjectSerializer::fileDialogFilter());
+    if (!path.isEmpty()) openProjectFile(path);
+}
+
+bool MainWindow::openProjectFile(const QString& path)
+{
+    project::Project loaded;
+    const auto result = project::ProjectSerializer::load(loaded, path);
+    if (!result.ok) { QMessageBox::critical(this, tr("Open Project"), result.errorMessage); return false; }
+    m_playback->closeMedia();
+    m_project->replace(loaded.name(), loaded.filePath(), loaded.entries(), loaded.currentSourceId());
+    const int current = m_project->activeIndex();
+    if (current >= 0 && !m_project->entries().at(current).missing) {
+        const QString mediaPath = m_project->entries().at(current).source->filePath();
+        m_project->setActiveIndex(-1);
+        const int restoredIndex = m_project->indexForId(loaded.currentSourceId());
+        activatePlaylistIndex(restoredIndex);
+        Q_UNUSED(mediaPath);
+    }
+    updateWindowTitle(); return true;
+}
+
+bool MainWindow::saveProjectTo(const QString& path)
+{
+    saveActiveReviewState();
+    const auto result = project::ProjectSerializer::save(*m_project, path);
+    if (!result.ok) { QMessageBox::critical(this, tr("Save Project"), result.errorMessage); return false; }
+    m_project->setFilePath(QFileInfo(path).absoluteFilePath());
+    m_project->setName(QFileInfo(path).completeBaseName());
+    m_project->setModified(false); updateWindowTitle(); return true;
+}
+
+bool MainWindow::saveProject()
+{
+    return m_project->filePath().isEmpty() ? saveProjectAs() : saveProjectTo(m_project->filePath());
+}
+
+bool MainWindow::saveProjectAs()
+{
+    QString path = QFileDialog::getSaveFileName(this, tr("Save Project As"), m_project->filePath(),
+                                                project::ProjectSerializer::fileDialogFilter());
+    if (path.isEmpty()) return false;
+    if (!path.endsWith(QStringLiteral(".atkproj"), Qt::CaseInsensitive)) path += QStringLiteral(".atkproj");
+    return saveProjectTo(path);
+}
+
+void MainWindow::closeEvent(QCloseEvent* event)
+{
+    if (confirmDiscardChanges()) { saveApplicationLayout(); event->accept(); }
+    else event->ignore();
+}
+
 void MainWindow::updateWindowTitle()
 {
-    QString title = QStringLiteral("%1 — %2")
-                        .arg(QString::fromLatin1(version::kApplicationName),
-                             QString::fromLatin1(version::kString));
-
-    if (m_project && m_project->isModified()) {
-        title.append(QStringLiteral(" *"));
-    }
+    const QString projectName = m_project && !m_project->filePath().isEmpty()
+        ? QFileInfo(m_project->filePath()).fileName() : tr("Untitled");
+    QString title = QStringLiteral("%1%2 — %3")
+        .arg(m_project && m_project->isModified() ? QStringLiteral("*") : QString(),
+             projectName, QString::fromLatin1(version::kApplicationName));
 
     setWindowTitle(title);
 }

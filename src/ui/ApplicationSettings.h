@@ -23,18 +23,21 @@ public:
     static constexpr bool defaultFrameStepAudioEnabled() { return false; }
     static constexpr bool defaultBookmarkSnapEnabled() { return true; }
     static constexpr double defaultVolume() { return 1.0; }
+    static constexpr bool defaultMuted() { return false; }
 
     bool restoreWindowLayout() const;
     bool audioScrubEnabled() const;
     bool frameStepAudioEnabled() const;
     bool bookmarkSnapEnabled() const;
     double volume() const;
+    bool muted() const;
 
     void setRestoreWindowLayout(bool value);
     void setAudioScrubEnabled(bool value);
     void setFrameStepAudioEnabled(bool value);
     void setBookmarkSnapEnabled(bool value);
     void setVolume(double value);
+    void setMuted(bool value);
 
     QByteArray windowGeometry() const;
     QByteArray windowState() const;

@@ -17,6 +17,7 @@ constexpr auto kAudioScrub = "review/audioScrub";
 constexpr auto kFrameStepAudio = "review/frameStepAudio";
 constexpr auto kBookmarkSnap = "review/bookmarkSnap";
 constexpr auto kVolume = "review/volume";
+constexpr auto kMuted = "review/muted";
 constexpr auto kShortcutGroup = "shortcuts";
 }
 
@@ -48,6 +49,7 @@ bool ApplicationSettings::restoreWindowLayout() const { return readBool(kRestore
 bool ApplicationSettings::audioScrubEnabled() const { return readBool(kAudioScrub, defaultAudioScrubEnabled()); }
 bool ApplicationSettings::frameStepAudioEnabled() const { return readBool(kFrameStepAudio, defaultFrameStepAudioEnabled()); }
 bool ApplicationSettings::bookmarkSnapEnabled() const { return readBool(kBookmarkSnap, defaultBookmarkSnapEnabled()); }
+bool ApplicationSettings::muted() const { return readBool(kMuted, defaultMuted()); }
 
 double ApplicationSettings::volume() const
 {
@@ -61,6 +63,7 @@ void ApplicationSettings::setAudioScrubEnabled(bool value) { m_settings->setValu
 void ApplicationSettings::setFrameStepAudioEnabled(bool value) { m_settings->setValue(QString::fromLatin1(kFrameStepAudio), value); }
 void ApplicationSettings::setBookmarkSnapEnabled(bool value) { m_settings->setValue(QString::fromLatin1(kBookmarkSnap), value); }
 void ApplicationSettings::setVolume(double value) { m_settings->setValue(QString::fromLatin1(kVolume), std::clamp(value, 0.0, 1.0)); }
+void ApplicationSettings::setMuted(bool value) { m_settings->setValue(QString::fromLatin1(kMuted), value); }
 
 QByteArray ApplicationSettings::windowGeometry() const { return m_settings->value(QString::fromLatin1(kGeometry)).toByteArray(); }
 QByteArray ApplicationSettings::windowState() const { return m_settings->value(QString::fromLatin1(kWindowState)).toByteArray(); }

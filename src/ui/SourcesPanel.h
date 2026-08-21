@@ -4,12 +4,14 @@
 
 class QListWidget;
 class QLabel;
+class QPushButton;
 
 namespace atk::project { class Project; }
 
 namespace atk::ui {
 
-/// The left-hand SOURCES panel: the list of media loaded into the session.
+/// Compact project playlist panel. Selection and activation are intentionally
+/// separate: a row loads only on double-click/Enter.
 ///
 /// PHASE 0 STATUS: the panel and its empty state are real; the list stays empty
 /// because nothing can be loaded until decoding exists. setProject() is already
@@ -32,10 +34,14 @@ public:
 
     /// Returns to the empty state.
     void clearCurrentMedia();
+    int selectedIndex() const;
 
 signals:
     /// A row was activated (double-click or Enter).
     void sourceActivated(int playlistIndex);
+    void addMediaRequested();
+    void removeRequested(int playlistIndex);
+    void moveRequested(int fromIndex, int toIndex);
 
 private:
     void refresh();
@@ -45,6 +51,7 @@ private:
     bool m_showingSingleSource = false;
     QListWidget* m_list = nullptr;
     QLabel* m_emptyHint = nullptr;
+    bool m_refreshing = false;
 };
 
 } // namespace atk::ui
