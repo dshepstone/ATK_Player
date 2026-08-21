@@ -479,9 +479,30 @@ is what review wants: frame numbers stay contiguous and match the DCC scene.
 offset. Review state belongs to the source it was made against, so switching
 between two takes restores each one's own notes.
 
-`ProjectSerializer` will read and write `.atkproj`, a JSON format sketched out in
-full in the class comment. Media paths will be stored relative to the project
-file when possible, so a review folder can be zipped and sent to someone else.
+Every `SourceEntry` has a UUID independent of its row and path. Reordering,
+renaming and future relinking therefore preserve identity. It owns Point and
+Range Bookmarks (including stable IDs, notes and palette colours) and its active
+inclusive review range. `Project` owns order, current source, file path and dirty
+state; playback position and viewer repaint do not dirty it.
+
+`ProjectSerializer` reads and atomically writes human-readable UTF-8 `.atkproj`
+v1 JSON. It validates the `ATKProject` format marker and version before replacing
+the live model, ignores unknown fields, and rejects malformed required data.
+Media below the project directory is stored relatively and resolved from the
+project location. Missing files remain as marked playlist entries so other clips
+and review metadata survive. Current frame is deliberately not persisted; source
+activation starts from its review-range start. Viewer transforms reset to Fit.
+
+The Playlist panel separates row selection from activation. Only one source owns
+live decoder/audio/waveform workers. Switching uses `PlaybackController::openMedia`,
+whose generation bump and worker reset reject stale frames and audio before the
+new source becomes authoritative. Loop ON stays on the current source; Loop OFF
+advances from one source's inclusive range end to the next and stops on the last.
+
+Quick skip derives a target from media microseconds and the exact rational frame
+rate, clamps it to the active review range, and uses the controller's normal seek
+path whether paused or playing. Volume and mute are global settings applied by
+the controller to normal audio, scrub grains and frame-step grains.
 
 ### `src/playback/` — A/B comparison
 
@@ -578,9 +599,9 @@ restore-layout preference is enabled. Corrupt state falls back to the default
 left Sources/right Bookmarks layout, and off-screen geometry is moved onto the
 primary screen.
 
-Settings are machine-local application preferences only. Bookmarks, saved
-ranges, media sources, current frame, viewer transform and playlists remain M3
-`.atkproj` project state and never enter QSettings.
+Settings are machine-local application preferences only, including volume and
+mute. `.atkproj` owns sources, playlist order, UUIDs, bookmarks and saved review
+ranges. Current frame and viewer transform remain transient in this increment.
 
 The stable key is also the identifier the external API uses, which is why it must
 not change once released.
