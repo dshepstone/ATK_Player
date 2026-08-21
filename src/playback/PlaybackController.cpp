@@ -944,9 +944,18 @@ void PlaybackController::onAudioPrimed(int bufferedMs, qint64 mediaOriginUs,
                                        quint64 requestGeneration)
 {
     if (!m_generations->isCurrentRequest(requestGeneration)
-        || !m_audioActive || m_state != PlayerState::Playing) {
+        || m_state != PlayerState::Playing) {
         return;
     }
+
+    // The worker's preroll epoch is authoritative even on a headless machine
+    // with no output device. Record it before the device guard so sync tests
+    // verify decoded audio timing rather than the availability of QAudioSink.
+    // Only an active device may alter the master playback clock or start audio.
+    if (mediaOriginUs >= 0) {
+        m_lastAudioEpochUs = mediaOriginUs;
+    }
+    if (!m_audioActive) return;
 
     qCInfo(log::playback).noquote()
         << QStringLiteral("Starting audio output with %1 ms primed").arg(bufferedMs);
@@ -965,7 +974,6 @@ void PlaybackController::onAudioPrimed(int bufferedMs, qint64 mediaOriginUs,
 
     if (mediaOriginUs >= 0) {
         m_playbackStartUs = mediaOriginUs;
-        m_lastAudioEpochUs = mediaOriginUs;
     }
     m_playbackEpochDirty = false;
     m_playbackReanchorInProgress = false;
