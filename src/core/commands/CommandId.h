@@ -11,6 +11,8 @@ namespace atk::commands {
 enum class CommandId {
     // File
     OpenMedia,
+    NewProject,
+    AddMediaToPlaylist,
     OpenProject,
     SaveProject,
     SaveProjectAs,
@@ -28,6 +30,13 @@ enum class CommandId {
     FirstFrame,
     LastFrame,
     ToggleLoop,
+    SkipBack10Seconds,
+    SkipForward10Seconds,
+    PreviousPlaylistItem,
+    NextPlaylistItem,
+    RemovePlaylistItem,
+    MovePlaylistItemUp,
+    MovePlaylistItemDown,
 
     // Range and annotation
     SetRangeIn,

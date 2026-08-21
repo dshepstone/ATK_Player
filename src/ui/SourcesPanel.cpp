@@ -5,6 +5,8 @@
 
 #include <QLabel>
 #include <QListWidget>
+#include <QPushButton>
+#include <QHBoxLayout>
 #include <QVBoxLayout>
 
 namespace atk::ui {
@@ -16,17 +18,32 @@ SourcesPanel::SourcesPanel(QWidget* parent)
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
 
-    auto* heading = new QLabel(tr("SOURCES"), this);
+    auto* heading = new QLabel(tr("PLAYLIST"), this);
     heading->setProperty("atkRole", "panelHeading");
     layout->addWidget(heading);
 
     m_list = new QListWidget(this);
     m_list->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_list->setDragDropMode(QAbstractItemView::InternalMove);
+    m_list->setDefaultDropAction(Qt::MoveAction);
     layout->addWidget(m_list, 1);
+
+    auto* controls = new QHBoxLayout;
+    controls->setContentsMargins(4, 4, 4, 4);
+    auto* add = new QPushButton(tr("+"), this); add->setToolTip(tr("Add media to playlist"));
+    auto* remove = new QPushButton(tr("−"), this); remove->setToolTip(tr("Remove selected playlist item"));
+    auto* up = new QPushButton(tr("↑"), this); up->setToolTip(tr("Move selected item up"));
+    auto* down = new QPushButton(tr("↓"), this); down->setToolTip(tr("Move selected item down"));
+    for (QPushButton* button : {add, remove, up, down}) { button->setFixedWidth(30); controls->addWidget(button); }
+    controls->addStretch(1); layout->addLayout(controls);
+    connect(add, &QPushButton::clicked, this, &SourcesPanel::addMediaRequested);
+    connect(remove, &QPushButton::clicked, this, [this] { emit removeRequested(selectedIndex()); });
+    connect(up, &QPushButton::clicked, this, [this] { emit moveRequested(selectedIndex(), selectedIndex() - 1); });
+    connect(down, &QPushButton::clicked, this, [this] { emit moveRequested(selectedIndex(), selectedIndex() + 1); });
 
     // The hint replaces the list rather than sitting beneath it, so the empty
     // state reads as one panel instead of an empty box with a caption below it.
-    m_emptyHint = new QLabel(tr("No sources yet.\nOpening media arrives in milestone M1."), this);
+    m_emptyHint = new QLabel(tr("No clips in playlist.\nAdd media to begin."), this);
     m_emptyHint->setProperty("atkRole", "placeholder");
     m_emptyHint->setWordWrap(true);
     m_emptyHint->setAlignment(Qt::AlignTop | Qt::AlignLeft);
@@ -37,10 +54,18 @@ SourcesPanel::SourcesPanel(QWidget* parent)
             emit sourceActivated(m_list->row(item));
         }
     });
+    connect(m_list->model(), &QAbstractItemModel::rowsMoved, this,
+            [this](const QModelIndex&, int first, int, const QModelIndex&, int destination) {
+                if (m_refreshing) return;
+                const int target = destination > first ? destination - 1 : destination;
+                emit moveRequested(first, target);
+            });
 
     setMinimumWidth(200);
     refresh();
 }
+
+int SourcesPanel::selectedIndex() const { return m_list->currentRow(); }
 
 SourcesPanel::~SourcesPanel() = default;
 
@@ -98,12 +123,18 @@ void SourcesPanel::refresh()
         return;
     }
 
+    m_refreshing = true;
     m_list->clear();
 
     if (m_project != nullptr) {
+        int order = 1;
         for (const project::SourceEntry& entry : m_project->entries()) {
             if (entry.source) {
-                m_list->addItem(entry.source->displayName());
+                const QString name = entry.displayName.isEmpty() ? entry.source->displayName() : entry.displayName;
+                auto* item = new QListWidgetItem(QStringLiteral("%1  %2%3").arg(order++).arg(name,
+                    entry.missing ? tr("  [Missing]") : QString()), m_list);
+                item->setData(Qt::UserRole, entry.id);
+                if (entry.missing) item->setForeground(palette().color(QPalette::Disabled, QPalette::Text));
             }
         }
         m_list->setCurrentRow(m_project->activeIndex());
@@ -112,6 +143,7 @@ void SourcesPanel::refresh()
     const bool empty = m_list->count() == 0;
     m_emptyHint->setVisible(empty);
     m_list->setVisible(!empty);
+    m_refreshing = false;
 }
 
 } // namespace atk::ui

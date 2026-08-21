@@ -50,6 +50,7 @@ int Project::addSource(std::shared_ptr<media::MediaSource> source)
     }
 
     SourceEntry entry;
+    entry.displayName = source->displayName();
     entry.source = std::move(source);
     m_entries.push_back(std::move(entry));
 
@@ -93,9 +94,42 @@ void Project::moveSource(int fromIndex, int toIndex)
     if (!isValidIndex(fromIndex) || !isValidIndex(toIndex) || fromIndex == toIndex) {
         return;
     }
+    const QUuid activeId = currentSourceId();
     m_entries.move(fromIndex, toIndex);
+    m_activeIndex = indexForId(activeId);
     emit entriesChanged();
+    emit activeIndexChanged(m_activeIndex);
     setModified(true);
+}
+
+QUuid Project::currentSourceId() const
+{
+    return isValidIndex(m_activeIndex) ? m_entries.at(m_activeIndex).id : QUuid{};
+}
+
+int Project::indexForId(const QUuid& id) const
+{
+    if (id.isNull()) return -1;
+    for (int i = 0; i < m_entries.size(); ++i)
+        if (m_entries.at(i).id == id) return i;
+    return -1;
+}
+
+void Project::replace(QString name, QString filePath, QVector<SourceEntry> entries,
+                      const QUuid& currentSourceId)
+{
+    m_name = std::move(name);
+    m_filePath = std::move(filePath);
+    m_entries = std::move(entries);
+    m_activeIndex = indexForId(currentSourceId);
+    if (m_activeIndex < 0 && !m_entries.isEmpty()) m_activeIndex = 0;
+    m_compareA = -1;
+    m_compareB = -1;
+    emit nameChanged(m_name);
+    emit entriesChanged();
+    emit activeIndexChanged(m_activeIndex);
+    emit compareAssignmentChanged();
+    setModified(false);
 }
 
 void Project::clear()

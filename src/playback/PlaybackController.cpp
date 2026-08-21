@@ -952,6 +952,18 @@ void PlaybackController::activateReviewRange(int64_t startFrame, int64_t endFram
     else seekFrame(start);
 }
 
+void PlaybackController::skipBySeconds(int seconds)
+{
+    const media::FrameRate rate = effectiveFrameRate();
+    if (!rate.isValid() || m_timeline->frameCount() <= 0) return;
+    const int64_t currentUs = mediaTimeForFrame(m_timeline->currentFrame());
+    const int64_t targetUs = currentUs + static_cast<int64_t>(seconds) * 1'000'000;
+    const long double scaled = static_cast<long double>(targetUs) * rate.numerator
+        / (1'000'000.0L * rate.denominator);
+    const int64_t frame = static_cast<int64_t>(std::llround(scaled));
+    seekFrame(std::clamp(frame, m_timeline->effectiveStartFrame(), m_timeline->effectiveEndFrame()));
+}
+
 void PlaybackController::onAudioPrimed(int bufferedMs, qint64 mediaOriginUs,
                                        quint64 requestGeneration)
 {

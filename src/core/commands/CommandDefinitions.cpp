@@ -25,6 +25,8 @@ using C = CommandCategory;
 constexpr std::array kCommands{
     // File
     CommandDefinition{ CommandId::OpenMedia,          "file.openMedia",        QT_TRANSLATE_NOOP("Command", "Open Media..."),        C::File,     "Ctrl+O",       false },
+    CommandDefinition{ CommandId::NewProject,         "file.newProject",       QT_TRANSLATE_NOOP("Command", "New Project"),          C::File,     "Ctrl+N",       false },
+    CommandDefinition{ CommandId::AddMediaToPlaylist, "file.addMediaPlaylist", QT_TRANSLATE_NOOP("Command", "Add Media to Playlist..."),C::File,   nullptr,        false },
     CommandDefinition{ CommandId::OpenProject,        "file.openProject",      QT_TRANSLATE_NOOP("Command", "Open Project..."),      C::File,     "Ctrl+Shift+O", false },
     CommandDefinition{ CommandId::SaveProject,        "file.saveProject",      QT_TRANSLATE_NOOP("Command", "Save Project"),         C::File,     "Ctrl+S",       false },
     CommandDefinition{ CommandId::SaveProjectAs,      "file.saveProjectAs",    QT_TRANSLATE_NOOP("Command", "Save Project As..."),   C::File,     "Ctrl+Shift+S", false },
@@ -42,6 +44,13 @@ constexpr std::array kCommands{
     CommandDefinition{ CommandId::FirstFrame,         "playback.firstFrame",   QT_TRANSLATE_NOOP("Command", "First Frame"),          C::Playback, "Home",         false },
     CommandDefinition{ CommandId::LastFrame,          "playback.lastFrame",    QT_TRANSLATE_NOOP("Command", "Last Frame"),           C::Playback, "End",          false },
     CommandDefinition{ CommandId::ToggleLoop,         "playback.toggleLoop",   QT_TRANSLATE_NOOP("Command", "Loop"),                 C::Playback, "L",            true  },
+    CommandDefinition{ CommandId::SkipBack10Seconds,  "playback.skipBack10",   QT_TRANSLATE_NOOP("Command", "Skip Back 10 Seconds"), C::Playback, nullptr,        false },
+    CommandDefinition{ CommandId::SkipForward10Seconds,"playback.skipForward10",QT_TRANSLATE_NOOP("Command", "Skip Forward 10 Seconds"),C::Playback,nullptr,        false },
+    CommandDefinition{ CommandId::PreviousPlaylistItem,"playlist.previous",    QT_TRANSLATE_NOOP("Command", "Previous Playlist Item"),C::Playback,nullptr,        false },
+    CommandDefinition{ CommandId::NextPlaylistItem,   "playlist.next",         QT_TRANSLATE_NOOP("Command", "Next Playlist Item"),  C::Playback, nullptr,        false },
+    CommandDefinition{ CommandId::RemovePlaylistItem, "playlist.remove",       QT_TRANSLATE_NOOP("Command", "Remove Playlist Item"),C::Playback, nullptr,        false },
+    CommandDefinition{ CommandId::MovePlaylistItemUp, "playlist.moveUp",       QT_TRANSLATE_NOOP("Command", "Move Playlist Item Up"),C::Playback,nullptr,        false },
+    CommandDefinition{ CommandId::MovePlaylistItemDown,"playlist.moveDown",    QT_TRANSLATE_NOOP("Command", "Move Playlist Item Down"),C::Playback,nullptr,      false },
     CommandDefinition{ CommandId::SetRangeIn,         "playback.setRangeIn",   QT_TRANSLATE_NOOP("Command", "Set Range In"),         C::Playback, "I",            false },
     CommandDefinition{ CommandId::SetRangeOut,        "playback.setRangeOut",  QT_TRANSLATE_NOOP("Command", "Set Range Out"),        C::Playback, "O",            false },
     CommandDefinition{ CommandId::ClearRange,         "playback.clearRange",   QT_TRANSLATE_NOOP("Command", "Clear Range"),          C::Playback, nullptr,        false },

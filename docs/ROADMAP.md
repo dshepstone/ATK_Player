@@ -129,17 +129,19 @@ cache controls.
 
 ---
 
-## M3 — Projects and Playlists
+## M3 — Projects and Playlists 🚧 IN PROGRESS
 
 Make a review session something you can save and hand to someone else.
 
-- Implement `ProjectSerializer` for the `.atkproj` JSON format
-- Playlist: multiple sources, reordering, switching between them
-- Per-source review state persisted — bookmarks, Range Bookmarks, review ranges
-  and frame offsets where required
+- [x] Versioned `.atkproj` v1 JSON with atomic saves and relative media paths
+- [x] Playlist multi-add, remove, drag reorder, Move Up/Down and source switching
+- [x] Per-source Point/Range Bookmarks, metadata and active review ranges
+- [x] Stable source UUIDs and missing-media retention/foundation
+- [x] Loop-aware continuous playlist playback
+- [x] Timestamp-derived ±10-second transport and persistent volume/mute popup
 - Recent projects and reopening the last session
-- Relative media paths so a review folder stays portable between machines
-- Missing-media handling that asks for a new path instead of failing silently
+- Stronger missing-media relink workflow
+- Playlist metadata/probing and interaction refinements
 
 ---
 

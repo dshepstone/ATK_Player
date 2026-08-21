@@ -39,6 +39,7 @@ private slots:
     void transportIconsAndTooltipsReuseActions();
     void requiredM2ShortcutDefaultsRemainSafe();
     void shortcutEditorClearAndResetSelected();
+    void muteAndVolumePopupPersistAndSynchronize();
 };
 
 void TestSettings::defaultsValidationAndPersistence()
@@ -52,11 +53,13 @@ void TestSettings::defaultsValidationAndPersistence()
     QVERIFY(!settings.frameStepAudioEnabled());
     QVERIFY(settings.bookmarkSnapEnabled());
     QCOMPARE(settings.volume(), 1.0);
+    QVERIFY(!settings.muted());
     settings.setAudioScrubEnabled(false);
     settings.setFrameStepAudioEnabled(true);
     settings.setBookmarkSnapEnabled(false);
     settings.setRestoreWindowLayout(false);
     settings.setVolume(0.35);
+    settings.setMuted(true);
     settings.setWindowGeometry(QByteArray("geometry"));
     settings.setWindowState(QByteArray("state"));
     settings.sync();
@@ -67,6 +70,7 @@ void TestSettings::defaultsValidationAndPersistence()
     QVERIFY(reopened.frameStepAudioEnabled());
     QVERIFY(!reopened.bookmarkSnapEnabled());
     QCOMPARE(reopened.volume(), 0.35);
+    QVERIFY(reopened.muted());
     QCOMPARE(reopened.windowGeometry(), QByteArray("geometry"));
     QCOMPARE(reopened.windowState(), QByteArray("state"));
 
@@ -82,6 +86,24 @@ void TestSettings::defaultsValidationAndPersistence()
     QVERIFY(invalid.audioScrubEnabled());
     QVERIFY(!invalid.frameStepAudioEnabled());
     QVERIFY(invalid.bookmarkSnapEnabled());
+}
+
+void TestSettings::muteAndVolumePopupPersistAndSynchronize()
+{
+    QTemporaryDir directory;
+    const QString file = directory.filePath(QStringLiteral("settings.ini"));
+    ApplicationSettings settings(file); settings.setVolume(0.5); settings.setMuted(true); settings.sync();
+    atk::ui::MainWindow window(file);
+    QCOMPARE(window.playbackController()->volume(), qreal(0.5));
+    QVERIFY(window.playbackController()->isMuted());
+    auto* mute = window.findChild<QAction*>(QStringLiteral("audio.toggleMute"));
+    auto* volume = window.findChild<QToolButton*>(QStringLiteral("TransportVolumeButton"));
+    QVERIFY(mute && mute->isChecked());
+    QVERIFY(volume && volume->menu());
+    mute->trigger();
+    QVERIFY(!window.playbackController()->isMuted());
+    ApplicationSettings reopened(file);
+    QVERIFY(!reopened.muted());
 }
 
 void TestSettings::shortcutOverridesDistinguishClearAndDefault()
@@ -236,6 +258,10 @@ void TestSettings::requiredM2ShortcutDefaultsRemainSafe()
     QCOMPARE(shortcut(CommandId::ZoomFit), QKeySequence(QStringLiteral("Ctrl+0")));
     QCOMPARE(shortcut(CommandId::ZoomActualSize), QKeySequence(QStringLiteral("Ctrl+1")));
     QVERIFY(shortcut(CommandId::AddRangeBookmark).isEmpty());
+    QVERIFY(shortcut(CommandId::SkipBack10Seconds).isEmpty());
+    QVERIFY(shortcut(CommandId::SkipForward10Seconds).isEmpty());
+    QVERIFY(shortcut(CommandId::PreviousPlaylistItem).isEmpty());
+    QVERIFY(shortcut(CommandId::NextPlaylistItem).isEmpty());
 }
 
 void TestSettings::shortcutEditorClearAndResetSelected()

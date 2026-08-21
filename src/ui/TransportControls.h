@@ -7,6 +7,8 @@
 #include <QWidget>
 
 class QToolButton;
+class QSlider;
+class QLabel;
 
 namespace atk::ui {
 
@@ -28,6 +30,11 @@ public:
 
     /// Updates the play/pause button to match the transport.
     void setPlaying(bool playing);
+    void setVolumePercent(int percent);
+    void setMuted(bool muted);
+
+signals:
+    void volumeChanged(int percent);
 
 private:
     QToolButton* makeCommandButton(commands::CommandId id,
@@ -36,6 +43,9 @@ private:
 
     CommandRegistry* m_registry = nullptr;
     QToolButton* m_playPauseButton = nullptr;
+    QToolButton* m_volumeButton = nullptr;
+    QSlider* m_volumeSlider = nullptr;
+    QLabel* m_volumeLabel = nullptr;
     QIcon m_playIcon;
     QIcon m_pauseIcon;
 };

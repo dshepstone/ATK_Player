@@ -133,6 +133,8 @@ public:
     /// Applies the single active review range and lands exactly on its start.
     /// If already playing, continues through the synchronized restart path.
     void activateReviewRange(int64_t startFrame, int64_t endFrame);
+    /// Timestamp-derived navigation clamped to the active review range.
+    void skipBySeconds(int seconds);
 
     // --- Audio ------------------------------------------------------------
     void setMuted(bool muted);

@@ -6,6 +6,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QUuid>
 #include <QVector>
 
 #include <memory>
@@ -16,7 +17,11 @@ namespace atk::project {
 /// they were made against, not to the application, so switching between two
 /// sources in a playlist restores each one's own notes.
 struct SourceEntry {
+    QUuid id = QUuid::createUuid();
     std::shared_ptr<media::MediaSource> source;
+    QString displayName;
+    QString storedPath;
+    bool missing = false;
     timeline::PlaybackRange playbackRange;
     QVector<timeline::Bookmark> bookmarks;
     /// Frames added to the master frame number for this source. Used by A/B
@@ -56,6 +61,7 @@ public:
 
     // --- Sources / playlist ----------------------------------------------
     const QVector<SourceEntry>& entries() const { return m_entries; }
+    QVector<SourceEntry>& mutableEntries() { return m_entries; }
     /// Appends a source and returns its playlist index.
     int addSource(std::shared_ptr<media::MediaSource> source);
     void removeSourceAt(int index);
@@ -64,7 +70,11 @@ public:
 
     /// Index of the entry currently loaded in the main viewer, or -1.
     int activeIndex() const { return m_activeIndex; }
+    QUuid currentSourceId() const;
+    int indexForId(const QUuid& id) const;
     void setActiveIndex(int index);
+    void replace(QString name, QString filePath, QVector<SourceEntry> entries,
+                 const QUuid& currentSourceId);
 
     // --- A/B comparison ---------------------------------------------------
     /// Playlist index bound to viewer A / B, or -1 when unassigned.
