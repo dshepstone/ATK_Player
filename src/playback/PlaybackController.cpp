@@ -846,16 +846,7 @@ void PlaybackController::finishPlayback()
     m_decodedFrames = 0;
     m_perfWindowStartNs = monotonicNowNs();
     m_cache.resetCounters();
-        const int64_t start = m_timeline->effectiveStartFrame();
-        if (inPlaceholderMode()) {
-            haltPlaybackMachinery();
-            m_timeline->setCurrentFrame(start);
-            m_navigationFrame = start;
-            setState(PlayerState::Paused);
-            play();
-        } else {
-            seekFrame(start);
-        }
+        restartPlaybackAtFrame(m_timeline->effectiveStartFrame());
         return;
     }
 
@@ -873,6 +864,35 @@ void PlaybackController::finishPlayback()
         }
     }
     setState(PlayerState::Ended);
+}
+
+void PlaybackController::restartPlaybackAtFrame(int64_t frame)
+{
+    const int64_t target = std::clamp(frame, m_timeline->effectiveStartFrame(),
+                                     m_timeline->effectiveEndFrame());
+    qCInfo(log::playback) << "Preparing synchronized playback restart"
+                          << "logical" << m_timeline->currentFrame()
+                          << "range" << m_timeline->effectiveStartFrame()
+                          << m_timeline->effectiveEndFrame()
+                          << "target" << target
+                          << "generation" << m_generations->currentRequest();
+
+    haltPlaybackMachinery();
+    m_queue.clear();
+    m_navigationFrame = target;
+
+    if (inPlaceholderMode()) {
+        m_timeline->setCurrentFrame(target);
+        setState(PlayerState::Paused);
+        play();
+        return;
+    }
+
+    // keepPlaying=true deliberately bypasses the idle cache shortcut. The
+    // worker returns the authoritative decoded PTS, then onWorkerFrameReady()
+    // presents it and calls play(), which derives both video and audio from
+    // that exact epoch.
+    seekAndShow(target, true);
 }
 
 void PlaybackController::onReviewRangeChanged()
@@ -921,6 +941,7 @@ void PlaybackController::onAudioPrimed(int bufferedMs, qint64 mediaOriginUs,
 
     if (mediaOriginUs >= 0) {
         m_playbackStartUs = mediaOriginUs;
+        m_lastAudioEpochUs = mediaOriginUs;
     }
     qCDebug(log::playback) << "Playback epoch media us" << m_playbackStartUs;
     m_audioOutput->start(m_playbackStartUs);
@@ -1198,17 +1219,15 @@ void PlaybackController::play()
     const int64_t rangeStart = m_timeline->effectiveStartFrame();
     const int64_t rangeEnd = m_timeline->effectiveEndFrame();
 
-    if (from < rangeStart || from > rangeEnd) {
-        from = rangeStart;
-        m_timeline->setCurrentFrame(from);
-    }
-
-    // Playing from the very end restarts rather than playing nothing.
-    if ((m_state == PlayerState::Ended || from >= effectiveLastFrame())
-        && effectiveLastFrame() > 0) {
-        from = m_timeline->effectiveStartFrame();
-        m_timeline->setCurrentFrame(from);
-        m_cache.clear();
+    // An implicit jump must converge through the same exact decoded-frame
+    // state as manual seek-then-Play. Merely changing the logical model frame
+    // here left m_currentFrame and the audio preroll at the old epoch.
+    const bool requiresRangeStart = from < rangeStart || from > rangeEnd
+        || (from == rangeEnd && rangeEnd > rangeStart)
+        || (m_state == PlayerState::Ended && rangeEnd > rangeStart);
+    if (requiresRangeStart) {
+        restartPlaybackAtFrame(rangeStart);
+        return;
     }
 
     const media::FrameRate rate = effectiveFrameRate();
@@ -1220,6 +1239,7 @@ void PlaybackController::play()
     m_navigationFrame = from;
     m_monotonicStartNs = monotonicNowNs();
     m_decoderAtEnd = false;
+    m_lastAudioEpochUs = -1;
 
     if (!inPlaceholderMode()) {
         // Sized from the frame rate and the decoded frame size, so 4K does not

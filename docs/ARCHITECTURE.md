@@ -367,6 +367,14 @@ anywhere in the slider groove calls the same Fit Entire Clip operation without
 moving the playhead. Future project persistence may serialize this range; M2
 does not.
 
+A committed handle or numeric-field resize while stopped seeks to
+`start + floor((end - start) / 2)`, the lower midpoint for an even inclusive
+span. Body panning and Fit intentionally preserve the playhead. If Play later
+finds that playhead outside the range (or on its end), it first completes an
+asynchronous exact seek to the selected start. Only the returned frame PTS may
+establish the new video/audio playback epoch; the audio sink starts after that
+seek and preroll, using the same path as manual seek-then-Play.
+
 At review zoom levels the ruler is frame-first: at 18 pixels per frame it labels
 every integer frame, at 6 pixels per frame it retains every tick with sparser
 labels, and below that it chooses nice major/minor frame intervals. PTS remains

@@ -23,6 +23,7 @@ private slots:
     void rationalRatesKeepIntegerFrameDisplay();
     void numericFieldsTrackEveryReviewRangeInput();
     void sliderDoubleClickFitsWithoutMovingPlayhead();
+    void stoppedHandleResizeCentresButBodyPanDoesNot();
 };
 
 void TestTimelineWidgets::sliderTracksModelBothWays()
@@ -198,6 +199,59 @@ void TestTimelineWidgets::sliderDoubleClickFitsWithoutMovingPlayhead()
     QTest::mouseDClick(start, Qt::LeftButton, {}, start->rect().center());
     QCOMPARE(model->viewport().startFrame(), qint64(20));
     QCOMPARE(model->viewport().endFrame(), qint64(40));
+}
+
+void TestTimelineWidgets::stoppedHandleResizeCentresButBodyPanDoesNot()
+{
+    atk::ui::MainWindow window;
+    auto* slider = window.findChild<TimelineRangeSlider*>(QStringLiteral("TimelineReviewRangeSlider"));
+    auto* startField = window.findChild<QSpinBox*>(QStringLiteral("ReviewRangeStartFrame"));
+    auto* endField = window.findChild<QSpinBox*>(QStringLiteral("ReviewRangeEndFrame"));
+    QVERIFY(slider && startField && endField);
+    slider->resize(1000, 24);
+    TimelineModel* model = slider->model();
+    model->setFrameCount(400);
+
+    model->setViewportRange(100, 148);
+    model->setCurrentFrame(300);
+    QPoint left(slider->selectionRect().left(), slider->selectionRect().center().y());
+    const QPoint newLeft(slider->positionForSourceFrame(138), left.y());
+    QTest::mousePress(slider, Qt::LeftButton, {}, left);
+    QTest::mouseMove(slider, newLeft);
+    QTest::mouseRelease(slider, Qt::LeftButton, {}, newLeft);
+    QCOMPARE(model->viewport().startFrame(), qint64(138));
+    QCOMPARE(model->viewport().endFrame(), qint64(148));
+    QCOMPARE(model->currentFrame(), qint64(143));
+
+    model->setViewportRange(138, 200);
+    model->setCurrentFrame(300);
+    QPoint right(slider->selectionRect().right(), slider->selectionRect().center().y());
+    const QPoint newRight(slider->positionForSourceFrame(148), right.y());
+    QTest::mousePress(slider, Qt::LeftButton, {}, right);
+    QTest::mouseMove(slider, newRight);
+    QTest::mouseRelease(slider, Qt::LeftButton, {}, newRight);
+    QCOMPARE(model->viewport().startFrame(), qint64(138));
+    QCOMPARE(model->viewport().endFrame(), qint64(148));
+    QCOMPARE(model->currentFrame(), qint64(143));
+    QCOMPARE(slider->positionForSourceFrame(model->currentFrame()),
+             slider->selectionRect().center().x());
+
+    startField->setValue(100);
+    endField->setValue(120);
+    QCOMPARE(model->currentFrame(), qint64(109)); // visible frame 110
+
+    model->setViewportRange(99, 119);
+    model->setCurrentFrame(109);
+    const qint64 oldFrame = model->currentFrame();
+    const QPoint body = slider->selectionRect().center();
+    const int delta = slider->positionForSourceFrame(300)
+                    - slider->positionForSourceFrame(99);
+    QTest::mousePress(slider, Qt::LeftButton, {}, body);
+    QTest::mouseMove(slider, body + QPoint(delta, 0));
+    QTest::mouseRelease(slider, Qt::LeftButton, {}, body + QPoint(delta, 0));
+    QCOMPARE(model->viewport().startFrame(), qint64(300));
+    QCOMPARE(model->viewport().endFrame(), qint64(320));
+    QCOMPARE(model->currentFrame(), oldFrame);
 }
 
 QTEST_MAIN(TestTimelineWidgets)

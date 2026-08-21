@@ -121,7 +121,12 @@ void TimelineRangeSlider::mouseMoveEvent(QMouseEvent* event)
 
 void TimelineRangeSlider::mouseReleaseEvent(QMouseEvent* event)
 {
-    if (event->button() == Qt::LeftButton) m_dragMode = DragMode::None;
+    if (event->button() != Qt::LeftButton) return;
+    const bool resized = m_model
+        && (m_dragMode == DragMode::Left || m_dragMode == DragMode::Right)
+        && m_model->viewport().visibleFrameCount() != m_pressEnd - m_pressStart + 1;
+    m_dragMode = DragMode::None;
+    if (resized) emit rangeResizeCommitted();
 }
 
 void TimelineRangeSlider::mouseDoubleClickEvent(QMouseEvent* event)

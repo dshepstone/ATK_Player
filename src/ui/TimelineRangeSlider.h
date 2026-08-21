@@ -26,6 +26,9 @@ public:
 
 signals:
     void fitEntireRequested();
+    /// Emitted once when a handle drag commits a changed range span. Body
+    /// panning deliberately does not emit this signal.
+    void rangeResizeCommitted();
 
 protected:
     void paintEvent(QPaintEvent*) override;

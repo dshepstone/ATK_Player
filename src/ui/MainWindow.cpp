@@ -320,14 +320,31 @@ void MainWindow::connectSignals()
     };
     connect(m_timeline.get(), &timeline::TimelineModel::viewportChanged,
             this, refreshReviewFields);
-    connect(m_reviewStartFrame, &QSpinBox::valueChanged, this, [this](int) {
+    const auto centreStoppedReviewFrame = [this] {
+        if (m_playback->isPlaying() || m_timeline->frameCount() <= 0) return;
+        const qint64 start = m_timeline->viewport().startFrame();
+        const qint64 end = m_timeline->viewport().endFrame();
+        // Lower midpoint for even inclusive spans; e.g. 138..149 -> 143.
+        m_playback->seekFrame(start + (end - start) / 2);
+    };
+    connect(m_reviewStartFrame, &QSpinBox::valueChanged, this,
+            [this, centreStoppedReviewFrame](int) {
+        const qint64 oldSpan = m_timeline->viewport().visibleFrameCount();
         m_timeline->setViewportRange(m_reviewStartFrame->value() - 1,
                                      m_timeline->viewport().endFrame());
+        if (m_timeline->viewport().visibleFrameCount() != oldSpan)
+            centreStoppedReviewFrame();
     });
-    connect(m_reviewEndFrame, &QSpinBox::valueChanged, this, [this](int) {
+    connect(m_reviewEndFrame, &QSpinBox::valueChanged, this,
+            [this, centreStoppedReviewFrame](int) {
+        const qint64 oldSpan = m_timeline->viewport().visibleFrameCount();
         m_timeline->setViewportRange(m_timeline->viewport().startFrame(),
                                      m_reviewEndFrame->value() - 1);
+        if (m_timeline->viewport().visibleFrameCount() != oldSpan)
+            centreStoppedReviewFrame();
     });
+    connect(m_timelineRangeSlider, &TimelineRangeSlider::rangeResizeCommitted,
+            this, centreStoppedReviewFrame);
     connect(m_timelineRangeSlider, &TimelineRangeSlider::fitEntireRequested,
             m_timelineWidget, &TimelineWidget::fitEntire);
     refreshReviewFields(m_timeline->viewport().startFrame(), m_timeline->viewport().endFrame());

@@ -144,6 +144,9 @@ public:
     bool isPlaying() const { return m_state == PlayerState::Playing; }
     int64_t currentFrame() const;
     int64_t navigationFrame() const { return m_navigationFrame; }
+    /// Diagnostics used by synchronization regression tests.
+    int64_t playbackOriginUs() const { return m_playbackStartUs; }
+    int64_t lastAudioEpochUs() const { return m_lastAudioEpochUs; }
 
     /// The most recently displayed frame. Invalid before the first decode.
     const media::VideoFrame& currentVideoFrame() const { return m_currentFrame; }
@@ -240,6 +243,9 @@ private:
     /// loops back if looping is on, otherwise settles on the final frame.
     void finishPlayback();
     void onReviewRangeChanged();
+    /// Establishes an exact decoded frame and matching audio epoch before
+    /// resuming. Used by implicit range-start playback and loop wraps.
+    void restartPlaybackAtFrame(int64_t frame);
 
     /// Emits the periodic performance summary, at most once a second.
     void reportPerformance(bool force);
@@ -318,6 +324,7 @@ private:
     // --- Clock ------------------------------------------------------------
     /// Media position the current playback run started from, in microseconds.
     int64_t m_playbackStartUs = 0;
+    int64_t m_lastAudioEpochUs = -1;
     /// Monotonic reference captured when playback started, in nanoseconds.
     int64_t m_monotonicStartNs = 0;
 

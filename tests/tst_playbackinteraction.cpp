@@ -35,6 +35,12 @@ QString manualMediaDirectory()
     return qEnvironmentVariable("ATK_MANUAL_MEDIA_DIR");
 }
 
+QString rangeStartFixture()
+{
+    const QString overridePath = qEnvironmentVariable("ATK_RANGE_TEST_MEDIA");
+    return overridePath.isEmpty() ? syncFixture() : overridePath;
+}
+
 double percentile(QVector<double> values, double fraction)
 {
     if (values.isEmpty()) {
@@ -76,6 +82,8 @@ private slots:
     void explicitSeekResetsLogicalTarget();
     void realTimePlaybackCrossesLoopBoundary();
     void frameStepAudioUsesExactTargetAndDirection();
+    void automaticRangeStartMatchesManualSeekEpoch();
+    void shortRangeLoopsKeepSynchronizedEpoch();
 };
 
 void TestPlaybackInteraction::frameStepAudioUsesExactTargetAndDirection()
@@ -112,6 +120,74 @@ void TestPlaybackInteraction::frameStepAudioUsesExactTargetAndDirection()
 
     fixture.playback.play(); // must invalidate and flush pending review PCM
     QCOMPARE(fixture.playback.state(), PlayerState::Playing);
+    fixture.playback.pause();
+}
+
+void TestPlaybackInteraction::automaticRangeStartMatchesManualSeekEpoch()
+{
+    Fixture fixture;
+    QVERIFY(fixture.open(rangeStartFixture()));
+    QTRY_COMPARE_WITH_TIMEOUT(fixture.playback.currentVideoFrame().frameIndex, qint64(0), 5000);
+    fixture.timeline.setViewportRange(20, 30);
+
+    fixture.playback.seekFrame(20);
+    QTRY_COMPARE_WITH_TIMEOUT(fixture.playback.currentVideoFrame().frameIndex, qint64(20), 5000);
+    fixture.playback.play();
+    QTRY_VERIFY_WITH_TIMEOUT(fixture.playback.lastAudioEpochUs() >= 0, 5000);
+    const qint64 manualVideoOrigin = fixture.playback.playbackOriginUs();
+    const qint64 manualAudioEpoch = fixture.playback.lastAudioEpochUs();
+    fixture.playback.pause();
+
+    fixture.timeline.fitViewport();
+    fixture.playback.seekFrame(80);
+    QTRY_COMPARE_WITH_TIMEOUT(fixture.playback.currentVideoFrame().frameIndex, qint64(80), 5000);
+    fixture.timeline.setViewportRange(20, 30); // body-pan equivalent: no seek
+    QSignalSpy presented(&fixture.playback, &PlaybackController::frameChanged);
+    fixture.playback.play();
+    QTRY_COMPARE_WITH_TIMEOUT(fixture.playback.currentVideoFrame().frameIndex, qint64(20), 5000);
+    QTRY_VERIFY_WITH_TIMEOUT(fixture.playback.lastAudioEpochUs() >= 0, 5000);
+    QCOMPARE(fixture.playback.playbackOriginUs(), manualVideoOrigin);
+    QCOMPARE(fixture.playback.lastAudioEpochUs(), manualAudioEpoch);
+    QVERIFY(!presented.isEmpty());
+    QCOMPARE(qvariant_cast<atk::media::VideoFrame>(presented.first().at(0)).frameIndex,
+             qint64(20));
+
+    const qint64 frameDurationUs = atk::media::ffmpeg::frameIndexToMicroseconds(
+        1, AVRational{fixture.playback.metadata().frameRate.numerator,
+                      fixture.playback.metadata().frameRate.denominator});
+    QVERIFY(qAbs(fixture.playback.playbackOriginUs()
+                 - fixture.playback.lastAudioEpochUs()) < frameDurationUs);
+    fixture.playback.pause();
+}
+
+void TestPlaybackInteraction::shortRangeLoopsKeepSynchronizedEpoch()
+{
+    Fixture fixture;
+    QVERIFY(fixture.open());
+    QTRY_COMPARE_WITH_TIMEOUT(fixture.playback.currentVideoFrame().frameIndex, qint64(0), 5000);
+    fixture.timeline.setViewportRange(20, 30);
+    fixture.playback.seekFrame(20);
+    QTRY_COMPARE_WITH_TIMEOUT(fixture.playback.currentVideoFrame().frameIndex, qint64(20), 5000);
+    fixture.playback.setLoopEnabled(true);
+
+    int wraps = 0;
+    qint64 previous = -1;
+    connect(&fixture.playback, &PlaybackController::frameChanged,
+            &fixture.playback, [&](const atk::media::VideoFrame& frame) {
+        QVERIFY(frame.frameIndex >= 20 && frame.frameIndex <= 30);
+        if (previous >= 0 && frame.frameIndex < previous) ++wraps;
+        previous = frame.frameIndex;
+    });
+    fixture.playback.play();
+    QTRY_VERIFY_WITH_TIMEOUT(wraps >= 5, 6000);
+    QTRY_VERIFY_WITH_TIMEOUT(fixture.playback.lastAudioEpochUs() >= 0, 5000);
+    const qint64 expectedEpoch = atk::media::ffmpeg::frameIndexToMicroseconds(
+        20, AVRational{fixture.playback.metadata().frameRate.numerator,
+                       fixture.playback.metadata().frameRate.denominator});
+    const qint64 frameDurationUs = atk::media::ffmpeg::frameIndexToMicroseconds(
+        1, AVRational{fixture.playback.metadata().frameRate.numerator,
+                      fixture.playback.metadata().frameRate.denominator});
+    QVERIFY(qAbs(fixture.playback.lastAudioEpochUs() - expectedEpoch) < frameDurationUs);
     fixture.playback.pause();
 }
 
