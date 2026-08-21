@@ -123,6 +123,92 @@ Everything left of the queued signal runs on the decode thread. Everything right
 of it runs on the GUI thread. Nothing crosses in the other direction except
 requests.
 
+### Audio review: scrubbing and the waveform (M2)
+
+Two features share one idea -- that audio is addressable by media time -- and
+each gets its own thread and its own FFmpeg contexts.
+
+```
+                         media file
+                     (opened three times)
+                             |
+        +--------------------+--------------------+
+        |                    |                    |
+   decode thread      waveform thread      scrub audio thread
+   MediaDecoder       AudioSourceReader    AudioSourceReader
+   video + audio      audio only           audio only
+        |                    |                    |
+   PlaybackQueue        WaveformData         grain cache
+   FrameCache           (peak pyramid)            |
+        |                    |               ScrubAudioEngine
+   ViewerWidget        TimelineWidget         (own QAudioSink)
+```
+
+**Why three file handles rather than one decoder.** M1 ended by making the video
+decoder *keep* its position, so a nearby scrub target decodes forward instead of
+re-seeking -- that locality is what makes slow scrubbing usable. Pulling audio
+grains through the same decoder would re-seek it on every mouse move and undo
+exactly that. Waveform analysis is worse still: it is a linear scan of the whole
+file, and running it on the playback decoder would drag the playhead's decoder
+from one end of the media to the other while the user is reviewing a shot.
+FFmpeg is happy to have a file open several times, and the paths then cannot
+interfere.
+
+**One media-time origin.** `PlaybackController::mediaTimeForFrame()` converts a
+frame index to media time through the real rational frame rate, and both the
+video preview and the scrub grain derive their position from it. Deriving audio
+position from a nominal fps while video used the exact rate would put sound a
+frame or two off picture on 23.976 material -- which for lip-sync review is the
+whole thing being wrong.
+
+**Grains, not playback.** Each scrub position produces roughly 80 ms of PCM: long
+enough to carry a syllable (below about 40 ms speech stops being identifiable
+and every grain is a click), short enough to track the pointer. A 3 ms fade at
+each end removes the click that cutting PCM at an arbitrary sample would
+otherwise produce, without blunting the consonant attack a lip-sync review
+listens for. The scrub `QAudioSink` is started once and left running; restarting
+it per grain would add device latency to every mouse move.
+
+**Grains are centred on the pointer**, not started there. When the cursor sits on
+a frame, what a reviewer expects to hear is the sound *at* that frame; a
+start-aligned grain makes every position sound half a grain late, which for
+lip-sync work is simply the wrong answer. The audible middle therefore lines up
+with the picture, within the 20 ms alignment grid.
+
+**Backward drags play the grain reversed.** Only the sample frames are reversed --
+never the bytes within a sample, which would be noise, and never the channel
+order, which would swap left and right. Reversal happens at submit time rather
+than in the worker, so the grain cache stays direction-neutral and the same
+decoded PCM serves a drag either way. That matters because review scrubbing
+changes direction constantly.
+
+Scrub audio is never a clock. The pointer is authoritative, and the playback
+audio path is left completely untouched so scrub PCM cannot leak into it.
+
+**Latest position wins.** Requests carry an increasing sequence number; the
+worker drops anything older than the newest before decoding and again before
+emitting, and the controller refuses a grain older than one already played. A
+fast drag therefore does not build a backlog trailing the cursor.
+
+**Waveform peaks are a pyramid.** `WaveformData` stores min/max buckets at 10 ms
+and halves them repeatedly. min/max rather than RMS because a transient -- an
+impact, a plosive -- is exactly what an animator lines action up against, and
+averaging removes it. The pyramid exists because the timeline draws about one
+bucket per pixel: reading the finest level for a long file would mean iterating
+thousands of buckets per column on every repaint, including every playhead move
+during playback. It is also the groundwork for timeline zoom, which becomes a
+choice of level rather than a new data structure.
+
+**Peaks are normalised for display** by the file's own loudest excursion. Most
+dialogue is mastered well below full scale, and drawn at true scale it becomes a
+thin flat band; worse, one loud effect elsewhere in the file flattens every line
+of speech beside it. The gain is clamped so genuinely quiet audio still looks
+quiet rather than being amplified into visual noise, and it changes only the
+drawn height -- never where anything sits in time.
+
+Measured on a 63-minute file: analysed in 6.1 s on a background-priority thread,
+6.9 MB of peaks retained.
+
 ### Decoder thread ownership
 
 `DecoderWorker` is moved to a dedicated `QThread` and owns a `MediaDecoder`,
@@ -224,14 +310,26 @@ playback permanently out of sync with audio. Instead each tick asks the clock
 "what frame should be on screen *now*", so a hiccup costs one stale frame and
 nothing more.
 
+**Frame-step audio reuses the scrub path.** It is a separate, session-only
+option that defaults off. Each arrow press remains an exact visual navigation
+input, while the audio worker and sink discard or replace obsolete grains so
+sound follows the newest useful target without creating a queue. Forward steps
+submit normal PCM and backward steps submit reversed PCM. Starting normal
+playback invalidates outstanding requests and flushes the review sink first.
+
 `PlaybackController` owns the clock, advances the timeline playhead, and applies
 looping and range limits. It is a `QObject` with signals but no widgets. This is
 the class the UI, the API and the DCC integrations all drive.
 
 ### `src/timeline/` — where we are and what is marked
 
-`TimelineModel` holds the extent, the playhead, the in/out range and the
-bookmarks, and emits signals when they change. The playhead lives here rather
+`TimelineModel` holds the extent, playhead, bookmarks and the active animation
+review range in `TimelineViewport`, and emits signals when they change. That
+range is both the visible frame viewport and the inclusive forward-playback
+boundary; there is no second user-facing playback range. Changing it while
+stopped does not seek, restart waveform analysis or decode scrub audio. It
+starts fitted to the source, clamps to its extent and preserves a ten-frame
+minimum span. The playhead lives here rather
 than in the timeline widget so that the viewer, the timeline, the status bar and
 the API all read one value and cannot disagree.
 
@@ -250,6 +348,55 @@ media arrives in M1 the marking disappears on its own and cannot be left stale.
 `PlaybackRange` is inclusive: frames 10–20 is eleven frames. `Bookmark` stores a
 palette *index* rather than an RGB value, so restyling the application restyles
 existing bookmarks instead of stranding them on old colours.
+
+Every timeline x mapping runs through the active review range. Ctrl+wheel anchors zoom at
+the pointer, middle-drag and Shift+wheel pan, and the command actions zoom at
+the playhead or fit the whole source. Playback never auto-pans the range: with
+Loop off it presents and stops on the inclusive selected end; with Loop on it
+wraps from that end to the selected start. Waveform painting queries only
+the visible media-time interval and selects the existing peak-pyramid level
+from visible microseconds per pixel; no analysis data is rebuilt on view changes.
+
+`TimelineRangeSlider` and its one-based start/end `QSpinBox` fields are views and
+controllers for that same range, not duplicate state. Its full groove is the
+source extent; either edge edits one bound while the other stays anchored, and
+dragging the body pans the unchanged span. The ten-frame minimum and source
+clamping remain enforced by `TimelineViewport`. Programmatic zoom, wheel
+gestures, fields and slider therefore cannot drift apart. F or a double-click
+anywhere in the slider groove calls the same Fit Entire Clip operation without
+moving the playhead. Future project persistence may serialize this range; M2
+does not.
+
+A committed handle or numeric-field resize while stopped seeks to
+`start + floor((end - start) / 2)`, the lower midpoint for an even inclusive
+span. Body panning and Fit intentionally preserve the playhead. If Play later
+finds that playhead outside the range (or on its end), it first completes an
+asynchronous exact seek to the selected start. Only the returned frame PTS may
+establish the new video/audio playback epoch; the audio sink starts after that
+seek and preroll, using the same path as manual seek-then-Play.
+
+Any review-range mutation made while stopped marks the normal playback epoch
+dirty without starting decode or audio work. The next Play re-anchors at the
+current frame when it remains inside the inclusive range, otherwise at the
+selected start. The flag remains set through the asynchronous exact seek and is
+cleared only after the authoritative decoded frame and audio epoch are ready.
+An explicit stopped review seek follows the same rule because displaying a
+frame does not itself preroll normal playback audio. An ordinary Pause followed
+by Play, with no intervening review mutation, keeps its normal resume behavior.
+
+At review zoom levels the ruler is frame-first: at 18 pixels per frame it labels
+every integer frame, at 6 pixels per frame it retains every tick with sparser
+labels, and below that it chooses nice major/minor frame intervals. PTS remains
+the playback authority; integer frame display is only a precise view of the
+rational mapping.
+
+Bookmarks are session markers owned by `TimelineModel`. Each has a stable ID,
+exact frame-derived media time, optional label/note and palette colour. They are
+sorted, unique per frame, cleared at the source boundary, and next/previous
+navigation wraps. Timeline snapping uses an eight-pixel screen threshold so its
+feel does not change with zoom. A future `.atkproj` representation can serialize
+`id`, `frame`, `mediaTimeUs`, `label`, `note` and `colorIndex`; M2 deliberately
+does not create a sidecar format.
 
 `Timecode` converts frames to SMPTE and back, non-drop-frame. For 23.976 and
 29.97 material this means displayed timecode drifts from wall-clock time — which

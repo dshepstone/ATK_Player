@@ -47,7 +47,13 @@ void TestBookmark::paletteBoundsAreSafe()
 
 void TestBookmark::equalityIncludesReviewData()
 {
-    Bookmark first{ 10, QStringLiteral("pose"), QStringLiteral("note"), 3 };
+    Bookmark first;
+    first.id = 7;
+    first.frame = 10;
+    first.mediaTimeUs = 416'667;
+    first.name = QStringLiteral("pose");
+    first.note = QStringLiteral("note");
+    first.colorIndex = 3;
     Bookmark second = first;
     QCOMPARE(first, second);
     second.note = QStringLiteral("changed");

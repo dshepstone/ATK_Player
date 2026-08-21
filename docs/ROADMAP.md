@@ -74,7 +74,30 @@ on exactly the frame the status bar reports.
 
 ## M2 — Animation Review Tools
 
-Make it a review tool rather than a viewer. **Not started.**
+Make it a review tool rather than a viewer. **In progress.**
+
+Delivered so far:
+
+- **Audible timeline scrubbing.** Dragging the timeline plays short faded grains
+  at the media position under the cursor, from a dedicated audio path that never
+  touches the playback clock.
+- **Waveform on the timeline.** Amplitude peaks generated in the background and
+  drawn above the track, so dialogue, silence and impacts are visible and the
+  playhead crosses both.
+- **Optional frame-step audio.** A separate, default-off command gives forward
+  and backward arrow stepping centred review grains without compromising the
+  exact visual navigation queue.
+- **Active animation-review range.** `TimelineViewport` is both the visible
+  interval and inclusive playback boundary. Loop-off stops on the selected end;
+  Loop-on wraps end to start. F restores whole-clip playback.
+- **Animation timeline controls.** A Maya-style lower review-range slider with
+  independent handles and body pan, synchronized one-based numeric start/end
+  fields, adaptive per-frame ticks/labels, and double-click Fit Entire Clip.
+- **Session bookmarks.** Stable single-frame markers, exact click navigation,
+  wrapping next/previous commands, deletion, and default-on pixel-based scrub
+  snapping. Persistence and the full bookmark editor remain later work.
+
+Still to come in M2: range bookmarks and viewer zoom and pan.
 
 Deferred here deliberately from M1: audio scrubbing, audible single-frame
 stepping, In/Out points, specific loop ranges, bookmarks and range bookmarks,
@@ -82,7 +105,6 @@ finer cache controls, and viewer zoom and pan.
 
 - Bookmark editing: name, note, colour, and a bookmark list panel
 - In/out range editing by dragging the range handles on the timeline
-- Timeline zoom and pan for long clips
 - Viewer pan and zoom, with a magnifier for close inspection
 - Frame-by-frame navigation refinements: play backwards, shuttle speeds
 - Onion skinning / previous-frame ghosting

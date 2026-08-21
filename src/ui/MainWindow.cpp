@@ -11,6 +11,7 @@
 #include "ui/StatusInfoBar.h"
 #include "ui/Theme.h"
 #include "ui/TimelineWidget.h"
+#include "ui/TimelineRangeSlider.h"
 #include "ui/TransportControls.h"
 #include "ui/ViewerWidget.h"
 #include "ui/commands/CommandRegistry.h"
@@ -19,6 +20,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QSlider>
+#include <QSpinBox>
 #include <QWidgetAction>
 
 #include <QAction>
@@ -125,6 +127,28 @@ void MainWindow::buildWidgets()
     m_timelineWidget = new TimelineWidget(central);
     m_timelineWidget->setModel(m_timeline.get());
     column->addWidget(m_timelineWidget);
+    m_timelineRangeSlider = new TimelineRangeSlider(central);
+    m_timelineRangeSlider->setObjectName(QStringLiteral("TimelineReviewRangeSlider"));
+    m_timelineRangeSlider->setModel(m_timeline.get());
+    m_reviewStartFrame = new QSpinBox(central);
+    m_reviewStartFrame->setObjectName(QStringLiteral("ReviewRangeStartFrame"));
+    m_reviewStartFrame->setKeyboardTracking(false);
+    m_reviewStartFrame->setToolTip(tr("First frame in the visible review range. Playback is constrained to this range."));
+    m_reviewEndFrame = new QSpinBox(central);
+    m_reviewEndFrame->setObjectName(QStringLiteral("ReviewRangeEndFrame"));
+    m_reviewEndFrame->setKeyboardTracking(false);
+    m_reviewEndFrame->setToolTip(tr("Last frame in the visible review range. Playback is constrained to this range."));
+    for (QSpinBox* field : {m_reviewStartFrame, m_reviewEndFrame}) {
+        field->setFixedWidth(72);
+        field->setAlignment(Qt::AlignCenter);
+    }
+    auto* reviewRangeRow = new QHBoxLayout;
+    reviewRangeRow->setContentsMargins(8, 0, 8, 0);
+    reviewRangeRow->setSpacing(6);
+    reviewRangeRow->addWidget(m_reviewStartFrame);
+    reviewRangeRow->addWidget(m_timelineRangeSlider, 1);
+    reviewRangeRow->addWidget(m_reviewEndFrame);
+    column->addLayout(reviewRangeRow);
 
     m_transport = new TransportControls(m_commands, central);
     column->addWidget(m_transport);
@@ -191,6 +215,9 @@ void MainWindow::buildMenus()
     if (QAction* sourcesAction = m_commands->action(CommandId::ToggleSourcesPanel)) {
         sourcesAction->setChecked(true);
     }
+    if (QAction* snapAction = m_commands->action(CommandId::ToggleBookmarkSnap)) {
+        snapAction->setChecked(true);
+    }
 }
 
 void MainWindow::connectSignals()
@@ -208,6 +235,22 @@ void MainWindow::connectSignals()
 
     connect(m_playback.get(), &playback::PlaybackController::mediaOpened,
             this, &MainWindow::onMediaOpened);
+
+    // The waveform lives in the controller and is repainted in place; only a
+    // repaint request crosses to the widget, never a copy of the peaks.
+    connect(m_playback.get(), &playback::PlaybackController::waveformChanged,
+            this, [this] { m_timelineWidget->refreshWaveform(); });
+
+    // A quiet, self-clearing note rather than a progress bar: analysis is
+    // usually over in seconds and the player should not grow a widget for it.
+    connect(m_playback.get(), &playback::PlaybackController::waveformAnalysingChanged,
+            this, [this](bool analysing) {
+                if (analysing) {
+                    statusBar()->showMessage(tr("Analyzing audio..."));
+                } else {
+                    statusBar()->clearMessage();
+                }
+            });
 
     connect(m_playback.get(), &playback::PlaybackController::errorOccurred,
             this, &MainWindow::onMediaError);
@@ -241,7 +284,10 @@ void MainWindow::connectSignals()
             m_playback.get(), &playback::PlaybackController::endScrub);
 
     connect(m_timelineWidget, &TimelineWidget::bookmarkActivated,
-            this, [this](qint64 frame) { m_playback->seekFrame(frame); });
+            this, [this](qint64 frame) {
+                m_timeline->ensureFrameVisible(frame);
+                m_playback->seekFrame(frame);
+            });
 
     connect(m_project.get(), &project::Project::modifiedChanged,
             this, [this](bool) { updateWindowTitle(); });
@@ -249,7 +295,59 @@ void MainWindow::connectSignals()
     // The frame count only becomes final once media is open, and the transport
     // depends on whether there is an extent at all.
     connect(m_timeline.get(), &timeline::TimelineModel::frameCountChanged,
-            this, [this](qint64) { updateTransportEnabled(); });
+            this, [this](qint64 count) {
+                updateTransportEnabled();
+                const int maximum = static_cast<int>(std::max<qint64>(1, count));
+                m_reviewStartFrame->setRange(1, maximum);
+                m_reviewEndFrame->setRange(1, maximum);
+            });
+
+    const auto refreshReviewFields = [this](qint64 start, qint64 end) {
+        QSignalBlocker blockStart(m_reviewStartFrame);
+        QSignalBlocker blockEnd(m_reviewEndFrame);
+        const int maximum = static_cast<int>(std::max<qint64>(1, m_timeline->frameCount()));
+        m_reviewStartFrame->setRange(1, maximum);
+        m_reviewEndFrame->setRange(1, maximum);
+        // The model is zero-based; all visible frame numbers are one-based.
+        m_reviewStartFrame->setValue(static_cast<int>(start + 1));
+        m_reviewEndFrame->setValue(static_cast<int>(end + 1));
+        const int minimumSpan = static_cast<int>(std::min<qint64>(
+            timeline::TimelineViewport::kMinimumVisibleFrames,
+            m_timeline->frameCount()));
+        m_reviewStartFrame->setMaximum(std::max(1, m_reviewEndFrame->value() - minimumSpan + 1));
+        m_reviewEndFrame->setMinimum(std::min(m_reviewEndFrame->maximum(),
+            m_reviewStartFrame->value() + minimumSpan - 1));
+    };
+    connect(m_timeline.get(), &timeline::TimelineModel::viewportChanged,
+            this, refreshReviewFields);
+    const auto centreStoppedReviewFrame = [this] {
+        if (m_playback->isPlaying() || m_timeline->frameCount() <= 0) return;
+        const qint64 start = m_timeline->viewport().startFrame();
+        const qint64 end = m_timeline->viewport().endFrame();
+        // Lower midpoint for even inclusive spans; e.g. 138..149 -> 143.
+        m_playback->seekFrame(start + (end - start) / 2);
+    };
+    connect(m_reviewStartFrame, &QSpinBox::valueChanged, this,
+            [this, centreStoppedReviewFrame](int) {
+        const qint64 oldSpan = m_timeline->viewport().visibleFrameCount();
+        m_timeline->setViewportRange(m_reviewStartFrame->value() - 1,
+                                     m_timeline->viewport().endFrame());
+        if (m_timeline->viewport().visibleFrameCount() != oldSpan)
+            centreStoppedReviewFrame();
+    });
+    connect(m_reviewEndFrame, &QSpinBox::valueChanged, this,
+            [this, centreStoppedReviewFrame](int) {
+        const qint64 oldSpan = m_timeline->viewport().visibleFrameCount();
+        m_timeline->setViewportRange(m_timeline->viewport().startFrame(),
+                                     m_reviewEndFrame->value() - 1);
+        if (m_timeline->viewport().visibleFrameCount() != oldSpan)
+            centreStoppedReviewFrame();
+    });
+    connect(m_timelineRangeSlider, &TimelineRangeSlider::rangeResizeCommitted,
+            this, centreStoppedReviewFrame);
+    connect(m_timelineRangeSlider, &TimelineRangeSlider::fitEntireRequested,
+            m_timelineWidget, &TimelineWidget::fitEntire);
+    refreshReviewFields(m_timeline->viewport().startFrame(), m_timeline->viewport().endFrame());
 
     connect(m_sourcesDock, &QDockWidget::visibilityChanged,
             this, [this](bool visible) {
@@ -309,6 +407,7 @@ void MainWindow::onCommand(CommandId id, bool checked)
     case CommandId::NextBookmark: {
         const int64_t frame = m_timeline->nextBookmarkFrame(m_timeline->currentFrame());
         if (frame >= 0) {
+            m_timeline->ensureFrameVisible(frame);
             m_playback->seekFrame(frame);
         }
         return;
@@ -316,10 +415,17 @@ void MainWindow::onCommand(CommandId id, bool checked)
     case CommandId::PreviousBookmark: {
         const int64_t frame = m_timeline->previousBookmarkFrame(m_timeline->currentFrame());
         if (frame >= 0) {
+            m_timeline->ensureFrameVisible(frame);
             m_playback->seekFrame(frame);
         }
         return;
     }
+    case CommandId::DeleteBookmark:
+        m_timeline->removeBookmarkAt(m_timeline->currentFrame());
+        return;
+    case CommandId::ToggleBookmarkSnap:
+        m_timelineWidget->setBookmarkSnapEnabled(checked);
+        return;
 
     // --- View: fully wired ------------------------------------------------
     case CommandId::ZoomFit:
@@ -363,6 +469,16 @@ void MainWindow::onCommand(CommandId id, bool checked)
     case CommandId::CloseSource:
         m_playback->closeMedia();
         return;
+    case CommandId::ToggleAudioScrub:
+        m_playback->setAudioScrubEnabled(checked);
+        statusBar()->showMessage(
+            checked ? tr("Audio scrubbing on") : tr("Audio scrubbing off"), 1500);
+        return;
+    case CommandId::ToggleFrameStepAudio:
+        m_playback->setFrameStepAudioEnabled(checked);
+        statusBar()->showMessage(checked ? tr("Frame-step audio on") : tr("Frame-step audio off"), 1500);
+        return;
+
     case CommandId::ToggleMute: {
         m_playback->setMuted(checked);
         statusBar()->showMessage(checked ? tr("Audio muted") : tr("Audio unmuted"), 1500);
@@ -377,6 +493,15 @@ void MainWindow::onCommand(CommandId id, bool checked)
         m_playback->setVolume(m_playback->volume() - 0.1);
         statusBar()->showMessage(
             tr("Volume %1%").arg(qRound(m_playback->volume() * 100)), 1500);
+        return;
+    case CommandId::TimelineZoomIn:
+        m_timelineWidget->zoomIn();
+        return;
+    case CommandId::TimelineZoomOut:
+        m_timelineWidget->zoomOut();
+        return;
+    case CommandId::TimelineZoomFit:
+        m_timelineWidget->fitEntire();
         return;
 
     case CommandId::OpenProject:
@@ -543,6 +668,11 @@ void MainWindow::onMediaOpened(const media::MediaMetadata& metadata)
             ? (static_cast<double>(metadata.resolution.width()) * metadata.pixelAspectRatio)
                   / static_cast<double>(metadata.resolution.height())
             : 0.0);
+
+    // The waveform is indexed by media time and the track by frame, so the
+    // widget needs the duration to map between them.
+    m_timelineWidget->setWaveform(&m_playback->waveform());
+    m_timelineWidget->setMediaDuration(metadata.durationUs);
 
     m_sources->setCurrentMedia(metadata.fileName, metadata.shortDescription());
     m_statusInfo->setMediaInfo(metadata.fileName, metadata.hasExactFrameCount());

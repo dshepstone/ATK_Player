@@ -13,6 +13,7 @@ set(ATK_TEST_SOURCES
     tst_timecode.cpp
     tst_framecache.cpp
     tst_playbackqueue.cpp
+    tst_waveformdata.cpp
     tst_timelinemodel.cpp
     tst_playbackcontroller.cpp
     tst_playbackrange.cpp
@@ -30,10 +31,16 @@ set(ATK_TEST_SOURCES
 set(ATK_FFMPEG_TEST_SOURCES
     tst_ffmpegutil.cpp
     tst_mediadecoder.cpp
+    tst_audioreview.cpp
+    tst_scrubaudio.cpp
     tst_playbackinteraction.cpp
 )
 
-foreach(test_source IN LISTS ATK_TEST_SOURCES ATK_FFMPEG_TEST_SOURCES)
+set(ATK_UI_TEST_SOURCES
+    tst_timelinewidgets.cpp
+)
+
+foreach(test_source IN LISTS ATK_TEST_SOURCES ATK_FFMPEG_TEST_SOURCES ATK_UI_TEST_SOURCES)
     get_filename_component(test_name "${test_source}" NAME_WE)
 
     qt_add_executable(${test_name} ${test_source})
@@ -52,6 +59,9 @@ foreach(test_source IN LISTS ATK_TEST_SOURCES ATK_FFMPEG_TEST_SOURCES)
             ATK::core
             Qt6::Test
     )
+    if(test_source IN_LIST ATK_UI_TEST_SOURCES)
+        target_link_libraries(${test_name} PRIVATE ATK::ui Qt6::Widgets)
+    endif()
 
     atk_set_compiler_warnings(${test_name})
 
@@ -77,7 +87,16 @@ foreach(test_source IN LISTS ATK_TEST_SOURCES ATK_FFMPEG_TEST_SOURCES)
         FOLDER "Tests"
     )
 
-    add_test(NAME ${test_name} COMMAND ${test_name})
+    if(test_name STREQUAL "tst_playbackinteraction")
+        # This GUI-linked Windows test has no inherited console handle on the
+        # hosted runner, so CTest cannot show Qt Test's assertion text. Keep a
+        # text report beside the executable; the always-uploaded CI artifact
+        # then preserves the exact failing case without weakening assertions.
+        add_test(NAME ${test_name} COMMAND ${test_name}
+            -o "$<TARGET_FILE_DIR:${test_name}>/${test_name}-results.txt,txt")
+    else()
+        add_test(NAME ${test_name} COMMAND ${test_name})
+    endif()
 
     # On Windows the test executables need the Qt and FFmpeg DLLs on PATH at run
     # time. Set per-test rather than by touching the developer's global PATH.

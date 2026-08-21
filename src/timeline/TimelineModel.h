@@ -3,6 +3,7 @@
 #include "media/MediaMetadata.h"
 #include "timeline/Bookmark.h"
 #include "timeline/PlaybackRange.h"
+#include "timeline/TimelineViewport.h"
 
 #include <QObject>
 #include <QVector>
@@ -36,7 +37,8 @@ public:
 
     // --- Playhead ---------------------------------------------------------
     int64_t currentFrame() const { return m_currentFrame; }
-    /// Clamps to the active range, or to [0, lastFrame] when no range is set.
+    /// Clamps to the source extent. Changing the review range alone must not
+    /// move a stopped playhead.
     void setCurrentFrame(int64_t frame);
 
     // --- Range ------------------------------------------------------------
@@ -48,8 +50,15 @@ public:
     void setRangeOutAtCurrentFrame();
     void clearPlaybackRange();
 
-    /// First and last frame playback should visit, honouring the range when
-    /// enabled and the full extent otherwise.
+    const TimelineViewport& viewport() const { return m_viewport; }
+    void fitViewport();
+    void zoomViewport(double factor, int64_t anchorFrame);
+    void panViewport(int64_t deltaFrames);
+    void setViewportRange(int64_t startFrame, int64_t endFrame);
+    void ensureFrameVisible(int64_t frame);
+
+    /// First and last frame playback should visit. The visible viewport is the
+    /// single active review range.
     int64_t effectiveStartFrame() const;
     int64_t effectiveEndFrame() const;
 
@@ -58,12 +67,14 @@ public:
     /// Adds a bookmark, replacing any existing one on the same frame.
     void addBookmark(const Bookmark& bookmark);
     void removeBookmarkAt(int64_t frame);
+    void removeBookmark(quint64 id);
     void clearBookmarks();
     /// Returns nullptr when the frame carries no bookmark.
     const Bookmark* bookmarkAt(int64_t frame) const;
     /// Nearest bookmark strictly after/before `frame`, or -1 when there is none.
     int64_t nextBookmarkFrame(int64_t frame) const;
     int64_t previousBookmarkFrame(int64_t frame) const;
+    int64_t mediaTimeForFrame(int64_t frame) const;
 
     // --- Placeholder state ------------------------------------------------
     /// True when the extent describes no real media.
@@ -92,6 +103,7 @@ signals:
     void playbackRangeChanged(atk::timeline::PlaybackRange range);
     void bookmarksChanged();
     void placeholderChanged(bool placeholder);
+    void viewportChanged(qint64 startFrame, qint64 endFrame);
 
 private:
     /// Keeps bookmarks sorted by frame so the next/previous lookups stay simple.
@@ -103,7 +115,9 @@ private:
     int64_t m_currentFrame = 0;
     media::FrameRate m_frameRate;
     PlaybackRange m_range;
+    TimelineViewport m_viewport;
     QVector<Bookmark> m_bookmarks;
+    quint64 m_nextBookmarkId = 1;
     bool m_placeholder = false;
 };
 

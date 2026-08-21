@@ -1,4 +1,5 @@
 #include "playback/PlaybackController.h"
+#include "media/ffmpeg/FFmpegUtil.h"
 
 #include "timeline/TimelineModel.h"
 
@@ -32,6 +33,12 @@ QString longFixture()
 QString manualMediaDirectory()
 {
     return qEnvironmentVariable("ATK_MANUAL_MEDIA_DIR");
+}
+
+QString rangeStartFixture()
+{
+    const QString overridePath = qEnvironmentVariable("ATK_RANGE_TEST_MEDIA");
+    return overridePath.isEmpty() ? syncFixture() : overridePath;
 }
 
 double percentile(QVector<double> values, double fraction)
@@ -74,7 +81,166 @@ private slots:
     void manualMediaScrubProfile();
     void explicitSeekResetsLogicalTarget();
     void realTimePlaybackCrossesLoopBoundary();
+    void frameStepAudioUsesExactTargetAndDirection();
+    void automaticRangeStartMatchesManualSeekEpoch();
+    void stoppedRangeMutationReanchorsAtCurrentFrame();
+    void ordinaryPauseResumeKeepsEpochClean();
+    void shortRangeLoopsKeepSynchronizedEpoch();
 };
+
+void TestPlaybackInteraction::frameStepAudioUsesExactTargetAndDirection()
+{
+    Fixture fixture;
+    QVERIFY(fixture.open());
+    QTRY_COMPARE_WITH_TIMEOUT(fixture.playback.currentVideoFrame().frameIndex, qint64(0), 5000);
+    QSignalSpy requests(&fixture.playback, &PlaybackController::reviewAudioRequested);
+
+    fixture.playback.stepForward();
+    QCOMPARE(requests.count(), 0); // independently off by default
+
+    fixture.playback.setFrameStepAudioEnabled(true);
+    fixture.playback.stepForward();
+    QCOMPARE(requests.count(), 1);
+    const auto rate = fixture.playback.metadata().frameRate;
+    const qint64 expectedUs = atk::media::ffmpeg::frameIndexToMicroseconds(
+        2, AVRational{rate.numerator, rate.denominator});
+    QCOMPARE(requests.at(0).at(0).toLongLong(), expectedUs);
+    QCOMPARE(requests.at(0).at(1).toBool(), false);
+
+    fixture.playback.stepBackward();
+    QCOMPARE(requests.count(), 2);
+    QCOMPARE(requests.at(1).at(1).toBool(), true);
+
+    fixture.playback.setMuted(true);
+    fixture.playback.stepForward();
+    QCOMPARE(requests.count(), 2);
+
+    fixture.playback.setMuted(false);
+    for (int i = 0; i < 10; ++i) fixture.playback.stepForward();
+    QCOMPARE(fixture.playback.navigationFrame(), qint64(12));
+    QCOMPARE(requests.count(), 12);
+
+    fixture.playback.play(); // must invalidate and flush pending review PCM
+    QCOMPARE(fixture.playback.state(), PlayerState::Playing);
+    fixture.playback.pause();
+}
+
+void TestPlaybackInteraction::automaticRangeStartMatchesManualSeekEpoch()
+{
+    Fixture fixture;
+    QVERIFY(fixture.open(rangeStartFixture()));
+    QTRY_COMPARE_WITH_TIMEOUT(fixture.playback.currentVideoFrame().frameIndex, qint64(0), 5000);
+    fixture.timeline.setViewportRange(20, 30);
+
+    fixture.playback.seekFrame(20);
+    QTRY_COMPARE_WITH_TIMEOUT(fixture.playback.currentVideoFrame().frameIndex, qint64(20), 5000);
+    fixture.playback.play();
+    QTRY_VERIFY_WITH_TIMEOUT(fixture.playback.lastAudioEpochUs() >= 0, 5000);
+    const qint64 manualVideoOrigin = fixture.playback.playbackOriginUs();
+    const qint64 manualAudioEpoch = fixture.playback.lastAudioEpochUs();
+    fixture.playback.pause();
+
+    fixture.timeline.fitViewport();
+    fixture.playback.seekFrame(80);
+    QTRY_COMPARE_WITH_TIMEOUT(fixture.playback.currentVideoFrame().frameIndex, qint64(80), 5000);
+    fixture.timeline.setViewportRange(20, 30); // body-pan equivalent: no seek
+    QSignalSpy presented(&fixture.playback, &PlaybackController::frameChanged);
+    fixture.playback.play();
+    QTRY_VERIFY_WITH_TIMEOUT(!presented.isEmpty(), 5000);
+    QCOMPARE(qvariant_cast<atk::media::VideoFrame>(presented.first().at(0)).frameIndex,
+             qint64(20));
+    QTRY_VERIFY_WITH_TIMEOUT(fixture.playback.lastAudioEpochUs() >= 0, 5000);
+    QCOMPARE(fixture.playback.playbackOriginUs(), manualVideoOrigin);
+    QCOMPARE(fixture.playback.lastAudioEpochUs(), manualAudioEpoch);
+
+    const qint64 frameDurationUs = atk::media::ffmpeg::frameIndexToMicroseconds(
+        1, AVRational{fixture.playback.metadata().frameRate.numerator,
+                      fixture.playback.metadata().frameRate.denominator});
+    QVERIFY(qAbs(fixture.playback.playbackOriginUs()
+                 - fixture.playback.lastAudioEpochUs()) < frameDurationUs);
+    fixture.playback.pause();
+}
+
+void TestPlaybackInteraction::shortRangeLoopsKeepSynchronizedEpoch()
+{
+    Fixture fixture;
+    QVERIFY(fixture.open());
+    QTRY_COMPARE_WITH_TIMEOUT(fixture.playback.currentVideoFrame().frameIndex, qint64(0), 5000);
+    fixture.timeline.setViewportRange(20, 30);
+    fixture.playback.seekFrame(20);
+    QTRY_COMPARE_WITH_TIMEOUT(fixture.playback.currentVideoFrame().frameIndex, qint64(20), 5000);
+    fixture.playback.setLoopEnabled(true);
+
+    int wraps = 0;
+    qint64 previous = -1;
+    connect(&fixture.playback, &PlaybackController::frameChanged,
+            &fixture.playback, [&](const atk::media::VideoFrame& frame) {
+        QVERIFY(frame.frameIndex >= 20 && frame.frameIndex <= 30);
+        if (previous >= 0 && frame.frameIndex < previous) ++wraps;
+        previous = frame.frameIndex;
+    });
+    fixture.playback.play();
+    QTRY_VERIFY_WITH_TIMEOUT(wraps >= 5, 15000);
+    QTRY_VERIFY_WITH_TIMEOUT(fixture.playback.lastAudioEpochUs() >= 0, 5000);
+    const qint64 expectedEpoch = atk::media::ffmpeg::frameIndexToMicroseconds(
+        20, AVRational{fixture.playback.metadata().frameRate.numerator,
+                       fixture.playback.metadata().frameRate.denominator});
+    const qint64 frameDurationUs = atk::media::ffmpeg::frameIndexToMicroseconds(
+        1, AVRational{fixture.playback.metadata().frameRate.numerator,
+                      fixture.playback.metadata().frameRate.denominator});
+    QVERIFY(qAbs(fixture.playback.lastAudioEpochUs() - expectedEpoch) < frameDurationUs);
+    fixture.playback.pause();
+}
+
+void TestPlaybackInteraction::stoppedRangeMutationReanchorsAtCurrentFrame()
+{
+    Fixture fixture;
+    QVERIFY(fixture.open());
+    fixture.playback.seekFrame(40);
+    QTRY_COMPARE_WITH_TIMEOUT(fixture.playback.currentVideoFrame().frameIndex, qint64(40), 5000);
+
+    fixture.timeline.setViewportRange(30, 50);
+    QCOMPARE(fixture.timeline.currentFrame(), qint64(40));
+    QVERIFY(fixture.playback.playbackEpochDirty());
+
+    QSignalSpy firstRun(&fixture.playback, &PlaybackController::frameChanged);
+    fixture.playback.play();
+    QTRY_VERIFY_WITH_TIMEOUT(!firstRun.isEmpty(), 5000);
+    QCOMPARE(qvariant_cast<atk::media::VideoFrame>(firstRun.first().at(0)).frameIndex,
+             qint64(40));
+    QTRY_VERIFY_WITH_TIMEOUT(!fixture.playback.playbackEpochDirty(), 5000);
+    QCOMPARE(fixture.playback.playbackOriginUs(), fixture.playback.lastAudioEpochUs());
+    fixture.playback.pause();
+
+    const qint64 preserved = fixture.timeline.currentFrame();
+    fixture.timeline.fitViewport();
+    QCOMPARE(fixture.timeline.currentFrame(), preserved);
+    QVERIFY(fixture.playback.playbackEpochDirty());
+
+    QSignalSpy fitRun(&fixture.playback, &PlaybackController::frameChanged);
+    fixture.playback.play();
+    QTRY_VERIFY_WITH_TIMEOUT(!fitRun.isEmpty(), 5000);
+    QCOMPARE(qvariant_cast<atk::media::VideoFrame>(fitRun.first().at(0)).frameIndex,
+             preserved);
+    QTRY_VERIFY_WITH_TIMEOUT(!fixture.playback.playbackEpochDirty(), 5000);
+    QCOMPARE(fixture.playback.playbackOriginUs(), fixture.playback.lastAudioEpochUs());
+    fixture.playback.pause();
+}
+
+void TestPlaybackInteraction::ordinaryPauseResumeKeepsEpochClean()
+{
+    Fixture fixture;
+    QVERIFY(fixture.open());
+    fixture.playback.play();
+    QTRY_VERIFY_WITH_TIMEOUT(fixture.playback.lastAudioEpochUs() >= 0, 5000);
+    QVERIFY(!fixture.playback.playbackEpochDirty());
+    fixture.playback.pause();
+    QVERIFY(!fixture.playback.playbackEpochDirty());
+    fixture.playback.play();
+    QTRY_COMPARE_WITH_TIMEOUT(fixture.playback.state(), PlayerState::Playing, 5000);
+    QVERIFY(!fixture.playback.playbackEpochDirty());
+    fixture.playback.pause();
+}
 
 void TestPlaybackInteraction::manualMediaScrubProfile_data()
 {

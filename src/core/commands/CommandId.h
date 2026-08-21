@@ -33,9 +33,13 @@ enum class CommandId {
     AddBookmark,
     NextBookmark,
     PreviousBookmark,
+    DeleteBookmark,
+    ToggleBookmarkSnap,
 
     // Audio
     ToggleMute,
+    ToggleAudioScrub,
+    ToggleFrameStepAudio,
     VolumeUp,
     VolumeDown,
 
@@ -46,6 +50,9 @@ enum class CommandId {
     ZoomActualSize,
     ToggleFullScreen,
     ToggleSourcesPanel,
+    TimelineZoomIn,
+    TimelineZoomOut,
+    TimelineZoomFit,
 
     // Help
     About,
