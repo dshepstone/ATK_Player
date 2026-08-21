@@ -16,17 +16,27 @@ a media player second.
 
 ## Current status
 
-**Version 0.2.0-dev — M2 complete; M3 projects and playlists in progress.**
+**Version 0.2.0-dev — M3 projects and playlists complete.**
 
 ATK Player now provides frame-accurate video/audio review, exact ranges,
 bookmarks, waveform/audio scrubbing, viewer navigation and persistent global
-preferences. The first M3 increment adds portable projects and ordered playlists.
+preferences, portable projects, ordered playlists and missing-media recovery.
 
 **What works today**
 
 - **Projects and playlists** — create/open a project, multi-add clips, reorder or
   remove them, double-click to activate, and save/reopen portable `.atkproj` files.
   Point/Range Bookmarks and review ranges are restored per clip.
+- **Project recovery** — missing and unreadable sources stay in the playlist with
+  an explicit state. Relink validates replacement media with FFmpeg before it
+  changes the project, preserves the source UUID and keeps all review work that
+  still fits the replacement clip.
+- **Progressive playlist metadata** — rows appear immediately, then a dedicated
+  background worker fills in resolution, exact rational frame rate and duration
+  without decoding frames or blocking playback/UI work.
+- **Recent projects** — File → Recent Projects keeps a normalized ten-project
+  history, marks unavailable files, and can clear the list. An opt-in General
+  preference reopens the last valid project when no command-line path was given.
 - **Opening one video** — File → Open Media, or `ATKPlayer.exe <file>` from the
   command line. FFmpeg decides what is readable, so the format list is a
   convenience rather than a gate.
@@ -61,7 +71,6 @@ marking disappears the moment a real file opens.
 
 **What does not work yet**
 
-- Missing-media relinking, recent projects and reopen-last-session remain M3 work.
 - A/B comparison (M4) and export (M5).
 - The API server opens no socket — only the dispatcher underneath it is real.
 - Maya and Harmony integrations, the MSI installer, macOS and Linux.

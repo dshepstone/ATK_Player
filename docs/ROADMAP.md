@@ -4,7 +4,7 @@ Milestones are ordered by dependency, not by preference. Each one should leave
 the application in a state that runs and is worth using — no milestone is a
 half-landed refactor.
 
-**Current milestone: M1 — complete.**
+**Current milestone: M3 — complete. Next: M4 A/B Comparison.**
 
 ---
 
@@ -129,7 +129,7 @@ cache controls.
 
 ---
 
-## M3 — Projects and Playlists 🚧 IN PROGRESS
+## M3 — Projects and Playlists ✅ COMPLETE
 
 Make a review session something you can save and hand to someone else.
 
@@ -139,9 +139,10 @@ Make a review session something you can save and hand to someone else.
 - [x] Stable source UUIDs and missing-media retention/foundation
 - [x] Loop-aware continuous playlist playback
 - [x] Timestamp-derived ±10-second transport and persistent volume/mute popup
-- Recent projects and reopening the last session
-- Stronger missing-media relink workflow
-- Playlist metadata/probing and interaction refinements
+- [x] Recent projects and optional safe reopening of the last session
+- [x] Transactional FFmpeg-validated missing-media relink workflow
+- [x] Progressive background playlist metadata and explicit availability states
+- [x] Stable UUID/path/token routing across reorder, removal, relink and project switch
 
 ---
 
