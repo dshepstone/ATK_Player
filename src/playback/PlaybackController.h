@@ -345,6 +345,9 @@ private:
     bool m_hasMedia = false;
     bool m_loopEnabled = false;
     bool m_resumeAfterSeek = false;
+    /// Jump-to-End while playing presents the requested boundary and then
+    /// follows the normal loop/end policy instead of resuming from that frame.
+    bool m_finishAfterSeek = false;
     int64_t m_navigationFrame = 0;
     bool m_scrubbing = false;
     bool m_scrubDecodeInFlight = false;

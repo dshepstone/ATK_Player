@@ -2,6 +2,9 @@
 
 A cross-platform animation playback and review application.
 
+ATK Player is **Animation Tool Kit - Media Player**, the companion application
+for the Animation Tool Kit - Maya tools series. Created by David Shepstone.
+
 ATK Player is built for the way animators actually watch their work: scrubbing a
 few seconds back and forth frame by frame, marking the frames that need fixing,
 and comparing a new take against the previous one. It is a review tool first and

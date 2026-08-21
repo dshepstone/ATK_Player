@@ -106,6 +106,7 @@ private:
     bool saveProjectTo(const QString& path);
     bool confirmDiscardChanges();
     void activatePlaylistIndex(int index, bool continuePlayback = false);
+    int nextUsablePlaylistIndex() const;
     void saveActiveReviewState();
     void restoreActiveReviewState();
     void removePlaylistIndex(int index);

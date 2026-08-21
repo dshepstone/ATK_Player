@@ -523,6 +523,15 @@ void MainWindow::onCommand(CommandId id, bool checked)
     switch (id) {
     // --- Transport: fully wired ------------------------------------------
     case CommandId::PlayPause:
+        if (!m_playback->isPlaying() && !m_playback->isLoopEnabled()
+            && m_project->activeIndex() >= 0
+            && m_playback->currentFrame() == m_timeline->effectiveEndFrame()) {
+            const int next = nextUsablePlaylistIndex();
+            if (next >= 0) {
+                activatePlaylistIndex(next, true);
+                return;
+            }
+        }
         m_playback->togglePlayPause();
         return;
     case CommandId::Stop:
@@ -648,9 +657,9 @@ void MainWindow::onCommand(CommandId id, bool checked)
             this,
             tr("About ATK Player"),
             tr("<h3>%1 %2</h3>"
-               "<p><b>Animation Review Player</b></p>"
-               "<p>Frame-accurate playback, synchronized audio, timeline review "
-               "ranges, bookmarks and animator-focused navigation.</p>"
+               "<p><b>Animation Tool Kit - Media Player</b></p>"
+               "<p>This is the companion app for the Animation Tool Kit - Maya tools series.</p>"
+               "<p><b>Created By David Shepstone</b></p>"
                "<p>This is an independent open-source development build.</p>")
                 .arg(QString::fromLatin1(version::kApplicationName),
                      QString::fromLatin1(version::kString)));
@@ -848,9 +857,14 @@ void MainWindow::onPlayerStateChanged(playback::PlayerState state)
         statusBar()->showMessage(tr("Paused"), 1500);
         break;
     case PlayerState::Ended:
-        if (m_playlistPlaybackActive && !m_playback->isLoopEnabled()
-            && m_project->activeIndex() + 1 < m_project->entries().size()) {
-            activatePlaylistIndex(m_project->activeIndex() + 1, true);
+        if (m_playlistPlaybackActive && !m_playback->isLoopEnabled()) {
+            const int next = nextUsablePlaylistIndex();
+            if (next >= 0) {
+                activatePlaylistIndex(next, true);
+                break;
+            }
+            m_playlistPlaybackActive = false;
+            statusBar()->showMessage(tr("End of playlist"), 2000);
         } else {
             m_playlistPlaybackActive = false;
             statusBar()->showMessage(tr("End of playlist"), 2000);
@@ -1014,6 +1028,18 @@ void MainWindow::onMediaOpened(const media::MediaMetadata& metadata)
         m_playAfterSourceOpen = false;
         m_playback->play();
     }
+}
+
+int MainWindow::nextUsablePlaylistIndex() const
+{
+    for (int i = m_project->activeIndex() + 1; i < m_project->entries().size(); ++i) {
+        const auto availability = m_project->entries().at(i).availability;
+        if (availability != project::SourceAvailability::Missing
+            && availability != project::SourceAvailability::Error) {
+            return i;
+        }
+    }
+    return -1;
 }
 
 void MainWindow::onMediaError(const QString& message)

@@ -555,6 +555,7 @@ void PlaybackController::openMedia(const QString& filePath)
     m_errorMessage.clear();
     m_pendingSeekFrame = -1;
     m_resumeAfterSeek = false;
+    m_finishAfterSeek = false;
     m_playbackEpochDirty = false;
     m_playbackReanchorInProgress = false;
     m_scrubbing = false;
@@ -769,7 +770,11 @@ void PlaybackController::onWorkerFrameReady(const media::VideoFrame& frame,
         m_pendingSeekFrame = -1;
         presentFrame(frame);
 
-        if (m_resumeAfterSeek) {
+        if (m_finishAfterSeek) {
+            m_finishAfterSeek = false;
+            m_resumeAfterSeek = false;
+            finishPlayback();
+        } else if (m_resumeAfterSeek) {
             m_resumeAfterSeek = false;
             play();
         } else if (m_state == PlayerState::Seeking) {
@@ -818,6 +823,7 @@ void PlaybackController::onWorkerFrameFailed(qint64 frameIndex, const QString& m
     if (m_pendingSeekFrame == frameIndex) {
         m_pendingSeekFrame = -1;
         m_resumeAfterSeek = false;
+        m_finishAfterSeek = false;
         m_playbackReanchorInProgress = false;
         if (m_state == PlayerState::Seeking) {
             setState(PlayerState::Ready);
@@ -1359,6 +1365,7 @@ void PlaybackController::stop()
     m_generations->bumpRequest();
 
     m_resumeAfterSeek = false;
+    m_finishAfterSeek = false;
     m_scrubbing = false;
     m_scrubFinalPending = false;
     m_scrubDecodeInFlight = false;
@@ -1420,6 +1427,7 @@ void PlaybackController::seekAndShow(int64_t frame, bool keepPlaying)
 
 void PlaybackController::seekFrame(int64_t frame)
 {
+    m_finishAfterSeek = false;
     cancelNavigation();
     const bool wasPlaying = m_state == PlayerState::Playing;
 
@@ -1727,7 +1735,13 @@ void PlaybackController::goToStart()
 
 void PlaybackController::goToEnd()
 {
+    const bool completePlayback = m_state == PlayerState::Playing;
     seekFrame(effectiveLastFrame());
+    m_finishAfterSeek = completePlayback;
+    if (completePlayback && inPlaceholderMode()) {
+        m_finishAfterSeek = false;
+        finishPlayback();
+    }
 }
 
 // ---------------------------------------------------------------------------
