@@ -132,6 +132,22 @@ void ViewerWidget::resetNavigationToFit()
     update();
 }
 
+void ViewerWidget::restoreTransform(const ViewerTransform& transform)
+{
+    m_transform = transform;
+    m_transform.setDevicePixelRatio(devicePixelRatioF());
+    m_transform.setViewportSize(size());
+    notifyNavigationChanged();
+    update();
+}
+
+void ViewerWidget::setVideoOnlyPresentation(bool enabled)
+{
+    if (m_videoOnlyPresentation == enabled) return;
+    m_videoOnlyPresentation = enabled;
+    update();
+}
+
 void ViewerWidget::setPlaceholderText(const QString& text)
 {
     m_placeholderText = text;
@@ -194,7 +210,8 @@ void ViewerWidget::paintEvent(QPaintEvent* event)
     QElapsedTimer paintTimer;
     paintTimer.start();
     QPainter painter(this);
-    painter.fillRect(event->rect(), theme::viewerBackground());
+    painter.fillRect(event->rect(), m_videoOnlyPresentation ? Qt::black
+                                                            : theme::viewerBackground());
 
     switch (m_state) {
     case State::Loaded:
@@ -220,7 +237,7 @@ void ViewerWidget::paintEvent(QPaintEvent* event)
         break;
     }
 
-    if (!m_cornerLabel.isEmpty()) {
+    if (!m_videoOnlyPresentation && !m_cornerLabel.isEmpty()) {
         painter.setPen(theme::textSecondary());
         QFont font = painter.font();
         font.setBold(true);

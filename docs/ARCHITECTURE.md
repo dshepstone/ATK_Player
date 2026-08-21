@@ -352,6 +352,12 @@ remain the registry-backed Viewer Fit and Viewer 100% commands; `F` remains
 exclusively Timeline Fit Entire Clip. Painting uses smooth minification through
 100% and pixel-oriented sampling above 100%.
 
+Video Full Screen temporarily reparents this same `ViewerWidget` into a
+frameless `VideoFullscreenWindow`; it does not create another controller,
+decoder, audio output or frame-delivery path. The normal transform is captured,
+fullscreen presentation starts in Fit on true black, and the captured zoom/pan
+is restored when the viewer returns to the unchanged main-window layout.
+
 ### `src/timeline/` — where we are and what is marked
 
 `TimelineModel` holds the extent, playhead, bookmarks and the active animation

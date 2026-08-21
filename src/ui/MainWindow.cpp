@@ -20,6 +20,7 @@
 #include "ui/TimelineRangeSlider.h"
 #include "ui/TransportControls.h"
 #include "ui/ViewerWidget.h"
+#include "ui/VideoFullscreenWindow.h"
 #include "ui/commands/CommandRegistry.h"
 
 #include <QFileDialog>
@@ -33,6 +34,7 @@
 #include <QStyle>
 #include <QWidgetAction>
 #include <QThread>
+#include <QWindow>
 
 #include <QAction>
 #include <QCloseEvent>
@@ -115,6 +117,7 @@ MainWindow::MainWindow(const QString& settingsIniPath, QWidget* parent)
 
 MainWindow::~MainWindow()
 {
+    exitVideoFullScreen();
     saveApplicationLayout();
     if (m_probeThread) {
         m_probeThread->quit();
@@ -182,6 +185,7 @@ void MainWindow::buildWidgets()
     // --- Central column: viewer, timeline, transport ----------------------
     auto* central = new QWidget(this);
     auto* column = new QVBoxLayout(central);
+    m_centralLayout = column;
     column->setContentsMargins(0, 0, 0, 0);
     column->setSpacing(0);
 
@@ -331,6 +335,9 @@ void MainWindow::buildMenus()
     if (QAction* muteAction = m_commands->action(CommandId::ToggleMute)) {
         muteAction->setChecked(m_settings->muted());
     }
+    if (QAction* videoFullScreen = m_commands->action(CommandId::ToggleVideoFullScreen)) {
+        videoFullScreen->setEnabled(false);
+    }
 }
 
 void MainWindow::connectSignals()
@@ -383,6 +390,7 @@ void MainWindow::connectSignals()
 
     connect(m_playback.get(), &playback::PlaybackController::mediaClosed,
             this, [this] {
+                exitVideoFullScreen();
                 m_viewer->setEmpty();
                 m_viewer->setSourceAspectRatio(0.0);
                 m_sources->clearCurrentMedia();
@@ -637,6 +645,10 @@ void MainWindow::onCommand(CommandId id, bool checked)
         } else {
             showNormal();
         }
+        return;
+    case CommandId::ToggleVideoFullScreen:
+        if (checked) enterVideoFullScreen();
+        else exitVideoFullScreen();
         return;
     case CommandId::ToggleSourcesPanel:
         m_sourcesDock->setVisible(checked);
@@ -893,6 +905,10 @@ void MainWindow::updateTransportEnabled()
     const bool hasExtent = m_timeline->frameCount() > 0;
     const bool notErrored = m_playback->state() != playback::PlayerState::Error;
     const bool enabled = hasExtent && notErrored;
+
+    if (QAction* action = m_commands->action(CommandId::ToggleVideoFullScreen)) {
+        action->setEnabled(m_playback->hasMedia());
+    }
 
     for (const commands::CommandId id : { commands::CommandId::PlayPause,
                                           commands::CommandId::Stop,
@@ -1286,8 +1302,83 @@ bool MainWindow::saveProjectAs()
 
 void MainWindow::closeEvent(QCloseEvent* event)
 {
+    if (isVideoFullScreen()) exitVideoFullScreen();
     if (confirmDiscardChanges()) { saveApplicationLayout(); event->accept(); }
     else event->ignore();
+}
+
+bool MainWindow::isVideoFullScreen() const
+{
+    return m_videoFullscreenWindow && m_videoFullscreenWindow->isVisible();
+}
+
+void MainWindow::enterVideoFullScreen()
+{
+    QAction* action = m_commands->action(CommandId::ToggleVideoFullScreen);
+    if (isVideoFullScreen() || !m_playback->hasMedia()) {
+        if (action) {
+            QSignalBlocker blocker(action);
+            action->setChecked(isVideoFullScreen());
+        }
+        return;
+    }
+
+    m_normalViewerTransform = m_viewer->transform();
+    m_normalViewerSize = m_viewer->size();
+    m_centralLayout->removeWidget(m_viewer);
+
+    if (!m_videoFullscreenWindow) {
+        m_videoFullscreenWindow = new VideoFullscreenWindow(this);
+        m_videoFullscreenWindow->installCommandActions(m_commands->allActions());
+        connect(m_videoFullscreenWindow, &VideoFullscreenWindow::exitRequested,
+                this, &MainWindow::exitVideoFullScreen);
+    }
+
+    QScreen* targetScreen = m_viewer->screen();
+    if (!targetScreen) targetScreen = screen();
+    m_viewer->setVideoOnlyPresentation(true);
+    m_videoFullscreenWindow->hostViewer(m_viewer);
+    m_viewer->fitImage();
+    m_videoFullscreenWindow->winId();
+    if (targetScreen && m_videoFullscreenWindow->windowHandle()) {
+        m_videoFullscreenWindow->windowHandle()->setScreen(targetScreen);
+    }
+    m_videoFullscreenWindow->showFullScreen();
+    m_videoFullscreenWindow->activateWindow();
+    m_viewer->setFocus(Qt::ShortcutFocusReason);
+
+    if (action) {
+        QSignalBlocker blocker(action);
+        action->setChecked(true);
+    }
+}
+
+void MainWindow::exitVideoFullScreen()
+{
+    QAction* action = m_commands ? m_commands->action(CommandId::ToggleVideoFullScreen) : nullptr;
+    if (!isVideoFullScreen()) {
+        if (action) {
+            QSignalBlocker blocker(action);
+            action->setChecked(false);
+        }
+        return;
+    }
+
+    m_videoFullscreenWindow->releaseViewer();
+    m_videoFullscreenWindow->hide();
+    m_viewer->setParent(centralWidget());
+    m_viewer->resize(m_normalViewerSize);
+    m_centralLayout->insertWidget(0, m_viewer, 1);
+    m_centralLayout->activate();
+    m_viewer->setVideoOnlyPresentation(false);
+    m_viewer->restoreTransform(m_normalViewerTransform);
+    m_viewer->show();
+    activateWindow();
+
+    if (action) {
+        QSignalBlocker blocker(action);
+        action->setChecked(false);
+    }
 }
 
 void MainWindow::updateWindowTitle()

@@ -4,6 +4,7 @@
 #include "core/commands/CommandId.h"
 #include "media/MediaMetadata.h"
 #include "playback/PlaybackController.h"
+#include "ui/ViewerTransform.h"
 
 #include <QMainWindow>
 #include <QStringList>
@@ -18,6 +19,7 @@ class QSlider;
 class QCloseEvent;
 class QMenu;
 class QThread;
+class QVBoxLayout;
 
 namespace atk::api { class ApiServer; }
 namespace atk::playback { class CompareSession; }
@@ -37,6 +39,7 @@ class TimelineWidget;
 class TimelineRangeSlider;
 class TransportControls;
 class ViewerWidget;
+class VideoFullscreenWindow;
 
 /// The application window.
 ///
@@ -76,6 +79,9 @@ public:
     project::Project* project() const { return m_project.get(); }
     bool openProjectFile(const QString& path);
     void reopenLastProjectIfEnabled();
+    bool isVideoFullScreen() const;
+    void enterVideoFullScreen();
+    void exitVideoFullScreen();
 
 protected:
     void closeEvent(QCloseEvent* event) override;
@@ -131,6 +137,10 @@ private:
     BookmarkPanel* m_bookmarks = nullptr;
 
     ViewerWidget* m_viewer = nullptr;
+    VideoFullscreenWindow* m_videoFullscreenWindow = nullptr;
+    QVBoxLayout* m_centralLayout = nullptr;
+    ViewerTransform m_normalViewerTransform;
+    QSize m_normalViewerSize;
     TimelineWidget* m_timelineWidget = nullptr;
     TimelineRangeSlider* m_timelineRangeSlider = nullptr;
     QSpinBox* m_reviewStartFrame = nullptr;

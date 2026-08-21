@@ -20,6 +20,7 @@ set(ATK_UI_SOURCES
     TransportControls.cpp
     ViewerTransform.cpp
     ViewerWidget.cpp
+    VideoFullscreenWindow.cpp
     commands/CommandRegistry.cpp
     atk_resources.qrc
 )
@@ -38,6 +39,7 @@ set(ATK_UI_HEADERS
     TransportControls.h
     ViewerTransform.h
     ViewerWidget.h
+    VideoFullscreenWindow.h
     commands/CommandRegistry.h
 )
 

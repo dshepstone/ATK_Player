@@ -63,6 +63,7 @@ enum class CommandId {
     ZoomFit,
     ZoomActualSize,
     ToggleFullScreen,
+    ToggleVideoFullScreen,
     ToggleSourcesPanel,
     ToggleBookmarksPanel,
     TimelineZoomIn,

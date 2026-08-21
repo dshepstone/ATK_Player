@@ -69,6 +69,9 @@ public:
     void resetNavigationToFit();
 
     const ViewerTransform& transform() const { return m_transform; }
+    void restoreTransform(const ViewerTransform& transform);
+    void setVideoOnlyPresentation(bool enabled);
+    bool videoOnlyPresentation() const { return m_videoOnlyPresentation; }
 
     /// Headline shown when there is nothing to display.
     void setPlaceholderText(const QString& text);
@@ -107,6 +110,7 @@ private:
     QString m_errorMessage;
     double m_sourceAspectRatio = 0.0;
     ViewerTransform m_transform;
+    bool m_videoOnlyPresentation = false;
     bool m_middlePanning = false;
     QPointF m_lastPanPosition;
     QString m_placeholderText;
