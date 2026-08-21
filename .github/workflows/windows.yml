@@ -115,8 +115,7 @@ jobs:
       # binary test media is committed and no audio device is needed -- audio is
       # only decoded and resampled here, never played.
       - name: Test
-        run: ctest --preset windows-debug --output-on-failure
-        if: matrix.preset == 'windows-debug'
+        run: ctest --preset ${{ matrix.preset }} --output-on-failure
 
       # Proves the executable is actually runnable, not merely linkable -- a
       # missing Qt plugin only shows up at startup, never at link time.
