@@ -6,22 +6,9 @@
 #include <QAction>
 #include <QHBoxLayout>
 #include <QToolButton>
+#include <QStyle>
 
 namespace atk::ui {
-namespace {
-
-// Glyphs stand in for icons until artwork lands in assets/icons (milestone M2).
-// Chosen from ranges present in the default Windows, macOS and Linux UI fonts.
-const QString kGlyphFirst    = QStringLiteral("|◀◀");
-const QString kGlyphPrevious = QStringLiteral("◀|");
-const QString kGlyphPlay     = QStringLiteral("▶");
-const QString kGlyphPause    = QStringLiteral("❘❘");
-const QString kGlyphNext     = QStringLiteral("|▶");
-const QString kGlyphLast     = QStringLiteral("▶▶|");
-const QString kGlyphLoop     = QStringLiteral("↻");
-
-} // namespace
-
 TransportControls::TransportControls(CommandRegistry* registry, QWidget* parent)
     : QWidget(parent)
     , m_registry(registry)
@@ -30,19 +17,27 @@ TransportControls::TransportControls(CommandRegistry* registry, QWidget* parent)
     layout->setContentsMargins(8, 6, 8, 6);
     layout->setSpacing(4);
 
-    layout->addStretch(1);
-    layout->addWidget(makeCommandButton(commands::CommandId::FirstFrame,    kGlyphFirst,    tr("Jump to first frame")));
-    layout->addWidget(makeCommandButton(commands::CommandId::PreviousFrame, kGlyphPrevious, tr("Previous frame")));
+    m_playIcon = style()->standardIcon(QStyle::SP_MediaPlay);
+    m_pauseIcon = style()->standardIcon(QStyle::SP_MediaPause);
 
-    m_playPauseButton = makeCommandButton(commands::CommandId::PlayPause, kGlyphPlay, tr("Play"));
+    layout->addStretch(1);
+    layout->addWidget(makeCommandButton(commands::CommandId::FirstFrame,
+        style()->standardIcon(QStyle::SP_MediaSkipBackward), tr("Jump to first frame")));
+    layout->addWidget(makeCommandButton(commands::CommandId::PreviousFrame,
+        style()->standardIcon(QStyle::SP_MediaSeekBackward), tr("Previous frame")));
+
+    m_playPauseButton = makeCommandButton(commands::CommandId::PlayPause, m_playIcon, tr("Play"));
     layout->addWidget(m_playPauseButton);
 
-    layout->addWidget(makeCommandButton(commands::CommandId::NextFrame, kGlyphNext, tr("Next frame")));
-    layout->addWidget(makeCommandButton(commands::CommandId::LastFrame, kGlyphLast, tr("Jump to last frame")));
+    layout->addWidget(makeCommandButton(commands::CommandId::NextFrame,
+        style()->standardIcon(QStyle::SP_MediaSeekForward), tr("Next frame")));
+    layout->addWidget(makeCommandButton(commands::CommandId::LastFrame,
+        style()->standardIcon(QStyle::SP_MediaSkipForward), tr("Jump to last frame")));
 
     // Loop is a mode rather than a transport move, so it sits apart.
     layout->addSpacing(14);
-    layout->addWidget(makeCommandButton(commands::CommandId::ToggleLoop, kGlyphLoop, tr("Loop playback")));
+    layout->addWidget(makeCommandButton(commands::CommandId::ToggleLoop,
+        style()->standardIcon(QStyle::SP_BrowserReload), tr("Loop playback")));
 
     layout->addStretch(1);
 
@@ -52,11 +47,12 @@ TransportControls::TransportControls(CommandRegistry* registry, QWidget* parent)
 TransportControls::~TransportControls() = default;
 
 QToolButton* TransportControls::makeCommandButton(commands::CommandId id,
-                                             const QString& glyph,
+                                             const QIcon& icon,
                                              const QString& tooltip)
 {
     auto* button = new QToolButton(this);
-    button->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    button->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    button->setIconSize(QSize(18, 18));
     // Transport buttons must not steal focus, or Space would re-trigger the
     // focused button instead of running the Play/Pause command.
     button->setFocusPolicy(Qt::NoFocus);
@@ -64,21 +60,21 @@ QToolButton* TransportControls::makeCommandButton(commands::CommandId id,
     QAction* action = m_registry != nullptr ? m_registry->action(id) : nullptr;
     if (action != nullptr) {
         button->setDefaultAction(action);
+        action->setIcon(icon);
 
         // setDefaultAction() keeps the button text in sync with the action, and
         // the action carries menu wording. Re-apply the glyph whenever the
         // action changes so a shortcut edit cannot replace the icon with words.
-        const auto applyGlyph = [button, glyph, tooltip, action] {
+        const auto refreshTooltip = [button, tooltip, action] {
             const QString shortcut = action->shortcut().toString(QKeySequence::NativeText);
-            button->setText(glyph);
             button->setToolTip(shortcut.isEmpty()
                                    ? tooltip
                                    : QStringLiteral("%1 (%2)").arg(tooltip, shortcut));
         };
-        connect(action, &QAction::changed, button, applyGlyph);
-        applyGlyph();
+        connect(action, &QAction::changed, button, refreshTooltip);
+        refreshTooltip();
     } else {
-        button->setText(glyph);
+        button->setIcon(icon);
         button->setToolTip(tooltip);
     }
 
@@ -91,7 +87,7 @@ void TransportControls::setPlaying(bool playing)
         return;
     }
 
-    m_playPauseButton->setText(playing ? kGlyphPause : kGlyphPlay);
+    m_playPauseButton->setIcon(playing ? m_pauseIcon : m_playIcon);
 
     const QString label = playing ? tr("Pause") : tr("Play");
     QAction* action = m_playPauseButton->defaultAction();

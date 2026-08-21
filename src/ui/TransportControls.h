@@ -3,6 +3,7 @@
 #include "core/commands/CommandId.h"
 
 #include <QString>
+#include <QIcon>
 #include <QWidget>
 
 class QToolButton;
@@ -30,11 +31,13 @@ public:
 
 private:
     QToolButton* makeCommandButton(commands::CommandId id,
-                                   const QString& glyph,
+                                   const QIcon& icon,
                                    const QString& tooltip);
 
     CommandRegistry* m_registry = nullptr;
     QToolButton* m_playPauseButton = nullptr;
+    QIcon m_playIcon;
+    QIcon m_pauseIcon;
 };
 
 } // namespace atk::ui

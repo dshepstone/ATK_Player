@@ -31,6 +31,9 @@ constexpr std::array kCommands{
     CommandDefinition{ CommandId::CloseSource,        "file.closeSource",      QT_TRANSLATE_NOOP("Command", "Close Source"),         C::File,     "Ctrl+W",       false },
     CommandDefinition{ CommandId::Quit,               "file.quit",             QT_TRANSLATE_NOOP("Command", "Quit"),                 C::File,     "Ctrl+Q",       false },
 
+    // Edit
+    CommandDefinition{ CommandId::Preferences,        "edit.preferences",      QT_TRANSLATE_NOOP("Command", "Preferences..."),       C::Edit,     "Ctrl+,",       false },
+
     // Playback
     CommandDefinition{ CommandId::PlayPause,          "playback.playPause",    QT_TRANSLATE_NOOP("Command", "Play / Pause"),         C::Playback, "Space",        false },
     CommandDefinition{ CommandId::Stop,               "playback.stop",         QT_TRANSLATE_NOOP("Command", "Stop"),                 C::Playback, "Esc",          false },
@@ -99,6 +102,7 @@ QString categoryTitle(CommandCategory category)
 {
     switch (category) {
     case CommandCategory::File:     return QCoreApplication::translate("Command", "&File");
+    case CommandCategory::Edit:     return QCoreApplication::translate("Command", "&Edit");
     case CommandCategory::Playback: return QCoreApplication::translate("Command", "&Playback");
     case CommandCategory::Audio:    return QCoreApplication::translate("Command", "&Audio");
     case CommandCategory::View:     return QCoreApplication::translate("Command", "&View");

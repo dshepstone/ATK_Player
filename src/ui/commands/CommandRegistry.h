@@ -49,6 +49,9 @@ public:
     /// TODO(M2): call this from preferences once the shortcut editor exists.
     void applyShortcutOverrides(const QHash<QString, QString>& overrides);
 
+protected:
+    bool eventFilter(QObject* watched, QEvent* event) override;
+
 signals:
     /// Emitted for every command. `checked` is meaningful only for checkable
     /// commands such as Loop.

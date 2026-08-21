@@ -37,6 +37,7 @@ set(ATK_FFMPEG_TEST_SOURCES
 )
 
 set(ATK_UI_TEST_SOURCES
+    tst_settings.cpp
     tst_bookmarkeditor.cpp
     tst_timelinewidgets.cpp
     tst_viewertransform.cpp

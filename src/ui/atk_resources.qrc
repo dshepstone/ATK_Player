@@ -1,5 +1,6 @@
 <RCC>
-  <qresource prefix="/icons">
-    <file alias="ATK_Player_Icon.png">../../assets/icons/ATK_Player_Icon.png</file>
-  </qresource>
+    <qresource prefix="/icons">
+        <file alias="ATK_Player_Icon.png">../../assets/icons/ATK_Player_Icon.png</file>
+        <file alias="bookmark-add.svg">../../assets/icons/bookmark-add.svg</file>
+    </qresource>
 </RCC>

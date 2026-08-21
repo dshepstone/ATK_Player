@@ -12,6 +12,7 @@ namespace atk::commands {
 /// table that supplies shortcuts, so the two can never drift apart.
 enum class CommandCategory {
     File,
+    Edit,
     Playback,
     Audio,
     View,

@@ -3,14 +3,22 @@
 #include "core/Logging.h"
 
 #include <QAction>
+#include <QAbstractSpinBox>
+#include <QApplication>
 #include <QCoreApplication>
+#include <QKeyEvent>
 #include <QKeySequence>
+#include <QKeySequenceEdit>
+#include <QLineEdit>
+#include <QPlainTextEdit>
+#include <QTextEdit>
 
 namespace atk::ui {
 
 CommandRegistry::CommandRegistry(QObject* parent)
     : QObject(parent)
 {
+    if (qApp) qApp->installEventFilter(this);
     for (const commands::CommandDefinition& definition : commands::allCommands()) {
         auto* action = new QAction(
             QCoreApplication::translate("Command", definition.displayName), this);
@@ -35,6 +43,32 @@ CommandRegistry::CommandRegistry(QObject* parent)
     }
 
     qCDebug(log::ui) << "Command registry built with" << m_actions.size() << "commands";
+}
+
+bool CommandRegistry::eventFilter(QObject* watched, QEvent* event)
+{
+    Q_UNUSED(watched);
+    if (event->type() != QEvent::ShortcutOverride) return false;
+    QWidget* focus = QApplication::focusWidget();
+    const bool editing = qobject_cast<QLineEdit*>(focus)
+        || qobject_cast<QTextEdit*>(focus)
+        || qobject_cast<QPlainTextEdit*>(focus)
+        || qobject_cast<QAbstractSpinBox*>(focus)
+        || qobject_cast<QKeySequenceEdit*>(focus);
+    if (!editing) return false;
+    auto* key = static_cast<QKeyEvent*>(event);
+    const Qt::KeyboardModifiers modifiers = key->modifiers()
+        & ~(Qt::KeypadModifier | Qt::GroupSwitchModifier);
+    const bool typing = modifiers == Qt::NoModifier || modifiers == Qt::ShiftModifier;
+    const QKeySequence sequence(key->keyCombination());
+    const bool standardEdit = sequence.matches(QKeySequence::Copy) == QKeySequence::ExactMatch
+        || sequence.matches(QKeySequence::Paste) == QKeySequence::ExactMatch
+        || sequence.matches(QKeySequence::Cut) == QKeySequence::ExactMatch
+        || sequence.matches(QKeySequence::SelectAll) == QKeySequence::ExactMatch
+        || sequence.matches(QKeySequence::Undo) == QKeySequence::ExactMatch
+        || sequence.matches(QKeySequence::Redo) == QKeySequence::ExactMatch;
+    if (typing || standardEdit) event->accept();
+    return false;
 }
 
 QAction* CommandRegistry::action(commands::CommandId id) const

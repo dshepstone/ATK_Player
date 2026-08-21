@@ -12,6 +12,7 @@
 class QDockWidget;
 class QLabel;
 class QSpinBox;
+class QSlider;
 
 namespace atk::api { class ApiServer; }
 namespace atk::playback { class CompareSession; }
@@ -21,7 +22,9 @@ namespace atk::timeline { class TimelineModel; }
 namespace atk::ui {
 
 class CommandRegistry;
+class ApplicationSettings;
 class BookmarkPanel;
+class PreferencesDialog;
 class SourcesPanel;
 class StatusInfoBar;
 class TimelineWidget;
@@ -43,6 +46,8 @@ class MainWindow : public QMainWindow {
 
 public:
     explicit MainWindow(QWidget* parent = nullptr);
+    /// Isolated settings backend for deterministic UI tests.
+    explicit MainWindow(const QString& settingsIniPath, QWidget* parent = nullptr);
     ~MainWindow() override;
 
 private:
@@ -76,7 +81,13 @@ private:
 
     void updateWindowTitle();
     void activateBookmark(quint64 id);
+    void openPreferences();
+    void applyPreferences(const PreferencesDialog& dialog);
+    void restoreApplicationLayout();
+    void saveApplicationLayout();
 
+
+    std::unique_ptr<ApplicationSettings> m_settings;
 
     // Session models. Declared before the widgets that observe them so
     // destruction runs in the safe order.
@@ -94,12 +105,14 @@ private:
     TimelineRangeSlider* m_timelineRangeSlider = nullptr;
     QSpinBox* m_reviewStartFrame = nullptr;
     QSpinBox* m_reviewEndFrame = nullptr;
+    QSlider* m_volumeSlider = nullptr;
     TransportControls* m_transport = nullptr;
     SourcesPanel* m_sources = nullptr;
     StatusInfoBar* m_statusInfo = nullptr;
     QLabel* m_viewerZoomStatus = nullptr;
     QDockWidget* m_sourcesDock = nullptr;
     QDockWidget* m_bookmarksDock = nullptr;
+    bool m_skipLayoutSaveOnce = false;
 
     /// Directory the last Open Media dialog was pointed at.
     QString m_lastMediaDirectory;

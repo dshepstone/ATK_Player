@@ -7,7 +7,10 @@
 #include "project/Project.h"
 #include "project/ProjectSerializer.h"
 #include "timeline/TimelineModel.h"
+#include "ui/ApplicationSettings.h"
 #include "ui/BookmarkPanel.h"
+#include "ui/PreferencesDialog.h"
+#include "ui/Resources.h"
 #include "ui/SourcesPanel.h"
 #include "ui/StatusInfoBar.h"
 #include "ui/Theme.h"
@@ -18,11 +21,14 @@
 #include "ui/commands/CommandRegistry.h"
 
 #include <QFileDialog>
+#include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QIcon>
+#include <QKeySequence>
 #include <QLabel>
 #include <QSlider>
 #include <QSpinBox>
+#include <QStyle>
 #include <QWidgetAction>
 
 #include <QAction>
@@ -32,6 +38,7 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QScreen>
 #include <QSignalBlocker>
 #include <QStatusBar>
 #include <QVBoxLayout>
@@ -76,8 +83,16 @@ constexpr int kPlaceholderFps = 24;
 } // namespace
 
 MainWindow::MainWindow(QWidget* parent)
+    : MainWindow(QString(), parent)
+{
+}
+
+MainWindow::MainWindow(const QString& settingsIniPath, QWidget* parent)
     : QMainWindow(parent)
 {
+    ensureResourcesInitialized();
+    if (!settingsIniPath.isEmpty())
+        m_settings = std::make_unique<ApplicationSettings>(settingsIniPath);
     setObjectName(QStringLiteral("AtkMainWindow"));
     setWindowIcon(QIcon(QStringLiteral(":/icons/ATK_Player_Icon.png")));
 
@@ -89,16 +104,24 @@ MainWindow::MainWindow(QWidget* parent)
 
     updateWindowTitle();
     resize(1280, 800);
+    restoreApplicationLayout();
 
     qCInfo(log::ui) << "Main window constructed";
 }
 
-MainWindow::~MainWindow() = default;
+MainWindow::~MainWindow()
+{
+    saveApplicationLayout();
+}
 
 void MainWindow::buildModels()
 {
+    if (!m_settings) m_settings = std::make_unique<ApplicationSettings>();
     m_timeline = std::make_unique<timeline::TimelineModel>();
     m_playback = std::make_unique<playback::PlaybackController>(m_timeline.get());
+    m_playback->setAudioScrubEnabled(m_settings->audioScrubEnabled());
+    m_playback->setFrameStepAudioEnabled(m_settings->frameStepAudioEnabled());
+    m_playback->setVolume(m_settings->volume());
     m_project  = std::make_unique<project::Project>();
     m_compare  = std::make_unique<playback::CompareSession>();
     m_apiServer = std::make_unique<api::ApiServer>(m_playback.get(), m_timeline.get());
@@ -106,6 +129,7 @@ void MainWindow::buildModels()
     // The registry is parented to the window, so its QActions live exactly as
     // long as the widgets that reference them.
     m_commands = new CommandRegistry(this);
+    m_commands->applyShortcutOverrides(m_settings->shortcutOverrides());
 
     // Give the transport something to move against; see the note above.
     installPlaceholderTimeline();
@@ -205,11 +229,19 @@ void MainWindow::buildMenus()
 
     const commands::CommandCategory categories[] = {
         commands::CommandCategory::File,
+        commands::CommandCategory::Edit,
         commands::CommandCategory::Playback,
         commands::CommandCategory::Audio,
         commands::CommandCategory::View,
         commands::CommandCategory::Help,
     };
+
+    m_commands->action(CommandId::OpenMedia)->setIcon(style()->standardIcon(QStyle::SP_DialogOpenButton));
+    m_commands->action(CommandId::Preferences)->setIcon(style()->standardIcon(QStyle::SP_FileDialogDetailedView));
+    m_commands->action(CommandId::AddBookmark)->setIcon(QIcon(QStringLiteral(":/icons/bookmark-add.svg")));
+    m_commands->action(CommandId::TimelineZoomFit)->setIcon(style()->standardIcon(QStyle::SP_DesktopIcon));
+    m_commands->action(CommandId::ZoomFit)->setIcon(style()->standardIcon(QStyle::SP_TitleBarMaxButton));
+    m_commands->action(CommandId::ZoomActualSize)->setIcon(style()->standardIcon(QStyle::SP_FileDialogContentsView));
 
     for (const commands::CommandCategory category : categories) {
         QMenu* menu = menuBar()->addMenu(commands::categoryTitle(category));
@@ -237,7 +269,14 @@ void MainWindow::buildMenus()
         bookmarksAction->setChecked(true);
     }
     if (QAction* snapAction = m_commands->action(CommandId::ToggleBookmarkSnap)) {
-        snapAction->setChecked(true);
+        snapAction->setChecked(m_settings->bookmarkSnapEnabled());
+        m_timelineWidget->setBookmarkSnapEnabled(m_settings->bookmarkSnapEnabled());
+    }
+    if (QAction* scrubAction = m_commands->action(CommandId::ToggleAudioScrub)) {
+        scrubAction->setChecked(m_settings->audioScrubEnabled());
+    }
+    if (QAction* stepAction = m_commands->action(CommandId::ToggleFrameStepAudio)) {
+        stepAction->setChecked(m_settings->frameStepAudioEnabled());
     }
 }
 
@@ -481,6 +520,7 @@ void MainWindow::onCommand(CommandId id, bool checked)
     }
     case CommandId::ToggleBookmarkSnap:
         m_timelineWidget->setBookmarkSnapEnabled(checked);
+        m_settings->setBookmarkSnapEnabled(checked);
         return;
 
     // --- View: fully wired ------------------------------------------------
@@ -514,15 +554,18 @@ void MainWindow::onCommand(CommandId id, bool checked)
     case CommandId::Quit:
         close();
         return;
+    case CommandId::Preferences:
+        openPreferences();
+        return;
     case CommandId::About:
         QMessageBox::about(
             this,
             tr("About ATK Player"),
             tr("<h3>%1 %2</h3>"
-               "<p>An animation playback and review application.</p>"
-               "<p>This is a development build. Media playback, projects and the "
-               "external API are not implemented yet -- see the roadmap in the "
-               "repository for the planned milestones.</p>")
+               "<p><b>Animation Review Player</b></p>"
+               "<p>Frame-accurate playback, synchronized audio, timeline review "
+               "ranges, bookmarks and animator-focused navigation.</p>"
+               "<p>This is an independent open-source development build.</p>")
                 .arg(QString::fromLatin1(version::kApplicationName),
                      QString::fromLatin1(version::kString)));
         return;
@@ -536,11 +579,13 @@ void MainWindow::onCommand(CommandId id, bool checked)
         return;
     case CommandId::ToggleAudioScrub:
         m_playback->setAudioScrubEnabled(checked);
+        m_settings->setAudioScrubEnabled(checked);
         statusBar()->showMessage(
             checked ? tr("Audio scrubbing on") : tr("Audio scrubbing off"), 1500);
         return;
     case CommandId::ToggleFrameStepAudio:
         m_playback->setFrameStepAudioEnabled(checked);
+        m_settings->setFrameStepAudioEnabled(checked);
         statusBar()->showMessage(checked ? tr("Frame-step audio on") : tr("Frame-step audio off"), 1500);
         return;
 
@@ -551,11 +596,15 @@ void MainWindow::onCommand(CommandId id, bool checked)
     }
     case CommandId::VolumeUp:
         m_playback->setVolume(m_playback->volume() + 0.1);
+        if (m_volumeSlider) m_volumeSlider->setValue(qRound(m_playback->volume() * 100));
+        m_settings->setVolume(m_playback->volume());
         statusBar()->showMessage(
             tr("Volume %1%").arg(qRound(m_playback->volume() * 100)), 1500);
         return;
     case CommandId::VolumeDown:
         m_playback->setVolume(m_playback->volume() - 0.1);
+        if (m_volumeSlider) m_volumeSlider->setValue(qRound(m_playback->volume() * 100));
+        m_settings->setVolume(m_playback->volume());
         statusBar()->showMessage(
             tr("Volume %1%").arg(qRound(m_playback->volume() * 100)), 1500);
         return;
@@ -607,6 +656,82 @@ void MainWindow::activateBookmark(quint64 id)
         m_timeline->ensureFrameVisible(selected.frame);
         m_playback->seekFrame(selected.frame);
     }
+}
+
+void MainWindow::openPreferences()
+{
+    PreferencesDialog dialog(*m_settings, *m_commands, this);
+    if (dialog.exec() == QDialog::Accepted) applyPreferences(dialog);
+}
+
+void MainWindow::applyPreferences(const PreferencesDialog& dialog)
+{
+    if (dialog.resetAllRequested()) {
+        m_settings->resetAll();
+        m_skipLayoutSaveOnce = true;
+        m_playback->setVolume(ApplicationSettings::defaultVolume());
+        if (m_volumeSlider) m_volumeSlider->setValue(100);
+    }
+    m_settings->setRestoreWindowLayout(dialog.restoreWindowLayout());
+    m_settings->setAudioScrubEnabled(dialog.audioScrubEnabled());
+    m_settings->setFrameStepAudioEnabled(dialog.frameStepAudioEnabled());
+    m_settings->setBookmarkSnapEnabled(dialog.bookmarkSnapEnabled());
+
+    const auto setToggle = [this](CommandId id, bool checked) {
+        if (QAction* action = m_commands->action(id)) {
+            QSignalBlocker blocker(action);
+            action->setChecked(checked);
+        }
+    };
+    setToggle(CommandId::ToggleAudioScrub, dialog.audioScrubEnabled());
+    setToggle(CommandId::ToggleFrameStepAudio, dialog.frameStepAudioEnabled());
+    setToggle(CommandId::ToggleBookmarkSnap, dialog.bookmarkSnapEnabled());
+    m_playback->setAudioScrubEnabled(dialog.audioScrubEnabled());
+    m_playback->setFrameStepAudioEnabled(dialog.frameStepAudioEnabled());
+    m_timelineWidget->setBookmarkSnapEnabled(dialog.bookmarkSnapEnabled());
+
+    for (const commands::CommandDefinition& definition : commands::allCommands()) {
+        const QString key = QString::fromLatin1(definition.key);
+        const QString effective = dialog.shortcuts().value(key);
+        const QString defaultValue = definition.defaultShortcut
+            ? QKeySequence(QString::fromLatin1(definition.defaultShortcut)).toString(QKeySequence::PortableText)
+            : QString();
+        m_commands->setShortcut(definition.id,
+            QKeySequence::fromString(effective, QKeySequence::PortableText));
+        if (effective == defaultValue) m_settings->resetShortcutOverride(key);
+        else m_settings->setShortcutOverride(key, effective);
+    }
+    m_settings->sync();
+}
+
+void MainWindow::restoreApplicationLayout()
+{
+    if (!m_settings->restoreWindowLayout()) return;
+    const QByteArray geometry = m_settings->windowGeometry();
+    if (!geometry.isEmpty()) restoreGeometry(geometry);
+    bool visible = false;
+    for (QScreen* screen : QGuiApplication::screens())
+        visible = visible || screen->availableGeometry().intersects(frameGeometry());
+    if (!visible) {
+        resize(1280, 800);
+        if (QScreen* screen = QGuiApplication::primaryScreen())
+            move(screen->availableGeometry().center() - rect().center());
+    }
+    const QByteArray state = m_settings->windowState();
+    if (!state.isEmpty() && !restoreState(state)) {
+        addDockWidget(Qt::LeftDockWidgetArea, m_sourcesDock);
+        addDockWidget(Qt::RightDockWidgetArea, m_bookmarksDock);
+    }
+}
+
+void MainWindow::saveApplicationLayout()
+{
+    if (!m_settings) return;
+    if (!m_skipLayoutSaveOnce) {
+        m_settings->setWindowGeometry(saveGeometry());
+        m_settings->setWindowState(saveState());
+    }
+    m_settings->sync();
 }
 
 void MainWindow::onPlayerStateChanged(playback::PlayerState state)
@@ -704,14 +829,15 @@ void MainWindow::buildAudioControls()
     label->setProperty("atkRole", "statusCaption");
     layout->addWidget(label);
 
-    auto* slider = new QSlider(Qt::Horizontal, container);
-    slider->setRange(0, 100);
-    slider->setValue(qRound(m_playback->volume() * 100));
-    slider->setFixedWidth(140);
-    layout->addWidget(slider);
+    m_volumeSlider = new QSlider(Qt::Horizontal, container);
+    m_volumeSlider->setRange(0, 100);
+    m_volumeSlider->setValue(qRound(m_playback->volume() * 100));
+    m_volumeSlider->setFixedWidth(140);
+    layout->addWidget(m_volumeSlider);
 
-    connect(slider, &QSlider::valueChanged, this, [this](int value) {
+    connect(m_volumeSlider, &QSlider::valueChanged, this, [this](int value) {
         m_playback->setVolume(value / 100.0);
+        m_settings->setVolume(value / 100.0);
     });
 
     auto* action = new QWidgetAction(audioMenu);

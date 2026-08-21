@@ -36,6 +36,7 @@ BookmarkPanel::BookmarkPanel(QWidget* parent) : QWidget(parent)
 
     m_addPoint = new QPushButton(tr("Add Point Bookmark (B)"), this);
     m_addPoint->setObjectName(QStringLiteral("AddPointBookmark"));
+    m_addPoint->setIcon(QIcon(QStringLiteral(":/icons/bookmark-add.svg")));
     layout->addWidget(m_addPoint);
 
     auto* creationGroup = new QGroupBox(tr("Create Range Bookmark"), this);
