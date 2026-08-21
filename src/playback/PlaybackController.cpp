@@ -391,13 +391,17 @@ void PlaybackController::requestFrameStepAudioAt(int64_t frame, bool reversed)
 void PlaybackController::requestReviewAudioAt(int64_t frame, bool reversed, bool timelineScrub)
 {
     if (!m_hasMedia || !m_metadata.hasAudio || !m_scrubAudio
-        || !m_scrubAudio->isOpen() || m_scrubAudio->isMuted()) return;
+        || m_scrubAudio->isMuted()) return;
     m_reviewAudioForScrub = timelineScrub;
     m_scrubAudioReversed = reversed;
     m_scrubAudioRequestNs = monotonicNowNs();
     const int64_t mediaUs = mediaTimeForFrame(frame);
     const quint64 sequence = ++m_scrubAudioSequence;
     emit reviewAudioRequested(mediaUs, reversed, sequence);
+    // Headless/test machines may have no output device. The logical request is
+    // still observable above, but there is deliberately no decode work when
+    // no sink can consume it.
+    if (!m_scrubAudio->isOpen()) return;
     emit requestScrubGrain(mediaUs,
                            audio::ScrubAudioEngine::kGrainDurationUs,
                            sequence, m_generations->currentSource());
