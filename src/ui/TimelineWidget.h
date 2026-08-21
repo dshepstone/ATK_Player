@@ -47,6 +47,10 @@ public:
     void zoomIn();
     void zoomOut();
     void fitEntire();
+    void setBookmarkSnapEnabled(bool enabled) { m_bookmarkSnapEnabled = enabled; }
+    bool isBookmarkSnapEnabled() const { return m_bookmarkSnapEnabled; }
+    int positionForFrame(int64_t frame) const { return xForFrame(frame); }
+    int64_t frameAtPosition(int x) const { return frameForX(x); }
 
     QSize sizeHint() const override;
     QSize minimumSizeHint() const override;
@@ -96,6 +100,7 @@ private:
     /// Frame the playhead should be drawn at: the scrub position while
     /// dragging, the model's current frame otherwise.
     int64_t displayFrame() const;
+    int64_t snapFrame(int64_t frame, int x) const;
 
     timeline::TimelineModel* m_model = nullptr;
     const media::WaveformData* m_waveform = nullptr;
@@ -118,6 +123,7 @@ private:
     ///
     /// -1 when not scrubbing.
     int64_t m_scrubFrame = -1;
+    bool m_bookmarkSnapEnabled = true;
 };
 
 } // namespace atk::ui

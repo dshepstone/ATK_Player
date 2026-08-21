@@ -22,6 +22,7 @@ class CommandRegistry;
 class SourcesPanel;
 class StatusInfoBar;
 class TimelineWidget;
+class TimelineRangeSlider;
 class TransportControls;
 class ViewerWidget;
 
@@ -84,6 +85,7 @@ private:
 
     ViewerWidget* m_viewer = nullptr;
     TimelineWidget* m_timelineWidget = nullptr;
+    TimelineRangeSlider* m_timelineRangeSlider = nullptr;
     TransportControls* m_transport = nullptr;
     SourcesPanel* m_sources = nullptr;
     StatusInfoBar* m_statusInfo = nullptr;

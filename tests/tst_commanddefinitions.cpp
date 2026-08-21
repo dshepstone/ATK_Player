@@ -125,6 +125,8 @@ void TestCommandDefinitions::m2CommandsHaveExpectedDefaults()
     QCOMPARE(QKeySequence(QString::fromLatin1(find(CommandId::TimelineZoomIn)->defaultShortcut)), QKeySequence("="));
     QCOMPARE(QKeySequence(QString::fromLatin1(find(CommandId::TimelineZoomOut)->defaultShortcut)), QKeySequence("-"));
     QCOMPARE(QKeySequence(QString::fromLatin1(find(CommandId::TimelineZoomFit)->defaultShortcut)), QKeySequence("F"));
+    QVERIFY(find(CommandId::ToggleBookmarkSnap)->checkable);
+    QCOMPARE(QKeySequence(QString::fromLatin1(find(CommandId::DeleteBookmark)->defaultShortcut)), QKeySequence("Ctrl+Shift+B"));
 }
 
 QTEST_GUILESS_MAIN(TestCommandDefinitions)

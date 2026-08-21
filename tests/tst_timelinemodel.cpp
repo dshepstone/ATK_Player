@@ -25,10 +25,12 @@ private slots:
     void effectiveBoundsFollowRange();
     void bookmarksStaySortedAndUnique();
     void bookmarkNavigation();
+    void bookmarkIdsDeleteAndSourceReset();
     void resetClearsEverything();
     void viewportZoomIsAnchorStableAndClamped();
     void viewportPansAndFollowsPlayhead();
     void viewportMappingIsDeterministic();
+    void viewportRangeEditsAnchorAndClamp();
 };
 
 void TestTimelineModel::startsEmpty()
@@ -195,8 +197,10 @@ void TestTimelineModel::bookmarksStaySortedAndUnique()
     QCOMPARE(model.bookmarks().size(), qsizetype(2));
     QCOMPARE(model.bookmarks().at(0).frame, qint64(10));
     QCOMPARE(model.bookmarks().at(1).frame, qint64(50));
-    // The later bookmark on frame 50 replaced the earlier one.
-    QCOMPARE(model.bookmarks().at(1).name, QStringLiteral("contact"));
+    // Adding again is a no-op: the stable marker is not replaced.
+    QVERIFY(model.bookmarks().at(1).id != 0);
+    QVERIFY(model.bookmarks().at(1).name.startsWith(QStringLiteral("Bookmark ")));
+    QCOMPARE(model.bookmarks().at(1).mediaTimeUs, qint64(0)); // no rate set
 }
 
 void TestTimelineModel::bookmarkNavigation()
@@ -212,14 +216,56 @@ void TestTimelineModel::bookmarkNavigation()
 
     QCOMPARE(model.nextBookmarkFrame(0), qint64(10));
     QCOMPARE(model.nextBookmarkFrame(10), qint64(30));
-    QCOMPARE(model.nextBookmarkFrame(70), qint64(-1));
+    QCOMPARE(model.nextBookmarkFrame(70), qint64(10));
 
     QCOMPARE(model.previousBookmarkFrame(99), qint64(70));
     QCOMPARE(model.previousBookmarkFrame(30), qint64(10));
-    QCOMPARE(model.previousBookmarkFrame(10), qint64(-1));
+    QCOMPARE(model.previousBookmarkFrame(10), qint64(70));
 
     QVERIFY(model.bookmarkAt(30) != nullptr);
     QVERIFY(model.bookmarkAt(31) == nullptr);
+}
+
+void TestTimelineModel::bookmarkIdsDeleteAndSourceReset()
+{
+    TimelineModel model;
+    model.setFrameRate(FrameRate{24000, 1001});
+    model.setFrameCount(100);
+    Bookmark bookmark;
+    bookmark.frame = 24;
+    model.addBookmark(bookmark);
+    QCOMPARE(model.bookmarks().size(), qsizetype(1));
+    const quint64 id = model.bookmarks().front().id;
+    QVERIFY(id != 0);
+    QCOMPARE(model.bookmarks().front().mediaTimeUs, model.mediaTimeForFrame(24));
+    model.addBookmark(bookmark);
+    QCOMPARE(model.bookmarks().front().id, id);
+    model.removeBookmark(id);
+    QVERIFY(model.bookmarks().isEmpty());
+
+    model.addBookmark(bookmark);
+    model.reset(); // source replacement/close boundary
+    QVERIFY(model.bookmarks().isEmpty());
+}
+
+void TestTimelineModel::viewportRangeEditsAnchorAndClamp()
+{
+    TimelineModel model;
+    model.setFrameCount(1000);
+    model.setViewportRange(100, 199);
+    QCOMPARE(model.viewport().startFrame(), qint64(100));
+    QCOMPARE(model.viewport().endFrame(), qint64(199));
+
+    model.setViewportRange(190, 199);
+    QCOMPARE(model.viewport().visibleFrameCount(), qint64(10));
+    model.setViewportRange(198, 199); // cannot cross/minimise below ten
+    QCOMPARE(model.viewport().visibleFrameCount(), qint64(10));
+    QCOMPARE(model.viewport().endFrame(), qint64(207));
+
+    model.setViewportRange(-50, 49);
+    QCOMPARE(model.viewport().startFrame(), qint64(0));
+    model.setViewportRange(950, 1100);
+    QCOMPARE(model.viewport().endFrame(), qint64(999));
 }
 
 void TestTimelineModel::resetClearsEverything()

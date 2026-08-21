@@ -53,6 +53,7 @@ public:
     void fitViewport();
     void zoomViewport(double factor, int64_t anchorFrame);
     void panViewport(int64_t deltaFrames);
+    void setViewportRange(int64_t startFrame, int64_t endFrame);
     void ensureFrameVisible(int64_t frame);
 
     /// First and last frame playback should visit, honouring the range when
@@ -65,12 +66,14 @@ public:
     /// Adds a bookmark, replacing any existing one on the same frame.
     void addBookmark(const Bookmark& bookmark);
     void removeBookmarkAt(int64_t frame);
+    void removeBookmark(quint64 id);
     void clearBookmarks();
     /// Returns nullptr when the frame carries no bookmark.
     const Bookmark* bookmarkAt(int64_t frame) const;
     /// Nearest bookmark strictly after/before `frame`, or -1 when there is none.
     int64_t nextBookmarkFrame(int64_t frame) const;
     int64_t previousBookmarkFrame(int64_t frame) const;
+    int64_t mediaTimeForFrame(int64_t frame) const;
 
     // --- Placeholder state ------------------------------------------------
     /// True when the extent describes no real media.
@@ -113,6 +116,7 @@ private:
     PlaybackRange m_range;
     TimelineViewport m_viewport;
     QVector<Bookmark> m_bookmarks;
+    quint64 m_nextBookmarkId = 1;
     bool m_placeholder = false;
 };
 

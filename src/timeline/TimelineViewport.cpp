@@ -63,6 +63,12 @@ void TimelineViewport::pan(int64_t deltaFrames)
     setWindow(m_startFrame + deltaFrames, visibleFrameCount());
 }
 
+void TimelineViewport::setRange(int64_t startFrame, int64_t endFrame)
+{
+    if (endFrame < startFrame) std::swap(startFrame, endFrame);
+    setWindow(startFrame, endFrame - startFrame + 1);
+}
+
 void TimelineViewport::ensureVisible(int64_t frame, double edgeFraction)
 {
     if (m_frameCount <= 0 || visibleFrameCount() >= m_frameCount) return;

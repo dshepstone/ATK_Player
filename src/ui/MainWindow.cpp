@@ -11,6 +11,7 @@
 #include "ui/StatusInfoBar.h"
 #include "ui/Theme.h"
 #include "ui/TimelineWidget.h"
+#include "ui/TimelineRangeSlider.h"
 #include "ui/TransportControls.h"
 #include "ui/ViewerWidget.h"
 #include "ui/commands/CommandRegistry.h"
@@ -125,6 +126,10 @@ void MainWindow::buildWidgets()
     m_timelineWidget = new TimelineWidget(central);
     m_timelineWidget->setModel(m_timeline.get());
     column->addWidget(m_timelineWidget);
+    m_timelineRangeSlider = new TimelineRangeSlider(central);
+    m_timelineRangeSlider->setModel(m_timeline.get());
+    m_timelineRangeSlider->setToolTip(tr("Drag the ends to resize the visible timeline; drag the centre to pan"));
+    column->addWidget(m_timelineRangeSlider);
 
     m_transport = new TransportControls(m_commands, central);
     column->addWidget(m_transport);
@@ -190,6 +195,9 @@ void MainWindow::buildMenus()
     // Reflect state that the window owns rather than the action.
     if (QAction* sourcesAction = m_commands->action(CommandId::ToggleSourcesPanel)) {
         sourcesAction->setChecked(true);
+    }
+    if (QAction* snapAction = m_commands->action(CommandId::ToggleBookmarkSnap)) {
+        snapAction->setChecked(true);
     }
 }
 
@@ -257,7 +265,10 @@ void MainWindow::connectSignals()
             m_playback.get(), &playback::PlaybackController::endScrub);
 
     connect(m_timelineWidget, &TimelineWidget::bookmarkActivated,
-            this, [this](qint64 frame) { m_playback->seekFrame(frame); });
+            this, [this](qint64 frame) {
+                m_timeline->ensureFrameVisible(frame);
+                m_playback->seekFrame(frame);
+            });
 
     connect(m_project.get(), &project::Project::modifiedChanged,
             this, [this](bool) { updateWindowTitle(); });
@@ -325,6 +336,7 @@ void MainWindow::onCommand(CommandId id, bool checked)
     case CommandId::NextBookmark: {
         const int64_t frame = m_timeline->nextBookmarkFrame(m_timeline->currentFrame());
         if (frame >= 0) {
+            m_timeline->ensureFrameVisible(frame);
             m_playback->seekFrame(frame);
         }
         return;
@@ -332,10 +344,17 @@ void MainWindow::onCommand(CommandId id, bool checked)
     case CommandId::PreviousBookmark: {
         const int64_t frame = m_timeline->previousBookmarkFrame(m_timeline->currentFrame());
         if (frame >= 0) {
+            m_timeline->ensureFrameVisible(frame);
             m_playback->seekFrame(frame);
         }
         return;
     }
+    case CommandId::DeleteBookmark:
+        m_timeline->removeBookmarkAt(m_timeline->currentFrame());
+        return;
+    case CommandId::ToggleBookmarkSnap:
+        m_timelineWidget->setBookmarkSnapEnabled(checked);
+        return;
 
     // --- View: fully wired ------------------------------------------------
     case CommandId::ZoomFit:

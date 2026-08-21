@@ -162,10 +162,11 @@ QRect TimelineWidget::waveformRect() const
 int64_t TimelineWidget::mediaTimeForX(int x) const
 {
     const QRect track = trackRect();
-    if (track.width() <= 0 || m_mediaDurationUs <= 0) {
+    const int spanPx = std::max(0, track.width() - 1);
+    if (spanPx <= 0 || m_mediaDurationUs <= 0) {
         return 0;
     }
-    const double fraction = std::clamp(double(x - track.left()) / double(track.width()), 0.0, 1.0);
+    const double fraction = std::clamp(double(x - track.left()) / double(spanPx), 0.0, 1.0);
     const int64_t frame = m_model ? m_model->viewport().frameAtFraction(fraction) : 0;
     const auto rate = m_model ? m_model->frameRate() : media::FrameRate{};
     if (rate.isValid()) {
@@ -192,22 +193,24 @@ QRect TimelineWidget::trackRect() const
 int TimelineWidget::xForFrame(int64_t frame) const
 {
     const QRect track = trackRect();
-    if (!m_model || track.width() <= 0) {
+    const int spanPx = std::max(0, track.width() - 1);
+    if (!m_model || spanPx <= 0) {
         return track.left();
     }
     if (!m_model->viewport().contains(frame)) return -1;
     const double t = m_model->viewport().fractionForFrame(frame);
-    return track.left() + static_cast<int>(t * track.width());
+    return track.left() + static_cast<int>(std::llround(t * spanPx));
 }
 
 int64_t TimelineWidget::frameForX(int x) const
 {
     const QRect track = trackRect();
-    if (!m_model || track.width() <= 0) {
+    const int spanPx = std::max(0, track.width() - 1);
+    if (!m_model || spanPx <= 0) {
         return 0;
     }
     const double t = static_cast<double>(std::clamp(x, track.left(), track.right()) - track.left())
-                   / static_cast<double>(track.width());
+                   / static_cast<double>(spanPx);
     return m_model->viewport().frameAtFraction(t);
 }
 
@@ -305,19 +308,46 @@ void TimelineWidget::paintTrack(QPainter& painter)
     painter.setPen(theme::panelBorder());
     painter.drawRect(track.adjusted(0, 0, -1, -1));
 
-    // Tick marks. The spacing adapts so a long clip does not turn the ruler
-    // into a solid block.
-    const int64_t last = lastFrame();
-    if (last <= 0) {
-        return;
+    if (!m_model || m_model->viewport().visibleFrameCount() <= 1) return;
+    const auto& viewport = m_model->viewport();
+    const double pixelsPerFrame = double(std::max(0, track.width() - 1))
+                                / double(viewport.visibleFrameCount() - 1);
+
+    // A subtle frame cell makes the displayed frame unambiguous at animation
+    // review zoom levels without turning the ruler into a checkerboard.
+    if (pixelsPerFrame >= 6.0 && viewport.contains(displayFrame())) {
+        const int x = xForFrame(displayFrame());
+        const int cellWidth = std::max(1, static_cast<int>(std::llround(pixelsPerFrame)));
+        painter.fillRect(QRect(x, track.top() + 1, cellWidth, track.height() - 2),
+                         theme::timelineRange());
     }
 
-    const int desiredSpacingPx = 64;
-    const int tickCount = std::max(1, track.width() / desiredSpacingPx);
+    int64_t tickStep = 1;
+    int64_t labelStep = 1;
+    if (pixelsPerFrame >= 18.0) {
+        tickStep = labelStep = 1;
+    } else if (pixelsPerFrame >= 6.0) {
+        tickStep = 1;
+        labelStep = pixelsPerFrame >= 12.0 ? 5 : 10;
+    } else {
+        const double desiredFrames = 64.0 / std::max(0.001, pixelsPerFrame);
+        const double magnitude = std::pow(10.0, std::floor(std::log10(desiredFrames)));
+        const double normalised = desiredFrames / magnitude;
+        const int nice = normalised <= 1.0 ? 1 : normalised <= 2.0 ? 2 : normalised <= 5.0 ? 5 : 10;
+        labelStep = std::max<int64_t>(1, static_cast<int64_t>(nice * magnitude));
+        tickStep = std::max<int64_t>(1, labelStep / 5);
+    }
+
     painter.setPen(theme::tickMark());
-    for (int i = 1; i < tickCount; ++i) {
-        const int x = track.left() + (track.width() * i) / tickCount;
-        painter.drawLine(x, track.bottom() - 5, x, track.bottom() - 1);
+    const int64_t firstTick = ((viewport.startFrame() + tickStep - 1) / tickStep) * tickStep;
+    for (int64_t frame = firstTick; frame <= viewport.endFrame(); frame += tickStep) {
+        const int x = xForFrame(frame);
+        const bool major = frame % labelStep == 0;
+        painter.drawLine(x, track.bottom() - (major ? 8 : 4), x, track.bottom() - 1);
+        if (major) {
+            painter.drawText(QRect(x - 28, track.top() + 1, 56, 14),
+                             Qt::AlignHCenter | Qt::AlignTop, QString::number(frame));
+        }
     }
 }
 
@@ -397,10 +427,13 @@ void TimelineWidget::paintFrameLabels(QPainter& painter)
     // Time labels describe the viewport rather than the whole source. Their
     // pixel spacing is bounded, so zooming never turns the ruler into a wall
     // of text while still revealing finer time positions as the span narrows.
-    if (m_mediaDurationUs > 0 && track.width() > 0) {
+    const double pixelsPerFrame = m_model && m_model->viewport().visibleFrameCount() > 1
+        ? double(track.width() - 1) / double(m_model->viewport().visibleFrameCount() - 1)
+        : 0.0;
+    if (m_mediaDurationUs > 0 && track.width() > 0 && pixelsPerFrame < 6.0) {
         const int divisions = std::max(1, track.width() / 96);
         for (int i = 0; i <= divisions; ++i) {
-            const int x = track.left() + (track.width() * i) / divisions;
+            const int x = track.left() + ((track.width() - 1) * i) / divisions;
             const QString label = rulerTime(mediaTimeForX(x));
             painter.drawText(QRect(x - 36, waveformRect().top(), 72, 14),
                              Qt::AlignHCenter | Qt::AlignTop, label);
@@ -414,6 +447,24 @@ int64_t TimelineWidget::displayFrame() const
         return m_scrubFrame;
     }
     return m_model != nullptr ? m_model->currentFrame() : 0;
+}
+
+int64_t TimelineWidget::snapFrame(int64_t frame, int x) const
+{
+    if (!m_bookmarkSnapEnabled || !m_model) return frame;
+    constexpr int kSnapPixels = 8;
+    int64_t best = frame;
+    int bestDistance = kSnapPixels + 1;
+    for (const timeline::Bookmark& bookmark : m_model->bookmarks()) {
+        const int markerX = xForFrame(bookmark.frame);
+        if (markerX < 0) continue;
+        const int distance = std::abs(markerX - x);
+        if (distance <= kSnapPixels && distance < bestDistance) {
+            best = bookmark.frame;
+            bestDistance = distance;
+        }
+    }
+    return best;
 }
 
 void TimelineWidget::requestSeek(int64_t frame, bool force)
@@ -444,11 +495,21 @@ void TimelineWidget::mousePressEvent(QMouseEvent* event)
         QWidget::mousePressEvent(event);
         return;
     }
+    const int clickX = event->position().toPoint().x();
+    if (m_model) {
+        for (const timeline::Bookmark& bookmark : m_model->bookmarks()) {
+            const int markerX = xForFrame(bookmark.frame);
+            if (markerX >= 0 && std::abs(markerX - clickX) <= 5) {
+                emit bookmarkActivated(bookmark.frame);
+                return;
+            }
+        }
+    }
     m_scrubbing = true;
     emit scrubStarted();
     m_scrubThrottle.start();
 
-    const int64_t frame = frameForX(event->position().toPoint().x());
+    const int64_t frame = snapFrame(frameForX(clickX), clickX);
 
     // Move the playhead now, before anything is decoded.
     m_scrubFrame = frame;
@@ -473,7 +534,8 @@ void TimelineWidget::mouseMoveEvent(QMouseEvent* event)
         return;
     }
 
-    const int64_t frame = frameForX(event->position().toPoint().x());
+    const int x = event->position().toPoint().x();
+    const int64_t frame = snapFrame(frameForX(x), x);
 
     // The playhead follows the pointer immediately and unconditionally. Only
     // the decode request below is throttled.
@@ -497,7 +559,8 @@ void TimelineWidget::mouseReleaseEvent(QMouseEvent* event)
 
         // Land exactly where the pointer was let go, even if that position was
         // skipped by throttling.
-        const int64_t frame = frameForX(event->position().toPoint().x());
+        const int x = event->position().toPoint().x();
+        const int64_t frame = snapFrame(frameForX(x), x);
         m_scrubFrame = frame;
         m_lastRequestedFrame = frame;
         emit scrubFinished(frame);

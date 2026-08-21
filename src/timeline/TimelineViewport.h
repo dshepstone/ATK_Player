@@ -12,6 +12,7 @@ public:
     void fit() { reset(m_frameCount); }
     void zoom(double factor, int64_t anchorFrame);
     void pan(int64_t deltaFrames);
+    void setRange(int64_t startFrame, int64_t endFrame);
     void ensureVisible(int64_t frame, double edgeFraction = 0.1);
 
     int64_t startFrame() const { return m_startFrame; }

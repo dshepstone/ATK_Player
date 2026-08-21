@@ -4,6 +4,7 @@
 #include <QString>
 
 #include <cstdint>
+#include <QtGlobal>
 
 namespace atk::timeline {
 
@@ -17,7 +18,9 @@ struct Bookmark {
     /// Sentinel for "no colour assigned"; the UI draws the default marker.
     static constexpr int kNoColor = -1;
 
+    quint64 id = 0;
     int64_t frame = 0;
+    int64_t mediaTimeUs = 0;
     QString name;
     QString note;
     int colorIndex = kNoColor;

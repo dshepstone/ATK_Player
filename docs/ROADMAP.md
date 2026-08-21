@@ -90,6 +90,11 @@ Delivered so far:
 - **Timeline viewport.** Command and cursor-anchored zoom, fit, middle-drag and
   Shift-wheel pan, adaptive visible-range ruler labels, playhead edge-follow,
   and viewport-aware multi-resolution waveform rendering.
+- **Animation timeline controls.** A Maya-style lower visible-range slider with
+  independent handles and body pan, plus adaptive per-frame ticks and labels.
+- **Session bookmarks.** Stable single-frame markers, exact click navigation,
+  wrapping next/previous commands, deletion, and default-on pixel-based scrub
+  snapping. Persistence and the full bookmark editor remain later work.
 
 Still to come in M2: In/Out points and range looping, bookmarks and range
 bookmarks, and viewer zoom and pan.

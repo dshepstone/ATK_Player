@@ -33,6 +33,8 @@ enum class CommandId {
     AddBookmark,
     NextBookmark,
     PreviousBookmark,
+    DeleteBookmark,
+    ToggleBookmarkSnap,
 
     // Audio
     ToggleMute,

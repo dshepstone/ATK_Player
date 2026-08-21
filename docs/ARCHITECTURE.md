@@ -354,6 +354,27 @@ margin advances the viewport only when needed. Waveform painting queries only
 the visible media-time interval and selects the existing peak-pyramid level
 from visible microseconds per pixel; no analysis data is rebuilt on view changes.
 
+`TimelineRangeSlider` is a second view/controller for that same viewport, not a
+second zoom state. Its full groove is the source extent; either edge edits one
+visible bound while the other stays anchored, and dragging the body pans the
+unchanged span. The ten-frame minimum and source clamping remain enforced by
+`TimelineViewport`. Programmatic zoom, wheel gestures and the slider therefore
+cannot drift apart.
+
+At review zoom levels the ruler is frame-first: at 18 pixels per frame it labels
+every integer frame, at 6 pixels per frame it retains every tick with sparser
+labels, and below that it chooses nice major/minor frame intervals. PTS remains
+the playback authority; integer frame display is only a precise view of the
+rational mapping.
+
+Bookmarks are session markers owned by `TimelineModel`. Each has a stable ID,
+exact frame-derived media time, optional label/note and palette colour. They are
+sorted, unique per frame, cleared at the source boundary, and next/previous
+navigation wraps. Timeline snapping uses an eight-pixel screen threshold so its
+feel does not change with zoom. A future `.atkproj` representation can serialize
+`id`, `frame`, `mediaTimeUs`, `label`, `note` and `colorIndex`; M2 deliberately
+does not create a sidecar format.
+
 `Timecode` converts frames to SMPTE and back, non-drop-frame. For 23.976 and
 29.97 material this means displayed timecode drifts from wall-clock time — which
 is what review wants: frame numbers stay contiguous and match the DCC scene.

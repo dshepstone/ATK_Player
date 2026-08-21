@@ -45,6 +45,8 @@ constexpr std::array kCommands{
     CommandDefinition{ CommandId::AddBookmark,        "playback.addBookmark",  QT_TRANSLATE_NOOP("Command", "Add Bookmark"),         C::Playback, "B",            false },
     CommandDefinition{ CommandId::NextBookmark,       "playback.nextBookmark", QT_TRANSLATE_NOOP("Command", "Next Bookmark"),        C::Playback, "Alt+Right",    false },
     CommandDefinition{ CommandId::PreviousBookmark,   "playback.prevBookmark", QT_TRANSLATE_NOOP("Command", "Previous Bookmark"),    C::Playback, "Alt+Left",     false },
+    CommandDefinition{ CommandId::DeleteBookmark,     "playback.deleteBookmark",QT_TRANSLATE_NOOP("Command", "Delete Bookmark"),     C::Playback, "Ctrl+Shift+B", false },
+    CommandDefinition{ CommandId::ToggleBookmarkSnap, "playback.snapBookmarks", QT_TRANSLATE_NOOP("Command", "Snap to Bookmarks"),   C::Playback, nullptr,        true  },
 
     // Audio
     CommandDefinition{ CommandId::ToggleMute,         "audio.toggleMute",      QT_TRANSLATE_NOOP("Command", "Mute"),                 C::Audio,    "M",            true  },

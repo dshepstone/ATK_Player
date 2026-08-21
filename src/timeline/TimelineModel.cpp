@@ -63,6 +63,15 @@ void TimelineModel::panViewport(int64_t deltaFrames)
         emit viewportChanged(m_viewport.startFrame(), m_viewport.endFrame());
 }
 
+void TimelineModel::setViewportRange(int64_t startFrame, int64_t endFrame)
+{
+    const auto oldStart = m_viewport.startFrame();
+    const auto oldEnd = m_viewport.endFrame();
+    m_viewport.setRange(startFrame, endFrame);
+    if (oldStart != m_viewport.startFrame() || oldEnd != m_viewport.endFrame())
+        emit viewportChanged(m_viewport.startFrame(), m_viewport.endFrame());
+}
+
 void TimelineModel::ensureFrameVisible(int64_t frame)
 {
     const auto oldStart = m_viewport.startFrame();
@@ -172,17 +181,30 @@ int64_t TimelineModel::effectiveEndFrame() const
 
 void TimelineModel::addBookmark(const Bookmark& bookmark)
 {
-    // Replace rather than duplicate: one bookmark per frame. Removed inline so
-    // only a single bookmarksChanged() is emitted for the whole operation.
+    const int64_t frame = std::clamp<int64_t>(bookmark.frame, 0, std::max<int64_t>(lastFrame(), 0));
     const auto existing = std::find_if(m_bookmarks.begin(), m_bookmarks.end(),
-                                       [&](const Bookmark& b) { return b.frame == bookmark.frame; });
-    if (existing != m_bookmarks.end()) {
-        m_bookmarks.erase(existing);
-    }
+                                       [frame](const Bookmark& b) { return b.frame == frame; });
+    // Add on an occupied frame selects the existing marker conceptually; it
+    // never duplicates or silently replaces its stable ID/annotation.
+    if (existing != m_bookmarks.end()) return;
 
-    m_bookmarks.push_back(bookmark);
+    Bookmark stored = bookmark;
+    stored.frame = frame;
+    stored.mediaTimeUs = mediaTimeForFrame(stored.frame);
+    if (stored.id == 0) stored.id = m_nextBookmarkId++;
+    if (stored.name.isEmpty()) stored.name = QStringLiteral("Bookmark %1").arg(stored.id);
+    m_bookmarks.push_back(stored);
     sortBookmarks();
     qCInfo(log::timeline) << "Bookmark added at frame" << bookmark.frame;
+    emit bookmarksChanged();
+}
+
+void TimelineModel::removeBookmark(quint64 id)
+{
+    const auto it = std::find_if(m_bookmarks.begin(), m_bookmarks.end(),
+                                 [id](const Bookmark& b) { return b.id == id; });
+    if (it == m_bookmarks.end()) return;
+    m_bookmarks.erase(it);
     emit bookmarksChanged();
 }
 
@@ -217,14 +239,24 @@ int64_t TimelineModel::nextBookmarkFrame(int64_t frame) const
 {
     const auto it = std::find_if(m_bookmarks.cbegin(), m_bookmarks.cend(),
                                  [frame](const Bookmark& b) { return b.frame > frame; });
-    return it == m_bookmarks.cend() ? -1 : it->frame;
+    return it == m_bookmarks.cend() ? (m_bookmarks.isEmpty() ? -1 : m_bookmarks.front().frame)
+                                    : it->frame;
 }
 
 int64_t TimelineModel::previousBookmarkFrame(int64_t frame) const
 {
     const auto it = std::find_if(m_bookmarks.crbegin(), m_bookmarks.crend(),
                                  [frame](const Bookmark& b) { return b.frame < frame; });
-    return it == m_bookmarks.crend() ? -1 : it->frame;
+    return it == m_bookmarks.crend() ? (m_bookmarks.isEmpty() ? -1 : m_bookmarks.back().frame)
+                                     : it->frame;
+}
+
+int64_t TimelineModel::mediaTimeForFrame(int64_t frame) const
+{
+    if (!m_frameRate.isValid()) return 0;
+    const long double us = static_cast<long double>(std::max<int64_t>(0, frame))
+        * 1'000'000.0L * m_frameRate.denominator / m_frameRate.numerator;
+    return static_cast<int64_t>(us);
 }
 
 void TimelineModel::setPlaceholderExtent(int64_t frameCount, media::FrameRate rate)
@@ -256,6 +288,7 @@ void TimelineModel::reset()
     setFrameCount(0);
     setCurrentFrame(0);
     setFrameRate(media::FrameRate{});
+    m_nextBookmarkId = 1;
 }
 
 void TimelineModel::sortBookmarks()

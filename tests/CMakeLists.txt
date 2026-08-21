@@ -36,7 +36,11 @@ set(ATK_FFMPEG_TEST_SOURCES
     tst_playbackinteraction.cpp
 )
 
-foreach(test_source IN LISTS ATK_TEST_SOURCES ATK_FFMPEG_TEST_SOURCES)
+set(ATK_UI_TEST_SOURCES
+    tst_timelinewidgets.cpp
+)
+
+foreach(test_source IN LISTS ATK_TEST_SOURCES ATK_FFMPEG_TEST_SOURCES ATK_UI_TEST_SOURCES)
     get_filename_component(test_name "${test_source}" NAME_WE)
 
     qt_add_executable(${test_name} ${test_source})
@@ -55,6 +59,9 @@ foreach(test_source IN LISTS ATK_TEST_SOURCES ATK_FFMPEG_TEST_SOURCES)
             ATK::core
             Qt6::Test
     )
+    if(test_source IN_LIST ATK_UI_TEST_SOURCES)
+        target_link_libraries(${test_name} PRIVATE ATK::ui Qt6::Widgets)
+    endif()
 
     atk_set_compiler_warnings(${test_name})
 
