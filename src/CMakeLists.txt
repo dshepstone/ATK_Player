@@ -28,6 +28,7 @@ set(ATK_CORE_SOURCES
     audio/ScrubAudioEngine.cpp
     media/MediaDecoder.cpp
     media/DecoderWorker.cpp
+    media/PlaylistProbeWorker.cpp
     media/ffmpeg/FFmpegUtil.cpp
 
     audio/AudioRingBuffer.cpp
@@ -72,6 +73,7 @@ set(ATK_CORE_HEADERS
     audio/ScrubAudioEngine.h
     media/MediaDecoder.h
     media/DecoderWorker.h
+    media/PlaylistProbeWorker.h
     media/ffmpeg/FFmpegUtil.h
     media/ffmpeg/FFmpegRaii.h
 

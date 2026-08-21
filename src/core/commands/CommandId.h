@@ -37,6 +37,7 @@ enum class CommandId {
     RemovePlaylistItem,
     MovePlaylistItemUp,
     MovePlaylistItemDown,
+    RelinkMedia,
 
     // Range and annotation
     SetRangeIn,

@@ -3,6 +3,7 @@
 #include <QByteArray>
 #include <QHash>
 #include <QString>
+#include <QStringList>
 
 #include <memory>
 
@@ -24,6 +25,8 @@ public:
     static constexpr bool defaultBookmarkSnapEnabled() { return true; }
     static constexpr double defaultVolume() { return 1.0; }
     static constexpr bool defaultMuted() { return false; }
+    static constexpr bool defaultReopenLastProject() { return false; }
+    static constexpr int maximumRecentProjects() { return 10; }
 
     bool restoreWindowLayout() const;
     bool audioScrubEnabled() const;
@@ -31,6 +34,9 @@ public:
     bool bookmarkSnapEnabled() const;
     double volume() const;
     bool muted() const;
+    bool reopenLastProject() const;
+    QStringList recentProjects() const;
+    QString lastProjectPath() const;
 
     void setRestoreWindowLayout(bool value);
     void setAudioScrubEnabled(bool value);
@@ -38,6 +44,10 @@ public:
     void setBookmarkSnapEnabled(bool value);
     void setVolume(double value);
     void setMuted(bool value);
+    void setReopenLastProject(bool value);
+    void addRecentProject(const QString& path);
+    void clearRecentProjects();
+    void setLastProjectPath(const QString& path);
 
     QByteArray windowGeometry() const;
     QByteArray windowState() const;

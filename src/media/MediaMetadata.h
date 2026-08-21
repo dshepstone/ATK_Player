@@ -2,6 +2,7 @@
 
 #include <QSize>
 #include <QString>
+#include <QMetaType>
 
 #include <cstdint>
 
@@ -131,3 +132,5 @@ struct MediaMetadata {
 };
 
 } // namespace atk::media
+
+Q_DECLARE_METATYPE(atk::media::MediaMetadata)

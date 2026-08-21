@@ -119,6 +119,7 @@ SerializerResult ProjectSerializer::load(Project& project, const QString& filePa
         entry.displayName = object.value(QStringLiteral("displayName")).toString();
         entry.source = std::make_shared<media::MediaSource>(resolved);
         entry.missing = !QFileInfo::exists(resolved);
+        entry.availability = entry.missing ? SourceAvailability::Missing : SourceAvailability::Unknown;
         qint64 offset = 0;
         if (integer(object.value(QStringLiteral("frameOffset")), &offset)) entry.frameOffset = offset;
         const QJsonObject review = object.value(QStringLiteral("review")).toObject();

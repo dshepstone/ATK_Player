@@ -35,6 +35,7 @@ set(ATK_FFMPEG_TEST_SOURCES
     tst_audioreview.cpp
     tst_scrubaudio.cpp
     tst_playbackinteraction.cpp
+    tst_playlistprobe.cpp
 )
 
 set(ATK_UI_TEST_SOURCES

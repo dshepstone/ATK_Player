@@ -40,7 +40,24 @@ private slots:
     void requiredM2ShortcutDefaultsRemainSafe();
     void shortcutEditorClearAndResetSelected();
     void muteAndVolumePopupPersistAndSynchronize();
+    void recentProjectsAndReopenPreference();
 };
+
+void TestSettings::recentProjectsAndReopenPreference()
+{
+    QTemporaryDir directory;
+    ApplicationSettings settings(directory.filePath(QStringLiteral("settings.ini")));
+    QVERIFY(!settings.reopenLastProject());
+    for (int i = 0; i < 12; ++i) settings.addRecentProject(directory.filePath(QStringLiteral("%1.atkproj").arg(i)));
+    QCOMPARE(settings.recentProjects().size(), ApplicationSettings::maximumRecentProjects());
+    const QString first = settings.recentProjects().first();
+    settings.addRecentProject(first);
+    QCOMPARE(settings.recentProjects().first(), first);
+    QCOMPARE(settings.recentProjects().count(first), 1);
+    QCOMPARE(settings.lastProjectPath(), first);
+    settings.setReopenLastProject(true); QVERIFY(settings.reopenLastProject());
+    settings.clearRecentProjects(); QVERIFY(settings.recentProjects().isEmpty());
+}
 
 void TestSettings::defaultsValidationAndPersistence()
 {

@@ -5,6 +5,7 @@
 #include "core/Logging.h"
 #include "core/Version.h"
 #include "media/MediaSource.h"
+#include "media/PlaylistProbeWorker.h"
 #include "project/Project.h"
 #include "project/ProjectSerializer.h"
 #include "timeline/TimelineModel.h"
@@ -31,6 +32,7 @@
 #include <QSpinBox>
 #include <QStyle>
 #include <QWidgetAction>
+#include <QThread>
 
 #include <QAction>
 #include <QCloseEvent>
@@ -114,6 +116,10 @@ MainWindow::MainWindow(const QString& settingsIniPath, QWidget* parent)
 MainWindow::~MainWindow()
 {
     saveApplicationLayout();
+    if (m_probeThread) {
+        m_probeThread->quit();
+        m_probeThread->wait();
+    }
 }
 
 void MainWindow::buildModels()
@@ -126,6 +132,37 @@ void MainWindow::buildModels()
     m_playback->setVolume(m_settings->volume());
     m_playback->setMuted(m_settings->muted());
     m_project  = std::make_unique<project::Project>();
+    m_probeThread = new QThread(this);
+    m_probeWorker = new media::PlaylistProbeWorker;
+    m_probeWorker->moveToThread(m_probeThread);
+    connect(m_probeThread, &QThread::finished, m_probeWorker, &QObject::deleteLater);
+    connect(m_probeWorker, &media::PlaylistProbeWorker::probeFinished, this,
+        [this](QUuid id, const QString& path, quint64 token, const media::MediaMetadata& metadata,
+               const QString& error, bool missing) {
+            if (token == m_pendingRelinkToken && id == m_pendingRelinkId && path == m_pendingRelinkPath) {
+                m_pendingRelinkToken = 0;
+                if (m_pendingRelinkProjectGeneration != m_projectGeneration) return;
+                if (missing || !error.isEmpty() || !metadata.isValid()) {
+                    QMessageBox::critical(this, tr("Relink Media"),
+                        missing ? tr("The selected media file is missing.")
+                                : tr("ATK Player could not open the replacement media: %1").arg(error));
+                    return;
+                }
+                const int index = m_project->indexForId(id);
+                if (index < 0) return;
+                auto replacement = std::make_shared<media::MediaSource>(path);
+                replacement->setMetadata(metadata);
+                const int64_t frameCount = metadata.effectiveFrameCount();
+                if (frameCount <= 0 || !m_project->relinkSource(id, replacement, frameCount)) return;
+                if (index == m_project->activeIndex()) {
+                    m_project->setActiveIndex(-1);
+                    activatePlaylistIndex(index, false);
+                }
+                return;
+            }
+            m_project->applyProbeResult(id, path, token, metadata, error, missing);
+        });
+    m_probeThread->start();
     m_compare  = std::make_unique<playback::CompareSession>();
     m_apiServer = std::make_unique<api::ApiServer>(m_playback.get(), m_timeline.get());
 
@@ -274,6 +311,10 @@ void MainWindow::buildMenus()
     if (QAction* sourcesAction = m_commands->action(CommandId::ToggleSourcesPanel)) {
         sourcesAction->setChecked(true);
     }
+    if (QAction* fileAction = menuBar()->actions().value(0); fileAction && fileAction->menu()) {
+        m_recentProjectsMenu = fileAction->menu()->addMenu(tr("Recent Projects"));
+        refreshRecentProjectsMenu();
+    }
     if (QAction* bookmarksAction = m_commands->action(CommandId::ToggleBookmarksPanel)) {
         bookmarksAction->setChecked(true);
     }
@@ -309,6 +350,7 @@ void MainWindow::connectSignals()
     connect(m_sources, &SourcesPanel::addMediaRequested, this, &MainWindow::addMediaDialog);
     connect(m_sources, &SourcesPanel::removeRequested, this, &MainWindow::removePlaylistIndex);
     connect(m_sources, &SourcesPanel::moveRequested, this, &MainWindow::movePlaylistIndex);
+    connect(m_sources, &SourcesPanel::relinkRequested, this, [this](int) { relinkSelectedMedia(); });
     connect(m_sources, &SourcesPanel::sourceActivated, this,
             [this](int index) { activatePlaylistIndex(index); });
 
@@ -515,6 +557,8 @@ void MainWindow::onCommand(CommandId id, bool checked)
         movePlaylistIndex(m_sources->selectedIndex(), m_sources->selectedIndex() - 1); return;
     case CommandId::MovePlaylistItemDown:
         movePlaylistIndex(m_sources->selectedIndex(), m_sources->selectedIndex() + 1); return;
+    case CommandId::RelinkMedia:
+        relinkSelectedMedia(); return;
 
     // --- Range and bookmarks: fully wired ---------------------------------
     case CommandId::SetRangeIn:
@@ -728,6 +772,7 @@ void MainWindow::applyPreferences(const PreferencesDialog& dialog)
     m_settings->setAudioScrubEnabled(dialog.audioScrubEnabled());
     m_settings->setFrameStepAudioEnabled(dialog.frameStepAudioEnabled());
     m_settings->setBookmarkSnapEnabled(dialog.bookmarkSnapEnabled());
+    m_settings->setReopenLastProject(dialog.reopenLastProject());
 
     const auto setToggle = [this](CommandId id, bool checked) {
         if (QAction* action = m_commands->action(id)) {
@@ -928,6 +973,7 @@ void MainWindow::openMediaDialog()
 void MainWindow::openMediaFile(const QString& filePath)
 {
     if (!confirmDiscardChanges()) return;
+    ++m_projectGeneration;
     m_restoringSourceState = true;
     m_project->clear();
     m_project->setName(QStringLiteral("Untitled"));
@@ -999,7 +1045,23 @@ void MainWindow::addMediaFiles(const QStringList& paths)
         m_project->setActiveIndex(-1);
         activatePlaylistIndex(0);
     }
+    startPlaylistProbes();
     updateWindowTitle();
+}
+
+void MainWindow::startProbe(const QUuid& id, const QString& path)
+{
+    const quint64 token = m_nextProbeToken++;
+    if (!m_project->beginProbe(id, path, token)) return;
+    QMetaObject::invokeMethod(m_probeWorker, [worker = m_probeWorker, id, path, token] {
+        worker->probe(id, path, token);
+    }, Qt::QueuedConnection);
+}
+
+void MainWindow::startPlaylistProbes()
+{
+    for (const auto& entry : m_project->entries())
+        if (entry.source) startProbe(entry.id, entry.source->filePath());
 }
 
 void MainWindow::saveActiveReviewState()
@@ -1030,7 +1092,8 @@ void MainWindow::activatePlaylistIndex(int index, bool continuePlayback)
     if (index < 0 || index >= m_project->entries().size() || index == m_project->activeIndex()) return;
     saveActiveReviewState();
     const auto& entry = m_project->entries().at(index);
-    if (!entry.source || entry.missing) {
+    if (!entry.source || entry.availability == project::SourceAvailability::Missing
+        || entry.availability == project::SourceAvailability::Error) {
         statusBar()->showMessage(tr("Missing media: %1").arg(entry.displayName), 5000);
         if (continuePlayback && index + 1 < m_project->entries().size()) activatePlaylistIndex(index + 1, true);
         return;
@@ -1074,6 +1137,7 @@ bool MainWindow::confirmDiscardChanges()
 void MainWindow::newProject()
 {
     if (!confirmDiscardChanges()) return;
+    ++m_projectGeneration;
     m_playback->closeMedia();
     m_project->replace(QStringLiteral("Untitled"), QString(), {}, QUuid{});
 }
@@ -1090,17 +1154,28 @@ bool MainWindow::openProjectFile(const QString& path)
 {
     project::Project loaded;
     const auto result = project::ProjectSerializer::load(loaded, path);
-    if (!result.ok) { QMessageBox::critical(this, tr("Open Project"), result.errorMessage); return false; }
+    if (!result.ok) {
+        if (!m_suppressProjectOpenError) QMessageBox::critical(this, tr("Open Project"), result.errorMessage);
+        return false;
+    }
+    ++m_projectGeneration;
     m_playback->closeMedia();
     m_project->replace(loaded.name(), loaded.filePath(), loaded.entries(), loaded.currentSourceId());
-    const int current = m_project->activeIndex();
-    if (current >= 0 && !m_project->entries().at(current).missing) {
-        const QString mediaPath = m_project->entries().at(current).source->filePath();
-        m_project->setActiveIndex(-1);
-        const int restoredIndex = m_project->indexForId(loaded.currentSourceId());
-        activatePlaylistIndex(restoredIndex);
-        Q_UNUSED(mediaPath);
+    int current = m_project->activeIndex();
+    if (current >= 0 && m_project->entries().at(current).missing) {
+        int usable = -1;
+        for (int i = current + 1; i < m_project->entries().size(); ++i) if (!m_project->entries().at(i).missing) { usable = i; break; }
+        if (usable < 0) for (int i = current - 1; i >= 0; --i) if (!m_project->entries().at(i).missing) { usable = i; break; }
+        current = usable;
     }
+    if (current >= 0 && !m_project->entries().at(current).missing) {
+        m_project->setActiveIndex(-1);
+        activatePlaylistIndex(current);
+    } else {
+        m_project->setActiveIndex(-1);
+    }
+    m_settings->addRecentProject(path); refreshRecentProjectsMenu();
+    startPlaylistProbes();
     updateWindowTitle(); return true;
 }
 
@@ -1111,7 +1186,62 @@ bool MainWindow::saveProjectTo(const QString& path)
     if (!result.ok) { QMessageBox::critical(this, tr("Save Project"), result.errorMessage); return false; }
     m_project->setFilePath(QFileInfo(path).absoluteFilePath());
     m_project->setName(QFileInfo(path).completeBaseName());
-    m_project->setModified(false); updateWindowTitle(); return true;
+    m_project->setModified(false);
+    m_settings->addRecentProject(path); refreshRecentProjectsMenu();
+    updateWindowTitle(); return true;
+}
+
+void MainWindow::refreshRecentProjectsMenu()
+{
+    if (!m_recentProjectsMenu) return;
+    m_recentProjectsMenu->clear();
+    const QStringList recent = m_settings->recentProjects();
+    for (const QString& path : recent) {
+        QAction* action = m_recentProjectsMenu->addAction(QFileInfo(path).fileName());
+        action->setToolTip(path);
+        action->setEnabled(QFileInfo::exists(path));
+        connect(action, &QAction::triggered, this, [this, path] {
+            if (confirmDiscardChanges()) openProjectFile(path);
+        });
+    }
+    if (!recent.isEmpty()) m_recentProjectsMenu->addSeparator();
+    QAction* clear = m_recentProjectsMenu->addAction(tr("Clear Recent Projects"));
+    clear->setEnabled(!recent.isEmpty());
+    connect(clear, &QAction::triggered, this, [this] { m_settings->clearRecentProjects(); refreshRecentProjectsMenu(); });
+}
+
+void MainWindow::reopenLastProjectIfEnabled()
+{
+    if (!m_settings->reopenLastProject()) return;
+    const QString path = m_settings->lastProjectPath();
+    m_suppressProjectOpenError = true;
+    const bool opened = !path.isEmpty() && QFileInfo::exists(path) && openProjectFile(path);
+    m_suppressProjectOpenError = false;
+    if (!opened) {
+        m_settings->setLastProjectPath(QString());
+        statusBar()->showMessage(tr("The last project could not be reopened."), 5000);
+    }
+}
+
+void MainWindow::relinkSelectedMedia()
+{
+    const int index = m_sources->selectedIndex();
+    if (index < 0 || index >= m_project->entries().size()) return;
+    const auto id = m_project->entries().at(index).id;
+    const QString path = QFileDialog::getOpenFileName(this, tr("Relink Media"), QString(),
+        tr("Video Files (*.mp4 *.mov *.avi *.mkv *.m4v *.webm *.mpg *.mpeg *.wmv *.flv);;All Files (*.*)"));
+    const QFileInfo info(path);
+    if (path.isEmpty()) return;
+    if (!info.exists() || !info.isFile()) { QMessageBox::critical(this, tr("Relink Media"), tr("The selected media file does not exist.")); return; }
+    m_pendingRelinkId = id;
+    m_pendingRelinkPath = info.absoluteFilePath();
+    m_pendingRelinkToken = m_nextProbeToken++;
+    m_pendingRelinkProjectGeneration = m_projectGeneration;
+    QMetaObject::invokeMethod(m_probeWorker,
+        [worker = m_probeWorker, id, path = m_pendingRelinkPath, token = m_pendingRelinkToken] {
+            worker->probe(id, path, token);
+        }, Qt::QueuedConnection);
+    statusBar()->showMessage(tr("Validating replacement media..."));
 }
 
 bool MainWindow::saveProject()

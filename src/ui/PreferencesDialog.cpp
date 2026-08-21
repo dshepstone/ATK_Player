@@ -42,6 +42,10 @@ PreferencesDialog::PreferencesDialog(const ApplicationSettings& settings,
     m_restoreLayout->setObjectName(QStringLiteral("RestoreWindowLayout"));
     m_restoreLayout->setChecked(settings.restoreWindowLayout());
     generalLayout->addWidget(m_restoreLayout);
+    m_reopenLast = new QCheckBox(tr("Reopen last project on startup"), general);
+    m_reopenLast->setObjectName(QStringLiteral("ReopenLastProject"));
+    m_reopenLast->setChecked(settings.reopenLastProject());
+    generalLayout->addWidget(m_reopenLast);
     auto* resetPreferences = new QPushButton(tr("Reset Preferences to Defaults"), general);
     resetPreferences->setObjectName(QStringLiteral("ResetPreferences"));
     generalLayout->addWidget(resetPreferences, 0, Qt::AlignLeft);
@@ -125,6 +129,7 @@ bool PreferencesDialog::restoreWindowLayout() const { return m_restoreLayout->is
 bool PreferencesDialog::audioScrubEnabled() const { return m_audioScrub->isChecked(); }
 bool PreferencesDialog::frameStepAudioEnabled() const { return m_frameStepAudio->isChecked(); }
 bool PreferencesDialog::bookmarkSnapEnabled() const { return m_bookmarkSnap->isChecked(); }
+bool PreferencesDialog::reopenLastProject() const { return m_reopenLast->isChecked(); }
 
 QString PreferencesDialog::conflictingCommand(const QHash<QString, QString>& shortcuts,
                                               const QString& commandKey,
@@ -231,6 +236,7 @@ void PreferencesDialog::resetPreferencesDraft()
             tr("Restore all application preferences and shortcuts to their defaults?"),
             QMessageBox::Reset | QMessageBox::Cancel, QMessageBox::Cancel) != QMessageBox::Reset) return;
     m_restoreLayout->setChecked(ApplicationSettings::defaultRestoreWindowLayout());
+    m_reopenLast->setChecked(ApplicationSettings::defaultReopenLastProject());
     m_audioScrub->setChecked(ApplicationSettings::defaultAudioScrubEnabled());
     m_frameStepAudio->setChecked(ApplicationSettings::defaultFrameStepAudioEnabled());
     m_bookmarkSnap->setChecked(ApplicationSettings::defaultBookmarkSnapEnabled());

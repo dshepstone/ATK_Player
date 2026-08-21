@@ -51,6 +51,7 @@ constexpr std::array kCommands{
     CommandDefinition{ CommandId::RemovePlaylistItem, "playlist.remove",       QT_TRANSLATE_NOOP("Command", "Remove Playlist Item"),C::Playback, nullptr,        false },
     CommandDefinition{ CommandId::MovePlaylistItemUp, "playlist.moveUp",       QT_TRANSLATE_NOOP("Command", "Move Playlist Item Up"),C::Playback,nullptr,        false },
     CommandDefinition{ CommandId::MovePlaylistItemDown,"playlist.moveDown",    QT_TRANSLATE_NOOP("Command", "Move Playlist Item Down"),C::Playback,nullptr,      false },
+    CommandDefinition{ CommandId::RelinkMedia,          "playlist.relink",      QT_TRANSLATE_NOOP("Command", "Relink Media..."),       C::Playback, nullptr,      false },
     CommandDefinition{ CommandId::SetRangeIn,         "playback.setRangeIn",   QT_TRANSLATE_NOOP("Command", "Set Range In"),         C::Playback, "I",            false },
     CommandDefinition{ CommandId::SetRangeOut,        "playback.setRangeOut",  QT_TRANSLATE_NOOP("Command", "Set Range Out"),        C::Playback, "O",            false },
     CommandDefinition{ CommandId::ClearRange,         "playback.clearRange",   QT_TRANSLATE_NOOP("Command", "Clear Range"),          C::Playback, nullptr,        false },

@@ -13,6 +13,8 @@
 
 namespace atk::project {
 
+enum class SourceAvailability { Unknown, Probing, Ready, Missing, Error };
+
 /// Per-source review state. Bookmarks and the in/out range belong to the source
 /// they were made against, not to the application, so switching between two
 /// sources in a playlist restores each one's own notes.
@@ -22,6 +24,9 @@ struct SourceEntry {
     QString displayName;
     QString storedPath;
     bool missing = false;
+    SourceAvailability availability = SourceAvailability::Unknown;
+    QString availabilityError;
+    quint64 probeToken = 0;
     timeline::PlaybackRange playbackRange;
     QVector<timeline::Bookmark> bookmarks;
     /// Frames added to the master frame number for this source. Used by A/B
@@ -75,6 +80,15 @@ public:
     void setActiveIndex(int index);
     void replace(QString name, QString filePath, QVector<SourceEntry> entries,
                  const QUuid& currentSourceId);
+    /// Replaces only the media descriptor for an existing stable source.
+    /// Bookmarks outside the replacement extent are discarded; the review
+    /// range is clamped. Returns false without mutation for invalid input.
+    bool relinkSource(const QUuid& id, std::shared_ptr<media::MediaSource> source,
+                      int64_t replacementFrameCount);
+    bool beginProbe(const QUuid& id, const QString& path, quint64 token);
+    bool applyProbeResult(const QUuid& id, const QString& path, quint64 token,
+                          const media::MediaMetadata& metadata, const QString& error,
+                          bool missing);
 
     // --- A/B comparison ---------------------------------------------------
     /// Playlist index bound to viewer A / B, or -1 when unassigned.

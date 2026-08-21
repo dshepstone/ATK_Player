@@ -7,6 +7,7 @@
 
 #include <QMainWindow>
 #include <QStringList>
+#include <QUuid>
 
 #include <memory>
 
@@ -15,10 +16,13 @@ class QLabel;
 class QSpinBox;
 class QSlider;
 class QCloseEvent;
+class QMenu;
+class QThread;
 
 namespace atk::api { class ApiServer; }
 namespace atk::playback { class CompareSession; }
 namespace atk::project { class Project; }
+namespace atk::media { class PlaylistProbeWorker; }
 namespace atk::timeline { class TimelineModel; }
 
 namespace atk::ui {
@@ -70,6 +74,8 @@ public:
     void openMediaFile(const QString& filePath);
     playback::PlaybackController* playbackController() const { return m_playback.get(); }
     project::Project* project() const { return m_project.get(); }
+    bool openProjectFile(const QString& path);
+    void reopenLastProjectIfEnabled();
 
 protected:
     void closeEvent(QCloseEvent* event) override;
@@ -95,7 +101,6 @@ private:
     void addMediaFiles(const QStringList& paths);
     void newProject();
     void openProjectDialog();
-    bool openProjectFile(const QString& path);
     bool saveProject();
     bool saveProjectAs();
     bool saveProjectTo(const QString& path);
@@ -105,6 +110,10 @@ private:
     void restoreActiveReviewState();
     void removePlaylistIndex(int index);
     void movePlaylistIndex(int from, int to);
+    void relinkSelectedMedia();
+    void refreshRecentProjectsMenu();
+    void startPlaylistProbes();
+    void startProbe(const QUuid& id, const QString& path);
 
 
     std::unique_ptr<ApplicationSettings> m_settings;
@@ -132,10 +141,20 @@ private:
     QLabel* m_viewerZoomStatus = nullptr;
     QDockWidget* m_sourcesDock = nullptr;
     QDockWidget* m_bookmarksDock = nullptr;
+    QMenu* m_recentProjectsMenu = nullptr;
     bool m_skipLayoutSaveOnce = false;
     bool m_restoringSourceState = false;
     bool m_playAfterSourceOpen = false;
     bool m_playlistPlaybackActive = false;
+    QThread* m_probeThread = nullptr;
+    media::PlaylistProbeWorker* m_probeWorker = nullptr;
+    quint64 m_nextProbeToken = 1;
+    QUuid m_pendingRelinkId;
+    QString m_pendingRelinkPath;
+    quint64 m_pendingRelinkToken = 0;
+    quint64 m_pendingRelinkProjectGeneration = 0;
+    quint64 m_projectGeneration = 1;
+    bool m_suppressProjectOpenError = false;
 
     /// Directory the last Open Media dialog was pointed at.
     QString m_lastMediaDirectory;
