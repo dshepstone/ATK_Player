@@ -16,6 +16,7 @@ enum class CommandId {
     OpenProject,
     SaveProject,
     SaveProjectAs,
+    ExportReview,
     CloseSource,
     Quit,
 

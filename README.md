@@ -90,7 +90,12 @@ marking disappears the moment a real file opens.
   waveforms follow those offsets without reanalysis. Composite modes share one
   zoom/pan transform, while dual views retain independent transforms. Video Full
   Screen displays the active comparison presentation without recreating decoders.
-- Export (M5).
+- M5 export foundation is in progress: **File → Export Review…** renders the
+  active inclusive review range to H.264/AAC MP4, including all five comparison
+  layouts and the selected A/B/External soundtrack. Rendering is offline and
+  independent of viewer visibility, zoom, crop, playback, and window size; it
+  provides progress, cancellation, and atomic destination replacement. Image
+  sequences, still frames, burn-ins, and the external API remain future M5 work.
 - The API server opens no socket — only the dispatcher underneath it is real.
 - Maya and Harmony integrations, the MSI installer, macOS and Linux.
 

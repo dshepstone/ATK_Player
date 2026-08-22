@@ -714,6 +714,28 @@ not change once released.
 
 ---
 
+## Offline review export
+
+`ExportSpec` is an immutable value snapshot of Source A's inclusive active
+range, optional Source B comparison state, offsets, selected audio and output
+settings. Once a job starts, subsequent UI or project changes cannot alter it.
+
+`ExportJob` owns a worker thread. The worker creates independent
+`MediaDecoder`, audio-reader and FFmpeg encoder contexts; it never reads a
+`ViewerWidget`, captures a window, or reuses the live playback decoders. Source
+A's decoded presentation timestamps are authoritative and are rebased to zero
+for the output stream. Source B is selected through the same exact rational
+mapping used by live M4 comparison. `ComparisonCompositor` is widget-free and
+shared by live composite viewing and all five offline comparison layouts.
+
+Frames are fitted without viewer transforms and padded to an even H.264 canvas.
+The selected Source A, Source B or External soundtrack is mapped onto Source A
+time, resampled to 48 kHz stereo and encoded as AAC. Cancellation removes the
+unique sibling temporary file. Completion closes the muxer before atomically
+replacing the requested destination, preserving an existing file on failure.
+
+---
+
 ## Threading
 
 Phase 0 is single-threaded: everything runs on the UI thread, and the "decoder"

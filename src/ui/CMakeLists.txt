@@ -11,6 +11,7 @@ set(ATK_UI_SOURCES
     BookmarkPanel.cpp
     CompareBar.cpp
     ComparisonCompositeWidget.cpp
+    ExportDialog.cpp
     MainWindow.cpp
     PreferencesDialog.cpp
     Resources.cpp
@@ -32,6 +33,7 @@ set(ATK_UI_HEADERS
     BookmarkPanel.h
     CompareBar.h
     ComparisonCompositeWidget.h
+    ExportDialog.h
     MainWindow.h
     PreferencesDialog.h
     Resources.h

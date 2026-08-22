@@ -41,6 +41,17 @@ struct FormatContextDeleter {
 };
 using FormatContextPtr = std::unique_ptr<AVFormatContext, FormatContextDeleter>;
 
+struct OutputFormatContextDeleter {
+    void operator()(AVFormatContext* context) const noexcept
+    {
+        if (context != nullptr) {
+            if (context->pb != nullptr) avio_closep(&context->pb);
+            avformat_free_context(context);
+        }
+    }
+};
+using OutputFormatContextPtr = std::unique_ptr<AVFormatContext, OutputFormatContextDeleter>;
+
 // --- AVCodecContext (decoder) ----------------------------------------------
 
 struct CodecContextDeleter {

@@ -8,6 +8,8 @@
 #include "media/MediaSource.h"
 #include "media/CompareAudioWorker.h"
 #include "media/PlaylistProbeWorker.h"
+#include "export/ExportJob.h"
+#include "export/FFmpegExporter.h"
 #include "project/Project.h"
 #include "project/ProjectSerializer.h"
 #include "timeline/TimelineModel.h"
@@ -15,6 +17,7 @@
 #include "ui/BookmarkPanel.h"
 #include "ui/CompareBar.h"
 #include "ui/ComparisonCompositeWidget.h"
+#include "ui/ExportDialog.h"
 #include "ui/PreferencesDialog.h"
 #include "ui/Resources.h"
 #include "ui/SourcesPanel.h"
@@ -28,6 +31,8 @@
 #include "ui/commands/CommandRegistry.h"
 
 #include <QFileDialog>
+#include <QDir>
+#include <QFileInfo>
 #include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QIcon>
@@ -49,6 +54,7 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QProgressDialog>
 #include <QScreen>
 #include <QSignalBlocker>
 #include <QStatusBar>
@@ -123,6 +129,7 @@ MainWindow::MainWindow(const QString& settingsIniPath, QWidget* parent)
 
 MainWindow::~MainWindow()
 {
+    if (m_exportJob) { m_exportJob->cancel(); m_exportJob->wait(); }
     exitVideoFullScreen();
     saveApplicationLayout();
     if (m_probeThread) {
@@ -871,6 +878,7 @@ void MainWindow::onCommand(CommandId id, bool checked)
     case CommandId::OpenProject: openProjectDialog(); return;
     case CommandId::SaveProject: saveProject(); return;
     case CommandId::SaveProjectAs: saveProjectAs(); return;
+    case CommandId::ExportReview: exportReview(); return;
     }
 }
 
@@ -1049,6 +1057,9 @@ void MainWindow::updateTransportEnabled()
     const bool notErrored = m_playback->state() != playback::PlayerState::Error;
     const bool enabled = hasExtent && notErrored;
 
+    if (QAction* action = m_commands->action(CommandId::ExportReview))
+        action->setEnabled(m_playback->hasMedia() && !exportInProgress());
+
     if (QAction* action = m_commands->action(CommandId::ToggleVideoFullScreen)) {
         action->setEnabled(m_playback->hasMedia());
     }
@@ -1161,6 +1172,7 @@ void MainWindow::openMediaDialog()
 
 void MainWindow::openMediaFile(const QString& filePath)
 {
+    if (!cancelExportForProjectChange()) return;
     exitComparison();
     if (!confirmDiscardChanges()) return;
     ++m_projectGeneration;
@@ -1341,6 +1353,7 @@ bool MainWindow::confirmDiscardChanges()
 
 void MainWindow::newProject()
 {
+    if (!cancelExportForProjectChange()) return;
     exitComparison();
     if (!confirmDiscardChanges()) return;
     ++m_projectGeneration;
@@ -1358,6 +1371,7 @@ void MainWindow::openProjectDialog()
 
 bool MainWindow::openProjectFile(const QString& path)
 {
+    if (!cancelExportForProjectChange()) return false;
     exitComparison();
     project::Project loaded;
     const auto result = project::ProjectSerializer::load(loaded, path);
@@ -1465,9 +1479,127 @@ bool MainWindow::saveProjectAs()
     return saveProjectTo(path);
 }
 
+exporter::ExportSpec MainWindow::exportSnapshot(const QString& outputPath) const
+{
+    exporter::ExportSpec spec;
+    int aIndex = m_project->activeIndex();
+    if (isComparisonActive()) aIndex = m_project->indexForId(m_compare->sourceAId());
+    if (aIndex < 0 || aIndex >= m_project->entries().size()) return spec;
+
+    const auto snapshotSource = [](const project::SourceEntry& entry, qint64 start, qint64 end) {
+        exporter::ExportSource result;
+        result.id = entry.id;
+        result.path = entry.source ? entry.source->filePath() : entry.storedPath;
+        result.metadata = entry.source ? entry.source->metadata() : media::MediaMetadata{};
+        result.rangeStartFrame = start;
+        result.rangeEndFrame = end;
+        return result;
+    };
+    const auto& a = m_project->entries().at(aIndex);
+    spec.sourceA = snapshotSource(a, m_timeline->effectiveStartFrame(), m_timeline->effectiveEndFrame());
+    spec.comparison = isComparisonActive();
+    if (spec.comparison) {
+        const int bIndex = m_project->indexForId(m_compare->sourceBId());
+        if (bIndex >= 0) {
+            const auto& b = m_project->entries().at(bIndex);
+            const qint64 last = std::max<qint64>(0, b.source->metadata().effectiveFrameCount() - 1);
+            spec.sourceB = snapshotSource(b,
+                b.playbackRange.enabled ? b.playbackRange.startFrame : 0,
+                b.playbackRange.enabled ? b.playbackRange.endFrame : last);
+        }
+        spec.layout = m_compare->layout();
+        spec.sourceBOffsetUs = m_compare->sourceBOffsetUs();
+        spec.wipePosition = m_compare->wipePosition();
+        spec.blendAmount = m_compare->blendAmount();
+        spec.audioMode = m_compare->audioMode();
+        spec.externalAudioPath = m_compare->externalAudioPath();
+        spec.externalAudioOffsetUs = m_compare->externalAudioOffsetUs();
+    }
+    spec.videoEncoder = exporter::FFmpegExporter::availableH264Encoder();
+    if (!outputPath.isEmpty()) {
+        spec.outputPath = outputPath;
+    } else {
+        const QFileInfo aFile(spec.sourceA.path);
+        const QString directory = m_project->filePath().isEmpty()
+            ? aFile.absolutePath() : QFileInfo(m_project->filePath()).absolutePath();
+        QString name = aFile.completeBaseName();
+        if (spec.comparison) name += QStringLiteral("_vs_") + QFileInfo(spec.sourceB.path).completeBaseName();
+        spec.outputPath = QDir(directory).filePath(name + QStringLiteral("_review.mp4"));
+    }
+    return spec;
+}
+
+bool MainWindow::exportInProgress() const
+{
+    return m_exportJob && m_exportJob->isRunning();
+}
+
+void MainWindow::exportReview()
+{
+    if (exportInProgress()) return;
+    exporter::ExportSpec spec = exportSnapshot();
+    ExportDialog dialog(spec, this);
+    if (dialog.exec() != QDialog::Accepted) return;
+    spec.outputPath = dialog.destination();
+    if (QFileInfo::exists(spec.outputPath)
+        && QMessageBox::question(this, tr("Export Review"),
+            tr("Replace the existing file?\n%1").arg(QDir::toNativeSeparators(spec.outputPath)),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes) return;
+    const QString validation = spec.validate();
+    if (!validation.isEmpty()) { QMessageBox::critical(this, tr("Export Review"), validation); return; }
+    startExport(std::move(spec));
+}
+
+void MainWindow::startExport(exporter::ExportSpec spec)
+{
+    if (exportInProgress()) return;
+    m_exportJob = std::make_unique<exporter::ExportJob>(std::move(spec), this);
+    m_exportProgress = new QProgressDialog(tr("Preparing…"), tr("Cancel"), 0, 100, this);
+    m_exportProgress->setWindowTitle(tr("Export Review"));
+    m_exportProgress->setWindowModality(Qt::NonModal);
+    m_exportProgress->setMinimumDuration(0);
+    m_exportProgress->setAutoClose(false);
+    m_exportProgress->setAutoReset(false);
+    connect(m_exportProgress, &QProgressDialog::canceled, m_exportJob.get(), &exporter::ExportJob::cancel);
+    connect(m_exportJob.get(), &exporter::ExportJob::progress, m_exportProgress,
+            [this](int percent, qint64, qint64) { if (m_exportProgress) m_exportProgress->setValue(percent); });
+    connect(m_exportJob.get(), &exporter::ExportJob::statusChanged, m_exportProgress,
+            [this](const QString& text) { if (m_exportProgress) m_exportProgress->setLabelText(text); });
+    const auto closeProgress = [this] {
+        if (m_exportProgress) { m_exportProgress->close(); m_exportProgress->deleteLater(); m_exportProgress = nullptr; }
+        updateTransportEnabled();
+    };
+    connect(m_exportJob.get(), &exporter::ExportJob::completed, this, [this, closeProgress](const QString& path) {
+        closeProgress(); statusBar()->showMessage(tr("Exported %1").arg(QDir::toNativeSeparators(path)), 6000);
+    });
+    connect(m_exportJob.get(), &exporter::ExportJob::cancelled, this, [this, closeProgress] {
+        closeProgress(); statusBar()->showMessage(tr("Export cancelled"), 4000);
+    });
+    connect(m_exportJob.get(), &exporter::ExportJob::failed, this, [this, closeProgress](const QString& message) {
+        closeProgress(); QMessageBox::critical(this, tr("Export Review"), message);
+    });
+    updateTransportEnabled();
+    m_exportProgress->show();
+    m_exportJob->start();
+}
+
+bool MainWindow::cancelExportForProjectChange()
+{
+    if (!exportInProgress()) return true;
+    if (QMessageBox::question(this, tr("Export in Progress"),
+        tr("Cancel the export before changing projects?"), QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No) != QMessageBox::Yes) return false;
+    m_exportJob->cancel();
+    m_exportJob->wait();
+    if (m_exportProgress) { m_exportProgress->close(); m_exportProgress->deleteLater(); m_exportProgress = nullptr; }
+    updateTransportEnabled();
+    return true;
+}
+
 void MainWindow::closeEvent(QCloseEvent* event)
 {
     if (isVideoFullScreen()) exitVideoFullScreen();
+    if (!cancelExportForProjectChange()) { event->ignore(); return; }
     if (confirmDiscardChanges()) { saveApplicationLayout(); event->accept(); }
     else event->ignore();
 }

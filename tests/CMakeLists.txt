@@ -36,6 +36,7 @@ set(ATK_FFMPEG_TEST_SOURCES
     tst_scrubaudio.cpp
     tst_playbackinteraction.cpp
     tst_playlistprobe.cpp
+    tst_export.cpp
 )
 
 set(ATK_UI_TEST_SOURCES
@@ -97,7 +98,7 @@ foreach(test_source IN LISTS ATK_TEST_SOURCES ATK_FFMPEG_TEST_SOURCES ATK_UI_TES
 
     if(test_name STREQUAL "tst_playbackinteraction" OR test_name STREQUAL "tst_bookmarkeditor"
        OR test_name STREQUAL "tst_playlistend" OR test_name STREQUAL "tst_videofullscreen"
-       OR test_name STREQUAL "tst_comparison")
+       OR test_name STREQUAL "tst_comparison" OR test_name STREQUAL "tst_export")
         # This GUI-linked Windows test has no inherited console handle on the
         # hosted runner, so CTest cannot show Qt Test's assertion text. Keep a
         # text report beside the executable; the always-uploaded CI artifact

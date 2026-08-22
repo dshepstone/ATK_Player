@@ -2,6 +2,7 @@
 
 #include "core/commands/CommandDefinitions.h"
 #include "core/commands/CommandId.h"
+#include "export/ExportSpec.h"
 #include "media/MediaMetadata.h"
 #include "playback/PlaybackController.h"
 #include "ui/ViewerTransform.h"
@@ -21,11 +22,13 @@ class QMenu;
 class QThread;
 class QVBoxLayout;
 class QSplitter;
+class QProgressDialog;
 
 namespace atk::api { class ApiServer; }
 namespace atk::playback { class CompareSession; class CompareVideoLane; enum class CompareLayout; enum class CompareAudioMode; }
 namespace atk::project { class Project; }
 namespace atk::media { class PlaylistProbeWorker; }
+namespace atk::exporter { class ExportJob; }
 namespace atk::timeline { class TimelineModel; }
 
 namespace atk::ui {
@@ -91,6 +94,8 @@ public:
     ViewerWidget* viewerA() const { return m_viewer; }
     ViewerWidget* viewerB() const { return m_viewerB; }
     ComparisonCompositeWidget* comparisonComposite() const { return m_compareComposite; }
+    exporter::ExportSpec exportSnapshot(const QString& outputPath = {}) const;
+    bool exportInProgress() const;
 
 protected:
     void closeEvent(QCloseEvent* event) override;
@@ -148,6 +153,9 @@ private:
     void applyComparisonAudioMode(playback::CompareAudioMode mode);
     void loadExternalAudio();
     void clearExternalAudio();
+    void exportReview();
+    void startExport(exporter::ExportSpec spec);
+    bool cancelExportForProjectChange();
     ViewerWidget* activeViewer() const;
 
 
@@ -161,6 +169,7 @@ private:
     std::unique_ptr<playback::CompareSession> m_compare;
     std::unique_ptr<playback::CompareVideoLane> m_compareLane;
     std::unique_ptr<api::ApiServer> m_apiServer;
+    std::unique_ptr<exporter::ExportJob> m_exportJob;
 
     CommandRegistry* m_commands = nullptr;
     BookmarkPanel* m_bookmarks = nullptr;
@@ -191,6 +200,7 @@ private:
     QDockWidget* m_sourcesDock = nullptr;
     QDockWidget* m_bookmarksDock = nullptr;
     QMenu* m_recentProjectsMenu = nullptr;
+    QProgressDialog* m_exportProgress = nullptr;
     bool m_skipLayoutSaveOnce = false;
     bool m_restoringSourceState = false;
     bool m_playAfterSourceOpen = false;
