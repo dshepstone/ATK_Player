@@ -1,4 +1,5 @@
 #include "export/FFmpegExporter.h"
+#include "core/Logging.h"
 #include "media/ffmpeg/FFmpegUtil.h"
 #include <QFile>
 #include <QUuid>
@@ -45,18 +46,29 @@ bool FFmpegExporter::open(const ExportSpec& spec, bool includeAudio, QString* er
     const QSize size = spec.outputSize();
     m_videoCodec->width = size.width(); m_videoCodec->height = size.height();
     m_videoCodec->pix_fmt = AV_PIX_FMT_YUV420P;
-    m_videoCodec->time_base = {spec.sourceA.metadata.videoTimeBase.numerator,
-                               spec.sourceA.metadata.videoTimeBase.denominator};
+    // Export is CFR at Source A's exact rational rate.  A frame-grid time base
+    // makes every presentation (including the final one) exactly one tick and
+    // preserves fractional rates such as 24000/1001 without floating point.
+    m_videoCodec->time_base = {spec.sourceA.metadata.frameRate.denominator,
+                               spec.sourceA.metadata.frameRate.numerator};
     m_videoCodec->framerate = {spec.sourceA.metadata.frameRate.numerator,
                                spec.sourceA.metadata.frameRate.denominator};
     m_videoCodec->bit_rate = 8'000'000;
     m_videoCodec->gop_size = std::max(1, static_cast<int>(spec.sourceA.metadata.frameRate.toDouble() * 2));
+    qCDebug(log::exporting) << "H.264 requested time_base"
+        << m_videoCodec->time_base.num << '/' << m_videoCodec->time_base.den
+        << "framerate" << m_videoCodec->framerate.num << '/' << m_videoCodec->framerate.den;
     if (m_format->oformat->flags & AVFMT_GLOBALHEADER) m_videoCodec->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
     av_opt_set(m_videoCodec->priv_data, "rate_control", "quality", 0);
     av_opt_set_int(m_videoCodec->priv_data, "quality", 75, 0);
     rc = avcodec_open2(m_videoCodec.get(), video, nullptr);
     if (rc < 0) { if (error) *error = QStringLiteral("Unable to open H.264 encoder: %1").arg(errorString(rc)); return false; }
+    qCDebug(log::exporting) << "H.264 negotiated" << videoName
+        << "time_base" << m_videoCodec->time_base.num << '/' << m_videoCodec->time_base.den
+        << "framerate" << m_videoCodec->framerate.num << '/' << m_videoCodec->framerate.den
+        << "delay" << m_videoCodec->delay << "capabilities" << video->capabilities;
     m_videoStream->time_base = m_videoCodec->time_base;
+    m_videoStream->avg_frame_rate = m_videoCodec->framerate;
     avcodec_parameters_from_context(m_videoStream->codecpar, m_videoCodec.get());
     if (includeAudio && aacAvailable()) {
         const AVCodec* audio = avcodec_find_encoder_by_name("aac");
@@ -76,13 +88,23 @@ bool FFmpegExporter::open(const ExportSpec& spec, bool includeAudio, QString* er
     if (rc < 0) { if (error) *error = QStringLiteral("Unable to create the temporary output file."); return false; }
     rc = avformat_write_header(m_format.get(), nullptr);
     if (rc < 0) { if (error) *error = QStringLiteral("Unable to write the MP4 header: %1").arg(errorString(rc)); return false; }
+    qCDebug(log::exporting) << "MP4 video stream time_base after header"
+        << m_videoStream->time_base.num << '/' << m_videoStream->time_base.den;
     return true;
 }
 
 bool FFmpegExporter::writePacket(AVPacket* packet, AVCodecContext* codec, AVStream* stream, QString* error)
 {
+    if (stream == m_videoStream && packet->duration <= 0) packet->duration = 1;
+    if (stream == m_videoStream) qCDebug(log::exporting)
+        << "video packet codec ticks pts" << packet->pts << "dts" << packet->dts
+        << "duration" << packet->duration << "flags" << packet->flags;
     av_packet_rescale_ts(packet, codec->time_base, stream->time_base); packet->stream_index = stream->index;
+    if (stream == m_videoStream) qCDebug(log::exporting)
+        << "video packet stream ticks pts" << packet->pts << "dts" << packet->dts
+        << "duration" << packet->duration;
     const int rc = av_interleaved_write_frame(m_format.get(), packet);
+    if (rc >= 0 && stream == m_videoStream) ++m_videoPacketsWritten;
     if (rc < 0 && error) *error = QStringLiteral("Unable to mux MP4 packet: %1").arg(errorString(rc));
     return rc >= 0;
 }
@@ -99,11 +121,11 @@ bool FFmpegExporter::drainVideo(AVFrame* frame, QString* error)
     return rc == AVERROR(EAGAIN) || rc == AVERROR_EOF;
 }
 
-bool FFmpegExporter::encodeVideo(const QImage& source, qint64 pts, QString* error)
+bool FFmpegExporter::encodeVideo(const QImage& source, qint64 outputFrameIndex, QString* error)
 {
     QImage image = source.convertToFormat(QImage::Format_RGBA8888);
     auto frame = makeFrame(); frame->format = m_videoCodec->pix_fmt; frame->width = m_videoCodec->width;
-    frame->height = m_videoCodec->height; frame->pts = pts;
+    frame->height = m_videoCodec->height; frame->pts = outputFrameIndex; frame->duration = 1;
     if (av_frame_get_buffer(frame.get(), 32) < 0) return false;
     m_scaler.reset(sws_getCachedContext(m_scaler.release(), image.width(), image.height(), AV_PIX_FMT_RGBA,
         frame->width, frame->height, m_videoCodec->pix_fmt, SWS_BILINEAR, nullptr, nullptr, nullptr));
@@ -112,6 +134,7 @@ bool FFmpegExporter::encodeVideo(const QImage& source, qint64 pts, QString* erro
     if (!m_scaler || sws_scale(m_scaler.get(), src, strides, 0, image.height(), frame->data, frame->linesize) <= 0) {
         if (error) *error = QStringLiteral("Unable to convert an export frame to yuv420p."); return false;
     }
+    ++m_videoFramesSubmitted;
     return drainVideo(frame.get(), error);
 }
 
@@ -154,6 +177,8 @@ bool FFmpegExporter::finish(QString* error)
     if (m_finished) return true;
     if (!drainVideo(nullptr, error)) return false;
     if (m_audioCodec && !drainAudio(nullptr, error)) return false;
+    qCDebug(log::exporting) << "video frames submitted" << m_videoFramesSubmitted
+        << "packets emitted" << m_videoPacketsWritten;
     const int rc = av_write_trailer(m_format.get());
     if (rc < 0) { if (error) *error = QStringLiteral("Unable to finalize MP4: %1").arg(errorString(rc)); return false; }
     if (m_format->pb) avio_closep(&m_format->pb);
@@ -170,7 +195,8 @@ void FFmpegExporter::discard()
 void FFmpegExporter::reset()
 {
     m_scaler.reset(); m_audioCodec.reset(); m_videoCodec.reset(); m_format.reset();
-    m_videoStream = nullptr; m_audioStream = nullptr; m_audioPts = 0; m_finished = false;
+    m_videoStream = nullptr; m_audioStream = nullptr; m_audioPts = 0;
+    m_videoFramesSubmitted = 0; m_videoPacketsWritten = 0; m_finished = false;
 }
 
 } // namespace atk::exporter

@@ -182,6 +182,8 @@ The milestone that connects ATK Player to the rest of a pipeline.
       all five A/B comparison layouts, using Source A native timestamps
 - [x] Independent offline decode/render/encode job with immutable settings,
       progress, cancellation, temporary output and atomic replacement
+- [x] Exact CFR packet timing and final-frame duration, verified by independent
+      decoded-frame counts at integer and fractional rates
 - [ ] Image sequence and single-frame export
 - Burn-in of frame numbers, bookmarks and notes
 - [x] Export runs off the UI thread with progress and cancellation

@@ -35,7 +35,7 @@ ExportDialog::ExportDialog(exporter::ExportSpec spec, QWidget* parent)
     m_destination = new QLineEdit(m_spec.outputPath, this); m_destination->setObjectName(QStringLiteral("ExportDestination"));
     auto* browseButton = new QPushButton(tr("Browse…"), this); browseButton->setObjectName(QStringLiteral("ExportBrowse"));
     row->addWidget(m_destination, 1); row->addWidget(browseButton); form->addRow(tr("Destination:"), row);
-    form->addRow(tr("Range:"), new QLabel(tr("Active Review Range — Frames %1–%2 (%3 frames)")
+    form->addRow(tr("Range:"), new QLabel(tr("Active Review Range — Frames %1–%2 inclusive (%3 frames)")
         .arg(m_spec.sourceA.rangeStartFrame + 1).arg(m_spec.sourceA.rangeEndFrame + 1).arg(m_spec.frameCount()), this));
     form->addRow(tr("Video:"), new QLabel(tr("MP4 / H.264 (%1)").arg(m_spec.videoEncoder), this));
     const QString mode = m_spec.comparison ? modeName(m_spec.layout) : tr("Single Source");

@@ -19,7 +19,7 @@ public:
     static bool aacAvailable();
     static bool isSupported();
     bool open(const ExportSpec& spec, bool includeAudio, QString* error);
-    bool encodeVideo(const QImage& image, qint64 outputPtsTicks, QString* error);
+    bool encodeVideo(const QImage& image, qint64 outputFrameIndex, QString* error);
     bool encodeAudio(const QByteArray& interleavedS16, QString* error);
     bool finish(QString* error);
     /// Close all encoder/muxer handles and remove the incomplete sibling file.
@@ -39,6 +39,8 @@ private:
     AVStream* m_audioStream = nullptr;
     QString m_temporaryPath;
     qint64 m_audioPts = 0;
+    qint64 m_videoFramesSubmitted = 0;
+    qint64 m_videoPacketsWritten = 0;
     bool m_finished = false;
 };
 

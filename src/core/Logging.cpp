@@ -16,6 +16,7 @@ Q_LOGGING_CATEGORY(media, "atk.media")
 Q_LOGGING_CATEGORY(playback, "atk.playback")
 Q_LOGGING_CATEGORY(timeline, "atk.timeline")
 Q_LOGGING_CATEGORY(project, "atk.project")
+Q_LOGGING_CATEGORY(exporting, "atk.export")
 Q_LOGGING_CATEGORY(api, "atk.api")
 Q_LOGGING_CATEGORY(platform, "atk.platform")
 

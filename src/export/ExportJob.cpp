@@ -2,7 +2,6 @@
 #include "export/ExportRenderer.h"
 #include "export/FFmpegExporter.h"
 #include "media/AudioSourceReader.h"
-#include "media/ffmpeg/FFmpegUtil.h"
 #include "playback/CompareSession.h"
 #include <QFile>
 #include <QThread>
@@ -27,7 +26,6 @@ public slots:
         FFmpegExporter encoder;
         if (!encoder.open(m_spec, wantAudio, &error)) { encoder.discard(); emit failed(cleanError(error)); return; }
         const qint64 total = m_spec.frameCount();
-        qint64 lastPts = 0;
         for (qint64 n = 0; n < total; ++n) {
             if (isCancelled()) { encoder.discard(); emit cancelled(); return; }
             const qint64 index = m_spec.sourceA.rangeStartFrame + n;
@@ -37,21 +35,25 @@ public slots:
                 if (isCancelled()) emit cancelled(); else emit failed(cleanError(error));
                 return;
             }
-            if (!encoder.encodeVideo(frame.image, frame.outputPtsTicks, &error)) {
+            if (!encoder.encodeVideo(frame.image, n, &error)) {
                 encoder.discard(); emit failed(cleanError(error)); return;
             }
-            lastPts = frame.outputPtsTicks;
             emit statusChanged(tr("Rendering frame %1 / %2…").arg(n + 1).arg(total));
             emit progress(static_cast<int>((n + 1) * 90 / total), n + 1, total);
         }
         if (wantAudio) {
             emit statusChanged(tr("Encoding audio…"));
-            const qint64 durationUs = media::ffmpeg::ptsToMicroseconds(
-                lastPts, AVRational{m_spec.sourceA.metadata.videoTimeBase.numerator,
-                                    m_spec.sourceA.metadata.videoTimeBase.denominator})
-                + playback::CompareSession::frameTimeUs(1, m_spec.sourceA.metadata.frameRate);
+            // CFR output duration comes from the exact rational frame grid,
+            // not rounded native source PTS. This keeps AAC trim/padding on the
+            // same N-frame timeline as video (not the N-1 final-frame PTS).
+            const auto rate = m_spec.sourceA.metadata.frameRate;
+            const qint64 audioSamples = (total * rate.denominator * m_spec.audioSampleRate
+                + rate.numerator / 2) / rate.numerator;
+            const qint64 durationUs = (audioSamples * 1'000'000
+                + m_spec.audioSampleRate / 2) / m_spec.audioSampleRate;
             QByteArray pcm;
-            if (!renderAudio(durationUs, pcm, &error) || !encoder.encodeAudio(pcm, &error)) {
+            if (!renderAudio(durationUs, audioSamples, pcm, &error)
+                || !encoder.encodeAudio(pcm, &error)) {
                 encoder.discard(); emit failed(cleanError(error)); return;
             }
         }
@@ -78,7 +80,7 @@ private:
         if (m_spec.audioMode == playback::CompareAudioMode::SourceB) return m_spec.sourceB.metadata.hasAudio;
         return !m_spec.externalAudioPath.isEmpty();
     }
-    bool renderAudio(qint64 durationUs, QByteArray& output, QString* error)
+    bool renderAudio(qint64 durationUs, qint64 sampleCount, QByteArray& output, QString* error)
     {
         QString path; qint64 sourceStartUs = 0;
         if (!m_spec.comparison || m_spec.audioMode == playback::CompareAudioMode::SourceA) {
@@ -96,7 +98,7 @@ private:
         media::AudioFormat format{m_spec.audioSampleRate, m_spec.audioChannels, 2};
         media::AudioSourceReader reader;
         if (!reader.open(path, format, error)) { output.clear(); return true; }
-        output = QByteArray(static_cast<qsizetype>(format.microsecondsToBytes(durationUs)), '\0');
+        output = QByteArray(static_cast<qsizetype>(sampleCount * format.bytesPerFrame()), '\0');
         const qint64 leadingUs = std::clamp<qint64>(-sourceStartUs, 0, durationUs);
         const qint64 readStart = std::max<qint64>(0, sourceStartUs);
         const qint64 readDuration = durationUs - leadingUs;
