@@ -41,9 +41,11 @@ void WaveformWorker::shutdown()
 
 void WaveformWorker::analyse(const QString& filePath, quint64 sourceGeneration)
 {
-    if (m_shuttingDown) {
+    if (m_shuttingDown
+        || sourceGeneration != m_latestGeneration.load(std::memory_order_acquire)) {
         return;
     }
+    m_cancelled.store(false, std::memory_order_release);
 
     m_reader->close();
 
@@ -114,7 +116,10 @@ void WaveformWorker::analyse(const QString& filePath, quint64 sourceGeneration)
                 }
             }
         },
-        [this] { return isCancelled(); },
+        [this, sourceGeneration] {
+            return isCancelled()
+                || sourceGeneration != m_latestGeneration.load(std::memory_order_acquire);
+        },
         &error);
 
     if (isCancelled() || m_shuttingDown) {

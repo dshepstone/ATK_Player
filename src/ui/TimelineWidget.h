@@ -41,6 +41,8 @@ public:
     /// is indexed by media time while the track is indexed by frame, and those
     /// are only interchangeable through the real frame rate.
     void setMediaDuration(int64_t durationUs);
+    void setWaveformTimeOffsetUs(int64_t offsetUs) { m_waveformTimeOffsetUs = offsetUs; refreshWaveform(); }
+    int64_t waveformTimeOffsetUs() const { return m_waveformTimeOffsetUs; }
 
     /// Repaints the waveform band after new peaks arrive.
     void refreshWaveform();
@@ -117,6 +119,7 @@ private:
     timeline::TimelineModel* m_model = nullptr;
     const media::WaveformData* m_waveform = nullptr;
     int64_t m_mediaDurationUs = -1;
+    int64_t m_waveformTimeOffsetUs = 0;
     bool m_scrubbing = false;
     bool m_panning = false;
     int m_lastPanX = 0;

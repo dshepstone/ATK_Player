@@ -63,9 +63,12 @@ function(atk_add_test_media)
     set(lossy    "${ATK_TEST_MEDIA_DIR}/atk_fixture_48f.mp4")
     set(sync     "${ATK_TEST_MEDIA_DIR}/atk_sync_10s.mkv")
     set(review   "${ATK_TEST_MEDIA_DIR}/atk_review_10s.mkv")
+    set(compare30 "${ATK_TEST_MEDIA_DIR}/atk_compare_30fps.mkv")
+    set(compare60 "${ATK_TEST_MEDIA_DIR}/atk_compare_5994fps.mkv")
+    set(external32 "${ATK_TEST_MEDIA_DIR}/atk_external_32k.wav")
 
     add_custom_command(
-        OUTPUT "${lossless}" "${lossy}" "${sync}" "${review}"
+        OUTPUT "${lossless}" "${lossy}" "${sync}" "${review}" "${compare30}" "${compare60}" "${external32}"
         COMMAND "${CMAKE_COMMAND}" -E make_directory "${ATK_TEST_MEDIA_DIR}"
 
         # Lossless fixture: FFV1 video, PCM audio, Matroska.
@@ -114,11 +117,33 @@ function(atk_add_test_media)
                 -c:a pcm_s16le
                 "${review}"
 
+        # Short unequal-rate comparison fixtures. Video-only B is intentional:
+        # comparison audio must remain exclusively on the authoritative A lane.
+        COMMAND "${ATK_FFMPEG_EXECUTABLE}"
+                -hide_banner -loglevel error -y
+                -f lavfi -i "testsrc2=size=320x180:rate=30:duration=2"
+                -f lavfi -i "sine=frequency=660:sample_rate=44100:duration=2"
+                -c:v ffv1 -pix_fmt yuv420p
+                -c:a pcm_s16le
+                "${compare30}"
+
+        COMMAND "${ATK_FFMPEG_EXECUTABLE}"
+                -hide_banner -loglevel error -y
+                -f lavfi -i "testsrc2=size=320x180:rate=60000/1001:duration=2"
+                -c:v ffv1 -pix_fmt yuv420p
+                "${compare60}"
+
+        COMMAND "${ATK_FFMPEG_EXECUTABLE}"
+                -hide_banner -loglevel error -y
+                -f lavfi -i "sine=frequency=880:sample_rate=32000:duration=3"
+                -c:a pcm_s16le
+                "${external32}"
+
         COMMENT "Generating deterministic test media fixtures"
         VERBATIM
     )
 
-    add_custom_target(atk_test_media DEPENDS "${lossless}" "${lossy}" "${sync}" "${review}")
+    add_custom_target(atk_test_media DEPENDS "${lossless}" "${lossy}" "${sync}" "${review}" "${compare30}" "${compare60}" "${external32}")
     set_target_properties(atk_test_media PROPERTIES FOLDER "Tests")
 
     # Validate what was produced rather than trusting the recipe. If a future

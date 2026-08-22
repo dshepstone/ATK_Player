@@ -25,6 +25,7 @@ set(ATK_CORE_SOURCES
     media/WaveformData.cpp
     media/WaveformWorker.cpp
     media/ScrubAudioWorker.cpp
+    media/CompareAudioWorker.cpp
     audio/ScrubAudioEngine.cpp
     media/MediaDecoder.cpp
     media/DecoderWorker.cpp
@@ -51,6 +52,7 @@ set(ATK_CORE_SOURCES
     api/ApiServer.cpp
 
     playback/CompareSession.cpp
+    playback/CompareVideoLane.cpp
 )
 
 set(ATK_CORE_HEADERS
@@ -70,6 +72,7 @@ set(ATK_CORE_HEADERS
     media/WaveformData.h
     media/WaveformWorker.h
     media/ScrubAudioWorker.h
+    media/CompareAudioWorker.h
     audio/ScrubAudioEngine.h
     media/MediaDecoder.h
     media/DecoderWorker.h
@@ -98,6 +101,7 @@ set(ATK_CORE_HEADERS
     api/ApiServer.h
 
     playback/CompareSession.h
+    playback/CompareVideoLane.h
 
     platform/PlatformInfo.h
 )

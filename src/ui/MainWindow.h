@@ -20,9 +20,10 @@ class QCloseEvent;
 class QMenu;
 class QThread;
 class QVBoxLayout;
+class QSplitter;
 
 namespace atk::api { class ApiServer; }
-namespace atk::playback { class CompareSession; }
+namespace atk::playback { class CompareSession; class CompareVideoLane; enum class CompareLayout; enum class CompareAudioMode; }
 namespace atk::project { class Project; }
 namespace atk::media { class PlaylistProbeWorker; }
 namespace atk::timeline { class TimelineModel; }
@@ -32,6 +33,7 @@ namespace atk::ui {
 class CommandRegistry;
 class ApplicationSettings;
 class BookmarkPanel;
+class CompareBar;
 class PreferencesDialog;
 class SourcesPanel;
 class StatusInfoBar;
@@ -82,6 +84,11 @@ public:
     bool isVideoFullScreen() const;
     void enterVideoFullScreen();
     void exitVideoFullScreen();
+    bool isComparisonActive() const;
+    playback::CompareSession* compareSession() const { return m_compare.get(); }
+    playback::CompareVideoLane* compareVideoLane() const { return m_compareLane.get(); }
+    ViewerWidget* viewerA() const { return m_viewer; }
+    ViewerWidget* viewerB() const { return m_viewerB; }
 
 protected:
     void closeEvent(QCloseEvent* event) override;
@@ -121,6 +128,20 @@ private:
     void refreshRecentProjectsMenu();
     void startPlaylistProbes();
     void startProbe(const QUuid& id, const QString& path);
+    void enterComparison();
+    void exitComparison();
+    void setComparisonLayout(playback::CompareLayout layout);
+    void selectComparisonSourceA(const QUuid& id);
+    void selectComparisonSourceB(const QUuid& id);
+    void openComparisonSourceB();
+    void synchronizeComparison(const media::VideoFrame& sourceAFrame);
+    int defaultComparisonBIndex(int sourceAIndex) const;
+    bool sourceUsableForComparison(int index) const;
+    void refreshComparisonUi();
+    void applyComparisonAudioMode(playback::CompareAudioMode mode);
+    void loadExternalAudio();
+    void clearExternalAudio();
+    ViewerWidget* activeViewer() const;
 
 
     std::unique_ptr<ApplicationSettings> m_settings;
@@ -131,12 +152,17 @@ private:
     std::unique_ptr<playback::PlaybackController> m_playback;
     std::unique_ptr<project::Project> m_project;
     std::unique_ptr<playback::CompareSession> m_compare;
+    std::unique_ptr<playback::CompareVideoLane> m_compareLane;
     std::unique_ptr<api::ApiServer> m_apiServer;
 
     CommandRegistry* m_commands = nullptr;
     BookmarkPanel* m_bookmarks = nullptr;
 
     ViewerWidget* m_viewer = nullptr;
+    ViewerWidget* m_viewerB = nullptr;
+    CompareBar* m_compareBar = nullptr;
+    QWidget* m_compareHost = nullptr;
+    QSplitter* m_compareSplitter = nullptr;
     VideoFullscreenWindow* m_videoFullscreenWindow = nullptr;
     QVBoxLayout* m_centralLayout = nullptr;
     ViewerTransform m_normalViewerTransform;

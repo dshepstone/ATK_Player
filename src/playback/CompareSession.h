@@ -1,95 +1,73 @@
 #pragma once
 
-#include "media/MediaSource.h"
-
+#include "media/MediaMetadata.h"
 #include <QObject>
-
+#include <QUuid>
+#include <QVector>
 #include <cstdint>
-#include <memory>
-
-namespace atk::playback { class PlaybackController; }
 
 namespace atk::playback {
 
-/// How the two viewers are arranged.
-enum class CompareLayout {
-    Horizontal, ///< A left, B right
-    Vertical,   ///< A top, B bottom
-    /// Both sources drawn in the same rectangle, split by a draggable divider.
-    /// A later addition; listed here so the enum does not need renumbering.
-    Wipe,
-};
+enum class CompareLayout { SideBySide, Stacked };
+enum class ComparePane { A, B };
+enum class CompareAudioMode { SourceA, SourceB, External };
 
-/// A/B comparison of two media sources.
-///
-/// PHASE 0 STATUS: architecture placeholder. The class holds the intended
-/// state and its accessors; no second decode path and no second viewer exist
-/// yet. Implemented in milestone M4.
-///
-/// THE SYNCHRONISATION RULE
-/// -----------------------
-/// There is exactly ONE PlaybackClock, owned by the single PlaybackController.
-/// Neither viewer runs a clock of its own.
-///
-/// On every tick the controller computes the master frame N. Viewer A requests
-/// frame `N + offsetA` from source A, viewer B requests `N + offsetB` from
-/// source B. Both requests resolve against their own decoder and frame cache,
-/// which may take different amounts of time -- but because both are derived
-/// from the same N, they cannot accumulate drift. A slow decode shows a stale
-/// frame for one tick; it never shifts the sync point.
-///
-/// The alternative -- giving each viewer its own clock and periodically
-/// resyncing them -- was rejected: it makes drift the normal state and
-/// correctness a matter of how often you correct it.
-///
-/// The B offset exists because two takes of the same shot rarely start on the
-/// same frame: different handles, a re-time, or a retake that begins mid-action.
-/// Offsetting B lets the reviewer align the moment that matters and then scrub
-/// both takes together.
-///
-/// Sources with different frame rates are resolved by converting through the
-/// master clock's time base, not by assuming a shared frame numbering.
 class CompareSession : public QObject {
     Q_OBJECT
-
 public:
     explicit CompareSession(QObject* parent = nullptr);
-    ~CompareSession() override;
-
-    void setSourceA(std::shared_ptr<media::MediaSource> source);
-    void setSourceB(std::shared_ptr<media::MediaSource> source);
-    const std::shared_ptr<media::MediaSource>& sourceA() const { return m_sourceA; }
-    const std::shared_ptr<media::MediaSource>& sourceB() const { return m_sourceB; }
-
-    CompareLayout layout() const { return m_layout; }
-    void setLayout(CompareLayout layout);
-
-    /// Frames added to the master frame number when reading from A / B.
-    int64_t offsetA() const { return m_offsetA; }
-    int64_t offsetB() const { return m_offsetB; }
-    void setOffsetA(int64_t frames);
-    void setOffsetB(int64_t frames);
-
-    /// True once both slots hold a source.
-    bool isReady() const { return m_sourceA != nullptr && m_sourceB != nullptr; }
-
-    /// Whether comparison mode is currently displayed.
     bool isActive() const { return m_active; }
     void setActive(bool active);
+    QUuid sourceAId() const { return m_sourceAId; }
+    QUuid sourceBId() const { return m_sourceBId; }
+    bool setSources(const QUuid& sourceAId, const QUuid& sourceBId);
+    CompareLayout layout() const { return m_layout; }
+    void setLayout(CompareLayout layout);
+    ComparePane activePane() const { return m_activePane; }
+    void setActivePane(ComparePane pane);
+    qint64 sourceBOffsetUs() const { return m_sourceBOffsetUs; }
+    void setSourceBOffsetUs(qint64 offsetUs);
+    quint64 generation() const { return m_generation; }
+    CompareAudioMode audioMode() const { return m_audioMode; }
+    void setAudioMode(CompareAudioMode mode);
+    QString externalAudioPath() const { return m_externalAudioPath; }
+    void setExternalAudioPath(const QString& path);
+    qint64 externalAudioOffsetUs() const { return m_externalAudioOffsetUs; }
+    void setExternalAudioOffsetUs(qint64 value);
+
+    static qint64 frameTimeUs(qint64 frame, const media::FrameRate& rate);
+    static qint64 mappedTargetUs(qint64 sourceAPtsUs, qint64 sourceARangeStartUs,
+                                 qint64 sourceBRangeStartUs, qint64 sourceBRangeEndUs,
+                                 qint64 sourceBOffsetUs = 0);
+    static qint64 constantRateFrameForTime(qint64 targetUs, const media::FrameRate& rate,
+                                           qint64 firstFrame, qint64 lastFrame);
+    static int frameForPts(qint64 targetUs, const QVector<qint64>& presentationTimesUs);
 
 signals:
-    void sourcesChanged();
-    void layoutChanged(atk::playback::CompareLayout layout);
-    void offsetsChanged();
     void activeChanged(bool active);
+    void sourcesChanged(const QUuid& sourceAId, const QUuid& sourceBId);
+    void layoutChanged(atk::playback::CompareLayout layout);
+    void activePaneChanged(atk::playback::ComparePane pane);
+    void offsetChanged(qint64 offsetUs);
+    void audioModeChanged(atk::playback::CompareAudioMode mode);
+    void externalAudioChanged(const QString& path);
 
 private:
-    std::shared_ptr<media::MediaSource> m_sourceA;
-    std::shared_ptr<media::MediaSource> m_sourceB;
-    CompareLayout m_layout = CompareLayout::Horizontal;
-    int64_t m_offsetA = 0;
-    int64_t m_offsetB = 0;
+    void bumpGeneration();
+    QUuid m_sourceAId;
+    QUuid m_sourceBId;
+    CompareLayout m_layout = CompareLayout::SideBySide;
+    ComparePane m_activePane = ComparePane::A;
+    qint64 m_sourceBOffsetUs = 0;
+    CompareAudioMode m_audioMode = CompareAudioMode::SourceA;
+    QString m_externalAudioPath;
+    qint64 m_externalAudioOffsetUs = 0;
+    quint64 m_generation = 0;
     bool m_active = false;
 };
 
 } // namespace atk::playback
+
+Q_DECLARE_METATYPE(atk::playback::CompareLayout)
+Q_DECLARE_METATYPE(atk::playback::ComparePane)
+Q_DECLARE_METATYPE(atk::playback::CompareAudioMode)

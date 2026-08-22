@@ -68,6 +68,8 @@ constexpr std::array kCommands{
     CommandDefinition{ CommandId::ToggleFrameStepAudio,"audio.toggleFrameStep",QT_TRANSLATE_NOOP("Command", "Frame-step Audio"),     C::Audio,    nullptr,        true  },
     CommandDefinition{ CommandId::VolumeUp,           "audio.volumeUp",        QT_TRANSLATE_NOOP("Command", "Volume Up"),            C::Audio,    "Ctrl+Up",      false },
     CommandDefinition{ CommandId::VolumeDown,         "audio.volumeDown",      QT_TRANSLATE_NOOP("Command", "Volume Down"),          C::Audio,    "Ctrl+Down",    false },
+    CommandDefinition{ CommandId::LoadExternalAudio,  "audio.loadExternal",   QT_TRANSLATE_NOOP("Command", "Load External Audio..."), C::Audio, nullptr, false },
+    CommandDefinition{ CommandId::ClearExternalAudio, "audio.clearExternal",  QT_TRANSLATE_NOOP("Command", "Clear External Audio"), C::Audio, nullptr, false },
 
     // View
     CommandDefinition{ CommandId::ZoomIn,             "view.zoomIn",           QT_TRANSLATE_NOOP("Command", "Zoom In"),              C::View,     "Ctrl+=",       false },
@@ -76,6 +78,9 @@ constexpr std::array kCommands{
     CommandDefinition{ CommandId::ZoomActualSize,     "view.zoomActualSize",   QT_TRANSLATE_NOOP("Command", "Viewer 100%"),          C::View,     "Ctrl+1",       false },
     CommandDefinition{ CommandId::ToggleFullScreen,   "view.toggleFullScreen", QT_TRANSLATE_NOOP("Command", "Full Screen Application"), C::View,  "F11",          true  },
     CommandDefinition{ CommandId::ToggleVideoFullScreen,"view.toggleVideoFullScreen",QT_TRANSLATE_NOOP("Command", "Video Full Screen"), C::View, "Ctrl+Shift+F", true },
+    CommandDefinition{ CommandId::ToggleComparison,    "view.toggleComparison", QT_TRANSLATE_NOOP("Command", "A/B Comparison"), C::View, nullptr, true },
+    CommandDefinition{ CommandId::CompareSideBySide,  "view.compareSideBySide", QT_TRANSLATE_NOOP("Command", "Comparison Side by Side"), C::View, nullptr, true },
+    CommandDefinition{ CommandId::CompareStacked,     "view.compareStacked", QT_TRANSLATE_NOOP("Command", "Comparison Stacked"), C::View, nullptr, true },
     CommandDefinition{ CommandId::ToggleSourcesPanel, "view.toggleSources",    QT_TRANSLATE_NOOP("Command", "Sources Panel"),        C::View,     "F4",           true  },
     CommandDefinition{ CommandId::ToggleBookmarksPanel,"view.toggleBookmarks", QT_TRANSLATE_NOOP("Command", "Bookmarks Panel"),      C::View,     "F5",           true  },
     CommandDefinition{ CommandId::TimelineZoomIn,     "view.timelineZoomIn",   QT_TRANSLATE_NOOP("Command", "Timeline Zoom In"),     C::View,     "=",            false },

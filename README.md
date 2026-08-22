@@ -77,9 +77,19 @@ With no media loaded the window still installs a clearly-marked **placeholder**
 `NO MEDIA — placeholder values` and the API reports `"placeholder": true`. That
 marking disappears the moment a real file opens.
 
-**What does not work yet**
+**What is in progress or not implemented yet**
 
-- A/B comparison (M4) and export (M5).
+- M4 A/B comparison now has its synchronized foundation: transient A/B source
+  selection, Side-by-Side and Stacked viewers, one Source A master clock,
+  timestamp mapping across different frame rates, independent viewer transforms,
+  and selectable A, B, or independent External Audio through one output. This
+  supports two animation-only takes sharing a dialogue/reference track. The
+  Source A timeline displays the selected A/B/External soundtrack waveform, Play
+  from comparison end restarts at A's review-range start, and the comparison bar
+  groups Sources, Audio and Layout for faster scanning. Wipe,
+  difference/blend, offset controls and comparison
+  video fullscreen remain future M4 work.
+- Export (M5).
 - The API server opens no socket — only the dispatcher underneath it is real.
 - Maya and Harmony integrations, the MSI installer, macOS and Linux.
 

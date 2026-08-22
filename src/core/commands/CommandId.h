@@ -56,6 +56,8 @@ enum class CommandId {
     ToggleFrameStepAudio,
     VolumeUp,
     VolumeDown,
+    LoadExternalAudio,
+    ClearExternalAudio,
 
     // View
     ZoomIn,
@@ -64,6 +66,9 @@ enum class CommandId {
     ZoomActualSize,
     ToggleFullScreen,
     ToggleVideoFullScreen,
+    ToggleComparison,
+    CompareSideBySide,
+    CompareStacked,
     ToggleSourcesPanel,
     ToggleBookmarksPanel,
     TimelineZoomIn,

@@ -536,20 +536,67 @@ the controller to normal audio, scrub grains and frame-step grains.
 
 ### `src/playback/` — A/B comparison
 
-The synchronisation rule, stated once so it does not get reinvented:
+`CompareSession` is transient UI/session state: it holds the stable source A and
+B UUIDs, layout, active pane, a signed-microsecond B offset foundation and a
+generation. It is never serialized and cannot dirty `.atkproj` v1.
 
-> There is exactly **one** `PlaybackClock`. Neither viewer runs a clock of its
-> own. On each tick the controller computes master frame *N*; viewer A requests
-> `N + offsetA` from source A and viewer B requests `N + offsetB` from source B.
+Source A remains the normal `PlaybackController` source. It owns the only
+`PlaybackClock`, timeline, bookmarks and authoritative review
+range. Each accepted A `VideoFrame::ptsUs` establishes comparison time relative
+to A's range origin. `CompareVideoLane` maps that time onto B's own range origin
+and asks a video-only `DecoderWorker` for the corresponding B presentation. B
+has no timer, audio output, waveform or scrub engine, so it cannot free-run or
+become timing master.
 
-Both viewers derive from the same *N*, so they cannot accumulate drift no matter
-how differently the two sources decode. A slow decode shows a stale frame for one
-tick; it never moves the sync point. The alternative — a clock per viewer, resynced
-periodically — makes drift the normal state and correctness a question of how
-often you correct it.
+Mapping is timestamp based, not frame-index based. Exact rational frame rates
+are used to resolve constant-rate sources and decoded presentation timestamps
+remain the presentation authority. This naturally repeats or skips B frames for
+unequal frame rates without cumulative addition or drift. Targets clamp at B's
+range boundaries when B is shorter; extra B duration is simply unused when it
+is longer. The internal signed offset is zero and has no UI in this increment.
 
-The per-source offset exists because two takes of the same shot rarely start on
-the same frame. Offsetting B lets the reviewer line up the moment that matters.
+B owns a generation-safe worker thread and a 64 MiB bounded cache. Only one
+decode request is in flight; a newer master target supersedes queued intent and
+is requested after the current decode completes. A never waits for B. Shutdown
+invalidates generations, disconnects delivery, stops the worker and joins its
+thread before destruction.
+
+The comparison host contains two independent `ViewerWidget` transforms in a
+splitter. Its compact bar groups Sources, Audio and Layout with separators;
+External Load/Clear are secondary actions and the layout actions present one
+checked choice. Side-by-Side and Stacked change only splitter orientation. The clicked
+pane receives Viewer Fit/100%/zoom commands. Source A audio is the default, but
+`CompareAudioMode` can select Source B or a transient External file.
+`CompareAudioWorker` owns an audio-only reader on a dedicated thread, resamples
+the selected follower through libswresample, and fills the same bounded ring
+buffer consumed by the controller's single `AudioOutput`. It owns no sink and
+no clock. Primary decoder audio is disabled for B/External, preventing mixing
+or competing device clocks.
+
+B audio uses B's range origin and signed B offset. External audio uses its
+normalized stream origin plus the internal signed `externalAudioOffsetUs`.
+Mode/source generations flush stale PCM on mode changes, seeks, loops, source
+replacement, compare exit and shutdown. Missing or shorter audio contributes
+silence and never changes A's duration. The selected source also feeds existing
+timestamp-mapped scrub and frame-step grains, including reverse scrub.
+
+The waveform follows the selected soundtrack through the existing dedicated
+`WaveformWorker` and its independent FFmpeg context, never the live audio
+decoder. Every request receives a monotonically increasing waveform generation,
+so late A, B or replaced External results cannot overwrite the current display.
+The painter maps A media time into provider time using `B range origin +
+BOffsetUs - A range origin` or `externalAudioOffsetUs - A range origin`.
+Shorter follower audio therefore ends in an empty region rather than being
+stretched or looped. Only waveform lookup changes: ruler, playhead, frame
+numbers, ranges, timecode and bookmarks remain Source A. Mode, path and offsets
+are transient: they do not dirty or serialize into `.atkproj`.
+
+With comparison active,
+Loop OFF stops at A's range end and Loop ON repeats the fixed pair. A subsequent
+Play from the inclusive A range end seeks exactly to A's review-range start,
+remaps B and selected audio to comparison time zero, and starts the new run; the
+final frame remains visible until that explicit Play. Video Full Screen is
+temporarily disabled; application Full Screen remains available.
 
 ### `src/api/` — external control
 

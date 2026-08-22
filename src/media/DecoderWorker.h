@@ -95,6 +95,7 @@ public slots:
 
     /// Configures audio resampling to the device's format.
     void configureAudio(int sampleRate, int channelCount);
+    void setAudioEnabled(bool enabled);
 
     /// Sets how many frames ahead of the playhead to decode. Supplied by the
     /// controller from the frame rate and frame size.
@@ -165,6 +166,7 @@ private:
     bool m_stepScheduled = false;
     bool m_reachedEnd = false;
     bool m_shuttingDown = false;
+    bool m_audioEnabled = true;
 
     /// Generation the current playback run was started under.
     quint64 m_playbackGeneration = 0;

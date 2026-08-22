@@ -53,7 +53,11 @@ public:
 
     /// Set from the UI thread to abandon an in-flight scan.
     void requestCancel() { m_cancelled.store(true, std::memory_order_release); }
-    void clearCancel() { m_cancelled.store(false, std::memory_order_release); }
+    void requestAnalysis(quint64 generation)
+    {
+        m_latestGeneration.store(generation, std::memory_order_release);
+        requestCancel();
+    }
 
 public slots:
     /// Scans `filePath`, emitting peaks tagged with `sourceGeneration`.
@@ -78,6 +82,7 @@ private:
 
     std::unique_ptr<AudioSourceReader> m_reader;
     std::atomic<bool> m_cancelled{ false };
+    std::atomic<quint64> m_latestGeneration{ 0 };
     bool m_shuttingDown = false;
 };
 

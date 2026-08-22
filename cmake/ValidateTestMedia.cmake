@@ -96,3 +96,19 @@ expect_field("${sync}" "v:0" "stream=width" "1920")
 expect_field("${sync}" "v:0" "stream=height" "1080")
 expect_field("${sync}" "v:0" "stream=r_frame_rate" "24/1")
 expect_field("${sync}" "a:0" "stream=sample_rate" "48000")
+
+set(compare30 "${MEDIA_DIR}/atk_compare_30fps.mkv")
+set(compare60 "${MEDIA_DIR}/atk_compare_5994fps.mkv")
+foreach(compare_fixture IN ITEMS "${compare30}" "${compare60}")
+    if(NOT EXISTS "${compare_fixture}")
+        message(FATAL_ERROR "Missing fixture: ${compare_fixture}")
+    endif()
+endforeach()
+expect_field("${compare30}" "v:0" "stream=r_frame_rate" "30/1")
+expect_field("${compare30}" "a:0" "stream=sample_rate" "44100")
+# Matroska stores these timestamps on a millisecond time base, so ffprobe
+# reports the rational reconstructed from the real presentation timestamps.
+# It is intentionally close to, but not falsely asserted as, an exact 60 fps.
+expect_field("${compare60}" "v:0" "stream=r_frame_rate" "19001/317")
+set(external32 "${MEDIA_DIR}/atk_external_32k.wav")
+expect_field("${external32}" "a:0" "stream=sample_rate" "32000")

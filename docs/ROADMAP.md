@@ -4,7 +4,7 @@ Milestones are ordered by dependency, not by preference. Each one should leave
 the application in a state that runs and is worth using — no milestone is a
 half-landed refactor.
 
-**Current milestone: M3 — complete. Next: M4 A/B Comparison.**
+**Current milestone: M4 — A/B Comparison, in progress.**
 
 ---
 
@@ -148,17 +148,28 @@ Make a review session something you can save and hand to someone else.
 
 ## M4 — A/B Comparison
 
-- Second `ViewerWidget` bound to `CompareSession`
-- Horizontal, vertical and wipe layouts
-- Both viewers driven by the single master `PlaybackClock`
-- Per-source frame offset, adjustable live, for aligning takes with different
-  handles
-- Sources at different frame rates resolved through the master time base
-- Difference and split-screen display modes
+- [x] Transient `CompareSession` with stable A/B source UUIDs
+- [x] Secondary video-only decode lane driven by A's single master clock
+- [x] Playlist-ordered A/B selection with unavailable-source handling
+- [x] Timestamp/rational mapping for unequal frame rates and source ranges
+- [x] Side-by-Side and Stacked layouts
+- [x] Independent A/B viewer transforms and active-pane commands
+- [x] Selectable Source A, Source B, or independent External comparison audio
+- [x] One-output follower routing with timestamp-mapped scrub/step audio
+- [x] Selected A/B/External waveform mapped onto Source A comparison time
+- [x] Fixed-pair replay from the Source A review-range start
+- [x] Grouped Sources / Audio / Layout comparison toolbar
+- [x] Fixed-pair range/Loop behavior
+- [ ] User-facing source offset controls
+- [ ] User-facing External Audio offset controls
+- [ ] Wipe comparison
+- [ ] Difference/blend display
+- [ ] Comparison video fullscreen
+- [ ] Additional comparison interaction and performance polish
 
-**Capabilities this milestone delivers:** horizontal A/B, vertical A/B,
-synchronised playback and seeking, and per-source frame offsets — all driven by
-one master clock, never two.
+**Status:** IN PROGRESS. The foundation delivers synchronized horizontal and
+vertical A/B from one master clock. Offset editing and image-combination modes
+remain future M4 increments.
 
 ---
 
