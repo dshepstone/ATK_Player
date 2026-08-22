@@ -75,6 +75,13 @@ void CompareVideoLane::synchronizeTo(qint64 targetUs)
     m_latestTargetUs = std::max<qint64>(0, targetUs);
     if (!m_ready) return;
     const qint64 frame = targetFrame(m_latestTargetUs);
+    if (m_requestInFlight && frame != m_pendingFrame) {
+        // Mapping changes are authoritative immediately. Supersede the old
+        // decode so its frame cannot flash after an offset edit.
+        m_generations->bumpRequest();
+        m_requestInFlight = false;
+        m_pendingFrame = -1;
+    }
     if (m_requestInFlight) return;
     if (frame == m_pendingFrame && m_presentedPtsUs >= 0) return;
     if (const media::VideoFrame* cached = m_cache.find(frame)) {

@@ -120,6 +120,7 @@ public:
                                      qint64 providerOriginUs, qint64 masterOriginUs,
                                      quint64 selectionGeneration);
     void clearComparisonWaveformSource(quint64 selectionGeneration = 0);
+    void updateComparisonWaveformMapping(qint64 timeOffsetUs, quint64 selectionGeneration);
     quint64 waveformGeneration() const { return m_waveformGeneration; }
     QString waveformSourcePath() const { return m_waveformSourcePath; }
     qint64 waveformTimeOffsetUs() const { return m_waveformTimeOffsetUs; }

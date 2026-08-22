@@ -12,14 +12,19 @@ bool CompareSession::setSources(const QUuid& a, const QUuid& b)
 {
     if (a.isNull() || b.isNull() || a == b) return false;
     if (m_sourceAId == a && m_sourceBId == b) return true;
-    m_sourceAId = a; m_sourceBId = b; bumpGeneration(); emit sourcesChanged(a, b); return true;
+    const bool bChanged = m_sourceBId != b;
+    m_sourceAId = a; m_sourceBId = b;
+    if (bChanged && m_sourceBOffsetUs != 0) { m_sourceBOffsetUs = 0; emit offsetChanged(0); }
+    bumpGeneration(); emit sourcesChanged(a, b); return true;
 }
 void CompareSession::setLayout(CompareLayout value) { if (m_layout == value) return; m_layout = value; emit layoutChanged(value); }
 void CompareSession::setActivePane(ComparePane value) { if (m_activePane == value) return; m_activePane = value; emit activePaneChanged(value); }
 void CompareSession::setSourceBOffsetUs(qint64 value) { if (m_sourceBOffsetUs == value) return; m_sourceBOffsetUs = value; bumpGeneration(); emit offsetChanged(value); }
 void CompareSession::setAudioMode(CompareAudioMode value) { if (m_audioMode == value) return; m_audioMode = value; bumpGeneration(); emit audioModeChanged(value); }
-void CompareSession::setExternalAudioPath(const QString& value) { if (m_externalAudioPath == value) return; m_externalAudioPath = value; bumpGeneration(); emit externalAudioChanged(value); }
-void CompareSession::setExternalAudioOffsetUs(qint64 value) { if (m_externalAudioOffsetUs == value) return; m_externalAudioOffsetUs = value; bumpGeneration(); }
+void CompareSession::setExternalAudioPath(const QString& value) { if (m_externalAudioPath == value) return; m_externalAudioPath = value; if (m_externalAudioOffsetUs != 0) { m_externalAudioOffsetUs = 0; emit externalAudioOffsetChanged(0); } bumpGeneration(); emit externalAudioChanged(value); }
+void CompareSession::setExternalAudioOffsetUs(qint64 value) { if (m_externalAudioOffsetUs == value) return; m_externalAudioOffsetUs = value; bumpGeneration(); emit externalAudioOffsetChanged(value); }
+void CompareSession::setWipePosition(int value) { value = std::clamp(value, 0, 100); if (m_wipePosition == value) return; m_wipePosition = value; emit wipePositionChanged(value); }
+void CompareSession::setBlendAmount(int value) { value = std::clamp(value, 0, 100); if (m_blendAmount == value) return; m_blendAmount = value; emit blendAmountChanged(value); }
 
 qint64 CompareSession::frameTimeUs(qint64 frame, const media::FrameRate& rate)
 {

@@ -1,7 +1,5 @@
 #include "ui/VideoFullscreenWindow.h"
 
-#include "ui/ViewerWidget.h"
-
 #include <QAction>
 #include <QCloseEvent>
 #include <QEvent>
@@ -27,25 +25,27 @@ VideoFullscreenWindow::VideoFullscreenWindow(QWidget* parent)
     connect(m_cursorTimer, &QTimer::timeout, this, [this] { setCursor(Qt::BlankCursor); });
 }
 
-void VideoFullscreenWindow::hostViewer(ViewerWidget* viewer)
+void VideoFullscreenWindow::hostPresentation(QWidget* presentation)
 {
-    m_viewer = viewer;
-    m_viewer->installEventFilter(this);
-    layout()->addWidget(m_viewer);
+    m_presentation = presentation;
+    m_presentation->installEventFilter(this);
+    for (QWidget* child : m_presentation->findChildren<QWidget*>()) child->installEventFilter(this);
+    layout()->addWidget(m_presentation);
     showCursorTemporarily();
 }
 
-ViewerWidget* VideoFullscreenWindow::releaseViewer()
+QWidget* VideoFullscreenWindow::releasePresentation()
 {
     m_cursorTimer->stop();
     unsetCursor();
-    if (m_viewer) {
-        m_viewer->removeEventFilter(this);
-        m_viewer->unsetCursor();
-        layout()->removeWidget(m_viewer);
+    if (m_presentation) {
+        m_presentation->removeEventFilter(this);
+        for (QWidget* child : m_presentation->findChildren<QWidget*>()) child->removeEventFilter(this);
+        m_presentation->unsetCursor();
+        layout()->removeWidget(m_presentation);
     }
-    ViewerWidget* result = m_viewer;
-    m_viewer = nullptr;
+    QWidget* result = m_presentation;
+    m_presentation = nullptr;
     return result;
 }
 

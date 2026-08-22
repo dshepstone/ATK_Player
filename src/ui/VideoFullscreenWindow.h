@@ -11,16 +11,14 @@ class QTimer;
 
 namespace atk::ui {
 
-class ViewerWidget;
-
-/// Transient, video-only top-level host for the application's one ViewerWidget.
+/// Transient, video-only top-level host for a viewer or comparison surface.
 class VideoFullscreenWindow final : public QWidget {
     Q_OBJECT
 
 public:
     explicit VideoFullscreenWindow(QWidget* parent = nullptr);
-    void hostViewer(ViewerWidget* viewer);
-    ViewerWidget* releaseViewer();
+    void hostPresentation(QWidget* presentation);
+    QWidget* releasePresentation();
     void installCommandActions(const QList<QAction*>& actions);
 
 signals:
@@ -35,7 +33,7 @@ protected:
 private:
     void showCursorTemporarily();
 
-    ViewerWidget* m_viewer = nullptr;
+    QWidget* m_presentation = nullptr;
     QTimer* m_cursorTimer = nullptr;
 };
 

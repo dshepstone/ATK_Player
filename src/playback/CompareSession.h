@@ -8,7 +8,7 @@
 
 namespace atk::playback {
 
-enum class CompareLayout { SideBySide, Stacked };
+enum class CompareLayout { SideBySide, Stacked, Wipe, Blend, Difference };
 enum class ComparePane { A, B };
 enum class CompareAudioMode { SourceA, SourceB, External };
 
@@ -34,6 +34,10 @@ public:
     void setExternalAudioPath(const QString& path);
     qint64 externalAudioOffsetUs() const { return m_externalAudioOffsetUs; }
     void setExternalAudioOffsetUs(qint64 value);
+    int wipePosition() const { return m_wipePosition; }
+    void setWipePosition(int percent);
+    int blendAmount() const { return m_blendAmount; }
+    void setBlendAmount(int percent);
 
     static qint64 frameTimeUs(qint64 frame, const media::FrameRate& rate);
     static qint64 mappedTargetUs(qint64 sourceAPtsUs, qint64 sourceARangeStartUs,
@@ -51,6 +55,9 @@ signals:
     void offsetChanged(qint64 offsetUs);
     void audioModeChanged(atk::playback::CompareAudioMode mode);
     void externalAudioChanged(const QString& path);
+    void externalAudioOffsetChanged(qint64 offsetUs);
+    void wipePositionChanged(int percent);
+    void blendAmountChanged(int percent);
 
 private:
     void bumpGeneration();
@@ -62,6 +69,8 @@ private:
     CompareAudioMode m_audioMode = CompareAudioMode::SourceA;
     QString m_externalAudioPath;
     qint64 m_externalAudioOffsetUs = 0;
+    int m_wipePosition = 50;
+    int m_blendAmount = 50;
     quint64 m_generation = 0;
     bool m_active = false;
 };
