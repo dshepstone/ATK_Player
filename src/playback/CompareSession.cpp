@@ -17,6 +17,9 @@ bool CompareSession::setSources(const QUuid& a, const QUuid& b)
 void CompareSession::setLayout(CompareLayout value) { if (m_layout == value) return; m_layout = value; emit layoutChanged(value); }
 void CompareSession::setActivePane(ComparePane value) { if (m_activePane == value) return; m_activePane = value; emit activePaneChanged(value); }
 void CompareSession::setSourceBOffsetUs(qint64 value) { if (m_sourceBOffsetUs == value) return; m_sourceBOffsetUs = value; bumpGeneration(); emit offsetChanged(value); }
+void CompareSession::setAudioMode(CompareAudioMode value) { if (m_audioMode == value) return; m_audioMode = value; bumpGeneration(); emit audioModeChanged(value); }
+void CompareSession::setExternalAudioPath(const QString& value) { if (m_externalAudioPath == value) return; m_externalAudioPath = value; bumpGeneration(); emit externalAudioChanged(value); }
+void CompareSession::setExternalAudioOffsetUs(qint64 value) { if (m_externalAudioOffsetUs == value) return; m_externalAudioOffsetUs = value; bumpGeneration(); }
 
 qint64 CompareSession::frameTimeUs(qint64 frame, const media::FrameRate& rate)
 {

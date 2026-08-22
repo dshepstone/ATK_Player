@@ -191,6 +191,14 @@ void DecoderWorker::configureAudio(int sampleRate, int channelCount)
     }
 }
 
+void DecoderWorker::setAudioEnabled(bool enabled)
+{
+    m_audioEnabled = enabled;
+    m_pendingAudio = {};
+    m_pendingAudioOffset = 0;
+    if (m_audioBuffer) m_audioBuffer->clear();
+}
+
 // ---------------------------------------------------------------------------
 // Frame requests
 // ---------------------------------------------------------------------------
@@ -414,7 +422,7 @@ void DecoderWorker::pumpAudio()
 
 void DecoderWorker::pumpAudioUpTo(int64_t targetMs, int64_t maxBytesThisCall)
 {
-    if (!m_audioBuffer || !m_decoder->isOpen() || !m_decoder->metadata().hasAudio) {
+    if (!m_audioEnabled || !m_audioBuffer || !m_decoder->isOpen() || !m_decoder->metadata().hasAudio) {
         return;
     }
     if (!m_decoder->outputAudioFormat().isValid()) {

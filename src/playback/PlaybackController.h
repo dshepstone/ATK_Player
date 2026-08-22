@@ -28,6 +28,7 @@ namespace atk::media {
 class DecoderWorker;
 class ScrubAudioWorker;
 class WaveformWorker;
+class CompareAudioWorker;
 }
 namespace atk::timeline { class TimelineModel; }
 
@@ -144,6 +145,16 @@ public:
     /// True when the loaded media has an audio track and a device accepted it.
     bool hasAudioOutput() const;
 
+    /// Routes comparison playback/review audio through the existing single
+    /// output sink. `providerOriginUs` is B's range origin or External's zero.
+    void setComparisonAudioSource(const QString& path, qint64 providerOriginUs,
+                                  qint64 compareOriginUs, bool sourceHasAudio);
+    void clearComparisonAudioSource();
+    bool hasComparisonAudioOverride() const { return m_compareAudioOverride; }
+    bool comparisonAudioAvailable() const { return m_compareAudioAvailable; }
+    quint64 comparisonAudioGeneration() const { return m_compareAudioGeneration; }
+    qint64 lastComparisonAudioTargetUs() const { return m_lastCompareAudioTargetUs; }
+
     // --- State ------------------------------------------------------------
     PlayerState state() const { return m_state; }
     bool isPlaying() const { return m_state == PlayerState::Playing; }
@@ -222,6 +233,7 @@ signals:
     void requestStopPlayback();
     void requestPlayheadFrame(qint64 frameIndex);
     void requestConfigureAudio(int sampleRate, int channelCount);
+    void requestPrimaryAudioEnabled(bool enabled);
     void requestLookaheadFrames(int frames);
 
     // To the waveform thread.
@@ -232,6 +244,12 @@ signals:
                             quint64 sourceGeneration);
     void requestScrubGrain(qint64 mediaUs, qint64 durationUs, quint64 sequence,
                            quint64 sourceGeneration);
+    void requestCompareAudioOpen(const QString& path, int sampleRate, int channelCount,
+                                 quint64 generation);
+    void requestCompareAudioClose(quint64 generation);
+    void requestCompareAudioStart(qint64 providerTimeUs, qint64 masterEpochUs,
+                                  quint64 generation);
+    void requestCompareAudioStop(quint64 generation);
 
 private:
     void setState(PlayerState state);
@@ -288,6 +306,8 @@ private:
     void requestFrameStepAudioAt(int64_t frame, bool reversed);
     void requestReviewAudioAt(int64_t frame, bool reversed, bool timelineScrub);
     void cancelReviewAudio();
+    qint64 comparisonProviderTimeUs(qint64 sourceATimeUs) const;
+    void restartSelectedAudioAt(qint64 sourceATimeUs);
 
     void startWaveformAnalysis(const QString& filePath, quint64 sourceGeneration);
     void finishScrubIfReady();
@@ -312,6 +332,15 @@ private:
     std::shared_ptr<audio::AudioRingBuffer> m_audioBuffer;
     std::unique_ptr<audio::AudioOutput> m_audioOutput;
     bool m_audioActive = false;
+    QThread* m_compareAudioThread = nullptr;
+    media::CompareAudioWorker* m_compareAudioWorker = nullptr;
+    bool m_compareAudioOverride = false;
+    bool m_compareAudioAvailable = false;
+    QString m_compareAudioPath;
+    qint64 m_compareAudioProviderOriginUs = 0;
+    qint64 m_compareAudioMasterOriginUs = 0;
+    quint64 m_compareAudioGeneration = 0;
+    qint64 m_lastCompareAudioTargetUs = -1;
 
     // --- Video ------------------------------------------------------------
     /// Shared with the worker. Bumped here, read there.

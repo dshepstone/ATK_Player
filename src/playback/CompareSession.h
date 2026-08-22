@@ -10,6 +10,7 @@ namespace atk::playback {
 
 enum class CompareLayout { SideBySide, Stacked };
 enum class ComparePane { A, B };
+enum class CompareAudioMode { SourceA, SourceB, External };
 
 class CompareSession : public QObject {
     Q_OBJECT
@@ -27,6 +28,12 @@ public:
     qint64 sourceBOffsetUs() const { return m_sourceBOffsetUs; }
     void setSourceBOffsetUs(qint64 offsetUs);
     quint64 generation() const { return m_generation; }
+    CompareAudioMode audioMode() const { return m_audioMode; }
+    void setAudioMode(CompareAudioMode mode);
+    QString externalAudioPath() const { return m_externalAudioPath; }
+    void setExternalAudioPath(const QString& path);
+    qint64 externalAudioOffsetUs() const { return m_externalAudioOffsetUs; }
+    void setExternalAudioOffsetUs(qint64 value);
 
     static qint64 frameTimeUs(qint64 frame, const media::FrameRate& rate);
     static qint64 mappedTargetUs(qint64 sourceAPtsUs, qint64 sourceARangeStartUs,
@@ -42,6 +49,8 @@ signals:
     void layoutChanged(atk::playback::CompareLayout layout);
     void activePaneChanged(atk::playback::ComparePane pane);
     void offsetChanged(qint64 offsetUs);
+    void audioModeChanged(atk::playback::CompareAudioMode mode);
+    void externalAudioChanged(const QString& path);
 
 private:
     void bumpGeneration();
@@ -50,6 +59,9 @@ private:
     CompareLayout m_layout = CompareLayout::SideBySide;
     ComparePane m_activePane = ComparePane::A;
     qint64 m_sourceBOffsetUs = 0;
+    CompareAudioMode m_audioMode = CompareAudioMode::SourceA;
+    QString m_externalAudioPath;
+    qint64 m_externalAudioOffsetUs = 0;
     quint64 m_generation = 0;
     bool m_active = false;
 };
@@ -58,3 +70,4 @@ private:
 
 Q_DECLARE_METATYPE(atk::playback::CompareLayout)
 Q_DECLARE_METATYPE(atk::playback::ComparePane)
+Q_DECLARE_METATYPE(atk::playback::CompareAudioMode)

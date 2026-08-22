@@ -6,6 +6,7 @@
 #include "audio/ScrubAudioEngine.h"
 #include "media/DecoderWorker.h"
 #include "media/ScrubAudioWorker.h"
+#include "media/CompareAudioWorker.h"
 #include "media/WaveformWorker.h"
 #include "media/ffmpeg/FFmpegUtil.h"
 #include "timeline/TimelineModel.h"
@@ -139,6 +140,8 @@ PlaybackController::PlaybackController(timeline::TimelineModel* timeline, QObjec
             m_worker, &media::DecoderWorker::setPlayheadFrame);
     connect(this, &PlaybackController::requestConfigureAudio,
             m_worker, &media::DecoderWorker::configureAudio);
+    connect(this, &PlaybackController::requestPrimaryAudioEnabled,
+            m_worker, &media::DecoderWorker::setAudioEnabled);
 
     // Results back.
     connect(m_worker, &media::DecoderWorker::mediaOpened,
@@ -165,6 +168,40 @@ PlaybackController::PlaybackController(timeline::TimelineModel* timeline, QObjec
             });
 
     m_decodeThread->start();
+
+    m_compareAudioThread = new QThread(this);
+    m_compareAudioThread->setObjectName(QStringLiteral("ATK comparison audio"));
+    m_compareAudioWorker = new media::CompareAudioWorker(m_audioBuffer);
+    m_compareAudioWorker->moveToThread(m_compareAudioThread);
+    connect(m_compareAudioThread, &QThread::finished, m_compareAudioWorker, &QObject::deleteLater);
+    connect(this, &PlaybackController::requestCompareAudioOpen,
+            m_compareAudioWorker, &media::CompareAudioWorker::openSource);
+    connect(this, &PlaybackController::requestCompareAudioClose,
+            m_compareAudioWorker, &media::CompareAudioWorker::closeSource);
+    connect(this, &PlaybackController::requestCompareAudioStart,
+            m_compareAudioWorker, &media::CompareAudioWorker::startAt);
+    connect(this, &PlaybackController::requestCompareAudioStop,
+            m_compareAudioWorker, &media::CompareAudioWorker::stop);
+    connect(m_compareAudioWorker, &media::CompareAudioWorker::sourceReady, this,
+            [this](qint64, qint64, quint64 generation) {
+                if (generation != m_compareAudioGeneration) return;
+                m_compareAudioAvailable = true;
+                if (m_state == PlayerState::Playing) restartSelectedAudioAt(masterPositionUs());
+            });
+    connect(m_compareAudioWorker, &media::CompareAudioWorker::sourceUnavailable, this,
+            [this](const QString&, quint64 generation) {
+                if (generation == m_compareAudioGeneration) m_compareAudioAvailable = false;
+            });
+    connect(m_compareAudioWorker, &media::CompareAudioWorker::audioPrimed, this,
+            [this](int bufferedMs, qint64 masterEpochUs, quint64 generation) {
+                if (!m_compareAudioOverride || generation != m_compareAudioGeneration
+                    || m_state != PlayerState::Playing) return;
+                m_lastAudioEpochUs = masterEpochUs;
+                if (bufferedMs > 0 && m_audioActive) m_audioOutput->start(masterEpochUs);
+                m_monotonicStartNs = monotonicNowNs();
+                startDisplayTimer();
+            });
+    m_compareAudioThread->start();
 
     // --- Waveform analysis thread -----------------------------------------
     //
@@ -281,6 +318,17 @@ PlaybackController::~PlaybackController()
         }
     }
 
+    if (m_compareAudioThread != nullptr) {
+        m_compareAudioWorker->disconnect(this);
+        disconnect(this, nullptr, m_compareAudioWorker, nullptr);
+        QMetaObject::invokeMethod(m_compareAudioWorker, &media::CompareAudioWorker::shutdown,
+                                  Qt::BlockingQueuedConnection);
+        m_compareAudioThread->quit();
+        if (!m_compareAudioThread->wait(5000)) {
+            m_compareAudioThread->terminate(); m_compareAudioThread->wait(1000);
+        }
+    }
+
     if (m_waveformThread != nullptr) {
         // Cancelled before the blocking call, or shutdown would wait for a
         // full-file scan to finish.
@@ -360,7 +408,8 @@ void PlaybackController::cancelReviewAudio()
 
 void PlaybackController::requestScrubAudioAt(int64_t frame)
 {
-    if (!m_audioScrubEnabled || !m_hasMedia || !m_metadata.hasAudio) {
+    const bool selectedHasAudio = m_compareAudioOverride ? m_compareAudioAvailable : m_metadata.hasAudio;
+    if (!m_audioScrubEnabled || !m_hasMedia || !selectedHasAudio) {
         qCDebug(log::playback) << "Scrub audio skipped: enabled" << m_audioScrubEnabled
                                << "hasMedia" << m_hasMedia
                                << "hasAudio" << m_metadata.hasAudio;
@@ -392,12 +441,15 @@ void PlaybackController::requestFrameStepAudioAt(int64_t frame, bool reversed)
 
 void PlaybackController::requestReviewAudioAt(int64_t frame, bool reversed, bool timelineScrub)
 {
-    if (!m_hasMedia || !m_metadata.hasAudio || !m_scrubAudio
+    const bool selectedHasAudio = m_compareAudioOverride ? m_compareAudioAvailable : m_metadata.hasAudio;
+    if (!m_hasMedia || !selectedHasAudio || !m_scrubAudio
         || m_scrubAudio->isMuted()) return;
     m_reviewAudioForScrub = timelineScrub;
     m_scrubAudioReversed = reversed;
     m_scrubAudioRequestNs = monotonicNowNs();
-    const int64_t mediaUs = mediaTimeForFrame(frame);
+    const int64_t sourceAUs = mediaTimeForFrame(frame);
+    const int64_t mediaUs = m_compareAudioOverride
+        ? comparisonProviderTimeUs(sourceAUs) : sourceAUs;
     const quint64 sequence = ++m_scrubAudioSequence;
     emit reviewAudioRequested(mediaUs, reversed, sequence);
     // Headless/test machines may have no output device. The logical request is
@@ -528,6 +580,7 @@ void PlaybackController::haltPlaybackMachinery()
     if (m_audioOutput) {
         m_audioOutput->stop();
     }
+    if (m_compareAudioOverride) emit requestCompareAudioStop(++m_compareAudioGeneration);
 }
 
 // ---------------------------------------------------------------------------
@@ -638,7 +691,9 @@ void PlaybackController::onWorkerMediaOpened(const media::MediaMetadata& metadat
 
     // Open the device now so the decoder can be told the exact format to
     // resample to. A machine with no audio device simply plays video.
-    if (metadata.hasAudio) {
+    if (m_compareAudioOverride) {
+        emit requestPrimaryAudioEnabled(false);
+    } else if (metadata.hasAudio) {
         if (m_audioOutput->open(metadata.audioSampleRate, metadata.audioChannelCount)) {
             const media::AudioFormat format = m_audioOutput->actualFormat();
             m_audioActive = true;
@@ -653,7 +708,7 @@ void PlaybackController::onWorkerMediaOpened(const media::MediaMetadata& metadat
 
     // Scrub audio uses the same device format as playback, so cached grains
     // never need re-resampling and the two paths sound identical.
-    if (metadata.hasAudio) {
+    if (!m_compareAudioOverride && metadata.hasAudio) {
         const media::AudioFormat scrubFormat = m_audioActive
             ? m_audioOutput->actualFormat()
             : media::AudioFormat{ 48000, 2, 2 };
@@ -973,6 +1028,7 @@ void PlaybackController::skipBySeconds(int seconds)
 void PlaybackController::onAudioPrimed(int bufferedMs, qint64 mediaOriginUs,
                                        quint64 requestGeneration)
 {
+    if (m_compareAudioOverride) return;
     if (!m_generations->isCurrentRequest(requestGeneration)
         || m_state != PlayerState::Playing) {
         return;
@@ -1319,13 +1375,26 @@ void PlaybackController::play()
         emit requestStartPlayback(from, generation);
         emit requestPlayheadFrame(from);
 
+        if (m_compareAudioOverride) {
+            if (m_compareAudioAvailable && m_audioActive) {
+                m_lastCompareAudioTargetUs = comparisonProviderTimeUs(m_playbackStartUs);
+                emit requestCompareAudioStart(m_lastCompareAudioTargetUs, m_playbackStartUs,
+                                              m_compareAudioGeneration);
+            } else {
+                m_playbackEpochDirty = false;
+                m_playbackReanchorInProgress = false;
+                startDisplayTimer();
+            }
+        }
+
         // The audio device is started from onAudioPrimed(), once the worker has
         // decoded a little audio. Video begins immediately on the monotonic
         // clock and hands over to audio as soon as it is really delivering.
     }
 
     setState(PlayerState::Playing);
-    if (inPlaceholderMode() || !m_audioActive) {
+    if (inPlaceholderMode() || !m_audioActive
+        || (m_compareAudioOverride && !m_compareAudioAvailable)) {
         m_playbackEpochDirty = false;
         m_playbackReanchorInProgress = false;
         startDisplayTimer();
@@ -1801,6 +1870,91 @@ qreal PlaybackController::volume() const
 bool PlaybackController::hasAudioOutput() const
 {
     return m_audioActive;
+}
+
+qint64 PlaybackController::comparisonProviderTimeUs(qint64 sourceATimeUs) const
+{
+    return std::max<qint64>(0, m_compareAudioProviderOriginUs
+        + std::max<qint64>(0, sourceATimeUs - m_compareAudioMasterOriginUs));
+}
+
+void PlaybackController::restartSelectedAudioAt(qint64 sourceATimeUs)
+{
+    if (!m_compareAudioOverride || !m_compareAudioAvailable || !m_audioActive) return;
+    m_audioOutput->stop();
+    m_playbackStartUs = sourceATimeUs;
+    m_monotonicStartNs = monotonicNowNs();
+    m_lastCompareAudioTargetUs = comparisonProviderTimeUs(sourceATimeUs);
+    emit requestCompareAudioStart(m_lastCompareAudioTargetUs, sourceATimeUs,
+                                  m_compareAudioGeneration);
+}
+
+void PlaybackController::setComparisonAudioSource(const QString& path, qint64 providerOriginUs,
+                                                  qint64 compareOriginUs, bool sourceHasAudio)
+{
+    const bool playing = isPlaying();
+    const qint64 currentUs = playing ? masterPositionUs() : mediaTimeForFrame(currentFrame());
+    if (m_audioOutput) m_audioOutput->stop();
+    QMetaObject::invokeMethod(m_worker, [this] { m_worker->setAudioEnabled(false); },
+                              Qt::BlockingQueuedConnection);
+    m_compareAudioOverride = true;
+    m_compareAudioAvailable = false;
+    m_compareAudioPath = path;
+    m_compareAudioProviderOriginUs = providerOriginUs;
+    m_compareAudioMasterOriginUs = compareOriginUs;
+    ++m_compareAudioGeneration;
+    m_audioActive = m_audioOutput->open(48000, 2);
+    const media::AudioFormat format = m_audioActive
+        ? m_audioOutput->actualFormat() : media::AudioFormat{48000, 2, 2};
+    if (m_scrubAudio && !m_scrubAudio->isOpen()) m_scrubAudio->open(format);
+    if (m_scrubAudio) {
+        m_scrubAudio->setVolume(m_audioOutput->volume());
+        m_scrubAudio->setMuted(m_audioOutput->isMuted());
+    }
+    emit requestCompareAudioOpen(sourceHasAudio ? path : QString(), format.sampleRate,
+                                 format.channelCount, m_compareAudioGeneration);
+    emit requestScrubSource(sourceHasAudio ? path : QString(), format.sampleRate,
+                            format.channelCount, m_generations->currentSource());
+    cancelReviewAudio();
+    if (playing) {
+        m_playbackStartUs = currentUs;
+        m_monotonicStartNs = monotonicNowNs();
+        startDisplayTimer();
+    }
+}
+
+void PlaybackController::clearComparisonAudioSource()
+{
+    if (!m_compareAudioOverride) return;
+    const bool playing = isPlaying();
+    const qint64 currentUs = playing ? masterPositionUs() : mediaTimeForFrame(currentFrame());
+    if (m_audioOutput) m_audioOutput->stop();
+    ++m_compareAudioGeneration;
+    QMetaObject::invokeMethod(m_compareAudioWorker,
+        [this] { m_compareAudioWorker->closeSource(m_compareAudioGeneration); },
+        Qt::BlockingQueuedConnection);
+    m_compareAudioOverride = false;
+    m_compareAudioAvailable = false;
+    m_compareAudioPath.clear();
+    QMetaObject::invokeMethod(m_worker, [this] { m_worker->setAudioEnabled(true); },
+                              Qt::BlockingQueuedConnection);
+    m_audioActive = false;
+    if (m_metadata.hasAudio && m_audioOutput->open(m_metadata.audioSampleRate,
+                                                   m_metadata.audioChannelCount)) {
+        m_audioActive = true;
+        const auto format = m_audioOutput->actualFormat();
+        emit requestConfigureAudio(format.sampleRate, format.channelCount);
+        emit requestScrubSource(m_metadata.filePath, format.sampleRate, format.channelCount,
+                                m_generations->currentSource());
+    }
+    cancelReviewAudio();
+    if (playing) {
+        m_playbackStartUs = currentUs;
+        m_monotonicStartNs = monotonicNowNs();
+        if (m_audioActive) {
+            emit requestStartPlayback(currentFrame(), m_generations->currentRequest());
+        } else startDisplayTimer();
+    }
 }
 
 int64_t PlaybackController::currentFrame() const
