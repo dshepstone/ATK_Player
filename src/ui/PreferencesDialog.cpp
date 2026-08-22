@@ -17,6 +17,7 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QSignalBlocker>
+#include <QSpinBox>
 #include <QTableWidget>
 #include <QTabWidget>
 #include <QVBoxLayout>
@@ -68,6 +69,23 @@ PreferencesDialog::PreferencesDialog(const ApplicationSettings& settings,
     reviewLayout->addWidget(m_bookmarkSnap);
     reviewLayout->addStretch();
     tabs->addTab(review, tr("Review"));
+
+    auto* integrations = new QWidget(tabs);
+    auto* integrationsLayout = new QFormLayout(integrations);
+    m_apiEnabled = new QCheckBox(tr("Enable local API"), integrations);
+    m_apiEnabled->setObjectName(QStringLiteral("PreferenceApiEnabled"));
+    m_apiEnabled->setChecked(settings.apiEnabled());
+    m_apiPort = new QSpinBox(integrations);
+    m_apiPort->setObjectName(QStringLiteral("PreferenceApiPort"));
+    m_apiPort->setRange(1024, 65535);
+    m_apiPort->setValue(settings.apiPort());
+    integrationsLayout->addRow(tr("External Control API"), m_apiEnabled);
+    integrationsLayout->addRow(tr("Loopback port"), m_apiPort);
+    m_apiStatus = new QLabel(integrations);
+    m_apiStatus->setObjectName(QStringLiteral("ApiRuntimeStatus"));
+    integrationsLayout->addRow(tr("Status"), m_apiStatus);
+    integrationsLayout->addRow(new QLabel(tr("Localhost only — never exposed to the LAN."), integrations));
+    tabs->addTab(integrations, tr("Integrations"));
 
     for (const commands::CommandDefinition& definition : commands::allCommands()) {
         const QAction* action = registry.action(definition.id);
@@ -130,6 +148,9 @@ bool PreferencesDialog::audioScrubEnabled() const { return m_audioScrub->isCheck
 bool PreferencesDialog::frameStepAudioEnabled() const { return m_frameStepAudio->isChecked(); }
 bool PreferencesDialog::bookmarkSnapEnabled() const { return m_bookmarkSnap->isChecked(); }
 bool PreferencesDialog::reopenLastProject() const { return m_reopenLast->isChecked(); }
+bool PreferencesDialog::apiEnabled() const { return m_apiEnabled->isChecked(); }
+int PreferencesDialog::apiPort() const { return m_apiPort->value(); }
+void PreferencesDialog::setApiRuntimeStatus(const QString& status) { m_apiStatus->setText(status); }
 
 QString PreferencesDialog::conflictingCommand(const QHash<QString, QString>& shortcuts,
                                               const QString& commandKey,
@@ -240,6 +261,8 @@ void PreferencesDialog::resetPreferencesDraft()
     m_audioScrub->setChecked(ApplicationSettings::defaultAudioScrubEnabled());
     m_frameStepAudio->setChecked(ApplicationSettings::defaultFrameStepAudioEnabled());
     m_bookmarkSnap->setChecked(ApplicationSettings::defaultBookmarkSnapEnabled());
+    m_apiEnabled->setChecked(ApplicationSettings::defaultApiEnabled());
+    m_apiPort->setValue(ApplicationSettings::defaultApiPort());
     resetAllShortcuts();
     m_resetAllRequested = true;
 }

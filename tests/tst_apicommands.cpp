@@ -61,7 +61,7 @@ private slots:
     void setsLoopRange();
     void addsBookmarkAtCurrentFrameByDefault();
     void addsBookmarkAtGivenFrame();
-    void reportsUnimplementedCommandsExplicitly();
+    void reportsCommandsRequiringApplicationServices();
     void responseSerialisesWithId();
 };
 
@@ -103,6 +103,9 @@ void TestApiCommands::reportsStatus()
     // an open file.
     QCOMPARE(response.result.value(QStringLiteral("state")).toString(), QStringLiteral("ready"));
     QCOMPARE(response.result.value(QStringLiteral("frameCount")).toDouble(), 100.0);
+    QCOMPARE(response.result.value(QStringLiteral("currentFrame")).toDouble(), 0.0);
+    QCOMPARE(response.result.value(QStringLiteral("displayFrame")).toDouble(), 1.0);
+    QCOMPARE(response.result.value(QStringLiteral("frameIndexBase")).toInt(), 0);
     QCOMPARE(response.result.value(QStringLiteral("fps")).toDouble(), 24.0);
     QCOMPARE(response.result.value(QStringLiteral("hasMedia")).toBool(), false);
 
@@ -127,7 +130,9 @@ void TestApiCommands::seeksToFrame()
 
     QVERIFY(response.ok);
     QCOMPARE(fixture.timeline.currentFrame(), qint64(42));
-    QCOMPARE(response.result.value(QStringLiteral("currentFrame")).toDouble(), 42.0);
+    QCOMPARE(response.result.value(QStringLiteral("accepted")).toBool(), true);
+    QCOMPARE(response.result.value(QStringLiteral("targetFrame")).toDouble(), 42.0);
+    QVERIFY(!response.result.contains(QStringLiteral("currentFrame")));
 }
 
 void TestApiCommands::rejectsSeekWithoutFrame()
@@ -182,10 +187,12 @@ void TestApiCommands::stepsForwardAndBackward()
     fixture.dispatcher.dispatch(
         request(QStringLiteral("seek_frame"), { { QStringLiteral("frame"), 10 } }));
 
-    fixture.dispatcher.dispatch(request(QStringLiteral("step_forward")));
+    const ApiResponse forward = fixture.dispatcher.dispatch(request(QStringLiteral("step_forward")));
+    QCOMPARE(forward.result.value(QStringLiteral("targetFrame")).toDouble(), 11.0);
     QCOMPARE(fixture.timeline.currentFrame(), qint64(11));
 
-    fixture.dispatcher.dispatch(request(QStringLiteral("step_backward")));
+    const ApiResponse backward = fixture.dispatcher.dispatch(request(QStringLiteral("step_backward")));
+    QCOMPARE(backward.result.value(QStringLiteral("targetFrame")).toDouble(), 10.0);
     QCOMPARE(fixture.timeline.currentFrame(), qint64(10));
 }
 
@@ -245,11 +252,11 @@ void TestApiCommands::addsBookmarkAtGivenFrame()
     QCOMPARE(bookmark.colorIndex, 3);
 }
 
-void TestApiCommands::reportsUnimplementedCommandsExplicitly()
+void TestApiCommands::reportsCommandsRequiringApplicationServices()
 {
     Fixture fixture;
-    // These are advertised by list_commands, so a client must be able to tell
-    // "not implemented" from "not recognised".
+    // Core-only callers have no application facade, and receive a stable
+    // feature-availability error rather than an unknown-command response.
     const QStringList names{
         QStringLiteral("open_media"),
         QStringLiteral("load_compare_a"),
@@ -259,7 +266,7 @@ void TestApiCommands::reportsUnimplementedCommandsExplicitly()
     for (const QString& name : names) {
         const ApiResponse response = fixture.dispatcher.dispatch(request(name));
         QVERIFY(!response.ok);
-        QVERIFY2(response.error.contains(QStringLiteral("not implemented")), qPrintable(name));
+        QVERIFY2(response.error.contains(QStringLiteral("application services")), qPrintable(name));
         QVERIFY2(!response.error.contains(QStringLiteral("unknown")), qPrintable(name));
     }
 }

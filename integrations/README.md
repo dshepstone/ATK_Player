@@ -24,8 +24,8 @@ newline-delimited JSON, so a bridge needs a socket and nothing else.
 
 ## Status
 
-Nothing here is built yet. All three are milestone **M5**, because a client is
-not useful until `ApiServer` actually opens a socket.
+The generic Python client and Maya playblast adapter are implemented in M5.
+Harmony remains future work and can reuse the same protocol.
 
 | Directory | Purpose |
 |---|---|

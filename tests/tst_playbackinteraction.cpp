@@ -85,9 +85,59 @@ private slots:
     void automaticRangeStartMatchesManualSeekEpoch();
     void stoppedRangeMutationReanchorsAtCurrentFrame();
     void ordinaryPauseResumeKeepsEpochClean();
+    void pauseAfterPlaybackAnchorsFrameStep();
+    void playingDirectStepAnchorsToPresentedFrame();
+    void endedBackwardAnchorsToFinalFrame();
     void shortRangeLoopsKeepSynchronizedEpoch();
     void playingRangeBookmarkActivationRestartsExactly();
 };
+
+void TestPlaybackInteraction::pauseAfterPlaybackAnchorsFrameStep()
+{
+    Fixture fixture;
+    QVERIFY(fixture.open());
+    fixture.playback.setMuted(true);
+    fixture.playback.play();
+    QTRY_VERIFY_WITH_TIMEOUT(fixture.timeline.currentFrame() >= 30, 5000);
+    fixture.playback.pause();
+    const qint64 paused = fixture.timeline.currentFrame();
+    QVERIFY(paused >= 30);
+
+    fixture.playback.stepForward();
+    QTRY_COMPARE_WITH_TIMEOUT(fixture.timeline.currentFrame(), paused + 1, 5000);
+    fixture.playback.stepBackward();
+    QTRY_COMPARE_WITH_TIMEOUT(fixture.timeline.currentFrame(), paused, 5000);
+}
+
+void TestPlaybackInteraction::playingDirectStepAnchorsToPresentedFrame()
+{
+    Fixture fixture;
+    QVERIFY(fixture.open());
+    fixture.playback.setMuted(true);
+    fixture.playback.play();
+    QTRY_VERIFY_WITH_TIMEOUT(fixture.timeline.currentFrame() >= 20, 5000);
+    const qint64 presented = fixture.timeline.currentFrame();
+
+    fixture.playback.stepForward();
+    QVERIFY(fixture.playback.state() != PlayerState::Playing);
+    QCOMPARE(fixture.playback.navigationFrame(), presented + 1);
+    QTRY_COMPARE_WITH_TIMEOUT(fixture.timeline.currentFrame(), presented + 1, 5000);
+}
+
+void TestPlaybackInteraction::endedBackwardAnchorsToFinalFrame()
+{
+    Fixture fixture;
+    QVERIFY(fixture.open());
+    fixture.playback.setMuted(true);
+    fixture.playback.play();
+    fixture.playback.goToEnd();
+    QTRY_COMPARE_WITH_TIMEOUT(fixture.playback.state(), PlayerState::Ended, 5000);
+    const qint64 last = fixture.timeline.effectiveEndFrame();
+    QCOMPARE(fixture.timeline.currentFrame(), last);
+
+    fixture.playback.stepBackward();
+    QTRY_COMPARE_WITH_TIMEOUT(fixture.timeline.currentFrame(), last - 1, 5000);
+}
 
 void TestPlaybackInteraction::playingRangeBookmarkActivationRestartsExactly()
 {

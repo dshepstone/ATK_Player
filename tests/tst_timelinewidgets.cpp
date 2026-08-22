@@ -4,9 +4,11 @@
 #include "ui/TimelineWidget.h"
 #include "ui/MainWindow.h"
 #include "ui/StatusInfoBar.h"
+#include "api/ApiServer.h"
 
 #include <QSignalSpy>
 #include <QLabel>
+#include <QJsonObject>
 #include <QSpinBox>
 #include <QTest>
 
@@ -28,6 +30,8 @@ private slots:
     void sliderDoubleClickFitsWithoutMovingPlayhead();
     void stoppedHandleResizeCentresButBodyPanDoesNot();
     void statusUsesOneBasedFramesAndZeroOriginTimecode();
+    void releasedScrubFollowsSubsequentAuthoritativeNavigation();
+    void activeAndFinalScrubPresentationRemainResponsive();
 };
 
 void TestTimelineWidgets::sliderTracksModelBothWays()
@@ -295,6 +299,61 @@ void TestTimelineWidgets::statusUsesOneBasedFramesAndZeroOriginTimecode()
     model.reset();
     QCOMPARE(frame->text(), QStringLiteral("0 / 0"));
     QCOMPARE(timecode->text(), atk::timeline::timecode::placeholder());
+}
+
+void TestTimelineWidgets::releasedScrubFollowsSubsequentAuthoritativeNavigation()
+{
+    atk::ui::MainWindow window;
+    auto* widget = window.findChild<TimelineWidget*>(QStringLiteral("TimelineWidget"));
+    auto* status = window.findChild<QLabel*>(QStringLiteral("StatusFrameValue"));
+    QVERIFY(widget && status);
+    TimelineModel* model = widget->model();
+    model->setFrameCount(264);
+    model->fitViewport();
+    widget->resize(1000, 130);
+
+    const QPoint scrubPoint(widget->positionForFrame(13), widget->height() - 18);
+    QTest::mousePress(widget, Qt::LeftButton, Qt::NoModifier, scrubPoint);
+    QTest::mouseRelease(widget, Qt::LeftButton, Qt::NoModifier, scrubPoint);
+    QCOMPARE(widget->displayedFrame(), qint64(13));
+
+    const auto response = window.apiServer()->handleRequest(QJsonObject{
+        {QStringLiteral("command"), QStringLiteral("seek_frame")},
+        {QStringLiteral("params"), QJsonObject{{QStringLiteral("frame"), 50}}}});
+    QVERIFY(response.ok);
+    QCOMPARE(model->currentFrame(), qint64(50));
+    QCOMPARE(widget->displayedFrame(), qint64(50));
+    QCOMPARE(status->text(), QStringLiteral("51 / 264"));
+    QCOMPARE(widget->positionForFrame(widget->displayedFrame()), widget->positionForFrame(50));
+
+    window.playbackController()->stepForward();
+    QCOMPARE(model->currentFrame(), qint64(51));
+    QCOMPARE(widget->displayedFrame(), qint64(51));
+}
+
+void TestTimelineWidgets::activeAndFinalScrubPresentationRemainResponsive()
+{
+    TimelineModel model;
+    model.setFrameCount(100);
+    TimelineWidget widget;
+    widget.resize(1000, 130);
+    widget.setModel(&model);
+
+    const QPoint target(widget.positionForFrame(40), widget.height() - 18);
+    QTest::mousePress(&widget, Qt::LeftButton, Qt::NoModifier,
+                      QPoint(widget.positionForFrame(10), target.y()));
+    QTest::mouseMove(&widget, target);
+    QCOMPARE(model.currentFrame(), qint64(0));
+    QCOMPARE(widget.displayedFrame(), qint64(40));
+
+    QTest::mouseRelease(&widget, Qt::LeftButton, Qt::NoModifier, target);
+    model.setCurrentFrame(20);
+    QCOMPARE(widget.displayedFrame(), qint64(40));
+    model.setCurrentFrame(40);
+    QCOMPARE(widget.displayedFrame(), qint64(40));
+
+    model.setCurrentFrame(50);
+    QCOMPARE(widget.displayedFrame(), qint64(50));
 }
 
 QTEST_MAIN(TestTimelineWidgets)

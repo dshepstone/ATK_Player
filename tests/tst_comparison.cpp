@@ -9,11 +9,13 @@
 #include "ui/ComparisonCompositeWidget.h"
 #include "ui/TimelineWidget.h"
 #include "ui/ViewerWidget.h"
+#include "api/ApiServer.h"
 
 #include <QAction>
 #include <QComboBox>
 #include <QFile>
 #include <QLabel>
+#include <QJsonObject>
 #include <QSpinBox>
 #include <QToolButton>
 #include <QSignalSpy>
@@ -90,6 +92,8 @@ private slots:
     void compositorProducesWipeBlendAndDifference();
     void viewModeSwitchPreservesPlaybackAuthority();
     void independentAndCompositeTransformsArePreserved();
+    void comparisonSourceSelectionsRemainAuthoritativeAcrossLayouts();
+    void comparisonApiSourceAStaysAuthoritativeAcrossLayoutChange();
 };
 
 void TestComparison::timestampMappingHasNoCumulativeDrift()
@@ -675,6 +679,97 @@ void TestComparison::independentAndCompositeTransformsArePreserved()
     QCOMPARE(window.viewerB()->transform().scale(), b.scale());
     view->setCurrentIndex(view->findData(static_cast<int>(CompareLayout::Difference)));
     QCOMPARE(window.comparisonComposite()->transform().scale(), composite.scale());
+}
+
+void TestComparison::comparisonSourceSelectionsRemainAuthoritativeAcrossLayouts()
+{
+    QTemporaryDir directory;
+    atk::ui::MainWindow window(directory.filePath(QStringLiteral("settings.ini")));
+    window.show();
+    QVERIFY(window.openProjectFile(writeProject(directory)));
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->state(), PlayerState::Ready, 10000);
+    command(window, "view.toggleComparison")->trigger();
+
+    auto* sourceA = window.findChild<QComboBox*>(QStringLiteral("CompareSourceA"));
+    auto* sourceB = window.findChild<QComboBox*>(QStringLiteral("CompareSourceB"));
+    auto* view = window.findChild<QComboBox*>(QStringLiteral("CompareViewMode"));
+    QVERIFY(sourceA && sourceB && view);
+    const QUuid x = window.project()->entries().at(0).id;
+    const QUuid z = window.project()->entries().at(1).id;
+    const QUuid y = window.project()->entries().at(2).id;
+
+    sourceA->setCurrentIndex(sourceA->findData(y));
+    QCOMPARE(window.compareSession()->sourceAId(), y);
+    QCOMPARE(window.project()->currentSourceId(), y);
+    QCOMPARE(sourceA->currentData().toUuid(), y);
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->state(), PlayerState::Ready, 10000);
+    QCOMPARE(QFileInfo(window.playbackController()->metadata().filePath).absoluteFilePath(),
+             QFileInfo(media("atk_compare_30fps.mkv")).absoluteFilePath());
+
+    for (const CompareLayout layout : {CompareLayout::SideBySide, CompareLayout::Stacked,
+                                       CompareLayout::Wipe, CompareLayout::Blend,
+                                       CompareLayout::Difference, CompareLayout::SideBySide}) {
+        view->setCurrentIndex(view->findData(static_cast<int>(layout)));
+        QCOMPARE(window.compareSession()->sourceAId(), y);
+        QCOMPARE(window.compareSession()->sourceBId(), z);
+        QCOMPARE(window.project()->currentSourceId(), y);
+        QCOMPARE(sourceA->currentData().toUuid(), y);
+    }
+
+    const QString primaryPath = window.playbackController()->metadata().filePath;
+    sourceA->setCurrentIndex(sourceA->findData(z));
+    QCOMPARE(window.compareSession()->sourceAId(), y);
+    QCOMPARE(window.project()->currentSourceId(), y);
+    QCOMPARE(sourceA->currentData().toUuid(), y);
+    QCOMPARE(window.playbackController()->metadata().filePath, primaryPath);
+    QCOMPARE(window.playbackController()->state(), PlayerState::Ready);
+
+    sourceB->setCurrentIndex(sourceB->findData(x));
+    QCOMPARE(window.compareSession()->sourceBId(), x);
+    QCOMPARE(sourceB->currentData().toUuid(), x);
+    QCOMPARE(window.compareSession()->sourceAId(), y);
+
+    sourceA->setCurrentIndex(sourceA->findData(z));
+    sourceA->setCurrentIndex(sourceA->findData(y));
+    QCOMPARE(window.compareSession()->sourceAId(), y);
+    QCOMPARE(window.project()->currentSourceId(), y);
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->state(), PlayerState::Ready, 10000);
+    QCOMPARE(QFileInfo(window.playbackController()->metadata().filePath).absoluteFilePath(),
+             QFileInfo(media("atk_compare_30fps.mkv")).absoluteFilePath());
+}
+
+void TestComparison::comparisonApiSourceAStaysAuthoritativeAcrossLayoutChange()
+{
+    QTemporaryDir directory;
+    atk::ui::MainWindow window(directory.filePath(QStringLiteral("settings.ini")));
+    QVERIFY(window.openProjectFile(writeProject(directory)));
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->state(), PlayerState::Ready, 10000);
+    auto request = [&](const QString& commandName, const QJsonObject& params = {}) {
+        return window.apiServer()->handleRequest(QJsonObject{
+            {QStringLiteral("command"), commandName}, {QStringLiteral("params"), params}});
+    };
+    QVERIFY(request(QStringLiteral("set_comparison_enabled"),
+                    {{QStringLiteral("enabled"), true}}).ok);
+    const QUuid y = window.project()->entries().at(2).id;
+    const QUuid z = window.project()->entries().at(1).id;
+    QVERIFY(request(QStringLiteral("load_compare_a"),
+                    {{QStringLiteral("sourceId"), y.toString(QUuid::WithoutBraces)}}).ok);
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->state(), PlayerState::Ready, 10000);
+    QVERIFY(request(QStringLiteral("set_compare_view"),
+                    {{QStringLiteral("mode"), QStringLiteral("blend")}}).ok);
+    const QJsonObject status = request(QStringLiteral("get_status")).result;
+    const QJsonObject comparison = status.value(QStringLiteral("comparison")).toObject();
+    QCOMPARE(QUuid(comparison.value(QStringLiteral("sourceAId")).toString()), y);
+    QCOMPARE(QUuid(comparison.value(QStringLiteral("sourceBId")).toString()), z);
+    QCOMPARE(QUuid(status.value(QStringLiteral("activeSourceId")).toString()), y);
+    QCOMPARE(QFileInfo(window.playbackController()->metadata().filePath).absoluteFilePath(),
+             QFileInfo(media("atk_compare_30fps.mkv")).absoluteFilePath());
+
+    const auto rejected = request(QStringLiteral("load_compare_a"),
+        {{QStringLiteral("sourceId"), z.toString(QUuid::WithoutBraces)}});
+    QVERIFY(!rejected.ok);
+    QCOMPARE(window.compareSession()->sourceAId(), y);
+    QCOMPARE(window.project()->currentSourceId(), y);
 }
 
 QTEST_MAIN(TestComparison)

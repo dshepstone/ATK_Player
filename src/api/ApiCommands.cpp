@@ -107,9 +107,13 @@ QJsonObject ApiResponse::toJson(const QJsonValue& requestId) const
 }
 
 ApiCommandDispatcher::ApiCommandDispatcher(playback::PlaybackController* playback,
-                                           timeline::TimelineModel* timeline)
+                                           timeline::TimelineModel* timeline,
+                                           ApplicationCommandHandler applicationHandler,
+                                           ApiInfoProvider apiInfoProvider)
     : m_playback(playback)
     , m_timeline(timeline)
+    , m_applicationHandler(std::move(applicationHandler))
+    , m_apiInfoProvider(std::move(apiInfoProvider))
 {
 }
 
@@ -117,6 +121,7 @@ QStringList ApiCommandDispatcher::supportedCommands()
 {
     return {
         QStringLiteral("list_commands"),
+        QStringLiteral("get_api_info"),
         QStringLiteral("get_status"),
         QStringLiteral("open_media"),
         QStringLiteral("open_project"),
@@ -134,6 +139,23 @@ QStringList ApiCommandDispatcher::supportedCommands()
         QStringLiteral("load_compare_a"),
         QStringLiteral("load_compare_b"),
         QStringLiteral("set_compare_offset"),
+        QStringLiteral("new_project"),
+        QStringLiteral("save_project"),
+        QStringLiteral("save_project_as"),
+        QStringLiteral("add_media"),
+        QStringLiteral("list_sources"),
+        QStringLiteral("activate_source"),
+        QStringLiteral("set_comparison_enabled"),
+        QStringLiteral("set_compare_view"),
+        QStringLiteral("set_compare_audio_mode"),
+        QStringLiteral("load_external_audio"),
+        QStringLiteral("clear_external_audio"),
+        QStringLiteral("set_external_audio_offset"),
+        QStringLiteral("list_bookmarks"),
+        QStringLiteral("export_review"),
+        QStringLiteral("get_export_status"),
+        QStringLiteral("cancel_export"),
+        QStringLiteral("show_window"),
     };
 }
 
@@ -164,11 +186,23 @@ ApiResponse ApiCommandDispatcher::dispatch(const QJsonObject& request)
         return ApiResponse::success({ { QStringLiteral("commands"), names } });
     }
 
+    if (command == QLatin1StringView("get_api_info")) {
+        QJsonObject info = m_apiInfoProvider ? m_apiInfoProvider() : QJsonObject{};
+        info.insert(QStringLiteral("protocolVersion"), 1);
+        info.insert(QStringLiteral("frameIndexBase"), 0);
+        return ApiResponse::success(info);
+    }
+
     if (command == QLatin1StringView("get_status")) {
-        return ApiResponse::success({
+        QJsonObject result{
             { QStringLiteral("state"),        stateName(m_playback->state()) },
             { QStringLiteral("currentFrame"), static_cast<double>(m_timeline->currentFrame()) },
+            { QStringLiteral("displayFrame"), m_timeline->frameCount() > 0
+                  ? static_cast<double>(m_timeline->currentFrame() + 1) : 0.0 },
             { QStringLiteral("frameCount"),   static_cast<double>(m_timeline->frameCount()) },
+            { QStringLiteral("frameIndexBase"), 0 },
+            { QStringLiteral("fpsNumerator"), m_timeline->frameRate().numerator },
+            { QStringLiteral("fpsDenominator"), m_timeline->frameRate().denominator },
             { QStringLiteral("fps"),          m_timeline->frameRate().toDouble() },
             { QStringLiteral("loop"),         m_playback->isLoopEnabled() },
             { QStringLiteral("hasMedia"),     m_playback->hasMedia() },
@@ -191,7 +225,15 @@ ApiResponse ApiCommandDispatcher::dispatch(const QJsonObject& request)
             // seeks to frameCount-1 on an estimate may find it unreachable.
             { QStringLiteral("frameCountIsExact"), metadata.hasExactFrameCount() },
             { QStringLiteral("hasAudio"),     metadata.hasAudio },
-        });
+        };
+        if (m_applicationHandler) {
+            const ApiResponse application = m_applicationHandler(command, params);
+            if (application.ok) {
+                for (auto it = application.result.begin(); it != application.result.end(); ++it)
+                    result.insert(it.key(), it.value());
+            }
+        }
+        return ApiResponse::success(result);
     }
 
     if (command == QLatin1StringView("play")) {
@@ -215,21 +257,24 @@ ApiResponse ApiCommandDispatcher::dispatch(const QJsonObject& request)
         }
         m_playback->seekFrame(frame);
         return ApiResponse::success({
-            { QStringLiteral("currentFrame"), static_cast<double>(m_timeline->currentFrame()) },
+            { QStringLiteral("accepted"), true },
+            { QStringLiteral("targetFrame"), static_cast<double>(m_playback->navigationFrame()) },
         });
     }
 
     if (command == QLatin1StringView("step_forward")) {
         m_playback->stepForward();
         return ApiResponse::success({
-            { QStringLiteral("currentFrame"), static_cast<double>(m_timeline->currentFrame()) },
+            { QStringLiteral("accepted"), true },
+            { QStringLiteral("targetFrame"), static_cast<double>(m_playback->navigationFrame()) },
         });
     }
 
     if (command == QLatin1StringView("step_backward")) {
         m_playback->stepBackward();
         return ApiResponse::success({
-            { QStringLiteral("currentFrame"), static_cast<double>(m_timeline->currentFrame()) },
+            { QStringLiteral("accepted"), true },
+            { QStringLiteral("targetFrame"), static_cast<double>(m_playback->navigationFrame()) },
         });
     }
 
@@ -287,19 +332,12 @@ ApiResponse ApiCommandDispatcher::dispatch(const QJsonObject& request)
         });
     }
 
-    if (command == QLatin1StringView("open_media")
-        || command == QLatin1StringView("open_project")
-        || command == QLatin1StringView("load_compare_a")
-        || command == QLatin1StringView("load_compare_b")
-        || command == QLatin1StringView("set_compare_offset")) {
-        // TODO(M1/M3/M4): wire to MediaSource loading, ProjectSerializer and
-        // CompareSession once those exist. Reported as a distinct failure from
-        // an unknown command so clients can feature-detect rather than guess
-        // from a version number.
+    if (supportedCommands().contains(command) && m_applicationHandler)
+        return m_applicationHandler(command, params);
+
+    if (supportedCommands().contains(command))
         return ApiResponse::failure(
-            QStringLiteral("command %1 is accepted by this build but not implemented yet")
-                .arg(command));
-    }
+            QStringLiteral("command %1 requires application services").arg(command));
 
     return ApiResponse::failure(QStringLiteral("unknown command: %1").arg(command));
 }

@@ -58,6 +58,10 @@ public:
     /// Writes `project` to `filePath`.
     static SerializerResult save(const Project& project, const QString& filePath);
 
+    /// Writes a Save As snapshot whose serialized name is derived from the
+    /// destination filename. The live project is never mutated.
+    static SerializerResult saveAs(const Project& project, const QString& filePath);
+
     /// Replaces the contents of `project` with the file at `filePath`.
     static SerializerResult load(Project& project, const QString& filePath);
 };

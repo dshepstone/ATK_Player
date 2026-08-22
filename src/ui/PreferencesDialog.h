@@ -8,6 +8,8 @@ class QKeySequence;
 class QKeySequenceEdit;
 class QPushButton;
 class QTableWidget;
+class QSpinBox;
+class QLabel;
 
 namespace atk::ui {
 
@@ -28,6 +30,9 @@ public:
     bool frameStepAudioEnabled() const;
     bool bookmarkSnapEnabled() const;
     bool reopenLastProject() const;
+    bool apiEnabled() const;
+    int apiPort() const;
+    void setApiRuntimeStatus(const QString& status);
     bool resetAllRequested() const { return m_resetAllRequested; }
     const QHash<QString, QString>& shortcuts() const { return m_shortcuts; }
 
@@ -50,6 +55,9 @@ private:
     QCheckBox* m_audioScrub = nullptr;
     QCheckBox* m_frameStepAudio = nullptr;
     QCheckBox* m_bookmarkSnap = nullptr;
+    QCheckBox* m_apiEnabled = nullptr;
+    QSpinBox* m_apiPort = nullptr;
+    QLabel* m_apiStatus = nullptr;
     QTableWidget* m_shortcutTable = nullptr;
     QKeySequenceEdit* m_shortcutEdit = nullptr;
     QPushButton* m_clearShortcut = nullptr;

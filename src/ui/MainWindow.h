@@ -23,8 +23,10 @@ class QThread;
 class QVBoxLayout;
 class QSplitter;
 class QProgressDialog;
+class QJsonObject;
 
 namespace atk::api { class ApiServer; }
+namespace atk::api { struct ApiResponse; }
 namespace atk::playback { class CompareSession; class CompareVideoLane; enum class CompareLayout; enum class CompareAudioMode; }
 namespace atk::project { class Project; }
 namespace atk::media { class PlaylistProbeWorker; }
@@ -96,6 +98,7 @@ public:
     ComparisonCompositeWidget* comparisonComposite() const { return m_compareComposite; }
     exporter::ExportSpec exportSnapshot(const QString& outputPath = {}) const;
     bool exportInProgress() const;
+    api::ApiServer* apiServer() const { return m_apiServer.get(); }
 
 protected:
     void closeEvent(QCloseEvent* event) override;
@@ -123,7 +126,7 @@ private:
     void openProjectDialog();
     bool saveProject();
     bool saveProjectAs();
-    bool saveProjectTo(const QString& path);
+    bool saveProjectTo(const QString& path, bool saveAs = false, bool showError = true);
     bool confirmDiscardChanges();
     void activatePlaylistIndex(int index, bool continuePlayback = false);
     int nextUsablePlaylistIndex() const;
@@ -143,8 +146,8 @@ private:
     qint64 offsetUsForFrames(int frames) const;
     int framesForOffsetUs(qint64 offsetUs) const;
     void reanchorComparisonFollowers(bool waveformMappingOnly);
-    void selectComparisonSourceA(const QUuid& id);
-    void selectComparisonSourceB(const QUuid& id);
+    bool selectComparisonSourceA(const QUuid& id);
+    bool selectComparisonSourceB(const QUuid& id);
     void openComparisonSourceB();
     void synchronizeComparison(const media::VideoFrame& sourceAFrame);
     int defaultComparisonBIndex(int sourceAIndex) const;
@@ -154,7 +157,9 @@ private:
     void loadExternalAudio();
     void clearExternalAudio();
     void exportReview();
-    void startExport(exporter::ExportSpec spec);
+    void startExport(exporter::ExportSpec spec, bool showProgressUi = true);
+    api::ApiResponse handleApiApplicationCommand(const QString& command,
+                                                 const QJsonObject& params);
     bool cancelExportForProjectChange();
     ViewerWidget* activeViewer() const;
 
@@ -214,6 +219,14 @@ private:
     quint64 m_pendingRelinkProjectGeneration = 0;
     quint64 m_projectGeneration = 1;
     bool m_suppressProjectOpenError = false;
+    QString m_apiExportJobId;
+    QString m_apiExportState = QStringLiteral("idle");
+    QString m_apiExportOutputPath;
+    QString m_apiExportError;
+    QString m_lastProjectSaveError;
+    int m_apiExportProgress = 0;
+    qint64 m_apiExportFrame = 0;
+    qint64 m_apiExportTotal = 0;
 
     /// Directory the last Open Media dialog was pointed at.
     QString m_lastMediaDirectory;
