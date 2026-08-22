@@ -724,8 +724,9 @@ not change once released.
 ## Offline review export
 
 `ExportSpec` is an immutable value snapshot of Source A's inclusive active
-range, optional Source B comparison state, offsets, selected audio and output
-settings. Once a job starts, subsequent UI or project changes cannot alter it.
+range, optional Source B comparison state, offsets, selected audio, export kind
+and output settings. Once a job starts, subsequent UI or project changes cannot
+alter it.
 
 `ExportJob` owns a worker thread. The worker creates independent
 `MediaDecoder`, audio-reader and FFmpeg encoder contexts; it never reads a
@@ -742,11 +743,15 @@ same one-frame interval before rescaling into the MP4 stream time base. Thus N
 frames occupy N intervals; the final presentation is not truncated at frame
 N-1's PTS, and no duplicate tail picture is encoded.
 
-Frames are fitted without viewer transforms and padded to an even H.264 canvas.
+Frames are fitted without viewer transforms. Review video alone is padded to an
+even H.264 canvas; PNG output preserves the compositor's exact content size.
 The selected Source A, Source B or External soundtrack is mapped onto Source A
 time, resampled to 48 kHz stereo and encoded as AAC. Cancellation removes the
 unique sibling temporary file. Completion closes the muxer before atomically
 replacing the requested destination, preserving an existing file on failure.
+Current-frame PNGs use the same sibling-file replacement. Image sequences render
+into a unique sibling directory and rename it into place only after every PNG is
+written; the first version rejects an existing final sequence directory.
 
 ---
 

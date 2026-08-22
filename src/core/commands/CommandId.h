@@ -17,6 +17,8 @@ enum class CommandId {
     SaveProject,
     SaveProjectAs,
     ExportReview,
+    ExportCurrentFrame,
+    ExportImageSequence,
     CloseSource,
     Quit,
 

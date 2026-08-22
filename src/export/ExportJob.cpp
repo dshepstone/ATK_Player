@@ -4,7 +4,10 @@
 #include "media/AudioSourceReader.h"
 #include "playback/CompareSession.h"
 #include <QFile>
+#include <QDir>
+#include <QImageWriter>
 #include <QThread>
+#include <QUuid>
 #include <algorithm>
 
 namespace atk::exporter {
@@ -22,13 +25,17 @@ public slots:
         if (!validation.isEmpty()) { emit failed(validation); return; }
         ExportRenderer renderer; QString error;
         if (!renderer.open(m_spec, &error)) { emit failed(cleanError(error)); return; }
+        if (m_spec.kind != ExportKind::ReviewVideo) {
+            runImageExport(renderer);
+            return;
+        }
         const bool wantAudio = audioAvailable();
         FFmpegExporter encoder;
         if (!encoder.open(m_spec, wantAudio, &error)) { encoder.discard(); emit failed(cleanError(error)); return; }
         const qint64 total = m_spec.frameCount();
         for (qint64 n = 0; n < total; ++n) {
             if (isCancelled()) { encoder.discard(); emit cancelled(); return; }
-            const qint64 index = m_spec.sourceA.rangeStartFrame + n;
+            const qint64 index = m_spec.exportStartFrame() + n;
             RenderedExportFrame frame;
             if (!renderer.render(index, frame, &error, [this]{ return isCancelled(); })) {
                 encoder.discard();
@@ -73,6 +80,64 @@ signals:
     void failed(const QString& message);
 private:
     bool isCancelled() const { return m_cancelled->load(); }
+    bool writePng(const QImage& image, const QString& path, QString* error)
+    {
+        QImageWriter writer(path, "png");
+        writer.setCompression(9);
+        if (writer.write(image)) return true;
+        if (error) *error = tr("Unable to write PNG: %1").arg(writer.errorString());
+        return false;
+    }
+    void runImageExport(ExportRenderer& renderer)
+    {
+        QString error;
+        const qint64 total = m_spec.frameCount();
+        const bool sequence = m_spec.kind == ExportKind::ImageSequence;
+        const QString token = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        const QString temporary = m_spec.outputPath + QStringLiteral(".atkpart.") + token;
+        if (sequence && !QDir().mkpath(temporary)) {
+            emit failed(tr("Unable to create the temporary image-sequence folder."));
+            return;
+        }
+        const auto cleanup = [&] {
+            if (sequence) QDir(temporary).removeRecursively();
+            else QFile::remove(temporary);
+        };
+        const qint64 sourceFrames = std::max<qint64>(1, m_spec.sourceA.metadata.effectiveFrameCount());
+        const int padding = std::max(4, static_cast<int>(QString::number(sourceFrames).size()));
+        for (qint64 n = 0; n < total; ++n) {
+            if (isCancelled()) { cleanup(); emit cancelled(); return; }
+            const qint64 index = m_spec.exportStartFrame() + n;
+            RenderedExportFrame frame;
+            if (!renderer.render(index, frame, &error, [this] { return isCancelled(); })) {
+                cleanup();
+                if (isCancelled()) emit cancelled(); else emit failed(cleanError(error));
+                return;
+            }
+            const QString destination = sequence
+                ? QDir(temporary).filePath(QStringLiteral("%1_%2.png")
+                    .arg(m_spec.imagePrefix)
+                    .arg(index + 1, padding, 10, QLatin1Char('0')))
+                : temporary;
+            if (!writePng(frame.image, destination, &error)) {
+                cleanup(); emit failed(cleanError(error)); return;
+            }
+            emit statusChanged(tr("Rendering frame %1 / %2…").arg(n + 1).arg(total));
+            emit progress(static_cast<int>((n + 1) * 95 / total), n + 1, total);
+        }
+        if (isCancelled()) { cleanup(); emit cancelled(); return; }
+        emit statusChanged(tr("Finalizing…"));
+        bool installed = false;
+        if (sequence) installed = QDir().rename(temporary, m_spec.outputPath);
+        else installed = replaceFinal(temporary, &error);
+        if (!installed) {
+            cleanup();
+            if (error.isEmpty()) error = tr("Unable to install the completed image export.");
+            emit failed(cleanError(error)); return;
+        }
+        emit progress(100, total, total);
+        emit completed(m_spec.outputPath);
+    }
     bool audioAvailable() const
     {
         if (!m_spec.comparison || m_spec.audioMode == playback::CompareAudioMode::SourceA)

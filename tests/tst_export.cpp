@@ -3,9 +3,14 @@
 #include "export/FFmpegExporter.h"
 #include "media/MediaDecoder.h"
 #include "playback/ComparisonCompositor.h"
+#include "project/Project.h"
+#include "project/ProjectSerializer.h"
+#include "ui/MainWindow.h"
+#include "api/ApiServer.h"
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
+#include <QJsonObject>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTest>
@@ -134,6 +139,11 @@ private slots:
     void offsetsDoNotChangeSourceAFrameCount();
     void cancellationLeavesNoOutput();
     void failurePreservesExistingDestination();
+    void singleFramePngUsesExactFrameAndContentDimensions();
+    void comparisonStillUsesExistingCompositorMapping();
+    void imageSequenceUsesInclusiveVisibleFrameNames();
+    void imageExportBoundariesCollisionFailureAndCancellation();
+    void apiImageExportsValidateAndShareStatus();
     void manualPrivateMediaAcceptance();
 };
 
@@ -263,6 +273,146 @@ void TestExport::failurePreservesExistingDestination()
     QVERIFY(original.open(QIODevice::ReadOnly)); QCOMPARE(original.readAll(), QByteArray("original"));
 }
 
+void TestExport::singleFramePngUsesExactFrameAndContentDimensions()
+{
+    QTemporaryDir directory; QVERIFY(directory.isValid());
+    const QString output = QDir(directory.path()).filePath(QStringLiteral("frame_0051.png"));
+    auto spec = specFor(exportFixture(), output, 0, 119);
+    spec.kind = exporter::ExportKind::CurrentFrame;
+    spec.firstFrame = spec.lastFrame = 50;
+    QString error; QVERIFY2(runExport(spec, &error), qPrintable(error));
+    QImage png(output); QVERIFY(!png.isNull());
+    QCOMPARE(png.size(), spec.contentSize());
+    media::MediaDecoder decoder; QVERIFY(decoder.open(exportFixture(), &error));
+    media::VideoFrame expected; QVERIFY(decoder.frameAtIndex(50, expected, &error));
+    QCOMPARE(png, expected.image);
+}
+
+void TestExport::comparisonStillUsesExistingCompositorMapping()
+{
+    QTemporaryDir directory; QVERIFY(directory.isValid());
+    auto spec = specFor(exportFixture(), QDir(directory.path()).filePath(QStringLiteral("difference.png")), 0, 119);
+    spec.kind = exporter::ExportKind::CurrentFrame;
+    spec.firstFrame = spec.lastFrame = 50;
+    spec.comparison = true; spec.sourceB = spec.sourceA;
+    spec.layout = playback::CompareLayout::Difference;
+    QString error; QVERIFY2(runExport(spec, &error), qPrintable(error));
+    QImage png(spec.outputPath); QVERIFY(!png.isNull());
+    QCOMPARE(png.size(), spec.contentSize());
+    QCOMPARE(png.pixelColor(png.width() / 2, png.height() / 2), QColor(Qt::black));
+}
+
+void TestExport::imageSequenceUsesInclusiveVisibleFrameNames()
+{
+    QTemporaryDir directory; QVERIFY(directory.isValid());
+    const QString output = QDir(directory.path()).filePath(QStringLiteral("sequence"));
+    auto spec = specFor(exportFixture(), output, 20, 40);
+    spec.kind = exporter::ExportKind::ImageSequence;
+    spec.imagePrefix = QStringLiteral("shot");
+    QString error; QVERIFY2(runExport(spec, &error), qPrintable(error));
+    const QStringList files = QDir(output).entryList({QStringLiteral("*.png")}, QDir::Files, QDir::Name);
+    QCOMPARE(files.size(), 21);
+    QCOMPARE(files.first(), QStringLiteral("shot_0021.png"));
+    QCOMPARE(files.last(), QStringLiteral("shot_0041.png"));
+    for (int visible = 21; visible <= 41; ++visible)
+        QVERIFY(QFileInfo::exists(QDir(output).filePath(
+            QStringLiteral("shot_%1.png").arg(visible, 4, 10, QLatin1Char('0')))));
+    QImage first(QDir(output).filePath(files.first()));
+    QImage last(QDir(output).filePath(files.last()));
+    QVERIFY(!first.isNull() && !last.isNull());
+    QCOMPARE(first.size(), spec.contentSize()); QCOMPARE(last.size(), spec.contentSize());
+}
+
+void TestExport::imageExportBoundariesCollisionFailureAndCancellation()
+{
+    QTemporaryDir directory; QVERIFY(directory.isValid()); QString error;
+    for (qint64 frame : {qint64(0), qint64(119)}) {
+        auto spec = specFor(exportFixture(), QDir(directory.path()).filePath(
+            QStringLiteral("boundary_%1.png").arg(frame)), 0, 119);
+        spec.kind = exporter::ExportKind::CurrentFrame;
+        spec.firstFrame = spec.lastFrame = frame;
+        QVERIFY2(runExport(spec, &error), qPrintable(error));
+        QVERIFY(!QImage(spec.outputPath).isNull());
+    }
+
+    const QString collision = QDir(directory.path()).filePath(QStringLiteral("existing_sequence"));
+    QVERIFY(QDir().mkpath(collision));
+    QFile marker(QDir(collision).filePath(QStringLiteral("keep.txt")));
+    QVERIFY(marker.open(QIODevice::WriteOnly)); marker.write("keep"); marker.close();
+    auto collisionSpec = specFor(exportFixture(), collision, 0, 2);
+    collisionSpec.kind = exporter::ExportKind::ImageSequence;
+    collisionSpec.imagePrefix = QStringLiteral("shot");
+    QVERIFY(!runExport(collisionSpec, &error));
+    QVERIFY(QFileInfo::exists(marker.fileName()));
+    QCOMPARE(QDir(collision).entryList(QDir::Files).size(), 1);
+
+    const QString preserved = QDir(directory.path()).filePath(QStringLiteral("preserved.png"));
+    QFile original(preserved); QVERIFY(original.open(QIODevice::WriteOnly));
+    original.write("original"); original.close();
+    auto failed = specFor(exportFixture(), preserved, 0, 119);
+    failed.kind = exporter::ExportKind::CurrentFrame;
+    failed.firstFrame = failed.lastFrame = 9999;
+    QVERIFY(!runExport(failed, &error));
+    QVERIFY(original.open(QIODevice::ReadOnly)); QCOMPARE(original.readAll(), QByteArray("original"));
+
+    const QString cancelledPath = QDir(directory.path()).filePath(QStringLiteral("cancelled_sequence"));
+    auto cancelledSpec = specFor(longFixture(), cancelledPath, 0, 239);
+    cancelledSpec.kind = exporter::ExportKind::ImageSequence;
+    cancelledSpec.imagePrefix = QStringLiteral("cancel");
+    exporter::ExportJob job(cancelledSpec);
+    QSignalSpy cancelled(&job, &exporter::ExportJob::cancelled);
+    connect(&job, &exporter::ExportJob::progress, &job,
+            [&job](int, qint64 frame, qint64) { if (frame >= 2) job.cancel(); });
+    job.start(); QTRY_VERIFY_WITH_TIMEOUT(!cancelled.isEmpty(), 20000); job.wait();
+    QVERIFY(!QFileInfo::exists(cancelledPath));
+    QVERIFY(QDir(directory.path()).entryList({QStringLiteral("cancelled_sequence.atkpart.*")},
+                                             QDir::Dirs | QDir::NoDotAndDotDot).isEmpty());
+}
+
+void TestExport::apiImageExportsValidateAndShareStatus()
+{
+    QTemporaryDir directory; QVERIFY(directory.isValid());
+    project::Project project;
+    project.addSource(std::make_shared<media::MediaSource>(exportFixture()));
+    project.setActiveIndex(0);
+    const QString projectPath = QDir(directory.path()).filePath(QStringLiteral("api.atkproj"));
+    QVERIFY(project::ProjectSerializer::save(project, projectPath).ok);
+    ui::MainWindow window(QDir(directory.path()).filePath(QStringLiteral("settings.ini")));
+    QVERIFY(window.openProjectFile(projectPath));
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->state(), playback::PlayerState::Ready, 10000);
+    auto request = [&](const QString& command, const QJsonObject& params = {}) {
+        return window.apiServer()->handleRequest(QJsonObject{
+            {QStringLiteral("command"), command}, {QStringLiteral("params"), params}});
+    };
+    QVERIFY(!request(QStringLiteral("export_frame"),
+                     {{QStringLiteral("path"), QStringLiteral("relative.png")}}).ok);
+    QVERIFY(!request(QStringLiteral("export_image_sequence"),
+                     {{QStringLiteral("directory"), QStringLiteral("relative")}}).ok);
+
+    const QString framePath = QDir(directory.path()).filePath(QStringLiteral("api_0051.png"));
+    const auto frame = request(QStringLiteral("export_frame"), {
+        {QStringLiteral("path"), framePath}, {QStringLiteral("frame"), 50}});
+    QVERIFY(frame.ok); QVERIFY(!frame.result.value(QStringLiteral("jobId")).toString().isEmpty());
+    QJsonObject status;
+    QTRY_VERIFY_WITH_TIMEOUT((status = request(QStringLiteral("get_export_status")).result)
+                                 .value(QStringLiteral("state")).toString() == QStringLiteral("completed"), 20000);
+    QCOMPARE(status.value(QStringLiteral("totalFrames")).toInt(), 1);
+    QVERIFY(!QImage(framePath).isNull());
+
+    const QString sequencePath = QDir(directory.path()).filePath(QStringLiteral("api_sequence"));
+    const auto sequence = request(QStringLiteral("export_image_sequence"), {
+        {QStringLiteral("directory"), sequencePath}, {QStringLiteral("prefix"), QStringLiteral("api")},
+        {QStringLiteral("startFrame"), 20}, {QStringLiteral("endFrame"), 40}});
+    QVERIFY(sequence.ok);
+    QTRY_VERIFY_WITH_TIMEOUT(request(QStringLiteral("get_export_status")).result
+                                 .value(QStringLiteral("state")).toString() == QStringLiteral("completed"), 20000);
+    QCOMPARE(QDir(sequencePath).entryList({QStringLiteral("*.png")}, QDir::Files).size(), 21);
+    QVERIFY(QFileInfo::exists(QDir(sequencePath).filePath(QStringLiteral("api_0021.png"))));
+    QVERIFY(QFileInfo::exists(QDir(sequencePath).filePath(QStringLiteral("api_0041.png"))));
+    QVERIFY(!request(QStringLiteral("export_image_sequence"),
+                     {{QStringLiteral("directory"), sequencePath}}).ok);
+}
+
 void TestExport::manualPrivateMediaAcceptance()
 {
     const QString source = qEnvironmentVariable("ATK_PRIVATE_EXPORT_MEDIA");
@@ -289,5 +439,5 @@ void TestExport::manualPrivateMediaAcceptance()
     }
 }
 
-QTEST_GUILESS_MAIN(TestExport)
+QTEST_MAIN(TestExport)
 #include "tst_export.moc"

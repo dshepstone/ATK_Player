@@ -21,7 +21,7 @@ All API frame indices are zero-based. User-facing UI frame labels are one-based.
 - Review: `add_bookmark`, `list_bookmarks`.
 - Project/playlist: `open_media`, `open_project`, `new_project`, `save_project`, `save_project_as`, `add_media`, `list_sources`, `activate_source`.
 - Comparison: `set_comparison_enabled`, `load_compare_a`, `load_compare_b`, `set_compare_offset`, `set_compare_view`, `set_compare_audio_mode`, `load_external_audio`, `clear_external_audio`, `set_external_audio_offset`.
-- Export/UI: `export_review`, `get_export_status`, `cancel_export`, `show_window`.
+- Export/UI: `export_review`, `export_frame`, `export_image_sequence`, `get_export_status`, `cancel_export`, `show_window`.
 
 Use `list_commands` for feature detection and `get_api_info` for protocol version 1, application identity, active port, frame-index base, and request cap.
 
@@ -31,10 +31,20 @@ zero-based logical destination, not a claim that it has already painted. Poll
 authoritative `get_status.currentFrame`, or use the Python client's
 `wait_until_frame()`, to observe completion.
 
-Paths must be absolute local paths; URL schemes are rejected. Input files must exist. Project destinations end in `.atkproj` and export destinations in `.mp4`. Replacing a dirty project is rejected unless `discardUnsaved:true` is explicit. API operations never open file dialogs or save/discard prompts. Playlist identity is the stable UUID from `list_sources`; duplicate paths are valid distinct sources.
+Paths must be absolute local paths; URL schemes are rejected. Input files must exist. Project destinations end in `.atkproj`, review videos in `.mp4`, and current-frame images in `.png`. Image sequences require a non-existing destination directory whose parent exists. Replacing a dirty project is rejected unless `discardUnsaved:true` is explicit. API operations never open file dialogs or save/discard prompts. Playlist identity is the stable UUID from `list_sources`; duplicate paths are valid distinct sources.
 
 Comparison view modes are `side_by_side`, `stacked`, `wipe`, `blend`, and `difference`; audio modes are `a`, `b`, and `external`. Offset requests specify exactly one of `frameOffset` or `offsetUs`, and comparison offsets apply to slot `b`.
 
 `export_review {path, overwrite?}` uses the UI's same immutable `ExportSpec` and asynchronous `ExportJob`, returning a `jobId` immediately. Poll `get_export_status {jobId?}` for progress and terminal state; `cancel_export` is cooperative. Atomic output prevents partial destination files.
+
+`export_frame {path, frame?, overwrite?}` writes one lossless PNG through the
+offline renderer. `frame` is an optional zero-based Source A frame; omitting it
+uses the authoritative presented frame. `export_image_sequence {directory,
+prefix?, startFrame?, endFrame?}` writes an inclusive zero-based Source A range.
+Bounds must be supplied together; omitting them uses the active review range.
+Sequence filenames use one-based source-visible numbers with at least four
+digits, such as `shot_0021.png`. Both commands share `get_export_status` and
+`cancel_export`; failed or cancelled sequences never install a partial final
+directory.
 
 The standard-library reference client is in [`integrations/python`](../integrations/python/). Maya support in [`integrations/maya`](../integrations/maya/) maps scene frames to zero-based playblast frames rather than changing the protocol.

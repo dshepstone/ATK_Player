@@ -69,7 +69,7 @@ foreach(test_source IN LISTS ATK_TEST_SOURCES ATK_FFMPEG_TEST_SOURCES ATK_UI_TES
             ATK::core
             Qt6::Test
     )
-    if(test_source IN_LIST ATK_UI_TEST_SOURCES)
+    if(test_source IN_LIST ATK_UI_TEST_SOURCES OR test_name STREQUAL "tst_export")
         target_link_libraries(${test_name} PRIVATE ATK::ui Qt6::Widgets)
     endif()
 

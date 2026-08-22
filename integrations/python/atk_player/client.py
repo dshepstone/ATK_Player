@@ -136,6 +136,19 @@ class AtkPlayer:
     def clear_external_audio(self): return self.request("clear_external_audio")
     def set_external_audio_offset(self, frame_offset): return self.request("set_external_audio_offset", frameOffset=int(frame_offset))
     def export_review(self, path, overwrite=False): return self.request("export_review", path=str(Path(path).absolute()), overwrite=overwrite)
+    def export_frame(self, path, frame=None, overwrite=False):
+        params = {"path": str(Path(path).absolute()), "overwrite": bool(overwrite)}
+        if frame is not None: params["frame"] = int(frame)
+        return self.request("export_frame", **params)
+    def export_image_sequence(self, directory, prefix=None, start_frame=None, end_frame=None, overwrite=False):
+        params = {"directory": str(Path(directory).absolute()), "overwrite": bool(overwrite)}
+        if prefix is not None: params["prefix"] = str(prefix)
+        if (start_frame is None) != (end_frame is None):
+            raise ValueError("start_frame and end_frame must be specified together")
+        if start_frame is not None:
+            params["startFrame"] = int(start_frame)
+            params["endFrame"] = int(end_frame)
+        return self.request("export_image_sequence", **params)
     def export_status(self, job_id=None): return self.request("get_export_status", **({"jobId": job_id} if job_id else {}))
     def cancel_export(self, job_id=None): return self.request("cancel_export", **({"jobId": job_id} if job_id else {}))
     def list_bookmarks(self): return self.request("list_bookmarks")["bookmarks"]

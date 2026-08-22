@@ -261,6 +261,8 @@ void TestApiCommands::reportsCommandsRequiringApplicationServices()
         QStringLiteral("open_media"),
         QStringLiteral("load_compare_a"),
         QStringLiteral("load_compare_b"),
+        QStringLiteral("export_frame"),
+        QStringLiteral("export_image_sequence"),
     };
 
     for (const QString& name : names) {

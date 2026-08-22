@@ -57,11 +57,13 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QProgressDialog>
+#include <QRegularExpression>
 #include <QScreen>
 #include <QSignalBlocker>
 #include <QStatusBar>
 #include <QVBoxLayout>
 #include <cmath>
+#include <limits>
 
 namespace atk::ui {
 namespace {
@@ -105,6 +107,14 @@ constexpr int kPlaceholderFps = 24;
 MainWindow::MainWindow(QWidget* parent)
     : MainWindow(QString(), parent)
 {
+}
+
+QString safeImagePrefix(QString value)
+{
+    value = value.trimmed();
+    value.replace(QRegularExpression(QStringLiteral(R"([<>:"/\\|?*\x00-\x1F])")), QStringLiteral("_"));
+    while (value.endsWith(QLatin1Char('.')) || value.endsWith(QLatin1Char(' '))) value.chop(1);
+    return value.isEmpty() ? QStringLiteral("frames") : value;
 }
 
 MainWindow::MainWindow(const QString& settingsIniPath, QWidget* parent)
@@ -895,6 +905,8 @@ void MainWindow::onCommand(CommandId id, bool checked)
     case CommandId::SaveProject: saveProject(); return;
     case CommandId::SaveProjectAs: saveProjectAs(); return;
     case CommandId::ExportReview: exportReview(); return;
+    case CommandId::ExportCurrentFrame: exportCurrentFrame(); return;
+    case CommandId::ExportImageSequence: exportImageSequence(); return;
     }
 }
 
@@ -1093,6 +1105,9 @@ void MainWindow::updateTransportEnabled()
 
     if (QAction* action = m_commands->action(CommandId::ExportReview))
         action->setEnabled(m_playback->hasMedia() && !exportInProgress());
+    for (CommandId id : {CommandId::ExportCurrentFrame, CommandId::ExportImageSequence})
+        if (QAction* action = m_commands->action(id))
+            action->setEnabled(m_playback->hasMedia() && !exportInProgress());
 
     if (QAction* action = m_commands->action(CommandId::ToggleVideoFullScreen)) {
         action->setEnabled(m_playback->hasMedia());
@@ -1591,13 +1606,57 @@ void MainWindow::exportReview()
     startExport(std::move(spec));
 }
 
+void MainWindow::exportCurrentFrame()
+{
+    if (exportInProgress() || !m_playback->hasMedia()) return;
+    exporter::ExportSpec spec = exportSnapshot();
+    spec.kind = exporter::ExportKind::CurrentFrame;
+    spec.firstFrame = m_timeline->currentFrame();
+    spec.lastFrame = m_timeline->currentFrame();
+    const QString base = safeImagePrefix(QFileInfo(spec.sourceA.path).completeBaseName());
+    const int digits = std::max(4, static_cast<int>(QString::number(std::max<qint64>(1,
+        spec.sourceA.metadata.effectiveFrameCount())).size()));
+    const QString suggested = QDir(QFileInfo(spec.outputPath).absolutePath()).filePath(
+        QStringLiteral("%1_frame_%2.png").arg(base)
+            .arg(m_timeline->currentFrame() + 1, digits, 10, QLatin1Char('0')));
+    QString path = QFileDialog::getSaveFileName(this, tr("Export Current Frame"), suggested,
+                                                tr("PNG Image (*.png)"));
+    if (path.isEmpty()) return;
+    if (!path.endsWith(QStringLiteral(".png"), Qt::CaseInsensitive)) path += QStringLiteral(".png");
+    if (QFileInfo::exists(path)
+        && QMessageBox::question(this, tr("Export Current Frame"),
+            tr("Replace the existing image?\n%1").arg(QDir::toNativeSeparators(path)),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes) return;
+    spec.outputPath = QFileInfo(path).absoluteFilePath();
+    const QString validation = spec.validate();
+    if (!validation.isEmpty()) { QMessageBox::critical(this, tr("Export Current Frame"), validation); return; }
+    startExport(std::move(spec));
+}
+
+void MainWindow::exportImageSequence()
+{
+    if (exportInProgress() || !m_playback->hasMedia()) return;
+    exporter::ExportSpec spec = exportSnapshot();
+    spec.kind = exporter::ExportKind::ImageSequence;
+    spec.imagePrefix = safeImagePrefix(QFileInfo(spec.sourceA.path).completeBaseName());
+    const QString parent = QFileDialog::getExistingDirectory(
+        this, tr("Choose Parent Folder for Image Sequence"), QFileInfo(spec.outputPath).absolutePath());
+    if (parent.isEmpty()) return;
+    spec.outputPath = QDir(parent).filePath(spec.imagePrefix + QStringLiteral("_frames"));
+    const QString validation = spec.validate();
+    if (!validation.isEmpty()) { QMessageBox::critical(this, tr("Export Image Sequence"), validation); return; }
+    startExport(std::move(spec));
+}
+
 void MainWindow::startExport(exporter::ExportSpec spec, bool showProgressUi)
 {
     if (exportInProgress()) return;
     m_exportJob = std::make_unique<exporter::ExportJob>(std::move(spec), this);
     if (showProgressUi) {
         m_exportProgress = new QProgressDialog(tr("Preparing…"), tr("Cancel"), 0, 100, this);
-        m_exportProgress->setWindowTitle(tr("Export Review"));
+        m_exportProgress->setWindowTitle(m_exportJob->spec().kind == exporter::ExportKind::ReviewVideo
+            ? tr("Export Review") : m_exportJob->spec().kind == exporter::ExportKind::CurrentFrame
+                ? tr("Export Current Frame") : tr("Export Image Sequence"));
         m_exportProgress->setWindowModality(Qt::NonModal);
         m_exportProgress->setMinimumDuration(0);
         m_exportProgress->setAutoClose(false);
@@ -2416,6 +2475,73 @@ api::ApiResponse MainWindow::handleApiApplicationCommand(
         m_apiExportFrame = 0;
         m_apiExportTotal = spec.frameCount();
         startExport(std::move(spec), false);
+        return api::ApiResponse::success({{QStringLiteral("jobId"), m_apiExportJobId}});
+    }
+
+    if (command == QLatin1StringView("export_frame")) {
+        if (exportInProgress()) return fail(QStringLiteral("an export is already active"));
+        QString path;
+        if (!localFile(QStringLiteral("path"), false, &path)
+            || !path.endsWith(QStringLiteral(".png"), Qt::CaseInsensitive))
+            return fail(QStringLiteral("path must be an absolute local .png destination"));
+        if (QFileInfo::exists(path) && !params.value(QStringLiteral("overwrite")).toBool(false))
+            return fail(QStringLiteral("destination exists; set overwrite=true to replace it"));
+        exporter::ExportSpec spec = exportSnapshot(path);
+        spec.kind = exporter::ExportKind::CurrentFrame;
+        qint64 frame = m_timeline->currentFrame();
+        if (params.contains(QStringLiteral("frame"))) {
+            const double value = params.value(QStringLiteral("frame")).toDouble(-1.0);
+            if (!params.value(QStringLiteral("frame")).isDouble() || !std::isfinite(value)
+                || std::trunc(value) != value || value < 0
+                || value >= static_cast<double>(std::numeric_limits<qint64>::max()))
+                return fail(QStringLiteral("frame must be a zero-based integer"));
+            frame = static_cast<qint64>(value);
+        }
+        spec.firstFrame = spec.lastFrame = frame;
+        const QString validation = spec.validate();
+        if (!validation.isEmpty()) return fail(validation);
+        m_apiExportJobId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        m_apiExportState = QStringLiteral("running"); m_apiExportOutputPath = path;
+        m_apiExportError.clear(); m_apiExportProgress = 0; m_apiExportFrame = 0;
+        m_apiExportTotal = 1; startExport(std::move(spec), false);
+        return api::ApiResponse::success({{QStringLiteral("jobId"), m_apiExportJobId}});
+    }
+
+    if (command == QLatin1StringView("export_image_sequence")) {
+        if (exportInProgress()) return fail(QStringLiteral("an export is already active"));
+        const QString rawDirectory = params.value(QStringLiteral("directory")).toString();
+        const QFileInfo destination(rawDirectory);
+        if (rawDirectory.isEmpty() || !destination.isAbsolute()
+            || rawDirectory.contains(QStringLiteral("://")) || !destination.absoluteDir().exists())
+            return fail(QStringLiteral("directory must be an absolute local destination with an existing parent"));
+        if (destination.exists())
+            return fail(QStringLiteral("image-sequence destination already exists"));
+        exporter::ExportSpec spec = exportSnapshot(destination.absoluteFilePath());
+        spec.kind = exporter::ExportKind::ImageSequence;
+        spec.imagePrefix = safeImagePrefix(params.value(QStringLiteral("prefix")).toString(
+            QFileInfo(spec.sourceA.path).completeBaseName()));
+        const bool hasStart = params.contains(QStringLiteral("startFrame"));
+        const bool hasEnd = params.contains(QStringLiteral("endFrame"));
+        if (hasStart != hasEnd) return fail(QStringLiteral("startFrame and endFrame must be specified together"));
+        if (hasStart) {
+            const double start = params.value(QStringLiteral("startFrame")).toDouble(-1.0);
+            const double end = params.value(QStringLiteral("endFrame")).toDouble(-1.0);
+            if (!params.value(QStringLiteral("startFrame")).isDouble()
+                || !params.value(QStringLiteral("endFrame")).isDouble()
+                || !std::isfinite(start) || !std::isfinite(end)
+                || std::trunc(start) != start || std::trunc(end) != end
+                || start < 0 || end < start
+                || end >= static_cast<double>(std::numeric_limits<qint64>::max()))
+                return fail(QStringLiteral("startFrame and endFrame must be zero-based integers"));
+            spec.firstFrame = static_cast<qint64>(start);
+            spec.lastFrame = static_cast<qint64>(end);
+        }
+        const QString validation = spec.validate();
+        if (!validation.isEmpty()) return fail(validation);
+        m_apiExportJobId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        m_apiExportState = QStringLiteral("running"); m_apiExportOutputPath = spec.outputPath;
+        m_apiExportError.clear(); m_apiExportProgress = 0; m_apiExportFrame = 0;
+        m_apiExportTotal = spec.frameCount(); startExport(std::move(spec), false);
         return api::ApiResponse::success({{QStringLiteral("jobId"), m_apiExportJobId}});
     }
 

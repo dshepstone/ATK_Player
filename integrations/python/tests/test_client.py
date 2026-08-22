@@ -65,5 +65,25 @@ class ClientTests(unittest.TestCase):
             with self.assertRaises(AtkTimeoutError):
                 player.wait_until_frame(1, timeout=0.02, poll_interval=0.001)
 
+    def test_image_export_payloads_are_zero_based(self):
+        requests = []
+        def reply(request):
+            requests.append(request)
+            return {"id": request["id"], "ok": True, "result": {"jobId": "job"}}
+        with StubServer(reply) as server, AtkPlayer(port=server.port) as player:
+            player.export_frame("frame.png", frame=50, overwrite=True)
+            player.export_image_sequence("sequence", prefix="shot", start_frame=20, end_frame=40)
+        self.assertEqual(requests[0]["command"], "export_frame")
+        self.assertEqual(requests[0]["params"]["frame"], 50)
+        self.assertTrue(requests[0]["params"]["overwrite"])
+        self.assertEqual(requests[1]["command"], "export_image_sequence")
+        self.assertEqual(requests[1]["params"]["startFrame"], 20)
+        self.assertEqual(requests[1]["params"]["endFrame"], 40)
+        self.assertEqual(requests[1]["params"]["prefix"], "shot")
+
+    def test_image_sequence_requires_both_range_bounds(self):
+        with self.assertRaises(ValueError):
+            AtkPlayer().export_image_sequence("sequence", start_frame=20)
+
 
 if __name__ == "__main__": unittest.main()
