@@ -1426,15 +1426,22 @@ bool MainWindow::openProjectFile(const QString& path)
     updateWindowTitle(); return true;
 }
 
-bool MainWindow::saveProjectTo(const QString& path)
+bool MainWindow::saveProjectTo(const QString& path, bool saveAs, bool showError)
 {
     saveActiveReviewState();
-    const auto result = project::ProjectSerializer::save(*m_project, path);
-    if (!result.ok) { QMessageBox::critical(this, tr("Save Project"), result.errorMessage); return false; }
-    m_project->setFilePath(QFileInfo(path).absoluteFilePath());
-    m_project->setName(QFileInfo(path).completeBaseName());
+    const QString absolutePath = QFileInfo(path).absoluteFilePath();
+    const auto result = saveAs
+        ? project::ProjectSerializer::saveAs(*m_project, absolutePath)
+        : project::ProjectSerializer::save(*m_project, absolutePath);
+    m_lastProjectSaveError = result.errorMessage;
+    if (!result.ok) {
+        if (showError) QMessageBox::critical(this, tr("Save Project"), result.errorMessage);
+        return false;
+    }
+    m_project->setFilePath(absolutePath);
+    if (saveAs) m_project->setName(QFileInfo(absolutePath).completeBaseName());
     m_project->setModified(false);
-    m_settings->addRecentProject(path); refreshRecentProjectsMenu();
+    m_settings->addRecentProject(absolutePath); refreshRecentProjectsMenu();
     updateWindowTitle(); return true;
 }
 
@@ -1502,7 +1509,7 @@ bool MainWindow::saveProjectAs()
                                                 project::ProjectSerializer::fileDialogFilter());
     if (path.isEmpty()) return false;
     if (!path.endsWith(QStringLiteral(".atkproj"), Qt::CaseInsensitive)) path += QStringLiteral(".atkproj");
-    return saveProjectTo(path);
+    return saveProjectTo(path, true);
 }
 
 exporter::ExportSpec MainWindow::exportSnapshot(const QString& outputPath) const
@@ -2192,12 +2199,8 @@ api::ApiResponse MainWindow::handleApiApplicationCommand(
     if (command == QLatin1StringView("save_project")) {
         if (m_project->filePath().isEmpty())
             return fail(QStringLiteral("untitled project requires save_project_as"));
-        saveActiveReviewState();
-        const auto result = project::ProjectSerializer::save(*m_project, m_project->filePath());
-        if (!result.ok) return fail(result.errorMessage);
-        m_project->setModified(false);
-        updateWindowTitle();
-        return api::ApiResponse::success();
+        return saveProjectTo(m_project->filePath(), false, false)
+            ? api::ApiResponse::success() : fail(m_lastProjectSaveError);
     }
 
     if (command == QLatin1StringView("save_project_as")) {
@@ -2205,16 +2208,9 @@ api::ApiResponse MainWindow::handleApiApplicationCommand(
         if (!localFile(QStringLiteral("path"), false, &path)
             || !path.endsWith(QStringLiteral(".atkproj"), Qt::CaseInsensitive))
             return fail(QStringLiteral("path must be an absolute local .atkproj destination"));
-        saveActiveReviewState();
-        const auto result = project::ProjectSerializer::save(*m_project, path);
-        if (!result.ok) return fail(result.errorMessage);
-        m_project->setFilePath(path);
-        m_project->setName(QFileInfo(path).completeBaseName());
-        m_project->setModified(false);
-        m_settings->addRecentProject(path);
-        refreshRecentProjectsMenu();
-        updateWindowTitle();
-        return api::ApiResponse::success({{QStringLiteral("path"), path}});
+        return saveProjectTo(path, true, false)
+            ? api::ApiResponse::success({{QStringLiteral("path"), path}})
+            : fail(m_lastProjectSaveError);
     }
 
     if (command == QLatin1StringView("add_media")) {

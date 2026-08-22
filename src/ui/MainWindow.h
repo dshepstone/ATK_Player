@@ -126,7 +126,7 @@ private:
     void openProjectDialog();
     bool saveProject();
     bool saveProjectAs();
-    bool saveProjectTo(const QString& path);
+    bool saveProjectTo(const QString& path, bool saveAs = false, bool showError = true);
     bool confirmDiscardChanges();
     void activatePlaylistIndex(int index, bool continuePlayback = false);
     int nextUsablePlaylistIndex() const;
@@ -223,6 +223,7 @@ private:
     QString m_apiExportState = QStringLiteral("idle");
     QString m_apiExportOutputPath;
     QString m_apiExportError;
+    QString m_lastProjectSaveError;
     int m_apiExportProgress = 0;
     qint64 m_apiExportFrame = 0;
     qint64 m_apiExportTotal = 0;

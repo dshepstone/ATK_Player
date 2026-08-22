@@ -9,7 +9,12 @@
 #include <QAction>
 #include <QCheckBox>
 #include <QDockWidget>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QKeySequence>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QLineEdit>
 #include <QSettings>
 #include <QSignalSpy>
@@ -45,7 +50,69 @@ private slots:
     void muteAndVolumePopupPersistAndSynchronize();
     void recentProjectsAndReopenPreference();
     void apiDefaultsPersistenceAndPortFailure();
+    void apiProjectSaveAsRoundTripPersistsFilenameName();
 };
+
+void TestSettings::apiProjectSaveAsRoundTripPersistsFilenameName()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString settingsPath = directory.filePath(QStringLiteral("settings.ini"));
+    atk::ui::MainWindow window(settingsPath);
+    auto request = [&](const QString& command, const QJsonObject& params = QJsonObject{}) {
+        return window.apiServer()->handleRequest(QJsonObject{
+            {QStringLiteral("command"), command}, {QStringLiteral("params"), params}});
+    };
+    const auto touch = [&](const QString& name) {
+        const QString path = directory.filePath(name);
+        QFile file(path);
+        if (!file.open(QIODevice::WriteOnly)) return QString{};
+        file.write("not media; source identity test only");
+        file.close();
+        return QFileInfo(path).absoluteFilePath();
+    };
+    const QString a = touch(QStringLiteral("a.mov"));
+    const QString b = touch(QStringLiteral("b.mov"));
+    const QString c = touch(QStringLiteral("c.mov"));
+    QVERIFY(!a.isEmpty() && !b.isEmpty() && !c.isEmpty());
+
+    QVERIFY(request(QStringLiteral("new_project")).ok);
+    QVERIFY(request(QStringLiteral("add_media"), {{QStringLiteral("paths"), QJsonArray{a, b}}}).ok);
+    const auto beforeFailure = request(QStringLiteral("get_status")).result;
+    const QString blockedPath = directory.filePath(QStringLiteral("Blocked.atkproj"));
+    QVERIFY(QDir().mkpath(blockedPath));
+    const QStringList recentBeforeFailure = ApplicationSettings(settingsPath).recentProjects();
+    QVERIFY(!request(QStringLiteral("save_project_as"),
+                     {{QStringLiteral("path"), blockedPath}}).ok);
+    const auto afterFailure = request(QStringLiteral("get_status")).result;
+    QCOMPARE(afterFailure.value(QStringLiteral("projectName")),
+             beforeFailure.value(QStringLiteral("projectName")));
+    QCOMPARE(afterFailure.value(QStringLiteral("projectPath")),
+             beforeFailure.value(QStringLiteral("projectPath")));
+    QCOMPARE(afterFailure.value(QStringLiteral("projectDirty")),
+             beforeFailure.value(QStringLiteral("projectDirty")));
+    QCOMPARE(ApplicationSettings(settingsPath).recentProjects(), recentBeforeFailure);
+
+    const QString projectPath = directory.filePath(QStringLiteral("RoundTrip.atkproj"));
+    QVERIFY(request(QStringLiteral("save_project_as"), {{QStringLiteral("path"), projectPath}}).ok);
+    auto status = request(QStringLiteral("get_status")).result;
+    QCOMPARE(status.value(QStringLiteral("projectName")).toString(), QStringLiteral("RoundTrip"));
+    QVERIFY(!status.value(QStringLiteral("projectDirty")).toBool());
+
+    QVERIFY(request(QStringLiteral("add_media"), {{QStringLiteral("path"), c}}).ok);
+    QVERIFY(request(QStringLiteral("get_status")).result
+                .value(QStringLiteral("projectDirty")).toBool());
+    QVERIFY(!request(QStringLiteral("open_project"), {{QStringLiteral("path"), projectPath}}).ok);
+    QVERIFY(request(QStringLiteral("open_project"), {
+        {QStringLiteral("path"), projectPath}, {QStringLiteral("discardUnsaved"), true}}).ok);
+    status = request(QStringLiteral("get_status")).result;
+    QCOMPARE(status.value(QStringLiteral("projectName")).toString(), QStringLiteral("RoundTrip"));
+    QCOMPARE(status.value(QStringLiteral("projectPath")).toString(),
+             QFileInfo(projectPath).absoluteFilePath());
+    QVERIFY(!status.value(QStringLiteral("projectDirty")).toBool());
+    QCOMPARE(request(QStringLiteral("list_sources")).result
+                 .value(QStringLiteral("sources")).toArray().size(), 2);
+}
 
 void TestSettings::recentProjectsAndReopenPreference()
 {

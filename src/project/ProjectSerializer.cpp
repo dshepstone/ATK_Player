@@ -51,7 +51,8 @@ QString ProjectSerializer::fileDialogFilter()
     return QCoreApplication::translate("ProjectSerializer", "ATK Player Project (*.atkproj)");
 }
 
-SerializerResult ProjectSerializer::save(const Project& project, const QString& filePath)
+static SerializerResult saveWithName(const Project& project, const QString& filePath,
+                                     const QString& projectName)
 {
     if (filePath.isEmpty()) return SerializerResult::failure(QStringLiteral("No project path was provided."));
     QJsonArray sources;
@@ -72,7 +73,7 @@ SerializerResult ProjectSerializer::save(const Project& project, const QString& 
             {QStringLiteral("review"), review}});
     }
     const QJsonObject root{{QStringLiteral("format"), QStringLiteral("ATKProject")},
-        {QStringLiteral("version"), kVersion}, {QStringLiteral("name"), project.name()},
+        {QStringLiteral("version"), kVersion}, {QStringLiteral("name"), projectName},
         {QStringLiteral("currentSourceId"), project.currentSourceId().toString(QUuid::WithoutBraces)},
         {QStringLiteral("sources"), sources}};
     QSaveFile file(filePath);
@@ -80,6 +81,16 @@ SerializerResult ProjectSerializer::save(const Project& project, const QString& 
     if (file.write(QJsonDocument(root).toJson(QJsonDocument::Indented)) < 0 || !file.commit())
         return SerializerResult::failure(file.errorString());
     return SerializerResult::success();
+}
+
+SerializerResult ProjectSerializer::save(const Project& project, const QString& filePath)
+{
+    return saveWithName(project, filePath, project.name());
+}
+
+SerializerResult ProjectSerializer::saveAs(const Project& project, const QString& filePath)
+{
+    return saveWithName(project, filePath, QFileInfo(filePath).completeBaseName());
 }
 
 SerializerResult ProjectSerializer::load(Project& project, const QString& filePath)

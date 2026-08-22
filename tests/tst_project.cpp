@@ -23,7 +23,62 @@ private slots:
     void relinkPreservesIdentityAndValidReviewState();
     void probeResultsRouteByStableIdentityAndToken();
     void loadsOriginalVersionOneSchemaWithoutDerivedMetadata();
+    void saveAsPersistsDestinationNameWithoutMutatingSource();
+    void failedSaveAsLeavesProjectIdentityAndDirtyStateUntouched();
+    void normalSavePreservesExistingProjectName();
 };
+
+void TestProject::saveAsPersistsDestinationNameWithoutMutatingSource()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    project::Project source;
+    source.setName(QStringLiteral("Untitled"));
+    source.setModified(true);
+    const QString path = directory.filePath(QStringLiteral("MyProject.atkproj"));
+
+    const auto result = project::ProjectSerializer::saveAs(source, path);
+    QVERIFY2(result.ok, qPrintable(result.errorMessage));
+    QCOMPARE(source.name(), QStringLiteral("Untitled"));
+    QCOMPARE(source.filePath(), QString());
+    QVERIFY(source.isModified());
+
+    project::Project loaded;
+    QVERIFY(project::ProjectSerializer::load(loaded, path).ok);
+    QCOMPARE(loaded.name(), QStringLiteral("MyProject"));
+    QCOMPARE(loaded.filePath(), QFileInfo(path).absoluteFilePath());
+    QVERIFY(!loaded.isModified());
+}
+
+void TestProject::failedSaveAsLeavesProjectIdentityAndDirtyStateUntouched()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    project::Project source;
+    source.setName(QStringLiteral("Original"));
+    source.setFilePath(directory.filePath(QStringLiteral("Original.atkproj")));
+    source.setModified(true);
+    const QString originalPath = source.filePath();
+
+    const auto result = project::ProjectSerializer::saveAs(source, directory.path());
+    QVERIFY(!result.ok);
+    QCOMPARE(source.name(), QStringLiteral("Original"));
+    QCOMPARE(source.filePath(), originalPath);
+    QVERIFY(source.isModified());
+}
+
+void TestProject::normalSavePreservesExistingProjectName()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    project::Project source;
+    source.setName(QStringLiteral("Editorial Name"));
+    const QString path = directory.filePath(QStringLiteral("DifferentFilename.atkproj"));
+    QVERIFY(project::ProjectSerializer::save(source, path).ok);
+    project::Project loaded;
+    QVERIFY(project::ProjectSerializer::load(loaded, path).ok);
+    QCOMPARE(loaded.name(), QStringLiteral("Editorial Name"));
+}
 
 void TestProject::loadsOriginalVersionOneSchemaWithoutDerivedMetadata()
 {
