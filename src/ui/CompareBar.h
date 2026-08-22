@@ -25,5 +25,6 @@ private:
     QComboBox* m_sourceB = nullptr;
     QComboBox* m_audioMode = nullptr;
     QLabel* m_externalName = nullptr;
+    QWidget* m_externalControls = nullptr;
 };
 } // namespace atk::ui
