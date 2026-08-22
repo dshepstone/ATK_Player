@@ -2,6 +2,7 @@
 
 #include "api/ApiServer.h"
 #include "playback/CompareSession.h"
+#include "playback/CompareVideoLane.h"
 #include "core/Logging.h"
 #include "core/Version.h"
 #include "media/MediaSource.h"
@@ -11,6 +12,7 @@
 #include "timeline/TimelineModel.h"
 #include "ui/ApplicationSettings.h"
 #include "ui/BookmarkPanel.h"
+#include "ui/CompareBar.h"
 #include "ui/PreferencesDialog.h"
 #include "ui/Resources.h"
 #include "ui/SourcesPanel.h"
@@ -31,6 +33,7 @@
 #include <QLabel>
 #include <QSlider>
 #include <QSpinBox>
+#include <QSplitter>
 #include <QStyle>
 #include <QWidgetAction>
 #include <QThread>
@@ -160,6 +163,8 @@ void MainWindow::buildModels()
                 if (index == m_project->activeIndex()) {
                     m_project->setActiveIndex(-1);
                     activatePlaylistIndex(index, false);
+                } else if (isComparisonActive() && id == m_compare->sourceBId()) {
+                    openComparisonSourceB();
                 }
                 return;
             }
@@ -194,6 +199,23 @@ void MainWindow::buildWidgets()
     m_viewer->setPlaceholderSubtext(
         tr("No media loaded — video playback arrives in milestone M1"));
     column->addWidget(m_viewer, 1);
+
+    m_compareHost = new QWidget(central);
+    auto* compareLayout = new QVBoxLayout(m_compareHost);
+    compareLayout->setContentsMargins(0, 0, 0, 0);
+    compareLayout->setSpacing(0);
+    m_compareBar = new CompareBar(m_commands, m_compareHost);
+    m_compareBar->setProject(m_project.get());
+    compareLayout->addWidget(m_compareBar);
+    m_compareSplitter = new QSplitter(Qt::Horizontal, m_compareHost);
+    m_compareSplitter->setChildrenCollapsible(false);
+    m_viewerB = new ViewerWidget(m_compareSplitter);
+    m_viewerB->setObjectName(QStringLiteral("CompareViewerB"));
+    m_viewerB->setPlaceholderText(tr("B"));
+    m_viewerB->setPlaceholderSubtext(tr("Loading comparison source..."));
+    m_compareSplitter->addWidget(m_viewerB);
+    compareLayout->addWidget(m_compareSplitter, 1);
+    m_compareHost->hide();
 
     m_timelineWidget = new TimelineWidget(central);
     m_timelineWidget->setModel(m_timeline.get());
@@ -338,6 +360,9 @@ void MainWindow::buildMenus()
     if (QAction* videoFullScreen = m_commands->action(CommandId::ToggleVideoFullScreen)) {
         videoFullScreen->setEnabled(false);
     }
+    m_commands->action(CommandId::CompareSideBySide)->setChecked(true);
+    m_commands->action(CommandId::CompareSideBySide)->setEnabled(false);
+    m_commands->action(CommandId::CompareStacked)->setEnabled(false);
 }
 
 void MainWindow::connectSignals()
@@ -364,7 +389,43 @@ void MainWindow::connectSignals()
     // Decoded frames reach the viewer through the controller, so the viewer
     // never talks to the decoder and never decodes inside a paint event.
     connect(m_playback.get(), &playback::PlaybackController::frameChanged,
-            this, [this](const media::VideoFrame& frame) { m_viewer->setFrame(frame); });
+            this, [this](const media::VideoFrame& frame) {
+                m_viewer->setFrame(frame);
+                synchronizeComparison(frame);
+            });
+
+    connect(m_viewer, &ViewerWidget::activated, this,
+            [this] { if (isComparisonActive()) m_compare->setActivePane(playback::ComparePane::A); });
+    connect(m_viewerB, &ViewerWidget::activated, this,
+            [this] { if (isComparisonActive()) m_compare->setActivePane(playback::ComparePane::B); });
+    connect(m_compareBar, &CompareBar::sourceASelected, this, &MainWindow::selectComparisonSourceA);
+    connect(m_compareBar, &CompareBar::sourceBSelected, this, &MainWindow::selectComparisonSourceB);
+    connect(m_compare.get(), &playback::CompareSession::layoutChanged,
+            this, &MainWindow::setComparisonLayout);
+    connect(m_compare.get(), &playback::CompareSession::activePaneChanged, this,
+            [this](playback::ComparePane pane) {
+                m_viewer->setStyleSheet(pane == playback::ComparePane::A
+                    ? QStringLiteral("border: 2px solid #1687d9;") : QString());
+                m_viewerB->setStyleSheet(pane == playback::ComparePane::B
+                    ? QStringLiteral("border: 2px solid #1687d9;") : QString());
+            });
+    connect(m_project.get(), &project::Project::entriesChanged, this, [this] {
+        if (!isComparisonActive()) return;
+        const int a = m_project->indexForId(m_compare->sourceAId());
+        const int b = m_project->indexForId(m_compare->sourceBId());
+        if (!sourceUsableForComparison(a)) {
+            const int replacementA = m_project->activeIndex();
+            const int replacementB = defaultComparisonBIndex(replacementA);
+            if (!sourceUsableForComparison(replacementA) || replacementB < 0) exitComparison();
+            else { m_compare->setSources(m_project->entries().at(replacementA).id,
+                                         m_project->entries().at(replacementB).id); openComparisonSourceB(); }
+        } else if (!sourceUsableForComparison(b)) {
+            const int replacementB = defaultComparisonBIndex(a);
+            if (replacementB < 0) exitComparison();
+            else { m_compare->setSources(m_compare->sourceAId(), m_project->entries().at(replacementB).id); openComparisonSourceB(); }
+        }
+        refreshComparisonUi();
+    });
 
     connect(m_playback.get(), &playback::PlaybackController::mediaOpened,
             this, &MainWindow::onMediaOpened);
@@ -531,7 +592,7 @@ void MainWindow::onCommand(CommandId id, bool checked)
     switch (id) {
     // --- Transport: fully wired ------------------------------------------
     case CommandId::PlayPause:
-        if (!m_playback->isPlaying() && !m_playback->isLoopEnabled()
+        if (!isComparisonActive() && !m_playback->isPlaying() && !m_playback->isLoopEnabled()
             && m_project->activeIndex() >= 0
             && m_playback->currentFrame() == m_timeline->effectiveEndFrame()) {
             const int next = nextUsablePlaylistIndex();
@@ -628,16 +689,16 @@ void MainWindow::onCommand(CommandId id, bool checked)
 
     // --- View: fully wired ------------------------------------------------
     case CommandId::ZoomFit:
-        m_viewer->fitImage();
+        activeViewer()->fitImage();
         return;
     case CommandId::ZoomActualSize:
-        m_viewer->showActualSize();
+        activeViewer()->showActualSize();
         return;
     case CommandId::ZoomIn:
-        m_viewer->zoomIn();
+        activeViewer()->zoomIn();
         return;
     case CommandId::ZoomOut:
-        m_viewer->zoomOut();
+        activeViewer()->zoomOut();
         return;
     case CommandId::ToggleFullScreen:
         if (checked) {
@@ -649,6 +710,15 @@ void MainWindow::onCommand(CommandId id, bool checked)
     case CommandId::ToggleVideoFullScreen:
         if (checked) enterVideoFullScreen();
         else exitVideoFullScreen();
+        return;
+    case CommandId::ToggleComparison:
+        if (checked) enterComparison(); else exitComparison();
+        return;
+    case CommandId::CompareSideBySide:
+        if (checked) m_compare->setLayout(playback::CompareLayout::SideBySide);
+        return;
+    case CommandId::CompareStacked:
+        if (checked) m_compare->setLayout(playback::CompareLayout::Stacked);
         return;
     case CommandId::ToggleSourcesPanel:
         m_sourcesDock->setVisible(checked);
@@ -869,7 +939,10 @@ void MainWindow::onPlayerStateChanged(playback::PlayerState state)
         statusBar()->showMessage(tr("Paused"), 1500);
         break;
     case PlayerState::Ended:
-        if (m_playlistPlaybackActive && !m_playback->isLoopEnabled()) {
+        if (isComparisonActive()) {
+            m_playlistPlaybackActive = false;
+            statusBar()->showMessage(tr("End of comparison"), 2000);
+        } else if (m_playlistPlaybackActive && !m_playback->isLoopEnabled()) {
             const int next = nextUsablePlaylistIndex();
             if (next >= 0) {
                 activatePlaylistIndex(next, true);
@@ -907,8 +980,14 @@ void MainWindow::updateTransportEnabled()
     const bool enabled = hasExtent && notErrored;
 
     if (QAction* action = m_commands->action(CommandId::ToggleVideoFullScreen)) {
-        action->setEnabled(m_playback->hasMedia());
+        action->setEnabled(m_playback->hasMedia() && !isComparisonActive());
     }
+    int usableSources = 0;
+    for (int i = 0; i < m_project->entries().size(); ++i)
+        if (sourceUsableForComparison(i)) ++usableSources;
+    m_commands->action(CommandId::ToggleComparison)->setEnabled(m_playback->hasMedia() && usableSources >= 2);
+    m_commands->action(CommandId::CompareSideBySide)->setEnabled(isComparisonActive());
+    m_commands->action(CommandId::CompareStacked)->setEnabled(isComparisonActive());
 
     for (const commands::CommandId id : { commands::CommandId::PlayPause,
                                           commands::CommandId::Stop,
@@ -1002,6 +1081,7 @@ void MainWindow::openMediaDialog()
 
 void MainWindow::openMediaFile(const QString& filePath)
 {
+    exitComparison();
     if (!confirmDiscardChanges()) return;
     ++m_projectGeneration;
     m_restoringSourceState = true;
@@ -1178,6 +1258,7 @@ bool MainWindow::confirmDiscardChanges()
 
 void MainWindow::newProject()
 {
+    exitComparison();
     if (!confirmDiscardChanges()) return;
     ++m_projectGeneration;
     m_playback->closeMedia();
@@ -1194,6 +1275,7 @@ void MainWindow::openProjectDialog()
 
 bool MainWindow::openProjectFile(const QString& path)
 {
+    exitComparison();
     project::Project loaded;
     const auto result = project::ProjectSerializer::load(loaded, path);
     if (!result.ok) {
@@ -1379,6 +1461,172 @@ void MainWindow::exitVideoFullScreen()
         QSignalBlocker blocker(action);
         action->setChecked(false);
     }
+}
+
+bool MainWindow::isComparisonActive() const
+{
+    return m_compare && m_compare->isActive();
+}
+
+bool MainWindow::sourceUsableForComparison(int index) const
+{
+    if (index < 0 || index >= m_project->entries().size()) return false;
+    const auto& entry = m_project->entries().at(index);
+    return entry.source && entry.availability != project::SourceAvailability::Missing
+        && entry.availability != project::SourceAvailability::Error;
+}
+
+int MainWindow::defaultComparisonBIndex(int sourceAIndex) const
+{
+    for (int i = sourceAIndex + 1; i < m_project->entries().size(); ++i)
+        if (sourceUsableForComparison(i)) return i;
+    for (int i = sourceAIndex - 1; i >= 0; --i)
+        if (sourceUsableForComparison(i)) return i;
+    return -1;
+}
+
+void MainWindow::enterComparison()
+{
+    QAction* toggle = m_commands->action(CommandId::ToggleComparison);
+    if (isComparisonActive()) return;
+    if (isVideoFullScreen()) exitVideoFullScreen();
+    const int a = m_project->activeIndex();
+    const int b = defaultComparisonBIndex(a);
+    if (!sourceUsableForComparison(a) || b < 0
+        || !m_compare->setSources(m_project->entries().at(a).id, m_project->entries().at(b).id)) {
+        if (toggle) { QSignalBlocker blocker(toggle); toggle->setChecked(false); }
+        statusBar()->showMessage(tr("A/B Comparison requires two available media sources."), 5000);
+        return;
+    }
+
+    m_compare->setActive(true);
+    m_compare->setActivePane(playback::ComparePane::A);
+    m_centralLayout->removeWidget(m_viewer);
+    m_compareSplitter->insertWidget(0, m_viewer);
+    m_compareSplitter->setSizes({1, 1});
+    m_centralLayout->insertWidget(0, m_compareHost, 1);
+    m_compareHost->show();
+    m_compareLane = std::make_unique<playback::CompareVideoLane>();
+    connect(m_compareLane.get(), &playback::CompareVideoLane::frameChanged,
+            m_viewerB, &ViewerWidget::setFrame);
+    connect(m_compareLane.get(), &playback::CompareVideoLane::loadingChanged, this,
+            [this](bool loading) { if (loading) m_viewerB->setLoading(); });
+    connect(m_compareLane.get(), &playback::CompareVideoLane::readyChanged, this,
+            [this](bool ready) {
+                if (!ready || !m_compareLane) return;
+                const auto& metadata = m_compareLane->metadata();
+                m_viewerB->setSourceAspectRatio(metadata.resolution.height() > 0
+                    ? static_cast<double>(metadata.resolution.width()) * metadata.pixelAspectRatio
+                        / metadata.resolution.height() : 0.0);
+                m_viewerB->resetNavigationToFit();
+                synchronizeComparison(m_playback->currentVideoFrame());
+            });
+    connect(m_compareLane.get(), &playback::CompareVideoLane::errorOccurred, this,
+            [this](const QString& message) { m_viewerB->setError(message); });
+    openComparisonSourceB();
+    refreshComparisonUi();
+    setComparisonLayout(m_compare->layout());
+    if (toggle) { QSignalBlocker blocker(toggle); toggle->setChecked(true); }
+    updateTransportEnabled();
+}
+
+void MainWindow::exitComparison()
+{
+    if (!isComparisonActive()) return;
+    m_compareLane.reset();
+    m_compareHost->hide();
+    m_centralLayout->removeWidget(m_compareHost);
+    m_viewer->setParent(centralWidget());
+    m_centralLayout->insertWidget(0, m_viewer, 1);
+    m_viewer->setCornerLabel(QString());
+    m_viewer->setStyleSheet(QString());
+    m_viewerB->setStyleSheet(QString());
+    m_viewerB->clear();
+    m_compare->setActive(false);
+    if (QAction* toggle = m_commands->action(CommandId::ToggleComparison)) {
+        QSignalBlocker blocker(toggle); toggle->setChecked(false);
+    }
+    updateTransportEnabled();
+}
+
+void MainWindow::setComparisonLayout(playback::CompareLayout layout)
+{
+    if (!m_compareSplitter) return;
+    m_compareSplitter->setOrientation(layout == playback::CompareLayout::SideBySide
+        ? Qt::Horizontal : Qt::Vertical);
+    m_compareSplitter->setSizes({1, 1});
+    for (auto pair : {std::pair{CommandId::CompareSideBySide, playback::CompareLayout::SideBySide},
+                      std::pair{CommandId::CompareStacked, playback::CompareLayout::Stacked}}) {
+        QAction* action = m_commands->action(pair.first); QSignalBlocker blocker(action);
+        action->setChecked(layout == pair.second);
+    }
+}
+
+void MainWindow::selectComparisonSourceA(const QUuid& id)
+{
+    if (!isComparisonActive() || id.isNull() || id == m_compare->sourceBId()) return;
+    const int index = m_project->indexForId(id);
+    if (!sourceUsableForComparison(index)) return;
+    m_compare->setSources(id, m_compare->sourceBId());
+    activatePlaylistIndex(index, m_playback->isPlaying());
+    refreshComparisonUi();
+}
+
+void MainWindow::selectComparisonSourceB(const QUuid& id)
+{
+    if (!isComparisonActive() || id.isNull() || id == m_compare->sourceAId()) {
+        refreshComparisonUi(); return;
+    }
+    const int index = m_project->indexForId(id);
+    if (!sourceUsableForComparison(index)) { refreshComparisonUi(); return; }
+    m_compare->setSources(m_compare->sourceAId(), id);
+    openComparisonSourceB();
+    refreshComparisonUi();
+}
+
+void MainWindow::openComparisonSourceB()
+{
+    if (!isComparisonActive() || !m_compareLane) return;
+    const int index = m_project->indexForId(m_compare->sourceBId());
+    if (!sourceUsableForComparison(index)) return;
+    const auto& entry = m_project->entries().at(index);
+    const qint64 last = std::max<qint64>(0, entry.source->metadata().effectiveFrameCount() - 1);
+    const qint64 start = entry.playbackRange.enabled ? entry.playbackRange.startFrame : 0;
+    const qint64 end = entry.playbackRange.enabled ? entry.playbackRange.endFrame : last;
+    m_viewerB->setCornerLabel(tr("B\n%1").arg(entry.displayName));
+    m_compareLane->open(entry.id, entry.source, start, end);
+}
+
+void MainWindow::synchronizeComparison(const media::VideoFrame& sourceAFrame)
+{
+    if (!isComparisonActive() || !m_compareLane || !sourceAFrame.isValid()) return;
+    const int bIndex = m_project->indexForId(m_compare->sourceBId());
+    if (!sourceUsableForComparison(bIndex)) return;
+    const auto& b = m_project->entries().at(bIndex);
+    const auto& bRate = b.source->metadata().frameRate;
+    const qint64 bLast = std::max<qint64>(0, b.source->metadata().effectiveFrameCount() - 1);
+    const qint64 bStartFrame = b.playbackRange.enabled ? b.playbackRange.startFrame : 0;
+    const qint64 bEndFrame = b.playbackRange.enabled ? b.playbackRange.endFrame : bLast;
+    const qint64 aStartUs = playback::CompareSession::frameTimeUs(
+        m_timeline->effectiveStartFrame(), m_playback->metadata().frameRate);
+    const qint64 bStartUs = playback::CompareSession::frameTimeUs(bStartFrame, bRate);
+    const qint64 bEndUs = playback::CompareSession::frameTimeUs(bEndFrame, bRate);
+    m_compareLane->synchronizeTo(playback::CompareSession::mappedTargetUs(
+        sourceAFrame.ptsUs, aStartUs, bStartUs, bEndUs, m_compare->sourceBOffsetUs()));
+}
+
+void MainWindow::refreshComparisonUi()
+{
+    if (!isComparisonActive()) return;
+    m_compareBar->refresh(m_compare->sourceAId(), m_compare->sourceBId());
+    const int a = m_project->indexForId(m_compare->sourceAId());
+    if (a >= 0) m_viewer->setCornerLabel(tr("A\n%1").arg(m_project->entries().at(a).displayName));
+}
+
+ViewerWidget* MainWindow::activeViewer() const
+{
+    return isComparisonActive() && m_compare->activePane() == playback::ComparePane::B
+        ? m_viewerB : m_viewer;
 }
 
 void MainWindow::updateWindowTitle()

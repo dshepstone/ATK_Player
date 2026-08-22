@@ -276,6 +276,7 @@ void ViewerWidget::wheelEvent(QWheelEvent* event)
 
 void ViewerWidget::mousePressEvent(QMouseEvent* event)
 {
+    emit activated();
     if (event->button() == Qt::MiddleButton) {
         m_middlePanning = true;
         m_lastPanPosition = event->position();

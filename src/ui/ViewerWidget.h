@@ -87,6 +87,7 @@ public:
 
 signals:
     void zoomChanged(qreal percent, bool fitMode);
+    void activated();
 
 protected:
     void paintEvent(QPaintEvent* event) override;
