@@ -1731,17 +1731,9 @@ void MainWindow::synchronizeComparison(const media::VideoFrame& sourceAFrame)
     if (!isComparisonActive() || !m_compareLane || !sourceAFrame.isValid()) return;
     const int bIndex = m_project->indexForId(m_compare->sourceBId());
     if (!sourceUsableForComparison(bIndex)) return;
-    const auto& b = m_project->entries().at(bIndex);
-    const auto& bRate = b.source->metadata().frameRate;
-    const qint64 bLast = std::max<qint64>(0, b.source->metadata().effectiveFrameCount() - 1);
-    const qint64 bStartFrame = b.playbackRange.enabled ? b.playbackRange.startFrame : 0;
-    const qint64 bEndFrame = b.playbackRange.enabled ? b.playbackRange.endFrame : bLast;
-    const qint64 aStartUs = playback::CompareSession::frameTimeUs(
-        m_timeline->effectiveStartFrame(), m_playback->metadata().frameRate);
-    const qint64 bStartUs = playback::CompareSession::frameTimeUs(bStartFrame, bRate);
-    const qint64 bEndUs = playback::CompareSession::frameTimeUs(bEndFrame, bRate);
-    m_compareLane->synchronizeTo(playback::CompareSession::mappedTargetUs(
-        sourceAFrame.ptsUs, aStartUs, bStartUs, bEndUs, m_compare->sourceBOffsetUs()));
+    m_compareLane->synchronizeToSourceFrame(
+        sourceAFrame, m_playback->metadata(), m_timeline->effectiveStartFrame(),
+        m_compare->sourceBOffsetUs());
 }
 
 void MainWindow::refreshComparisonUi()

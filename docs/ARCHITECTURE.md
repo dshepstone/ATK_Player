@@ -543,16 +543,24 @@ dirty `.atkproj` v1.
 
 Source A remains the normal `PlaybackController` source. It owns the only
 `PlaybackClock`, timeline, bookmarks and authoritative review
-range. Each accepted A `VideoFrame::ptsUs` establishes comparison time relative
-to A's range origin. `CompareVideoLane` maps that time onto B's own range origin
-and asks a video-only `DecoderWorker` for the corresponding B presentation. B
+range. Each accepted A frame carries its display-order `best_effort_timestamp`
+as native `ptsTicks`, plus A's stream `time_base` and normalized stream origin.
+`CompareVideoLane` maps that native timestamp relative to A's exact rational
+range origin onto B's range and asks a video-only `DecoderWorker` for the
+corresponding B presentation. B
 has no timer, audio output, waveform or scrub engine, so it cannot free-run or
 become timing master.
 
-Mapping is timestamp based, not frame-index based. Exact rational frame rates
-are used to resolve constant-rate sources and decoded presentation timestamps
-remain the presentation authority. This naturally repeats or skips B frames for
-unequal frame rates without cumulative addition or drift. Targets clamp at B's
+Mapping is timestamp based, not frame-index based. Video mapping does not pass
+through integer microseconds: it rescales A's native PTS delta directly onto
+B's rational presentation grid. Matching rational frame grids use nearest
+rescaling, which absorbs the unavoidable sub-tick representation error of a
+stream time base and guarantees zero-offset A frame N maps to B frame N.
+Unequal grids use floor/interval semantics: B is the latest presentation not
+after A's requested instant, so frames naturally repeat or skip without drift
+or an extra one-frame bias. Nonzero stream start timestamps cancel through
+source-local origin normalization, and nonzero active ranges map A range start
+to B range start. Targets clamp at B's
 range boundaries when B is shorter; extra B duration is simply unused when it
 is longer. Offsets remain authoritative signed microseconds. The CompareBar
 presents them in Source A frame units and converts each edit from the exact

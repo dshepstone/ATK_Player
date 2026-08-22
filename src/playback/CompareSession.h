@@ -45,6 +45,15 @@ public:
                                  qint64 sourceBOffsetUs = 0);
     static qint64 constantRateFrameForTime(qint64 targetUs, const media::FrameRate& rate,
                                            qint64 firstFrame, qint64 lastFrame);
+    /// Maps an authoritative A presentation timestamp directly onto B's CFR
+    /// frame grid. Native A ticks are retained until the final rational
+    /// conversion, avoiding a lossy ticks -> microseconds -> frame round trip.
+    static qint64 constantRateFrameForSourcePts(
+        qint64 sourceAPtsTicks, const media::TimeBase& sourceATimeBase,
+        qint64 sourceAStartTimeTicks,
+        qint64 sourceARangeStartFrame, const media::FrameRate& sourceARate,
+        qint64 sourceBRangeStartFrame, qint64 sourceBRangeEndFrame,
+        const media::FrameRate& sourceBRate, qint64 sourceBOffsetUs = 0);
     static int frameForPts(qint64 targetUs, const QVector<qint64>& presentationTimesUs);
 
 signals:

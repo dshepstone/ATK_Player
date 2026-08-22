@@ -1,4 +1,8 @@
 #include "playback/CompareSession.h"
+#include "media/ffmpeg/FFmpegUtil.h"
+extern "C" {
+#include <libavutil/mathematics.h>
+}
 #include <algorithm>
 #include <limits>
 
@@ -29,8 +33,42 @@ void CompareSession::setBlendAmount(int value) { value = std::clamp(value, 0, 10
 qint64 CompareSession::frameTimeUs(qint64 frame, const media::FrameRate& rate)
 {
     if (!rate.isValid() || frame <= 0) return 0;
-    return static_cast<qint64>(static_cast<long double>(frame) * rate.denominator
-                               * 1'000'000.0L / rate.numerator);
+    return media::ffmpeg::frameIndexToMicroseconds(
+        frame, AVRational{rate.numerator, rate.denominator});
+}
+
+qint64 CompareSession::constantRateFrameForSourcePts(
+    qint64 aPtsTicks, const media::TimeBase& aTimeBase, qint64 aStartTimeTicks,
+    qint64 aStartFrame,
+    const media::FrameRate& aRate, qint64 bStartFrame, qint64 bEndFrame,
+    const media::FrameRate& bRate, qint64 offsetUs)
+{
+    if (!aTimeBase.isValid() || !aRate.isValid() || !bRate.isValid()) return bStartFrame;
+    const AVRational aTb{aTimeBase.numerator, aTimeBase.denominator};
+    const AVRational aFrameDuration{aRate.denominator, aRate.numerator};
+    const AVRational bFrameDuration{bRate.denominator, bRate.numerator};
+
+    // VideoFrame::ptsTicks is the best-effort presentation timestamp. Its
+    // source-local origin is videoStartTime, so the nominal CFR timestamp of
+    // range frame R differs from the current timestamp only by R durations;
+    // the absolute stream start cancels out here.
+    const qint64 aStartDeltaTicks = av_rescale_q(aStartFrame, aFrameDuration, aTb);
+    const qint64 relativeTicks = aPtsTicks - aStartTimeTicks - aStartDeltaTicks;
+    const bool matchingGrid = aRate == bRate;
+    const auto rounding = static_cast<AVRounding>(
+        (matchingGrid ? AV_ROUND_NEAR_INF : AV_ROUND_DOWN) | AV_ROUND_PASS_MINMAX);
+    qint64 relativeBFrames = av_rescale_q_rnd(
+        relativeTicks, aTb, bFrameDuration,
+        rounding);
+
+    if (offsetUs != 0) {
+        constexpr AVRational microseconds{1, 1'000'000};
+        relativeBFrames += av_rescale_q_rnd(
+            offsetUs, microseconds, bFrameDuration,
+            rounding);
+    }
+    return std::clamp(bStartFrame + relativeBFrames,
+                      bStartFrame, std::max(bStartFrame, bEndFrame));
 }
 
 qint64 CompareSession::mappedTargetUs(qint64 aPts, qint64 aStart, qint64 bStart,

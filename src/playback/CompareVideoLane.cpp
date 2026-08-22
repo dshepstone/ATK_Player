@@ -49,7 +49,8 @@ void CompareVideoLane::open(const QUuid& id, const std::shared_ptr<media::MediaS
 void CompareVideoLane::close()
 {
     m_generations->bumpSource(); emit requestClose(); m_cache.clear(); m_metadata = {}; m_sourceId = {};
-    m_presentedPtsUs = -1; m_pendingFrame = -1; m_requestInFlight = false;
+    m_presentedPtsUs = -1; m_presentedFrameIndex = -1; m_presentedFrame = {};
+    m_pendingFrame = -1; m_requestInFlight = false;
     if (m_ready) { m_ready = false; emit readyChanged(false); }
 }
 void CompareVideoLane::onOpened(const media::MediaMetadata& metadata, quint64 sourceGeneration)
@@ -74,7 +75,23 @@ void CompareVideoLane::synchronizeTo(qint64 targetUs)
 {
     m_latestTargetUs = std::max<qint64>(0, targetUs);
     if (!m_ready) return;
-    const qint64 frame = targetFrame(m_latestTargetUs);
+    requestTargetFrame(targetFrame(m_latestTargetUs));
+}
+
+void CompareVideoLane::synchronizeToSourceFrame(
+    const media::VideoFrame& sourceAFrame, const media::MediaMetadata& sourceAMetadata,
+    qint64 sourceARangeStartFrame, qint64 sourceBOffsetUs)
+{
+    if (!m_ready || !sourceAFrame.isValid()) return;
+    requestTargetFrame(CompareSession::constantRateFrameForSourcePts(
+        sourceAFrame.ptsTicks, sourceAMetadata.videoTimeBase,
+        sourceAMetadata.videoStartTime,
+        sourceARangeStartFrame, sourceAMetadata.frameRate,
+        m_rangeStartFrame, m_rangeEndFrame, m_metadata.frameRate, sourceBOffsetUs));
+}
+
+void CompareVideoLane::requestTargetFrame(qint64 frame)
+{
     if (m_requestInFlight && frame != m_pendingFrame) {
         // Mapping changes are authoritative immediately. Supersede the old
         // decode so its frame cannot flash after an offset edit.
@@ -85,7 +102,9 @@ void CompareVideoLane::synchronizeTo(qint64 targetUs)
     if (m_requestInFlight) return;
     if (frame == m_pendingFrame && m_presentedPtsUs >= 0) return;
     if (const media::VideoFrame* cached = m_cache.find(frame)) {
-        m_pendingFrame = frame; m_presentedPtsUs = cached->ptsUs; emit frameChanged(*cached); return;
+        m_pendingFrame = frame; m_presentedPtsUs = cached->ptsUs;
+        m_presentedFrameIndex = cached->frameIndex; m_presentedFrame = *cached;
+        emit frameChanged(*cached); return;
     }
     m_pendingFrame = frame;
     m_requestInFlight = true;
@@ -96,8 +115,7 @@ void CompareVideoLane::onFrameReady(const media::VideoFrame& frame, quint64 requ
     if (!m_generations->isCurrentSource(frame.sourceGeneration)
         || !m_generations->isCurrentRequest(requestGeneration) || frame.frameIndex != m_pendingFrame) return;
     m_requestInFlight = false;
-    m_cache.insert(frame); m_presentedPtsUs = frame.ptsUs; emit frameChanged(frame);
-    const qint64 newestFrame = targetFrame(m_latestTargetUs);
-    if (newestFrame != frame.frameIndex) { m_pendingFrame = -1; synchronizeTo(m_latestTargetUs); }
+    m_cache.insert(frame); m_presentedPtsUs = frame.ptsUs;
+    m_presentedFrameIndex = frame.frameIndex; m_presentedFrame = frame; emit frameChanged(frame);
 }
 } // namespace atk::playback

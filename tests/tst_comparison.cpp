@@ -47,6 +47,21 @@ QString writeProject(QTemporaryDir& directory)
     return atk::project::ProjectSerializer::save(project, path).ok ? path : QString();
 }
 
+QString writeIdenticalProject(QTemporaryDir& directory)
+{
+    atk::project::Project project;
+    project.setName(QStringLiteral("Exact comparison test"));
+    const QString path = media("atk_fixture_48f.mkv");
+    project.addSource(std::make_shared<atk::media::MediaSource>(path));
+    project.mutableEntries().last().displayName = QStringLiteral("Identical A");
+    project.addSource(std::make_shared<atk::media::MediaSource>(path));
+    project.mutableEntries().last().displayName = QStringLiteral("Identical B");
+    project.setActiveIndex(0);
+    const QString projectPath = directory.filePath(QStringLiteral("identical.atkproj"));
+    return atk::project::ProjectSerializer::save(project, projectPath).ok
+        ? projectPath : QString();
+}
+
 QAction* command(atk::ui::MainWindow& window, const char* key)
 {
     return window.findChild<QAction*>(QString::fromLatin1(key));
@@ -57,10 +72,12 @@ class TestComparison : public QObject {
     Q_OBJECT
 private slots:
     void timestampMappingHasNoCumulativeDrift();
+    void nativePtsMappingIsExactAcrossRatesAndOrigins();
     void vfrPresentationOrderAndClamping();
     void commandDefaultsAreShortcutSafe();
     void enableLayoutActiveViewerAndExitAreNonDestructive();
     void unequalRateLaneTracksAuthoritativeSeek();
+    void identicalSourceExactSeeksAndDifferenceAreFrameAccurate();
     void comparisonEndDoesNotAdvancePlaylist();
     void compareAudioModesAreTransientAndMapped();
     void externalAudioValidationAndSilentMode();
@@ -86,6 +103,42 @@ void TestComparison::timestampMappingHasNoCumulativeDrift()
         QVERIFY2(actual <= target, "comparison frame must not lead the authoritative timestamp");
         QVERIFY2(target - actual <= CompareSession::frameTimeUs(1, b),
                  "unequal-rate error must remain bounded by one B frame");
+    }
+}
+
+void TestComparison::nativePtsMappingIsExactAcrossRatesAndOrigins()
+{
+    const QVector<atk::media::FrameRate> rates{
+        {24, 1}, {24000, 1001}, {30000, 1001}, {60000, 1001}};
+    const QVector<atk::media::TimeBase> timeBases{{1, 24'000}, {1, 90'000}};
+    for (const auto& rate : rates) {
+        for (const auto& timeBase : timeBases) {
+            constexpr qint64 origin = 12'345;
+            const auto ptsForFrame = [&](qint64 frame) {
+                return origin + static_cast<qint64>(std::llround(
+                    static_cast<long double>(frame) * rate.denominator * timeBase.denominator
+                    / (static_cast<long double>(rate.numerator) * timeBase.numerator)));
+            };
+            for (qint64 frame = 0; frame < 240; ++frame) {
+                const qint64 pts = ptsForFrame(frame);
+                QCOMPARE(CompareSession::constantRateFrameForSourcePts(
+                    pts, timeBase, origin, 0, rate, 0, 500, rate), frame);
+            }
+            // Non-zero active ranges map their first exact presentation frames.
+            const qint64 pts = ptsForFrame(37);
+            QCOMPARE(CompareSession::constantRateFrameForSourcePts(
+                pts, timeBase, origin, 37, rate, 91, 500, rate), qint64(91));
+        }
+    }
+
+    // Unequal grids select the B presentation interval containing A time.
+    const atk::media::FrameRate aRate{24, 1};
+    const atk::media::FrameRate bRate{30, 1};
+    const atk::media::TimeBase tb{1, 24'000};
+    for (qint64 frame = 0; frame < 120; ++frame) {
+        const qint64 pts = frame * 1'000;
+        QCOMPARE(CompareSession::constantRateFrameForSourcePts(
+            pts, tb, 0, 0, aRate, 0, 500, bRate), (frame * 30) / 24);
     }
 }
 
@@ -157,6 +210,73 @@ void TestComparison::unequalRateLaneTracksAuthoritativeSeek()
     QTRY_VERIFY_WITH_TIMEOUT(window.compareVideoLane()->presentedPtsUs() >= 950'000, 5000);
     QVERIFY(window.compareVideoLane()->presentedPtsUs() <= 1'050'000);
     QVERIFY(window.compareVideoLane()->cacheBytes() <= window.compareVideoLane()->cacheBudgetBytes());
+}
+
+void TestComparison::identicalSourceExactSeeksAndDifferenceAreFrameAccurate()
+{
+    QTemporaryDir directory;
+    atk::ui::MainWindow window(directory.filePath(QStringLiteral("settings.ini")));
+    QVERIFY(window.openProjectFile(writeIdenticalProject(directory)));
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->state(), PlayerState::Ready, 10000);
+    command(window, "view.toggleComparison")->trigger();
+    QTRY_VERIFY_WITH_TIMEOUT(window.compareVideoLane() && window.compareVideoLane()->isReady(), 10000);
+
+    const auto verifyExact = [&](qint64 position) {
+        QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->currentFrame(), position, 5000);
+        QTRY_COMPARE_WITH_TIMEOUT(window.compareVideoLane()->presentedFrameIndex(), position, 5000);
+        const auto& bFrame = window.compareVideoLane()->presentedFrame();
+        QCOMPARE(bFrame.frameIndex, position);
+        QCOMPARE(window.playbackController()->currentVideoFrame().ptsTicks, bFrame.ptsTicks);
+        QCOMPARE(window.playbackController()->currentVideoFrame().image, bFrame.image);
+        const QImage difference = atk::ui::ComparisonCompositeWidget::compositeImages(
+            window.playbackController()->currentVideoFrame().image, bFrame.image,
+            CompareLayout::Difference, 0);
+        bool black = true;
+        for (int y = 0; y < difference.height() && black; ++y) {
+            const auto* pixels = reinterpret_cast<const QRgb*>(difference.constScanLine(y));
+            for (int x = 0; x < difference.width(); ++x) {
+                if (pixels[x] != qRgb(0, 0, 0)) { black = false; break; }
+            }
+        }
+        QVERIFY2(black, "identical independently decoded frames must produce black Difference");
+    };
+
+    const QVector<qint64> positions{0, 1, 2, 7, 13, 31, 45, 46, 47};
+    for (qint64 position : positions) {
+        window.playbackController()->seekFrame(position);
+        verifyExact(position);
+    }
+
+    window.playbackController()->seekFrame(5); verifyExact(5);
+    window.playbackController()->stepForward(); verifyExact(6);
+    window.playbackController()->stepForward(); verifyExact(7);
+    window.playbackController()->stepBackward(); verifyExact(6);
+    window.playbackController()->beginScrub();
+    window.playbackController()->scrubToFrame(22);
+    window.playbackController()->endScrub(22); verifyExact(22);
+    command(window, "playback.firstFrame")->trigger(); verifyExact(0);
+    command(window, "playback.lastFrame")->trigger(); verifyExact(47);
+
+    // Real-time B may arrive after A, but settling after Pause must select the
+    // current authoritative target rather than a permanent N-1 request.
+    command(window, "playback.firstFrame")->trigger(); verifyExact(0);
+    window.playbackController()->play();
+    QTRY_VERIFY_WITH_TIMEOUT(window.playbackController()->currentFrame() >= 6, 5000);
+    window.playbackController()->pause();
+    const qint64 paused = window.playbackController()->currentFrame();
+    verifyExact(paused);
+
+    // Intentional offsets move exactly one A-frame duration and reset cleanly.
+    window.playbackController()->seekFrame(10);
+    QTRY_COMPARE_WITH_TIMEOUT(window.compareVideoLane()->presentedFrameIndex(), qint64(10), 5000);
+    auto* offset = window.findChild<QSpinBox*>(QStringLiteral("CompareBOffsetFrames"));
+    QVERIFY(offset);
+    offset->setValue(1);
+    QTRY_COMPARE_WITH_TIMEOUT(window.compareVideoLane()->presentedFrameIndex(), qint64(11), 5000);
+    offset->setValue(-1);
+    QTRY_COMPARE_WITH_TIMEOUT(window.compareVideoLane()->presentedFrameIndex(), qint64(9), 5000);
+    offset->setValue(0);
+    QTRY_COMPARE_WITH_TIMEOUT(window.compareVideoLane()->presentedFrameIndex(), qint64(10), 5000);
 }
 
 void TestComparison::comparisonEndDoesNotAdvancePlaylist()
@@ -475,9 +595,9 @@ void TestComparison::offsetControlsUseExactTransientTimeAndReanchor()
     QCOMPARE(window.compareSession()->sourceBOffsetUs(), qint64(0));
     bOffset->setValue(12);
     QCOMPARE(window.compareSession()->sourceBOffsetUs(), qint64(500'000));
-    QTRY_COMPARE(window.compareVideoLane()->requestedTargetUs(), qint64(500'000));
+    QTRY_COMPARE(window.compareVideoLane()->requestedFrame(), qint64(29));
     bOffset->setValue(-1);
-    QCOMPARE(window.compareSession()->sourceBOffsetUs(), qint64(-41'666));
+    QCOMPARE(window.compareSession()->sourceBOffsetUs(), qint64(-41'667));
     bOffset->setValue(0);
     QCOMPARE(window.compareSession()->sourceBOffsetUs(), qint64(0));
     QCOMPARE(window.project()->isModified(), modified);
