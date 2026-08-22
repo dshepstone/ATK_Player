@@ -58,6 +58,9 @@ enum class CommandId {
     VolumeDown,
     LoadExternalAudio,
     ClearExternalAudio,
+    ExternalAudioOffsetBackOneFrame,
+    ExternalAudioOffsetForwardOneFrame,
+    ResetExternalAudioOffset,
 
     // View
     ZoomIn,
@@ -69,6 +72,12 @@ enum class CommandId {
     ToggleComparison,
     CompareSideBySide,
     CompareStacked,
+    CompareWipe,
+    CompareBlend,
+    CompareDifference,
+    CompareBOffsetBackOneFrame,
+    CompareBOffsetForwardOneFrame,
+    ResetCompareBOffset,
     ToggleSourcesPanel,
     ToggleBookmarksPanel,
     TimelineZoomIn,

@@ -14,7 +14,10 @@
 #include <QFrame>
 #include <QFont>
 #include <QSizePolicy>
+#include <QSlider>
+#include <QSpinBox>
 #include <QVBoxLayout>
+#include <algorithm>
 
 namespace atk::ui {
 namespace {
@@ -37,6 +40,23 @@ QFrame* separator(QWidget* parent)
     line->setFixedWidth(9);
     return line;
 }
+
+class SignedFrameSpinBox final : public QSpinBox {
+public:
+    using QSpinBox::QSpinBox;
+protected:
+    QString textFromValue(int value) const override
+    {
+        return QStringLiteral("%1%2f").arg(value > 0 ? QStringLiteral("+") : QString(),
+                                           QString::number(value));
+    }
+    int valueFromText(const QString& text) const override
+    {
+        QString value = text.trimmed();
+        if (value.endsWith(QLatin1Char('f'), Qt::CaseInsensitive)) value.chop(1);
+        return value.toInt();
+    }
+};
 }
 
 CompareBar::CompareBar(CommandRegistry* commands, QWidget* parent) : QWidget(parent)
@@ -108,30 +128,63 @@ CompareBar::CompareBar(CommandRegistry* commands, QWidget* parent) : QWidget(par
         externalLayout->addWidget(button);
     }
     externalLayout->addWidget(separator(m_externalControls));
-    externalLayout->addWidget(sectionLabel(tr("LAYOUT"), QStringLiteral("CompareLayoutSection"),
+    externalLayout->addWidget(sectionLabel(tr("VIEW"), QStringLiteral("CompareLayoutSection"),
                                            m_externalControls));
-    for (auto id : {commands::CommandId::CompareSideBySide, commands::CommandId::CompareStacked}) {
-        auto* button = new QToolButton(m_externalControls);
-        button->setDefaultAction(commands->action(id));
-        const bool side = id == commands::CommandId::CompareSideBySide;
-        button->setObjectName(side ? QStringLiteral("CompareSideBySideButton")
-                                   : QStringLiteral("CompareStackedButton"));
-        button->setText(side ? tr("Side by Side") : tr("Stacked"));
-        button->setToolTip(side ? tr("Comparison Side by Side") : tr("Comparison Stacked"));
-        button->setAccessibleName(button->toolTip());
-        button->setToolButtonStyle(Qt::ToolButtonTextOnly);
-        connect(commands->action(id), &QAction::changed, button, [button, side] {
-            button->setText(side ? QObject::tr("Side by Side") : QObject::tr("Stacked"));
-        });
-        externalLayout->addWidget(button);
-    }
+    m_viewMode = new QComboBox(m_externalControls);
+    m_viewMode->setObjectName(QStringLiteral("CompareViewMode"));
+    m_viewMode->addItem(tr("Side by Side"), static_cast<int>(playback::CompareLayout::SideBySide));
+    m_viewMode->addItem(tr("Stacked"), static_cast<int>(playback::CompareLayout::Stacked));
+    m_viewMode->addItem(tr("Wipe"), static_cast<int>(playback::CompareLayout::Wipe));
+    m_viewMode->addItem(tr("Blend"), static_cast<int>(playback::CompareLayout::Blend));
+    m_viewMode->addItem(tr("Difference"), static_cast<int>(playback::CompareLayout::Difference));
+    externalLayout->addWidget(m_viewMode);
     externalLayout->addStretch(1);
     outer->addWidget(m_externalControls);
+
+    auto* toolsRow = new QWidget(this);
+    toolsRow->setObjectName(QStringLiteral("CompareToolsRow"));
+    auto* tools = new QHBoxLayout(toolsRow);
+    tools->setContentsMargins(10, 0, 10, 5); tools->setSpacing(4);
+    const auto addOffset = [this, tools](const QString& title, const QString& objectName,
+                                         const QString& tooltip, QSpinBox*& field) {
+        tools->addWidget(sectionLabel(title, objectName + QStringLiteral("Label"), this));
+        auto* minus = new QToolButton(this); minus->setText(tr("−1f"));
+        minus->setObjectName(objectName + QStringLiteral("Minus"));
+        field = new SignedFrameSpinBox(this); field->setObjectName(objectName);
+        field->setRange(-100000, 100000);
+        field->setKeyboardTracking(false); field->setFixedWidth(78); field->setToolTip(tooltip);
+        auto* plus = new QToolButton(this); plus->setText(tr("+1f"));
+        plus->setObjectName(objectName + QStringLiteral("Plus"));
+        auto* reset = new QToolButton(this); reset->setText(tr("Reset"));
+        reset->setObjectName(objectName + QStringLiteral("Reset"));
+        tools->addWidget(minus); tools->addWidget(field); tools->addWidget(plus); tools->addWidget(reset);
+        connect(minus, &QToolButton::clicked, field, [field] { field->setValue(field->value() - 1); });
+        connect(plus, &QToolButton::clicked, field, [field] { field->setValue(field->value() + 1); });
+        connect(reset, &QToolButton::clicked, field, [field] { field->setValue(0); });
+    };
+    addOffset(tr("B OFFSET"), QStringLiteral("CompareBOffsetFrames"),
+              tr("Positive values advance B later into its source timeline relative to A. Time is authoritative; frames use Source A's rational rate."), m_bOffset);
+    tools->addWidget(separator(toolsRow));
+    addOffset(tr("AUDIO OFFSET"), QStringLiteral("CompareExternalOffsetFrames"),
+              tr("Positive values advance External Audio later into its source timeline relative to A. Time is authoritative; frames use Source A's rational rate."), m_audioOffset);
+    m_wipeControls = new QWidget(toolsRow); auto* wipeLayout = new QHBoxLayout(m_wipeControls);
+    wipeLayout->setContentsMargins(8, 0, 0, 0); wipeLayout->addWidget(new QLabel(tr("Wipe"), m_wipeControls));
+    m_wipe = new QSlider(Qt::Horizontal, m_wipeControls); m_wipe->setObjectName(QStringLiteral("CompareWipePosition")); m_wipe->setRange(0, 100); m_wipe->setValue(50); m_wipe->setFixedWidth(140); wipeLayout->addWidget(m_wipe);
+    tools->addWidget(m_wipeControls);
+    m_blendControls = new QWidget(toolsRow); auto* blendLayout = new QHBoxLayout(m_blendControls);
+    blendLayout->setContentsMargins(8, 0, 0, 0); blendLayout->addWidget(new QLabel(tr("Blend"), m_blendControls));
+    m_blend = new QSlider(Qt::Horizontal, m_blendControls); m_blend->setObjectName(QStringLiteral("CompareBlendAmount")); m_blend->setRange(0, 100); m_blend->setValue(50); m_blend->setFixedWidth(140); blendLayout->addWidget(m_blend);
+    tools->addWidget(m_blendControls); tools->addStretch(1); outer->addWidget(toolsRow);
     connect(m_sourceA, &QComboBox::currentIndexChanged, this, [this](int index) { if (index >= 0) emit sourceASelected(m_sourceA->itemData(index).toUuid()); });
     connect(m_sourceB, &QComboBox::currentIndexChanged, this, [this](int index) { if (index >= 0) emit sourceBSelected(m_sourceB->itemData(index).toUuid()); });
     connect(m_audioMode, &QComboBox::currentIndexChanged, this, [this](int index) {
         if (index >= 0) emit audioModeSelected(static_cast<playback::CompareAudioMode>(m_audioMode->itemData(index).toInt()));
     });
+    connect(m_viewMode, &QComboBox::currentIndexChanged, this, [this](int index) { if (index >= 0) emit viewModeSelected(static_cast<playback::CompareLayout>(m_viewMode->itemData(index).toInt())); });
+    connect(m_bOffset, &QSpinBox::valueChanged, this, &CompareBar::sourceBOffsetFramesChanged);
+    connect(m_audioOffset, &QSpinBox::valueChanged, this, &CompareBar::externalAudioOffsetFramesChanged);
+    connect(m_wipe, &QSlider::valueChanged, this, &CompareBar::wipePositionChanged);
+    connect(m_blend, &QSlider::valueChanged, this, &CompareBar::blendAmountChanged);
 }
 void CompareBar::setAudioState(playback::CompareAudioMode mode, const QString& path,
                                bool aHasAudio, bool bHasAudio)
@@ -143,6 +196,17 @@ void CompareBar::setAudioState(playback::CompareAudioMode mode, const QString& p
     const QString name = path.isEmpty() ? tr("No External Audio Loaded") : QFileInfo(path).fileName();
     m_externalName->setText(name);
     m_externalName->setToolTip(path.isEmpty() ? tr("No External Audio Loaded") : path);
+}
+void CompareBar::setComparisonState(playback::CompareLayout layout, int bFrames,
+                                    int audioFrames, int wipe, int blend, bool externalLoaded)
+{
+    const QSignalBlocker b0(m_viewMode), b1(m_bOffset), b2(m_audioOffset), b3(m_wipe), b4(m_blend);
+    m_viewMode->setCurrentIndex(m_viewMode->findData(static_cast<int>(layout)));
+    m_bOffset->setValue(bFrames); m_audioOffset->setValue(audioFrames);
+    m_audioOffset->setEnabled(externalLoaded);
+    m_wipe->setValue(wipe); m_blend->setValue(blend);
+    m_wipeControls->setVisible(layout == playback::CompareLayout::Wipe);
+    m_blendControls->setVisible(layout == playback::CompareLayout::Blend);
 }
 void CompareBar::setProject(project::Project* project) { m_project = project; }
 void CompareBar::refresh(const QUuid& a, const QUuid& b)

@@ -34,6 +34,7 @@ class CommandRegistry;
 class ApplicationSettings;
 class BookmarkPanel;
 class CompareBar;
+class ComparisonCompositeWidget;
 class PreferencesDialog;
 class SourcesPanel;
 class StatusInfoBar;
@@ -89,6 +90,7 @@ public:
     playback::CompareVideoLane* compareVideoLane() const { return m_compareLane.get(); }
     ViewerWidget* viewerA() const { return m_viewer; }
     ViewerWidget* viewerB() const { return m_viewerB; }
+    ComparisonCompositeWidget* comparisonComposite() const { return m_compareComposite; }
 
 protected:
     void closeEvent(QCloseEvent* event) override;
@@ -131,6 +133,11 @@ private:
     void enterComparison();
     void exitComparison();
     void setComparisonLayout(playback::CompareLayout layout);
+    void setSourceBOffsetFrames(int frames);
+    void setExternalAudioOffsetFrames(int frames);
+    qint64 offsetUsForFrames(int frames) const;
+    int framesForOffsetUs(qint64 offsetUs) const;
+    void reanchorComparisonFollowers(bool waveformMappingOnly);
     void selectComparisonSourceA(const QUuid& id);
     void selectComparisonSourceB(const QUuid& id);
     void openComparisonSourceB();
@@ -163,10 +170,15 @@ private:
     CompareBar* m_compareBar = nullptr;
     QWidget* m_compareHost = nullptr;
     QSplitter* m_compareSplitter = nullptr;
+    ComparisonCompositeWidget* m_compareComposite = nullptr;
+    QVBoxLayout* m_compareLayout = nullptr;
     VideoFullscreenWindow* m_videoFullscreenWindow = nullptr;
     QVBoxLayout* m_centralLayout = nullptr;
     ViewerTransform m_normalViewerTransform;
+    ViewerTransform m_normalViewerBTransform;
     QSize m_normalViewerSize;
+    QWidget* m_fullscreenPresentation = nullptr;
+    ViewerTransform m_normalCompositeTransform;
     TimelineWidget* m_timelineWidget = nullptr;
     TimelineRangeSlider* m_timelineRangeSlider = nullptr;
     QSpinBox* m_reviewStartFrame = nullptr;

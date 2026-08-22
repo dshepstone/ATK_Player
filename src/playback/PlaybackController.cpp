@@ -537,6 +537,17 @@ void PlaybackController::clearComparisonWaveformSource(quint64 selectionGenerati
     startWaveformAnalysis(m_metadata.filePath, m_metadata.hasAudio, 0, selectionGeneration);
 }
 
+void PlaybackController::updateComparisonWaveformMapping(qint64 timeOffsetUs,
+                                                         quint64 selectionGeneration)
+{
+    if (m_waveformTimeOffsetUs == timeOffsetUs
+        && m_waveformSelectionGeneration == selectionGeneration) return;
+    m_waveformTimeOffsetUs = timeOffsetUs;
+    m_waveformSelectionGeneration = selectionGeneration;
+    emit waveformSourceChanged(timeOffsetUs, m_waveformGeneration);
+    emit waveformChanged();
+}
+
 void PlaybackController::onWaveformPeaks(const QVector<media::WaveformPeak>& peaks,
                                          quint64 sourceGeneration)
 {

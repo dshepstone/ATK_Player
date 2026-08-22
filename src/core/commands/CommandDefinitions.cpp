@@ -70,6 +70,9 @@ constexpr std::array kCommands{
     CommandDefinition{ CommandId::VolumeDown,         "audio.volumeDown",      QT_TRANSLATE_NOOP("Command", "Volume Down"),          C::Audio,    "Ctrl+Down",    false },
     CommandDefinition{ CommandId::LoadExternalAudio,  "audio.loadExternal",   QT_TRANSLATE_NOOP("Command", "Load External Audio..."), C::Audio, nullptr, false },
     CommandDefinition{ CommandId::ClearExternalAudio, "audio.clearExternal",  QT_TRANSLATE_NOOP("Command", "Clear External Audio"), C::Audio, nullptr, false },
+    CommandDefinition{ CommandId::ExternalAudioOffsetBackOneFrame, "audio.externalOffsetBackFrame", QT_TRANSLATE_NOOP("Command", "External Audio Offset -1 Frame"), C::Audio, nullptr, false },
+    CommandDefinition{ CommandId::ExternalAudioOffsetForwardOneFrame, "audio.externalOffsetForwardFrame", QT_TRANSLATE_NOOP("Command", "External Audio Offset +1 Frame"), C::Audio, nullptr, false },
+    CommandDefinition{ CommandId::ResetExternalAudioOffset, "audio.externalOffsetReset", QT_TRANSLATE_NOOP("Command", "Reset External Audio Offset"), C::Audio, nullptr, false },
 
     // View
     CommandDefinition{ CommandId::ZoomIn,             "view.zoomIn",           QT_TRANSLATE_NOOP("Command", "Zoom In"),              C::View,     "Ctrl+=",       false },
@@ -81,6 +84,12 @@ constexpr std::array kCommands{
     CommandDefinition{ CommandId::ToggleComparison,    "view.toggleComparison", QT_TRANSLATE_NOOP("Command", "A/B Comparison"), C::View, nullptr, true },
     CommandDefinition{ CommandId::CompareSideBySide,  "view.compareSideBySide", QT_TRANSLATE_NOOP("Command", "Comparison Side by Side"), C::View, nullptr, true },
     CommandDefinition{ CommandId::CompareStacked,     "view.compareStacked", QT_TRANSLATE_NOOP("Command", "Comparison Stacked"), C::View, nullptr, true },
+    CommandDefinition{ CommandId::CompareWipe,        "view.compareWipe", QT_TRANSLATE_NOOP("Command", "Comparison Wipe"), C::View, nullptr, true },
+    CommandDefinition{ CommandId::CompareBlend,       "view.compareBlend", QT_TRANSLATE_NOOP("Command", "Comparison Blend"), C::View, nullptr, true },
+    CommandDefinition{ CommandId::CompareDifference,  "view.compareDifference", QT_TRANSLATE_NOOP("Command", "Comparison Difference"), C::View, nullptr, true },
+    CommandDefinition{ CommandId::CompareBOffsetBackOneFrame, "view.compareBOffsetBackFrame", QT_TRANSLATE_NOOP("Command", "B Offset -1 Frame"), C::View, nullptr, false },
+    CommandDefinition{ CommandId::CompareBOffsetForwardOneFrame, "view.compareBOffsetForwardFrame", QT_TRANSLATE_NOOP("Command", "B Offset +1 Frame"), C::View, nullptr, false },
+    CommandDefinition{ CommandId::ResetCompareBOffset, "view.compareBOffsetReset", QT_TRANSLATE_NOOP("Command", "Reset B Offset"), C::View, nullptr, false },
     CommandDefinition{ CommandId::ToggleSourcesPanel, "view.toggleSources",    QT_TRANSLATE_NOOP("Command", "Sources Panel"),        C::View,     "F4",           true  },
     CommandDefinition{ CommandId::ToggleBookmarksPanel,"view.toggleBookmarks", QT_TRANSLATE_NOOP("Command", "Bookmarks Panel"),      C::View,     "F5",           true  },
     CommandDefinition{ CommandId::TimelineZoomIn,     "view.timelineZoomIn",   QT_TRANSLATE_NOOP("Command", "Timeline Zoom In"),     C::View,     "=",            false },

@@ -1,4 +1,8 @@
 #include "playback/CompareSession.h"
+#include "media/ffmpeg/FFmpegUtil.h"
+extern "C" {
+#include <libavutil/mathematics.h>
+}
 #include <algorithm>
 #include <limits>
 
@@ -12,20 +16,59 @@ bool CompareSession::setSources(const QUuid& a, const QUuid& b)
 {
     if (a.isNull() || b.isNull() || a == b) return false;
     if (m_sourceAId == a && m_sourceBId == b) return true;
-    m_sourceAId = a; m_sourceBId = b; bumpGeneration(); emit sourcesChanged(a, b); return true;
+    const bool bChanged = m_sourceBId != b;
+    m_sourceAId = a; m_sourceBId = b;
+    if (bChanged && m_sourceBOffsetUs != 0) { m_sourceBOffsetUs = 0; emit offsetChanged(0); }
+    bumpGeneration(); emit sourcesChanged(a, b); return true;
 }
 void CompareSession::setLayout(CompareLayout value) { if (m_layout == value) return; m_layout = value; emit layoutChanged(value); }
 void CompareSession::setActivePane(ComparePane value) { if (m_activePane == value) return; m_activePane = value; emit activePaneChanged(value); }
 void CompareSession::setSourceBOffsetUs(qint64 value) { if (m_sourceBOffsetUs == value) return; m_sourceBOffsetUs = value; bumpGeneration(); emit offsetChanged(value); }
 void CompareSession::setAudioMode(CompareAudioMode value) { if (m_audioMode == value) return; m_audioMode = value; bumpGeneration(); emit audioModeChanged(value); }
-void CompareSession::setExternalAudioPath(const QString& value) { if (m_externalAudioPath == value) return; m_externalAudioPath = value; bumpGeneration(); emit externalAudioChanged(value); }
-void CompareSession::setExternalAudioOffsetUs(qint64 value) { if (m_externalAudioOffsetUs == value) return; m_externalAudioOffsetUs = value; bumpGeneration(); }
+void CompareSession::setExternalAudioPath(const QString& value) { if (m_externalAudioPath == value) return; m_externalAudioPath = value; if (m_externalAudioOffsetUs != 0) { m_externalAudioOffsetUs = 0; emit externalAudioOffsetChanged(0); } bumpGeneration(); emit externalAudioChanged(value); }
+void CompareSession::setExternalAudioOffsetUs(qint64 value) { if (m_externalAudioOffsetUs == value) return; m_externalAudioOffsetUs = value; bumpGeneration(); emit externalAudioOffsetChanged(value); }
+void CompareSession::setWipePosition(int value) { value = std::clamp(value, 0, 100); if (m_wipePosition == value) return; m_wipePosition = value; emit wipePositionChanged(value); }
+void CompareSession::setBlendAmount(int value) { value = std::clamp(value, 0, 100); if (m_blendAmount == value) return; m_blendAmount = value; emit blendAmountChanged(value); }
 
 qint64 CompareSession::frameTimeUs(qint64 frame, const media::FrameRate& rate)
 {
     if (!rate.isValid() || frame <= 0) return 0;
-    return static_cast<qint64>(static_cast<long double>(frame) * rate.denominator
-                               * 1'000'000.0L / rate.numerator);
+    return media::ffmpeg::frameIndexToMicroseconds(
+        frame, AVRational{rate.numerator, rate.denominator});
+}
+
+qint64 CompareSession::constantRateFrameForSourcePts(
+    qint64 aPtsTicks, const media::TimeBase& aTimeBase, qint64 aStartTimeTicks,
+    qint64 aStartFrame,
+    const media::FrameRate& aRate, qint64 bStartFrame, qint64 bEndFrame,
+    const media::FrameRate& bRate, qint64 offsetUs)
+{
+    if (!aTimeBase.isValid() || !aRate.isValid() || !bRate.isValid()) return bStartFrame;
+    const AVRational aTb{aTimeBase.numerator, aTimeBase.denominator};
+    const AVRational aFrameDuration{aRate.denominator, aRate.numerator};
+    const AVRational bFrameDuration{bRate.denominator, bRate.numerator};
+
+    // VideoFrame::ptsTicks is the best-effort presentation timestamp. Its
+    // source-local origin is videoStartTime, so the nominal CFR timestamp of
+    // range frame R differs from the current timestamp only by R durations;
+    // the absolute stream start cancels out here.
+    const qint64 aStartDeltaTicks = av_rescale_q(aStartFrame, aFrameDuration, aTb);
+    const qint64 relativeTicks = aPtsTicks - aStartTimeTicks - aStartDeltaTicks;
+    const bool matchingGrid = aRate == bRate;
+    const auto rounding = static_cast<AVRounding>(
+        (matchingGrid ? AV_ROUND_NEAR_INF : AV_ROUND_DOWN) | AV_ROUND_PASS_MINMAX);
+    qint64 relativeBFrames = av_rescale_q_rnd(
+        relativeTicks, aTb, bFrameDuration,
+        rounding);
+
+    if (offsetUs != 0) {
+        constexpr AVRational microseconds{1, 1'000'000};
+        relativeBFrames += av_rescale_q_rnd(
+            offsetUs, microseconds, bFrameDuration,
+            rounding);
+    }
+    return std::clamp(bStartFrame + relativeBFrames,
+                      bStartFrame, std::max(bStartFrame, bEndFrame));
 }
 
 qint64 CompareSession::mappedTargetUs(qint64 aPts, qint64 aStart, qint64 bStart,
