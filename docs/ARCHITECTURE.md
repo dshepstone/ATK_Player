@@ -370,6 +370,11 @@ minimum span. The playhead lives here rather
 than in the timeline widget so that the viewer, the timeline, the status bar and
 the API all read one value and cannot disagree.
 
+Frame indices remain zero-based throughout the model, playback, decoder,
+project, bookmark and export layers. Animation-facing UI frame labels convert
+those indices to one-based numbers; timecode intentionally remains a
+zero-origin elapsed-position display.
+
 **The Phase 0 placeholder extent.** There is no decoder yet, so with a genuinely
 empty timeline the transport would be inert: stepping, seeking and looping would
 all clamp to frame zero and none of it could be verified. `MainWindow` therefore
@@ -711,6 +716,35 @@ bad last-project pointer, and reports the failure without a blocking dialog.
 
 The stable key is also the identifier the external API uses, which is why it must
 not change once released.
+
+---
+
+## Offline review export
+
+`ExportSpec` is an immutable value snapshot of Source A's inclusive active
+range, optional Source B comparison state, offsets, selected audio and output
+settings. Once a job starts, subsequent UI or project changes cannot alter it.
+
+`ExportJob` owns a worker thread. The worker creates independent
+`MediaDecoder`, audio-reader and FFmpeg encoder contexts; it never reads a
+`ViewerWidget`, captures a window, or reuses the live playback decoders. Source
+A's decoded presentation timestamps are authoritative and are rebased to zero
+for the output stream. Source B is selected through the same exact rational
+mapping used by live M4 comparison. `ComparisonCompositor` is widget-free and
+shared by live composite viewing and all five offline comparison layouts.
+
+For CFR encoding, the mux-facing clock is the exact inverse of Source A's
+rational rate (`1/24`, `1001/24000`, and so on). Export frame N is submitted at
+PTS N with duration one tick. Encoder packets that omit duration receive that
+same one-frame interval before rescaling into the MP4 stream time base. Thus N
+frames occupy N intervals; the final presentation is not truncated at frame
+N-1's PTS, and no duplicate tail picture is encoded.
+
+Frames are fitted without viewer transforms and padded to an even H.264 canvas.
+The selected Source A, Source B or External soundtrack is mapped onto Source A
+time, resampled to 48 kHz stereo and encoded as AAC. Cancellation removes the
+unique sibling temporary file. Completion closes the muxer before atomically
+replacing the requested destination, preserving an existing file on failure.
 
 ---
 

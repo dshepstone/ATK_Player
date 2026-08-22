@@ -16,8 +16,10 @@ StatusInfoBar::StatusInfoBar(QWidget* parent)
     layout->setSpacing(8);
 
     m_frameValue    = addField(tr("FRAME"),    QStringLiteral("0 / 0"),  70);
+    m_frameValue->setObjectName(QStringLiteral("StatusFrameValue"));
     layout->addSpacing(16);
     m_timecodeValue = addField(tr("TIMECODE"), timeline::timecode::placeholder(), 90);
+    m_timecodeValue->setObjectName(QStringLiteral("StatusTimecodeValue"));
     layout->addSpacing(16);
     m_fpsValue      = addField(tr("FPS"),      QStringLiteral("--"),     42);
     layout->addSpacing(16);
@@ -117,8 +119,14 @@ void StatusInfoBar::refresh()
         ? QString::number(m_model->frameCount())
         : QStringLiteral("~%1").arg(m_model->frameCount());
 
+    // TimelineModel stores zero-based indices, while animation-facing frame
+    // labels are one-based. Timecode below intentionally keeps the zero-based
+    // elapsed frame position.
+    const qint64 visibleFrame = m_model->frameCount() > 0
+        ? m_model->currentFrame() + 1
+        : 0;
     m_frameValue->setText(QStringLiteral("%1 / %2")
-                              .arg(QString::number(m_model->currentFrame()), total));
+                              .arg(QString::number(visibleFrame), total));
 
     m_timecodeValue->setText(
         timeline::timecode::fromFrame(m_model->currentFrame(), m_model->frameRate()));

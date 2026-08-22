@@ -4,7 +4,7 @@ Milestones are ordered by dependency, not by preference. Each one should leave
 the application in a state that runs and is worth using — no milestone is a
 half-landed refactor.
 
-**Current milestone: M4 — A/B Comparison, complete and awaiting acceptance.**
+**Current milestone: M5 — Export and External API, in progress.**
 
 ---
 
@@ -178,9 +178,15 @@ remaining release gate; M5 — Export and External API is next.
 
 The milestone that connects ATK Player to the rest of a pipeline.
 
-- Implement `FFmpegExporter`: video, image sequence and single frame
+- [x] First export foundation: active-range H.264/AAC MP4 for single-source and
+      all five A/B comparison layouts, using Source A native timestamps
+- [x] Independent offline decode/render/encode job with immutable settings,
+      progress, cancellation, temporary output and atomic replacement
+- [x] Exact CFR packet timing and final-frame duration, verified by independent
+      decoded-frame counts at integer and fractional rates
+- [ ] Image sequence and single-frame export
 - Burn-in of frame numbers, bookmarks and notes
-- Export runs off the UI thread with progress and cancellation
+- [x] Export runs off the UI thread with progress and cancellation
 - Implement `ApiServer`: newline-delimited JSON over a **loopback-only** TCP
   socket, off by default
 - Python client library in `integrations/python/`
@@ -189,6 +195,9 @@ The milestone that connects ATK Player to the rest of a pipeline.
 
 **Capabilities this milestone delivers:** FFmpeg encoding for export, a Python
 client library, and Maya and Harmony integrations built on top of it.
+
+**Status:** IN PROGRESS. MP4 review export is the first isolated M5 increment;
+burn-ins, still/image-sequence output, API transport and integrations remain.
 
 ---
 

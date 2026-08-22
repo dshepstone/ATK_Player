@@ -1,51 +1,47 @@
 #pragma once
 
-#include "timeline/PlaybackRange.h"
+#include "export/ExportSpec.h"
+#include "media/ffmpeg/FFmpegRaii.h"
+#include <QByteArray>
+#include <QImage>
 
-#include <QString>
+struct AVStream;
 
 namespace atk::exporter {
 
-/// What an export produces.
-enum class ExportFormat {
-    /// Re-encoded video via FFmpeg (H.264 in MP4 by default).
-    Video,
-    /// Numbered still images, e.g. review_0001.png.
-    ImageSequence,
-    /// A single still of the current frame.
-    SingleFrame,
-};
-
-/// Parameters for one export.
-struct ExportSettings {
-    ExportFormat format = ExportFormat::Video;
-    QString outputPath;
-    /// Frames to export. When disabled, the whole source is exported.
-    timeline::PlaybackRange range;
-    /// Draw bookmarks, frame numbers and notes into the output.
-    bool burnInAnnotations = false;
-    /// 0 = source resolution.
-    int outputWidth = 0;
-    int outputHeight = 0;
-};
-
-/// Runs an export.
-///
-/// PHASE 0 STATUS: declaration only. Implemented in milestone M5, on top of the
-/// same FFmpeg libraries as playback -- LGPL components only, so encoders that
-/// require GPL or nonfree builds are not offered.
-///
-/// The export runs off the UI thread and reports progress; it must never reuse
-/// the playback decoder instance, because scrubbing during an export would
-/// otherwise fight the export for the decoder's seek position.
-class FFmpegExporter {
+class FFmpegExporter final {
 public:
-    /// Validates settings without starting anything. Returns an empty string
-    /// when the settings are usable, or a reason they are not.
-    static QString validate(const ExportSettings& settings);
-
-    /// TODO(M5): start the export on a worker thread and report progress.
+    FFmpegExporter();
+    ~FFmpegExporter();
+    FFmpegExporter(const FFmpegExporter&) = delete;
+    FFmpegExporter& operator=(const FFmpegExporter&) = delete;
+    static QString availableH264Encoder();
+    static bool aacAvailable();
     static bool isSupported();
+    bool open(const ExportSpec& spec, bool includeAudio, QString* error);
+    bool encodeVideo(const QImage& image, qint64 outputFrameIndex, QString* error);
+    bool encodeAudio(const QByteArray& interleavedS16, QString* error);
+    bool finish(QString* error);
+    /// Close all encoder/muxer handles and remove the incomplete sibling file.
+    void discard();
+    QString temporaryPath() const { return m_temporaryPath; }
+private:
+    bool drainVideo(AVFrame* frame, QString* error);
+    bool drainAudio(AVFrame* frame, QString* error);
+    bool writePacket(AVPacket* packet, AVCodecContext* codec, AVStream* stream, QString* error);
+    void reset();
+    ExportSpec m_spec;
+    media::ffmpeg::OutputFormatContextPtr m_format;
+    media::ffmpeg::CodecContextPtr m_videoCodec;
+    media::ffmpeg::CodecContextPtr m_audioCodec;
+    media::ffmpeg::SwsContextPtr m_scaler;
+    AVStream* m_videoStream = nullptr;
+    AVStream* m_audioStream = nullptr;
+    QString m_temporaryPath;
+    qint64 m_audioPts = 0;
+    qint64 m_videoFramesSubmitted = 0;
+    qint64 m_videoPacketsWritten = 0;
+    bool m_finished = false;
 };
 
 } // namespace atk::exporter

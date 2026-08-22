@@ -66,9 +66,11 @@ function(atk_add_test_media)
     set(compare30 "${ATK_TEST_MEDIA_DIR}/atk_compare_30fps.mkv")
     set(compare60 "${ATK_TEST_MEDIA_DIR}/atk_compare_5994fps.mkv")
     set(external32 "${ATK_TEST_MEDIA_DIR}/atk_external_32k.wav")
+    set(export120 "${ATK_TEST_MEDIA_DIR}/atk_export_120f.mkv")
+    set(export23976 "${ATK_TEST_MEDIA_DIR}/atk_export_23976_120f.mkv")
 
     add_custom_command(
-        OUTPUT "${lossless}" "${lossy}" "${sync}" "${review}" "${compare30}" "${compare60}" "${external32}"
+        OUTPUT "${lossless}" "${lossy}" "${sync}" "${review}" "${compare30}" "${compare60}" "${external32}" "${export120}" "${export23976}"
         COMMAND "${CMAKE_COMMAND}" -E make_directory "${ATK_TEST_MEDIA_DIR}"
 
         # Lossless fixture: FFV1 video, PCM audio, Matroska.
@@ -139,11 +141,26 @@ function(atk_add_test_media)
                 -c:a pcm_s16le
                 "${external32}"
 
+        # Compact export-timing fixtures with enough frames for the human
+        # 45-75 regression and an exact fractional-rate counterpart.
+        COMMAND "${ATK_FFMPEG_EXECUTABLE}"
+                -hide_banner -loglevel error -y
+                -f lavfi -i "testsrc2=size=320x180:rate=24"
+                -f lavfi -i "sine=frequency=440:sample_rate=48000"
+                -frames:v 120 -c:v ffv1 -pix_fmt yuv420p -c:a pcm_s16le -shortest
+                "${export120}"
+
+        COMMAND "${ATK_FFMPEG_EXECUTABLE}"
+                -hide_banner -loglevel error -y
+                -f lavfi -i "testsrc2=size=320x180:rate=24000/1001"
+                -frames:v 120 -c:v ffv1 -pix_fmt yuv420p -an
+                "${export23976}"
+
         COMMENT "Generating deterministic test media fixtures"
         VERBATIM
     )
 
-    add_custom_target(atk_test_media DEPENDS "${lossless}" "${lossy}" "${sync}" "${review}" "${compare30}" "${compare60}" "${external32}")
+    add_custom_target(atk_test_media DEPENDS "${lossless}" "${lossy}" "${sync}" "${review}" "${compare30}" "${compare60}" "${external32}" "${export120}" "${export23976}")
     set_target_properties(atk_test_media PROPERTIES FOLDER "Tests")
 
     # Validate what was produced rather than trusting the recipe. If a future

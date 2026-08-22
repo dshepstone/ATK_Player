@@ -37,6 +37,7 @@ set(ATK_CORE_SOURCES
 
     playback/PlaybackClock.cpp
     playback/PlaybackController.cpp
+    playback/ComparisonCompositor.cpp
 
     timeline/Bookmark.cpp
     timeline/Timecode.cpp
@@ -46,6 +47,9 @@ set(ATK_CORE_SOURCES
     project/Project.cpp
     project/ProjectSerializer.cpp
 
+    export/ExportSpec.cpp
+    export/ExportRenderer.cpp
+    export/ExportJob.cpp
     export/FFmpegExporter.cpp
 
     api/ApiCommands.cpp
@@ -85,6 +89,7 @@ set(ATK_CORE_HEADERS
 
     playback/PlaybackClock.h
     playback/PlaybackController.h
+    playback/ComparisonCompositor.h
 
     timeline/Bookmark.h
     timeline/PlaybackRange.h
@@ -95,6 +100,9 @@ set(ATK_CORE_HEADERS
     project/Project.h
     project/ProjectSerializer.h
 
+    export/ExportSpec.h
+    export/ExportRenderer.h
+    export/ExportJob.h
     export/FFmpegExporter.h
 
     api/ApiCommands.h
@@ -141,7 +149,7 @@ target_link_libraries(atk_core
 # PRIVATE: FFmpeg headers are an implementation detail of the media layer. The
 # UI links atk_core but must not be able to include libav* -- that boundary is
 # what keeps decoding out of paint events.
-target_include_directories(atk_core PRIVATE ${FFMPEG_INCLUDE_DIRS})
+target_include_directories(atk_core PUBLIC ${FFMPEG_INCLUDE_DIRS})
 target_link_directories(atk_core PRIVATE ${FFMPEG_LIBRARY_DIRS})
 
 atk_set_compiler_warnings(atk_core)

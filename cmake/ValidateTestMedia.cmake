@@ -40,6 +40,18 @@ function(expect_field file stream_selector field expected)
     message(STATUS "  ${field} = ${actual}")
 endfunction()
 
+function(expect_decoded_frames file expected)
+    execute_process(
+        COMMAND "${FFPROBE}" -v error -select_streams v:0 -count_frames
+                -show_entries stream=nb_read_frames
+                -of default=noprint_wrappers=1:nokey=1 "${file}"
+        OUTPUT_VARIABLE actual RESULT_VARIABLE probe_result
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+    if(NOT probe_result EQUAL 0 OR NOT actual STREQUAL expected)
+        message(FATAL_ERROR "${file}: decoded '${actual}' frames, expected '${expected}'")
+    endif()
+endfunction()
+
 # --- Lossless fixture: FFV1 + PCM in Matroska ------------------------------
 set(lossless "${MEDIA_DIR}/atk_fixture_48f.mkv")
 if(NOT EXISTS "${lossless}")
@@ -112,3 +124,9 @@ expect_field("${compare30}" "a:0" "stream=sample_rate" "44100")
 expect_field("${compare60}" "v:0" "stream=r_frame_rate" "19001/317")
 set(external32 "${MEDIA_DIR}/atk_external_32k.wav")
 expect_field("${external32}" "a:0" "stream=sample_rate" "32000")
+set(export120 "${MEDIA_DIR}/atk_export_120f.mkv")
+set(export23976 "${MEDIA_DIR}/atk_export_23976_120f.mkv")
+expect_field("${export120}" "v:0" "stream=r_frame_rate" "24/1")
+expect_decoded_frames("${export120}" "120")
+expect_field("${export23976}" "v:0" "stream=avg_frame_rate" "24000/1001")
+expect_decoded_frames("${export23976}" "120")

@@ -1,4 +1,5 @@
 #include "ui/ComparisonCompositeWidget.h"
+#include "playback/ComparisonCompositor.h"
 #include "ui/Theme.h"
 #include <QMouseEvent>
 #include <QPainter>
@@ -8,22 +9,6 @@
 #include <cmath>
 
 namespace atk::ui {
-namespace {
-QImage mappedToCanvas(const QImage& image, const QSize& canvas)
-{
-    QImage result(canvas, QImage::Format_ARGB32_Premultiplied);
-    result.fill(Qt::black);
-    if (image.isNull() || canvas.isEmpty()) return result;
-    const QSize fitted = image.size().scaled(canvas, Qt::KeepAspectRatio);
-    const QRect target((canvas.width() - fitted.width()) / 2,
-                       (canvas.height() - fitted.height()) / 2,
-                       fitted.width(), fitted.height());
-    QPainter painter(&result);
-    painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
-    painter.drawImage(target, image);
-    return result;
-}
-}
 
 ComparisonCompositeWidget::ComparisonCompositeWidget(QWidget* parent) : QWidget(parent)
 {
@@ -47,39 +32,7 @@ void ComparisonCompositeWidget::setVideoOnlyPresentation(bool value) { m_videoOn
 QImage ComparisonCompositeWidget::compositeImages(const QImage& a, const QImage& b,
                                                    playback::CompareLayout mode, int amount)
 {
-    const QSize canvas = !a.isNull() ? a.size() : b.size();
-    if (canvas.isEmpty()) return {};
-    const QImage ca = mappedToCanvas(a, canvas);
-    const QImage cb = mappedToCanvas(b, canvas);
-    amount = std::clamp(amount, 0, 100);
-    if (mode == playback::CompareLayout::Wipe) {
-        QImage out = cb.copy();
-        const int edge = static_cast<int>((static_cast<qint64>(out.width()) * amount) / 100);
-        if (edge > 0) {
-            QPainter painter(&out);
-            painter.drawImage(QRect(0, 0, edge, out.height()), ca, QRect(0, 0, edge, ca.height()));
-        }
-        return out;
-    }
-    if (mode == playback::CompareLayout::Blend) {
-        QImage out = ca.copy();
-        QPainter painter(&out);
-        painter.setOpacity(amount / 100.0);
-        painter.drawImage(0, 0, cb);
-        return out;
-    }
-    QImage out(canvas, QImage::Format_ARGB32);
-    for (int y = 0; y < canvas.height(); ++y) {
-        const QRgb* ap = reinterpret_cast<const QRgb*>(ca.constScanLine(y));
-        const QRgb* bp = reinterpret_cast<const QRgb*>(cb.constScanLine(y));
-        QRgb* dst = reinterpret_cast<QRgb*>(out.scanLine(y));
-        for (int x = 0; x < canvas.width(); ++x) {
-            dst[x] = qRgba(std::abs(qRed(ap[x]) - qRed(bp[x])),
-                           std::abs(qGreen(ap[x]) - qGreen(bp[x])),
-                           std::abs(qBlue(ap[x]) - qBlue(bp[x])), 255);
-        }
-    }
-    return out;
+    return playback::ComparisonCompositor::compose(a, b, mode, amount);
 }
 
 void ComparisonCompositeWidget::rebuild()
