@@ -51,6 +51,7 @@ set(ATK_CORE_SOURCES
     api/ApiServer.cpp
 
     playback/CompareSession.cpp
+    playback/CompareVideoLane.cpp
 )
 
 set(ATK_CORE_HEADERS
@@ -98,6 +99,7 @@ set(ATK_CORE_HEADERS
     api/ApiServer.h
 
     playback/CompareSession.h
+    playback/CompareVideoLane.h
 
     platform/PlatformInfo.h
 )
