@@ -1,9 +1,12 @@
 #include "timeline/TimelineModel.h"
+#include "timeline/Timecode.h"
 #include "ui/TimelineRangeSlider.h"
 #include "ui/TimelineWidget.h"
 #include "ui/MainWindow.h"
+#include "ui/StatusInfoBar.h"
 
 #include <QSignalSpy>
+#include <QLabel>
 #include <QSpinBox>
 #include <QTest>
 
@@ -24,6 +27,7 @@ private slots:
     void numericFieldsTrackEveryReviewRangeInput();
     void sliderDoubleClickFitsWithoutMovingPlayhead();
     void stoppedHandleResizeCentresButBodyPanDoesNot();
+    void statusUsesOneBasedFramesAndZeroOriginTimecode();
 };
 
 void TestTimelineWidgets::sliderTracksModelBothWays()
@@ -147,7 +151,8 @@ void TestTimelineWidgets::numericFieldsTrackEveryReviewRangeInput()
     auto* slider = window.findChild<TimelineRangeSlider*>(QStringLiteral("TimelineReviewRangeSlider"));
     auto* start = window.findChild<QSpinBox*>(QStringLiteral("ReviewRangeStartFrame"));
     auto* end = window.findChild<QSpinBox*>(QStringLiteral("ReviewRangeEndFrame"));
-    QVERIFY(slider && start && end);
+    auto* statusFrame = window.findChild<QLabel*>(QStringLiteral("StatusFrameValue"));
+    QVERIFY(slider && start && end && statusFrame);
     TimelineModel* model = slider->model();
     QCOMPARE(start->value(), 1);
     QCOMPARE(end->value(), 100);
@@ -167,6 +172,12 @@ void TestTimelineWidgets::numericFieldsTrackEveryReviewRangeInput()
     QCOMPARE(start->value(), int(model->viewport().startFrame() + 1));
     QCOMPARE(end->value(), int(model->viewport().endFrame() + 1));
     QVERIFY(end->value() - start->value() + 1 >= 10);
+
+    model->setViewportRange(44, 74);
+    model->setCurrentFrame(44);
+    QCOMPARE(start->value(), 45);
+    QCOMPARE(end->value(), 75);
+    QCOMPARE(statusFrame->text(), QStringLiteral("45 / 100"));
 }
 
 void TestTimelineWidgets::sliderDoubleClickFitsWithoutMovingPlayhead()
@@ -254,6 +265,36 @@ void TestTimelineWidgets::stoppedHandleResizeCentresButBodyPanDoesNot()
     QCOMPARE(model->viewport().startFrame(), qint64(300));
     QCOMPARE(model->viewport().endFrame(), qint64(320));
     QCOMPARE(model->currentFrame(), oldFrame);
+}
+
+void TestTimelineWidgets::statusUsesOneBasedFramesAndZeroOriginTimecode()
+{
+    TimelineModel model;
+    model.setFrameRate(FrameRate{24, 1});
+    atk::ui::StatusInfoBar status;
+    status.setModel(&model);
+
+    auto* frame = status.findChild<QLabel*>(QStringLiteral("StatusFrameValue"));
+    auto* timecode = status.findChild<QLabel*>(QStringLiteral("StatusTimecodeValue"));
+    QVERIFY(frame && timecode);
+
+    QCOMPARE(frame->text(), QStringLiteral("0 / 0"));
+    model.setFrameCount(305);
+    QCOMPARE(frame->text(), QStringLiteral("1 / 305"));
+    QCOMPARE(timecode->text(), QStringLiteral("00:00:00:00"));
+
+    model.setCurrentFrame(44);
+    QCOMPARE(model.currentFrame(), qint64(44));
+    QCOMPARE(frame->text(), QStringLiteral("45 / 305"));
+    QCOMPARE(timecode->text(), QStringLiteral("00:00:01:20"));
+
+    model.setCurrentFrame(304);
+    QCOMPARE(frame->text(), QStringLiteral("305 / 305"));
+    QCOMPARE(timecode->text(), QStringLiteral("00:00:12:16"));
+
+    model.reset();
+    QCOMPARE(frame->text(), QStringLiteral("0 / 0"));
+    QCOMPARE(timecode->text(), atk::timeline::timecode::placeholder());
 }
 
 QTEST_MAIN(TestTimelineWidgets)

@@ -680,11 +680,11 @@ void MainWindow::onCommand(CommandId id, bool checked)
     // --- Range and bookmarks: fully wired ---------------------------------
     case CommandId::SetRangeIn:
         m_timeline->setRangeInAtCurrentFrame();
-        statusBar()->showMessage(tr("Range in set to frame %1").arg(m_timeline->currentFrame()), 2000);
+        statusBar()->showMessage(tr("Range in set to frame %1").arg(m_timeline->currentFrame() + 1), 2000);
         return;
     case CommandId::SetRangeOut:
         m_timeline->setRangeOutAtCurrentFrame();
-        statusBar()->showMessage(tr("Range out set to frame %1").arg(m_timeline->currentFrame()), 2000);
+        statusBar()->showMessage(tr("Range out set to frame %1").arg(m_timeline->currentFrame() + 1), 2000);
         return;
     case CommandId::ClearRange:
         m_timeline->clearPlaybackRange();

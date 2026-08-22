@@ -370,6 +370,11 @@ minimum span. The playhead lives here rather
 than in the timeline widget so that the viewer, the timeline, the status bar and
 the API all read one value and cannot disagree.
 
+Frame indices remain zero-based throughout the model, playback, decoder,
+project, bookmark and export layers. Animation-facing UI frame labels convert
+those indices to one-based numbers; timecode intentionally remains a
+zero-origin elapsed-position display.
+
 **The Phase 0 placeholder extent.** There is no decoder yet, so with a genuinely
 empty timeline the transport would be inert: stepping, seeking and looping would
 all clamp to frame zero and none of it could be verified. `MainWindow` therefore
