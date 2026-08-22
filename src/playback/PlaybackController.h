@@ -116,6 +116,9 @@ public:
 
     /// Waveform peaks for the open media. Empty until analysis produces some.
     const media::WaveformData& waveform() const { return m_waveform; }
+    void setComparisonWaveformSource(const QString& path, bool sourceHasAudio);
+    void clearComparisonWaveformSource();
+    quint64 waveformGeneration() const { return m_waveformGeneration; }
 
     void beginScrub();
     void scrubToFrame(int64_t frame);
@@ -309,7 +312,7 @@ private:
     qint64 comparisonProviderTimeUs(qint64 sourceATimeUs) const;
     void restartSelectedAudioAt(qint64 sourceATimeUs);
 
-    void startWaveformAnalysis(const QString& filePath, quint64 sourceGeneration);
+    void startWaveformAnalysis(const QString& filePath, bool sourceHasAudio = true);
     void finishScrubIfReady();
     void enqueueNavigationTarget(int64_t frame);
     void dispatchNavigationDecode();
@@ -390,6 +393,7 @@ private:
     QThread* m_waveformThread = nullptr;
     media::WaveformWorker* m_waveformWorker = nullptr;
     media::WaveformData m_waveform;
+    quint64 m_waveformGeneration = 0;
 
     QThread* m_scrubAudioThread = nullptr;
     media::ScrubAudioWorker* m_scrubAudioWorker = nullptr;

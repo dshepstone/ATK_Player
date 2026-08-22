@@ -221,6 +221,7 @@ void MainWindow::buildWidgets()
     m_compareHost->hide();
 
     m_timelineWidget = new TimelineWidget(central);
+    m_timelineWidget->setObjectName(QStringLiteral("TimelineWidget"));
     m_timelineWidget->setModel(m_timeline.get());
     column->addWidget(m_timelineWidget);
     m_timelineRangeSlider = new TimelineRangeSlider(central);
@@ -1552,6 +1553,8 @@ void MainWindow::exitComparison()
 {
     if (!isComparisonActive()) return;
     m_playback->clearComparisonAudioSource();
+    m_playback->clearComparisonWaveformSource();
+    m_timelineWidget->setWaveformTimeOffsetUs(0);
     m_compareLane.reset();
     m_compareHost->hide();
     m_centralLayout->removeWidget(m_compareHost);
@@ -1659,6 +1662,8 @@ void MainWindow::applyComparisonAudioMode(playback::CompareAudioMode mode)
     m_compare->setAudioMode(mode);
     if (mode == playback::CompareAudioMode::SourceA) {
         m_playback->clearComparisonAudioSource();
+        m_playback->clearComparisonWaveformSource();
+        m_timelineWidget->setWaveformTimeOffsetUs(0);
     } else {
         QString path; qint64 providerOriginUs = 0; bool hasAudio = false;
         if (mode == playback::CompareAudioMode::SourceB) {
@@ -1680,6 +1685,8 @@ void MainWindow::applyComparisonAudioMode(playback::CompareAudioMode mode)
         const qint64 masterOriginUs = playback::CompareSession::frameTimeUs(
             m_timeline->effectiveStartFrame(), m_playback->metadata().frameRate);
         m_playback->setComparisonAudioSource(path, providerOriginUs, masterOriginUs, hasAudio);
+        m_playback->setComparisonWaveformSource(path, hasAudio);
+        m_timelineWidget->setWaveformTimeOffsetUs(providerOriginUs - masterOriginUs);
     }
     refreshComparisonUi();
 }

@@ -291,8 +291,12 @@ void TimelineWidget::paintWaveform(QPainter& painter)
     painter.setPen(Qt::NoPen);
 
     for (int x = band.left(); x <= band.right(); ++x) {
-        const int64_t startUs = mediaTimeForX(x);
-        const int64_t endUs = mediaTimeForX(x + 1);
+        const int64_t startUs = mediaTimeForX(x) + m_waveformTimeOffsetUs;
+        const int64_t endUs = mediaTimeForX(x + 1) + m_waveformTimeOffsetUs;
+
+        if (endUs <= 0) {
+            continue;
+        }
 
         // Analysis fills in left to right, so the tail is simply not drawn yet
         // rather than being drawn as silence.
@@ -301,7 +305,8 @@ void TimelineWidget::paintWaveform(QPainter& painter)
         }
 
         const media::WaveformPeak peak =
-            m_waveform->peakOverRange(level, startUs, std::max(endUs, startUs + 1));
+            m_waveform->peakOverRange(level, std::max<int64_t>(0, startUs),
+                                      std::max<int64_t>(1, endUs));
         if (peak.isSilent()) {
             // A one-pixel line keeps silence legible as "audio here, quiet"
             // rather than looking identical to "no data".
