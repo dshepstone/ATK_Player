@@ -40,7 +40,7 @@ bool ExportRenderer::render(qint64 index, RenderedExportFrame& out, QString* err
             ? m_spec.blendAmount : m_spec.wipePosition;
         image = playback::ComparisonCompositor::compose(a.image, b.image, m_spec.layout, amount);
     }
-    const QSize padded = m_spec.outputSize();
+    const QSize padded = m_spec.renderSize();
     if (image.size() != padded) {
         QImage canvas(padded, QImage::Format_ARGB32);
         canvas.fill(Qt::black);

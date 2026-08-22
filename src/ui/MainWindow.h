@@ -157,6 +157,8 @@ private:
     void loadExternalAudio();
     void clearExternalAudio();
     void exportReview();
+    void exportCurrentFrame();
+    void exportImageSequence();
     void startExport(exporter::ExportSpec spec, bool showProgressUi = true);
     api::ApiResponse handleApiApplicationCommand(const QString& command,
                                                  const QJsonObject& params);

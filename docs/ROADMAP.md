@@ -184,7 +184,7 @@ The milestone that connects ATK Player to the rest of a pipeline.
       progress, cancellation, temporary output and atomic replacement
 - [x] Exact CFR packet timing and final-frame duration, verified by independent
       decoded-frame counts at integer and fractional rates
-- [ ] Image sequence and single-frame export
+- [x] Image sequence and single-frame export
 - Burn-in of frame numbers, bookmarks and notes
 - [x] Export runs off the UI thread with progress and cancellation
 - [x] Implement `ApiServer`: newline-delimited JSON over a **loopback-only** TCP
@@ -196,9 +196,9 @@ The milestone that connects ATK Player to the rest of a pipeline.
 **Capabilities this milestone delivers:** FFmpeg encoding for export, a Python
 client library, and Maya and Harmony integrations built on top of it.
 
-**Status:** IN PROGRESS. MP4 review export, local API transport, Python client and
-Maya playblast handoff are implemented. Burn-ins, still/image-sequence output,
-and Harmony integration remain.
+**Status:** IN PROGRESS. MP4 review export, current-frame and PNG image-sequence
+output, local API transport, Python client and Maya playblast handoff are
+implemented. Burn-ins and Harmony integration remain.
 
 ---
 

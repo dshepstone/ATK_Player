@@ -31,6 +31,8 @@ constexpr std::array kCommands{
     CommandDefinition{ CommandId::SaveProject,        "file.saveProject",      QT_TRANSLATE_NOOP("Command", "Save Project"),         C::File,     "Ctrl+S",       false },
     CommandDefinition{ CommandId::SaveProjectAs,      "file.saveProjectAs",    QT_TRANSLATE_NOOP("Command", "Save Project As..."),   C::File,     "Ctrl+Shift+S", false },
     CommandDefinition{ CommandId::ExportReview,       "file.exportReview",     QT_TRANSLATE_NOOP("Command", "Export Review..."),     C::File,     nullptr,        false },
+    CommandDefinition{ CommandId::ExportCurrentFrame, "file.exportCurrentFrame",QT_TRANSLATE_NOOP("Command", "Export Current Frame..."),C::File,   nullptr,        false },
+    CommandDefinition{ CommandId::ExportImageSequence,"file.exportImageSequence",QT_TRANSLATE_NOOP("Command", "Export Image Sequence..."),C::File,  nullptr,        false },
     CommandDefinition{ CommandId::CloseSource,        "file.closeSource",      QT_TRANSLATE_NOOP("Command", "Close Source"),         C::File,     "Ctrl+W",       false },
     CommandDefinition{ CommandId::Quit,               "file.quit",             QT_TRANSLATE_NOOP("Command", "Quit"),                 C::File,     "Ctrl+Q",       false },
 

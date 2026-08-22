@@ -7,6 +7,8 @@
 
 namespace atk::exporter {
 
+enum class ExportKind { ReviewVideo, CurrentFrame, ImageSequence };
+
 struct ExportSource {
     QUuid id;
     QString path;
@@ -17,6 +19,7 @@ struct ExportSource {
 
 /// Immutable value snapshot consumed by an offline export job.
 struct ExportSpec {
+    ExportKind kind = ExportKind::ReviewVideo;
     ExportSource sourceA;
     ExportSource sourceB;
     bool comparison = false;
@@ -28,14 +31,21 @@ struct ExportSpec {
     QString externalAudioPath;
     qint64 externalAudioOffsetUs = 0;
     QString outputPath;
+    QString imagePrefix;
+    /// Optional output subset. Mapping origins remain the source review ranges.
+    qint64 firstFrame = -1;
+    qint64 lastFrame = -1;
     QString videoEncoder = QStringLiteral("h264_mf");
     QString audioEncoder = QStringLiteral("aac");
     int audioSampleRate = 48'000;
     int audioChannels = 2;
 
     QSize contentSize() const;
+    QSize renderSize() const;
     QSize outputSize() const;
     qint64 frameCount() const;
+    qint64 exportStartFrame() const;
+    qint64 exportEndFrame() const;
     QString audioSummary() const;
     QString validate() const;
 };

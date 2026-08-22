@@ -94,9 +94,12 @@ marking disappears the moment a real file opens.
   active inclusive review range to H.264/AAC MP4, including all five comparison
   layouts and the selected A/B/External soundtrack. Rendering is offline and
   independent of viewer visibility, zoom, crop, playback, and window size; it
-  provides progress, cancellation, and atomic destination replacement. Image
-  sequences, still frames, burn-ins, and the external API remain future M5 work.
-- The API server opens no socket — only the dispatcher underneath it is real.
+  provides progress, cancellation, and atomic destination replacement. **Export
+  Current Frame…** writes a lossless PNG, and **Export Image Sequence…** writes
+  the inclusive review range into a new atomically installed directory. Burn-ins
+  remain future M5 work.
+- The optional loopback API includes transport, projects, comparison, review
+  video, current-frame PNG, and image-sequence export commands.
 - Maya and Harmony integrations, the MSI installer, macOS and Linux.
 
 Menu entries for unimplemented commands are present and report themselves in the

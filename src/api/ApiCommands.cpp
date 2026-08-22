@@ -153,6 +153,8 @@ QStringList ApiCommandDispatcher::supportedCommands()
         QStringLiteral("set_external_audio_offset"),
         QStringLiteral("list_bookmarks"),
         QStringLiteral("export_review"),
+        QStringLiteral("export_frame"),
+        QStringLiteral("export_image_sequence"),
         QStringLiteral("get_export_status"),
         QStringLiteral("cancel_export"),
         QStringLiteral("show_window"),
