@@ -536,20 +536,37 @@ the controller to normal audio, scrub grains and frame-step grains.
 
 ### `src/playback/` — A/B comparison
 
-The synchronisation rule, stated once so it does not get reinvented:
+`CompareSession` is transient UI/session state: it holds the stable source A and
+B UUIDs, layout, active pane, a signed-microsecond B offset foundation and a
+generation. It is never serialized and cannot dirty `.atkproj` v1.
 
-> There is exactly **one** `PlaybackClock`. Neither viewer runs a clock of its
-> own. On each tick the controller computes master frame *N*; viewer A requests
-> `N + offsetA` from source A and viewer B requests `N + offsetB` from source B.
+Source A remains the normal `PlaybackController` source. It owns the only
+`PlaybackClock`, audio, timeline, waveform, bookmarks and authoritative review
+range. Each accepted A `VideoFrame::ptsUs` establishes comparison time relative
+to A's range origin. `CompareVideoLane` maps that time onto B's own range origin
+and asks a video-only `DecoderWorker` for the corresponding B presentation. B
+has no timer, audio output, waveform or scrub engine, so it cannot free-run or
+become timing master.
 
-Both viewers derive from the same *N*, so they cannot accumulate drift no matter
-how differently the two sources decode. A slow decode shows a stale frame for one
-tick; it never moves the sync point. The alternative — a clock per viewer, resynced
-periodically — makes drift the normal state and correctness a question of how
-often you correct it.
+Mapping is timestamp based, not frame-index based. Exact rational frame rates
+are used to resolve constant-rate sources and decoded presentation timestamps
+remain the presentation authority. This naturally repeats or skips B frames for
+unequal frame rates without cumulative addition or drift. Targets clamp at B's
+range boundaries when B is shorter; extra B duration is simply unused when it
+is longer. The internal signed offset is zero and has no UI in this increment.
 
-The per-source offset exists because two takes of the same shot rarely start on
-the same frame. Offsetting B lets the reviewer line up the moment that matters.
+B owns a generation-safe worker thread and a 64 MiB bounded cache. Only one
+decode request is in flight; a newer master target supersedes queued intent and
+is requested after the current decode completes. A never waits for B. Shutdown
+invalidates generations, disconnects delivery, stops the worker and joins its
+thread before destruction.
+
+The comparison host contains two independent `ViewerWidget` transforms in a
+splitter. Side-by-Side and Stacked change only splitter orientation. The clicked
+pane receives Viewer Fit/100%/zoom commands. Source A audio remains the only
+audio for playback, timeline scrub and frame-step audio. With comparison active,
+Loop OFF stops at A's range end and Loop ON repeats the fixed pair. Video Full
+Screen is temporarily disabled; application Full Screen remains available.
 
 ### `src/api/` — external control
 
