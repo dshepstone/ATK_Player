@@ -17,6 +17,7 @@ private slots:
     void loopbackLifecycleAndRequestIds();
     void streamFramingAndMultipleClients();
     void malformedAndOversizedRequestsRecover();
+    void navigationResponsesExposeAcceptedTargets();
 };
 
 namespace {
@@ -24,6 +25,7 @@ struct Fixture {
     atk::timeline::TimelineModel timeline;
     atk::playback::PlaybackController playback{&timeline};
     ApiServer server{&playback, &timeline};
+    Fixture() { timeline.setFrameCount(264); }
 };
 
 QJsonObject response(QTcpSocket& socket)
@@ -106,6 +108,37 @@ void TestApiServer::malformedAndOversizedRequestsRecover()
     connectClient(recovered, fixture.server.port());
     recovered.write("{\"id\":4,\"command\":\"get_api_info\"}\n");
     QVERIFY(response(recovered).value(QStringLiteral("ok")).toBool());
+}
+
+void TestApiServer::navigationResponsesExposeAcceptedTargets()
+{
+    Fixture fixture;
+    QVERIFY(fixture.server.start(0));
+    QTcpSocket client;
+    connectClient(client, fixture.server.port());
+
+    client.write("{\"id\":1,\"command\":\"seek_frame\",\"params\":{\"frame\":100}}\n");
+    QJsonObject result = response(client).value(QStringLiteral("result")).toObject();
+    QVERIFY(result.value(QStringLiteral("accepted")).toBool());
+    QCOMPARE(result.value(QStringLiteral("targetFrame")).toInt(), 100);
+    QVERIFY(!result.contains(QStringLiteral("currentFrame")));
+
+    for (int id = 2; id <= 6; ++id)
+        client.write(QStringLiteral("{\"id\":%1,\"command\":\"step_forward\"}\n")
+                         .arg(id).toUtf8());
+    for (int expected = 101; expected <= 105; ++expected) {
+        result = response(client).value(QStringLiteral("result")).toObject();
+        QCOMPARE(result.value(QStringLiteral("targetFrame")).toInt(), expected);
+    }
+    QCOMPARE(fixture.timeline.currentFrame(), qint64(105));
+
+    for (int id = 7; id <= 11; ++id)
+        client.write(QStringLiteral("{\"id\":%1,\"command\":\"step_backward\"}\n")
+                         .arg(id).toUtf8());
+    for (int expected = 104; expected >= 100; --expected)
+        QCOMPARE(response(client).value(QStringLiteral("result")).toObject()
+                     .value(QStringLiteral("targetFrame")).toInt(), expected);
+    QCOMPARE(fixture.timeline.currentFrame(), qint64(100));
 }
 
 QTEST_MAIN(TestApiServer)

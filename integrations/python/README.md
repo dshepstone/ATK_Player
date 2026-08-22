@@ -31,8 +31,11 @@ from atk_player import AtkPlayer, AtkCommandError
 try:
     player = AtkPlayer()                    # 127.0.0.1:45571
     player.open_media(r"C:\shots\sh040_v012.mov")
-    player.set_loop_range(12, 96)
+    player.wait_until_loaded(r"C:\shots\sh040_v012.mov")
+    player.set_review_range(12, 96)
     player.set_loop_enabled(True)
+    player.seek_frame(41)
+    player.wait_until_frame(41)
     player.play()
 except AtkCommandError as error:
     print(f"ATK Player refused the command: {error}")
@@ -44,7 +47,8 @@ Feature detection, so a client works against an older player:
 
 ```python
 if "load_compare_b" in player.list_commands():
-    player.load_compare_b(previous_take, frame_offset=-6)
+    player.set_compare_b(previous_take_id)
+    player.set_compare_offset(-6)
 ```
 
 Run the stub-server tests with `python -m unittest discover -s tests -v`.

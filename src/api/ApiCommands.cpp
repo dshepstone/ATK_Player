@@ -257,21 +257,24 @@ ApiResponse ApiCommandDispatcher::dispatch(const QJsonObject& request)
         }
         m_playback->seekFrame(frame);
         return ApiResponse::success({
-            { QStringLiteral("currentFrame"), static_cast<double>(m_timeline->currentFrame()) },
+            { QStringLiteral("accepted"), true },
+            { QStringLiteral("targetFrame"), static_cast<double>(m_playback->navigationFrame()) },
         });
     }
 
     if (command == QLatin1StringView("step_forward")) {
         m_playback->stepForward();
         return ApiResponse::success({
-            { QStringLiteral("currentFrame"), static_cast<double>(m_timeline->currentFrame()) },
+            { QStringLiteral("accepted"), true },
+            { QStringLiteral("targetFrame"), static_cast<double>(m_playback->navigationFrame()) },
         });
     }
 
     if (command == QLatin1StringView("step_backward")) {
         m_playback->stepBackward();
         return ApiResponse::success({
-            { QStringLiteral("currentFrame"), static_cast<double>(m_timeline->currentFrame()) },
+            { QStringLiteral("accepted"), true },
+            { QStringLiteral("targetFrame"), static_cast<double>(m_playback->navigationFrame()) },
         });
     }
 

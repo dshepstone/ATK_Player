@@ -328,6 +328,8 @@ private:
     void finishNavigationIfReady();
     void cancelNavigation();
     void resetNavigationTarget();
+    bool navigationIsActive() const;
+    void anchorNavigationToCurrentFrameIfIdle();
 
     media::FrameRate effectiveFrameRate() const;
     int64_t effectiveLastFrame() const;

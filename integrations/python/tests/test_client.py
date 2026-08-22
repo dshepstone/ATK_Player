@@ -3,7 +3,7 @@ import socket
 import threading
 import unittest
 
-from atk_player import AtkPlayer, AtkCommandError, AtkProtocolError
+from atk_player import AtkPlayer, AtkCommandError, AtkProtocolError, AtkTimeoutError
 
 
 class StubServer:
@@ -44,6 +44,26 @@ class ClientTests(unittest.TestCase):
         with StubServer(lambda request: {"id": request["id"] + 1, "ok": True, "result": {}}) as server:
             with AtkPlayer(port=server.port) as player:
                 with self.assertRaises(AtkProtocolError): player.status()
+
+    def test_wait_until_frame_uses_authoritative_zero_based_status(self):
+        frames = iter((9, 9, 10))
+        def reply(request):
+            self.assertEqual(request["command"], "get_status")
+            frame = next(frames)
+            return {"id": request["id"], "ok": True,
+                    "result": {"currentFrame": frame, "displayFrame": frame + 1}}
+        with StubServer(reply) as server, AtkPlayer(port=server.port) as player:
+            status = player.wait_until_frame(10, timeout=1.0, poll_interval=0.001)
+            self.assertEqual(status["currentFrame"], 10)
+            self.assertEqual(status["displayFrame"], 11)
+
+    def test_wait_until_frame_times_out(self):
+        def reply(request):
+            return {"id": request["id"], "ok": True,
+                    "result": {"currentFrame": 0, "displayFrame": 1}}
+        with StubServer(reply) as server, AtkPlayer(port=server.port) as player:
+            with self.assertRaises(AtkTimeoutError):
+                player.wait_until_frame(1, timeout=0.02, poll_interval=0.001)
 
 
 if __name__ == "__main__": unittest.main()

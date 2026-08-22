@@ -31,6 +31,8 @@ def playblast_to_atk(player=None, start=None, end=None, width=1280, height=720,
     player.wait_until_loaded(movie)
     player.set_review_range(0, max(0, int(round(float(end) - float(start)))))
     player.set_loop_enabled(True)
-    player.seek_frame(maya_frame_to_atk_index(current, start))
+    target = maya_frame_to_atk_index(current, start)
+    player.seek_frame(target)
+    player.wait_until_frame(target)
     player.show_window()
     return movie

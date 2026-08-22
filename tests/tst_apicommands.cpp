@@ -130,7 +130,9 @@ void TestApiCommands::seeksToFrame()
 
     QVERIFY(response.ok);
     QCOMPARE(fixture.timeline.currentFrame(), qint64(42));
-    QCOMPARE(response.result.value(QStringLiteral("currentFrame")).toDouble(), 42.0);
+    QCOMPARE(response.result.value(QStringLiteral("accepted")).toBool(), true);
+    QCOMPARE(response.result.value(QStringLiteral("targetFrame")).toDouble(), 42.0);
+    QVERIFY(!response.result.contains(QStringLiteral("currentFrame")));
 }
 
 void TestApiCommands::rejectsSeekWithoutFrame()
@@ -185,10 +187,12 @@ void TestApiCommands::stepsForwardAndBackward()
     fixture.dispatcher.dispatch(
         request(QStringLiteral("seek_frame"), { { QStringLiteral("frame"), 10 } }));
 
-    fixture.dispatcher.dispatch(request(QStringLiteral("step_forward")));
+    const ApiResponse forward = fixture.dispatcher.dispatch(request(QStringLiteral("step_forward")));
+    QCOMPARE(forward.result.value(QStringLiteral("targetFrame")).toDouble(), 11.0);
     QCOMPARE(fixture.timeline.currentFrame(), qint64(11));
 
-    fixture.dispatcher.dispatch(request(QStringLiteral("step_backward")));
+    const ApiResponse backward = fixture.dispatcher.dispatch(request(QStringLiteral("step_backward")));
+    QCOMPARE(backward.result.value(QStringLiteral("targetFrame")).toDouble(), 10.0);
     QCOMPARE(fixture.timeline.currentFrame(), qint64(10));
 }
 

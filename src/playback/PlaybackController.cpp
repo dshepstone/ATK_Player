@@ -963,6 +963,7 @@ void PlaybackController::finishPlayback()
             m_timeline->setCurrentFrame(last);
         }
     }
+    resetNavigationTarget();
     setState(PlayerState::Ended);
 }
 
@@ -1146,6 +1147,23 @@ void PlaybackController::presentNextNavigationFrame()
 void PlaybackController::resetNavigationTarget()
 {
     m_navigationFrame = m_timeline ? m_timeline->currentFrame() : 0;
+}
+
+bool PlaybackController::navigationIsActive() const
+{
+    return m_navigationDecodeInFlight
+        || !m_navigationDecodeTargets.empty()
+        || !m_navigationPresentationFrames.empty()
+        || (m_navigationTimer && m_navigationTimer->isActive());
+}
+
+void PlaybackController::anchorNavigationToCurrentFrameIfIdle()
+{
+    // A completed playback/seek/scrub sequence may have moved the presented
+    // frame far from the last logical step target. Start a new navigation run
+    // from what is actually on screen. Once active, retain the future logical
+    // target so rapid repeated inputs can accumulate ahead of presentation.
+    if (!navigationIsActive()) resetNavigationTarget();
 }
 
 int PlaybackController::computeLookaheadFrames() const
@@ -1451,6 +1469,10 @@ void PlaybackController::pause()
     // Pausing ends the playback run, so frames still being decoded for it are
     // no longer wanted.
     m_generations->bumpRequest();
+
+    // Playback presentation advances independently of frame navigation. Its
+    // final presented frame is the origin of the next deliberate step run.
+    resetNavigationTarget();
 
     setState(PlayerState::Paused);
 }
@@ -1762,10 +1784,7 @@ void PlaybackController::finishNavigationIfReady()
 
 void PlaybackController::cancelNavigation()
 {
-    const bool active = m_navigationDecodeInFlight
-        || !m_navigationDecodeTargets.empty()
-        || !m_navigationPresentationFrames.empty()
-        || (m_navigationTimer && m_navigationTimer->isActive());
+    const bool active = navigationIsActive();
     if (m_navigationTimer) {
         m_navigationTimer->stop();
     }
@@ -1805,6 +1824,7 @@ void PlaybackController::stepForward()
     if (m_state == PlayerState::Playing) {
         pause();
     }
+    anchorNavigationToCurrentFrameIfIdle();
     const int64_t target = m_navigationFrame + 1;
     if (target > effectiveLastFrame() && effectiveLastFrame() >= 0) {
         return;
@@ -1822,6 +1842,7 @@ void PlaybackController::stepBackward()
     if (m_state == PlayerState::Playing) {
         pause();
     }
+    anchorNavigationToCurrentFrameIfIdle();
     const int64_t target = m_navigationFrame - 1;
     if (target < m_timeline->effectiveStartFrame()) {
         return;

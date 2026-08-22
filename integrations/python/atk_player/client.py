@@ -152,3 +152,14 @@ class AtkPlayer:
                 return status
             time.sleep(poll_interval)
         raise AtkTimeoutError("timed out waiting for requested media to load")
+
+    def wait_until_frame(self, frame, timeout=10.0, poll_interval=0.05):
+        """Wait until the authoritative zero-based presented frame settles."""
+        target = int(frame)
+        deadline = time.monotonic() + float(timeout)
+        while time.monotonic() < deadline:
+            status = self.status()
+            if status.get("currentFrame") == target:
+                return status
+            time.sleep(float(poll_interval))
+        raise AtkTimeoutError("timed out waiting for ATK Player frame {}".format(target))
