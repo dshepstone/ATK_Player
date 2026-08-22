@@ -210,6 +210,10 @@ signals:
     /// Diagnostic observation of an accepted review-audio request.
     void reviewAudioRequested(qint64 mediaUs, bool reversed, quint64 sequence);
 
+    /// A deliberate navigation outside timeline scrubbing superseded any
+    /// released pointer-preview target that may still be awaiting presentation.
+    void authoritativeNavigationStarted();
+
 private slots:
     void onWorkerMediaOpened(const atk::media::MediaMetadata& metadata,
                              quint64 sourceGeneration);

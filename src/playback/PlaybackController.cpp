@@ -623,6 +623,7 @@ void PlaybackController::haltPlaybackMachinery()
 
 void PlaybackController::openMedia(const QString& filePath)
 {
+    emit authoritativeNavigationStarted();
     cancelNavigation();
     qCInfo(log::playback).noquote() << "Opening media:" << filePath;
 
@@ -663,6 +664,7 @@ void PlaybackController::openMedia(const QString& filePath)
 
 void PlaybackController::closeMedia()
 {
+    emit authoritativeNavigationStarted();
     cancelNavigation();
     const quint64 sourceGeneration = m_generations->bumpSource();
 
@@ -1488,6 +1490,7 @@ void PlaybackController::togglePlayPause()
 
 void PlaybackController::stop()
 {
+    emit authoritativeNavigationStarted();
     cancelNavigation();
     haltPlaybackMachinery();
     m_generations->bumpRequest();
@@ -1555,6 +1558,7 @@ void PlaybackController::seekAndShow(int64_t frame, bool keepPlaying)
 
 void PlaybackController::seekFrame(int64_t frame)
 {
+    emit authoritativeNavigationStarted();
     m_finishAfterSeek = false;
     cancelNavigation();
     const bool wasPlaying = m_state == PlayerState::Playing;
@@ -1829,6 +1833,7 @@ void PlaybackController::stepForward()
     if (target > effectiveLastFrame() && effectiveLastFrame() >= 0) {
         return;
     }
+    emit authoritativeNavigationStarted();
     m_navigationFrame = target;
     requestFrameStepAudioAt(target, false);
     qCDebug(log::playback) << "Step input ns" << monotonicNowNs()
@@ -1847,6 +1852,7 @@ void PlaybackController::stepBackward()
     if (target < m_timeline->effectiveStartFrame()) {
         return;
     }
+    emit authoritativeNavigationStarted();
     m_navigationFrame = target;
     requestFrameStepAudioAt(target, true);
     qCDebug(log::playback) << "Step input ns" << monotonicNowNs()

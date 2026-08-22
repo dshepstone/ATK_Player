@@ -407,6 +407,8 @@ void MainWindow::connectSignals()
 
     connect(m_playback.get(), &playback::PlaybackController::stateChanged,
             this, &MainWindow::onPlayerStateChanged);
+    connect(m_playback.get(), &playback::PlaybackController::authoritativeNavigationStarted,
+            m_timelineWidget, &TimelineWidget::followAuthoritativeFrame);
     connect(m_sources, &SourcesPanel::addMediaRequested, this, &MainWindow::addMediaDialog);
     connect(m_sources, &SourcesPanel::removeRequested, this, &MainWindow::removePlaylistIndex);
     connect(m_sources, &SourcesPanel::moveRequested, this, &MainWindow::movePlaylistIndex);
