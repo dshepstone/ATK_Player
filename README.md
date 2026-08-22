@@ -220,7 +220,7 @@ changes — it explains which layer is allowed to depend on which, and why.
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Layer boundaries, ownership, threading and the reasoning behind them |
 | [docs/BUILDING.md](docs/BUILDING.md) | Prerequisites, presets, VS Code setup, troubleshooting |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Milestones M0 through M8 |
-| [docs/API.md](docs/API.md) | The planned external control API and its command reference |
+| [docs/API.md](docs/API.md) | Local external-control protocol and command reference |
 | [docs/THIRD_PARTY_LICENSES.md](docs/THIRD_PARTY_LICENSES.md) | Dependency licences and the obligations they carry |
 
 ---

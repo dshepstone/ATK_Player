@@ -23,6 +23,8 @@ constexpr auto kMuted = "review/muted";
 constexpr auto kReopenLast = "projects/reopenLast";
 constexpr auto kRecentProjects = "projects/recent";
 constexpr auto kLastProject = "projects/lastPath";
+constexpr auto kApiEnabled = "api/enabled";
+constexpr auto kApiPort = "api/port";
 constexpr auto kShortcutGroup = "shortcuts";
 }
 
@@ -58,6 +60,13 @@ bool ApplicationSettings::muted() const { return readBool(kMuted, defaultMuted()
 bool ApplicationSettings::reopenLastProject() const { return readBool(kReopenLast, defaultReopenLastProject()); }
 QStringList ApplicationSettings::recentProjects() const { return m_settings->value(QString::fromLatin1(kRecentProjects)).toStringList(); }
 QString ApplicationSettings::lastProjectPath() const { return m_settings->value(QString::fromLatin1(kLastProject)).toString(); }
+bool ApplicationSettings::apiEnabled() const { return readBool(kApiEnabled, defaultApiEnabled()); }
+int ApplicationSettings::apiPort() const
+{
+    bool ok = false;
+    const int value = m_settings->value(QString::fromLatin1(kApiPort), defaultApiPort()).toInt(&ok);
+    return ok && value >= 1024 && value <= 65535 ? value : defaultApiPort();
+}
 
 double ApplicationSettings::volume() const
 {
@@ -88,6 +97,11 @@ void ApplicationSettings::addRecentProject(const QString& path)
 }
 void ApplicationSettings::clearRecentProjects() { m_settings->remove(QString::fromLatin1(kRecentProjects)); }
 void ApplicationSettings::setLastProjectPath(const QString& path) { m_settings->setValue(QString::fromLatin1(kLastProject), path); }
+void ApplicationSettings::setApiEnabled(bool value) { m_settings->setValue(QString::fromLatin1(kApiEnabled), value); }
+void ApplicationSettings::setApiPort(int value)
+{
+    m_settings->setValue(QString::fromLatin1(kApiPort), std::clamp(value, 1024, 65535));
+}
 
 QByteArray ApplicationSettings::windowGeometry() const { return m_settings->value(QString::fromLatin1(kGeometry)).toByteArray(); }
 QByteArray ApplicationSettings::windowState() const { return m_settings->value(QString::fromLatin1(kWindowState)).toByteArray(); }

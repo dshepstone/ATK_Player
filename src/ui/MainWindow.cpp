@@ -37,6 +37,8 @@
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QKeySequence>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QLabel>
 #include <QSlider>
 #include <QSpinBox>
@@ -120,6 +122,8 @@ MainWindow::MainWindow(const QString& settingsIniPath, QWidget* parent)
     buildAudioControls();
     connectSignals();
 
+    if (m_settings->apiEnabled()) m_apiServer->start(static_cast<quint16>(m_settings->apiPort()));
+
     updateWindowTitle();
     resize(1280, 800);
     restoreApplicationLayout();
@@ -184,7 +188,11 @@ void MainWindow::buildModels()
         });
     m_probeThread->start();
     m_compare  = std::make_unique<playback::CompareSession>();
-    m_apiServer = std::make_unique<api::ApiServer>(m_playback.get(), m_timeline.get());
+    m_apiServer = std::make_unique<api::ApiServer>(
+        m_playback.get(), m_timeline.get(),
+        [this](const QString& command, const QJsonObject& params) {
+            return handleApiApplicationCommand(command, params);
+        });
 
     // The registry is parented to the window, so its QActions live exactly as
     // long as the widgets that reference them.
@@ -917,11 +925,17 @@ void MainWindow::activateBookmark(quint64 id)
 void MainWindow::openPreferences()
 {
     PreferencesDialog dialog(*m_settings, *m_commands, this);
+    dialog.setApiRuntimeStatus(m_apiServer->isRunning()
+        ? tr("Listening on 127.0.0.1:%1").arg(m_apiServer->port())
+        : (m_apiServer->errorString().isEmpty() ? tr("Stopped")
+                                                : tr("Stopped — %1").arg(m_apiServer->errorString())));
     if (dialog.exec() == QDialog::Accepted) applyPreferences(dialog);
 }
 
 void MainWindow::applyPreferences(const PreferencesDialog& dialog)
 {
+    const bool apiWasEnabled = m_settings->apiEnabled();
+    const int apiWasPort = m_settings->apiPort();
     if (dialog.resetAllRequested()) {
         m_settings->resetAll();
         m_skipLayoutSaveOnce = true;
@@ -937,6 +951,18 @@ void MainWindow::applyPreferences(const PreferencesDialog& dialog)
     m_settings->setFrameStepAudioEnabled(dialog.frameStepAudioEnabled());
     m_settings->setBookmarkSnapEnabled(dialog.bookmarkSnapEnabled());
     m_settings->setReopenLastProject(dialog.reopenLastProject());
+    const bool apiChanged = dialog.apiEnabled() != apiWasEnabled
+        || dialog.apiPort() != apiWasPort;
+    m_settings->setApiEnabled(dialog.apiEnabled());
+    m_settings->setApiPort(dialog.apiPort());
+    if (apiChanged) {
+        m_apiServer->stop();
+        if (dialog.apiEnabled()) {
+            if (!m_apiServer->start(static_cast<quint16>(dialog.apiPort())))
+                statusBar()->showMessage(
+                    tr("Unable to start Local API: %1").arg(m_apiServer->errorString()), 8000);
+        }
+    }
 
     const auto setToggle = [this](CommandId id, bool checked) {
         if (QAction* action = m_commands->action(id)) {
@@ -1550,36 +1576,56 @@ void MainWindow::exportReview()
     startExport(std::move(spec));
 }
 
-void MainWindow::startExport(exporter::ExportSpec spec)
+void MainWindow::startExport(exporter::ExportSpec spec, bool showProgressUi)
 {
     if (exportInProgress()) return;
     m_exportJob = std::make_unique<exporter::ExportJob>(std::move(spec), this);
-    m_exportProgress = new QProgressDialog(tr("Preparing…"), tr("Cancel"), 0, 100, this);
-    m_exportProgress->setWindowTitle(tr("Export Review"));
-    m_exportProgress->setWindowModality(Qt::NonModal);
-    m_exportProgress->setMinimumDuration(0);
-    m_exportProgress->setAutoClose(false);
-    m_exportProgress->setAutoReset(false);
-    connect(m_exportProgress, &QProgressDialog::canceled, m_exportJob.get(), &exporter::ExportJob::cancel);
-    connect(m_exportJob.get(), &exporter::ExportJob::progress, m_exportProgress,
-            [this](int percent, qint64, qint64) { if (m_exportProgress) m_exportProgress->setValue(percent); });
-    connect(m_exportJob.get(), &exporter::ExportJob::statusChanged, m_exportProgress,
-            [this](const QString& text) { if (m_exportProgress) m_exportProgress->setLabelText(text); });
+    if (showProgressUi) {
+        m_exportProgress = new QProgressDialog(tr("Preparing…"), tr("Cancel"), 0, 100, this);
+        m_exportProgress->setWindowTitle(tr("Export Review"));
+        m_exportProgress->setWindowModality(Qt::NonModal);
+        m_exportProgress->setMinimumDuration(0);
+        m_exportProgress->setAutoClose(false);
+        m_exportProgress->setAutoReset(false);
+        connect(m_exportProgress, &QProgressDialog::canceled,
+                m_exportJob.get(), &exporter::ExportJob::cancel);
+        connect(m_exportJob.get(), &exporter::ExportJob::progress, m_exportProgress,
+                [this](int percent, qint64, qint64) {
+                    if (m_exportProgress) m_exportProgress->setValue(percent);
+                });
+        connect(m_exportJob.get(), &exporter::ExportJob::statusChanged, m_exportProgress,
+                [this](const QString& text) {
+                    if (m_exportProgress) m_exportProgress->setLabelText(text);
+                });
+    }
+    connect(m_exportJob.get(), &exporter::ExportJob::progress, this,
+            [this](int percent, qint64 frame, qint64 total) {
+                m_apiExportProgress = percent;
+                m_apiExportFrame = frame;
+                m_apiExportTotal = total;
+            });
     const auto closeProgress = [this] {
         if (m_exportProgress) { m_exportProgress->close(); m_exportProgress->deleteLater(); m_exportProgress = nullptr; }
         updateTransportEnabled();
     };
     connect(m_exportJob.get(), &exporter::ExportJob::completed, this, [this, closeProgress](const QString& path) {
+        m_apiExportState = QStringLiteral("completed");
+        m_apiExportProgress = 100;
         closeProgress(); statusBar()->showMessage(tr("Exported %1").arg(QDir::toNativeSeparators(path)), 6000);
     });
     connect(m_exportJob.get(), &exporter::ExportJob::cancelled, this, [this, closeProgress] {
+        m_apiExportState = QStringLiteral("cancelled");
         closeProgress(); statusBar()->showMessage(tr("Export cancelled"), 4000);
     });
-    connect(m_exportJob.get(), &exporter::ExportJob::failed, this, [this, closeProgress](const QString& message) {
-        closeProgress(); QMessageBox::critical(this, tr("Export Review"), message);
+    connect(m_exportJob.get(), &exporter::ExportJob::failed, this,
+            [this, closeProgress, showProgressUi](const QString& message) {
+        m_apiExportState = QStringLiteral("failed");
+        m_apiExportError = message;
+        closeProgress();
+        if (showProgressUi) QMessageBox::critical(this, tr("Export Review"), message);
     });
     updateTransportEnabled();
-    m_exportProgress->show();
+    if (m_exportProgress) m_exportProgress->show();
     m_exportJob->start();
 }
 
@@ -2016,6 +2062,376 @@ ViewerWidget* MainWindow::activeViewer() const
 {
     return isComparisonActive() && m_compare->activePane() == playback::ComparePane::B
         ? m_viewerB : m_viewer;
+}
+
+api::ApiResponse MainWindow::handleApiApplicationCommand(
+    const QString& command, const QJsonObject& params)
+{
+    const auto fail = [](const QString& message) { return api::ApiResponse::failure(message); };
+    const auto localFile = [&](const QString& key, bool mustExist, QString* out) {
+        const QJsonValue value = params.value(key);
+        if (!value.isString() || value.toString().isEmpty()) return false;
+        const QString path = value.toString();
+        const QFileInfo info(path);
+        if (!info.isAbsolute() || path.contains(QStringLiteral("://"))) return false;
+        if (mustExist && (!info.exists() || !info.isFile())) return false;
+        *out = info.absoluteFilePath();
+        return true;
+    };
+    const auto mayDiscard = [&] {
+        return !m_project->isModified()
+            || params.value(QStringLiteral("discardUnsaved")).toBool(false);
+    };
+    const auto sourceAvailability = [](project::SourceAvailability value) {
+        switch (value) {
+        case project::SourceAvailability::Unknown: return QStringLiteral("unknown");
+        case project::SourceAvailability::Probing: return QStringLiteral("probing");
+        case project::SourceAvailability::Ready: return QStringLiteral("ready");
+        case project::SourceAvailability::Missing: return QStringLiteral("missing");
+        case project::SourceAvailability::Error: return QStringLiteral("error");
+        }
+        return QStringLiteral("unknown");
+    };
+    const auto compareLayoutName = [](playback::CompareLayout value) {
+        switch (value) {
+        case playback::CompareLayout::SideBySide: return QStringLiteral("side_by_side");
+        case playback::CompareLayout::Stacked: return QStringLiteral("stacked");
+        case playback::CompareLayout::Wipe: return QStringLiteral("wipe");
+        case playback::CompareLayout::Blend: return QStringLiteral("blend");
+        case playback::CompareLayout::Difference: return QStringLiteral("difference");
+        }
+        return QStringLiteral("side_by_side");
+    };
+    const auto audioModeName = [](playback::CompareAudioMode value) {
+        switch (value) {
+        case playback::CompareAudioMode::SourceA: return QStringLiteral("a");
+        case playback::CompareAudioMode::SourceB: return QStringLiteral("b");
+        case playback::CompareAudioMode::External: return QStringLiteral("external");
+        }
+        return QStringLiteral("a");
+    };
+
+    if (command == QLatin1StringView("get_status")) {
+        QJsonObject reviewRange{
+            {QStringLiteral("start"), static_cast<double>(m_timeline->effectiveStartFrame())},
+            {QStringLiteral("end"), static_cast<double>(m_timeline->effectiveEndFrame())},
+        };
+        QJsonObject comparison{
+            {QStringLiteral("enabled"), isComparisonActive()},
+            {QStringLiteral("sourceAId"), m_compare->sourceAId().toString(QUuid::WithoutBraces)},
+            {QStringLiteral("sourceBId"), m_compare->sourceBId().toString(QUuid::WithoutBraces)},
+            {QStringLiteral("view"), compareLayoutName(m_compare->layout())},
+            {QStringLiteral("bOffsetUs"), static_cast<double>(m_compare->sourceBOffsetUs())},
+            {QStringLiteral("bOffsetFrames"), framesForOffsetUs(m_compare->sourceBOffsetUs())},
+            {QStringLiteral("audioMode"), audioModeName(m_compare->audioMode())},
+            {QStringLiteral("externalAudioLoaded"), !m_compare->externalAudioPath().isEmpty()},
+            {QStringLiteral("externalAudioOffsetUs"),
+             static_cast<double>(m_compare->externalAudioOffsetUs())},
+        };
+        return api::ApiResponse::success({
+            {QStringLiteral("applicationVersion"), QString::fromLatin1(version::kString)},
+            {QStringLiteral("projectName"), m_project->name()},
+            {QStringLiteral("projectPath"), m_project->filePath()},
+            {QStringLiteral("projectDirty"), m_project->isModified()},
+            {QStringLiteral("activeSourceId"),
+             m_project->currentSourceId().toString(QUuid::WithoutBraces)},
+            {QStringLiteral("activeSourceIndex"), m_project->activeIndex()},
+            {QStringLiteral("reviewRange"), reviewRange},
+            {QStringLiteral("comparison"), comparison},
+            {QStringLiteral("export"), QJsonObject{
+                 {QStringLiteral("jobId"), m_apiExportJobId},
+                 {QStringLiteral("state"), m_apiExportState},
+                 {QStringLiteral("progress"), m_apiExportProgress / 100.0},
+             }},
+        });
+    }
+
+    if (command == QLatin1StringView("open_media")) {
+        QString path;
+        if (!localFile(QStringLiteral("path"), true, &path))
+            return fail(QStringLiteral("path must be an absolute existing local file"));
+        if (!mayDiscard()) return fail(QStringLiteral("current project has unsaved changes"));
+        if (exportInProgress()) return fail(QStringLiteral("an export is active"));
+        exitComparison();
+        ++m_projectGeneration;
+        m_restoringSourceState = true;
+        m_project->clear();
+        m_project->setName(QStringLiteral("Untitled"));
+        m_project->setFilePath({});
+        m_restoringSourceState = false;
+        addMediaFiles({path});
+        return api::ApiResponse::success({
+            {QStringLiteral("accepted"), true}, {QStringLiteral("path"), path}});
+    }
+
+    if (command == QLatin1StringView("open_project")) {
+        QString path;
+        if (!localFile(QStringLiteral("path"), true, &path)
+            || !path.endsWith(QStringLiteral(".atkproj"), Qt::CaseInsensitive))
+            return fail(QStringLiteral("path must be an absolute existing .atkproj file"));
+        if (!mayDiscard()) return fail(QStringLiteral("current project has unsaved changes"));
+        if (exportInProgress()) return fail(QStringLiteral("an export is active"));
+        m_suppressProjectOpenError = true;
+        const bool opened = openProjectFile(path);
+        m_suppressProjectOpenError = false;
+        return opened ? api::ApiResponse::success({{QStringLiteral("accepted"), true},
+                                                   {QStringLiteral("path"), path}})
+                      : fail(QStringLiteral("project could not be opened"));
+    }
+
+    if (command == QLatin1StringView("new_project")) {
+        if (!mayDiscard()) return fail(QStringLiteral("current project has unsaved changes"));
+        if (exportInProgress()) return fail(QStringLiteral("an export is active"));
+        exitComparison();
+        ++m_projectGeneration;
+        m_playback->closeMedia();
+        m_project->replace(QStringLiteral("Untitled"), {}, {}, {});
+        return api::ApiResponse::success();
+    }
+
+    if (command == QLatin1StringView("save_project")) {
+        if (m_project->filePath().isEmpty())
+            return fail(QStringLiteral("untitled project requires save_project_as"));
+        saveActiveReviewState();
+        const auto result = project::ProjectSerializer::save(*m_project, m_project->filePath());
+        if (!result.ok) return fail(result.errorMessage);
+        m_project->setModified(false);
+        updateWindowTitle();
+        return api::ApiResponse::success();
+    }
+
+    if (command == QLatin1StringView("save_project_as")) {
+        QString path;
+        if (!localFile(QStringLiteral("path"), false, &path)
+            || !path.endsWith(QStringLiteral(".atkproj"), Qt::CaseInsensitive))
+            return fail(QStringLiteral("path must be an absolute local .atkproj destination"));
+        saveActiveReviewState();
+        const auto result = project::ProjectSerializer::save(*m_project, path);
+        if (!result.ok) return fail(result.errorMessage);
+        m_project->setFilePath(path);
+        m_project->setName(QFileInfo(path).completeBaseName());
+        m_project->setModified(false);
+        m_settings->addRecentProject(path);
+        refreshRecentProjectsMenu();
+        updateWindowTitle();
+        return api::ApiResponse::success({{QStringLiteral("path"), path}});
+    }
+
+    if (command == QLatin1StringView("add_media")) {
+        QStringList paths;
+        if (params.value(QStringLiteral("path")).isString())
+            paths.append(params.value(QStringLiteral("path")).toString());
+        const QJsonArray requested = params.value(QStringLiteral("paths")).toArray();
+        for (const QJsonValue& value : requested) if (value.isString()) paths.append(value.toString());
+        if (paths.isEmpty()) return fail(QStringLiteral("path or paths is required"));
+        QStringList validated;
+        for (const QString& candidate : paths) {
+            const QFileInfo info(candidate);
+            if (!info.isAbsolute() || candidate.contains(QStringLiteral("://"))
+                || !info.exists() || !info.isFile())
+                return fail(QStringLiteral("every media path must be an absolute existing local file"));
+            validated.append(info.absoluteFilePath());
+        }
+        addMediaFiles(validated);
+        return api::ApiResponse::success({{QStringLiteral("added"), validated.size()}});
+    }
+
+    if (command == QLatin1StringView("list_sources")) {
+        QJsonArray sources;
+        for (int i = 0; i < m_project->entries().size(); ++i) {
+            const auto& entry = m_project->entries().at(i);
+            sources.append(QJsonObject{
+                {QStringLiteral("id"), entry.id.toString(QUuid::WithoutBraces)},
+                {QStringLiteral("index"), i},
+                {QStringLiteral("path"), entry.source ? entry.source->filePath() : entry.storedPath},
+                {QStringLiteral("displayName"), entry.displayName},
+                {QStringLiteral("active"), i == m_project->activeIndex()},
+                {QStringLiteral("availability"), sourceAvailability(entry.availability)},
+            });
+        }
+        return api::ApiResponse::success({{QStringLiteral("sources"), sources}});
+    }
+
+    if (command == QLatin1StringView("activate_source")) {
+        int index = -1;
+        if (params.value(QStringLiteral("sourceId")).isString())
+            index = m_project->indexForId(QUuid(params.value(QStringLiteral("sourceId")).toString()));
+        else if (params.value(QStringLiteral("index")).isDouble())
+            index = params.value(QStringLiteral("index")).toInt(-1);
+        if (index < 0 || index >= m_project->entries().size())
+            return fail(QStringLiteral("sourceId or index does not identify a source"));
+        activatePlaylistIndex(index);
+        return api::ApiResponse::success({{QStringLiteral("accepted"), true},
+                                          {QStringLiteral("index"), index}});
+    }
+
+    if (command == QLatin1StringView("set_comparison_enabled")) {
+        if (!params.value(QStringLiteral("enabled")).isBool())
+            return fail(QStringLiteral("enabled must be a boolean"));
+        if (params.value(QStringLiteral("enabled")).toBool()) enterComparison();
+        else exitComparison();
+        if (isComparisonActive() != params.value(QStringLiteral("enabled")).toBool())
+            return fail(QStringLiteral("comparison requires two available sources"));
+        return api::ApiResponse::success();
+    }
+
+    if (command == QLatin1StringView("load_compare_a")
+        || command == QLatin1StringView("load_compare_b")) {
+        int index = -1;
+        if (params.value(QStringLiteral("sourceId")).isString())
+            index = m_project->indexForId(QUuid(params.value(QStringLiteral("sourceId")).toString()));
+        if (index < 0 && params.value(QStringLiteral("path")).isString()) {
+            const QString target = QFileInfo(params.value(QStringLiteral("path")).toString()).absoluteFilePath();
+            for (int i = 0; i < m_project->entries().size(); ++i) {
+                const auto& entry = m_project->entries().at(i);
+                if (entry.source && QFileInfo(entry.source->filePath()).absoluteFilePath() == target) {
+                    index = i; break;
+                }
+            }
+        }
+        if (!sourceUsableForComparison(index)) return fail(QStringLiteral("comparison source is unavailable"));
+        if (!isComparisonActive()) enterComparison();
+        if (!isComparisonActive()) return fail(QStringLiteral("comparison could not be enabled"));
+        if (command == QLatin1StringView("load_compare_a"))
+            selectComparisonSourceA(m_project->entries().at(index).id);
+        else
+            selectComparisonSourceB(m_project->entries().at(index).id);
+        return api::ApiResponse::success();
+    }
+
+    if (command == QLatin1StringView("set_compare_offset")
+        || command == QLatin1StringView("set_external_audio_offset")) {
+        const bool hasFrames = params.value(QStringLiteral("frameOffset")).isDouble();
+        const bool hasUs = params.value(QStringLiteral("offsetUs")).isDouble();
+        if (hasFrames == hasUs) return fail(QStringLiteral("specify exactly one of frameOffset or offsetUs"));
+        qint64 offsetUs = hasUs ? static_cast<qint64>(params.value(QStringLiteral("offsetUs")).toDouble())
+                                : offsetUsForFrames(params.value(QStringLiteral("frameOffset")).toInt());
+        if (command == QLatin1StringView("set_compare_offset")) {
+            if (params.value(QStringLiteral("slot")).toString(QStringLiteral("b")) != QLatin1StringView("b"))
+                return fail(QStringLiteral("only comparison slot b supports an offset"));
+            m_compare->setSourceBOffsetUs(offsetUs);
+            synchronizeComparison(m_playback->currentVideoFrame());
+        } else {
+            m_compare->setExternalAudioOffsetUs(offsetUs);
+        }
+        reanchorComparisonFollowers(true);
+        refreshComparisonUi();
+        return api::ApiResponse::success({{QStringLiteral("offsetUs"), static_cast<double>(offsetUs)}});
+    }
+
+    if (command == QLatin1StringView("set_compare_view")) {
+        const QString mode = params.value(QStringLiteral("mode")).toString();
+        const QHash<QString, playback::CompareLayout> modes{
+            {QStringLiteral("side_by_side"), playback::CompareLayout::SideBySide},
+            {QStringLiteral("stacked"), playback::CompareLayout::Stacked},
+            {QStringLiteral("wipe"), playback::CompareLayout::Wipe},
+            {QStringLiteral("blend"), playback::CompareLayout::Blend},
+            {QStringLiteral("difference"), playback::CompareLayout::Difference},
+        };
+        if (!modes.contains(mode)) return fail(QStringLiteral("invalid comparison view mode"));
+        m_compare->setLayout(modes.value(mode));
+        if (params.value(QStringLiteral("wipePosition")).isDouble())
+            m_compare->setWipePosition(qRound(params.value(QStringLiteral("wipePosition")).toDouble() * 100));
+        if (params.value(QStringLiteral("blendAmount")).isDouble())
+            m_compare->setBlendAmount(qRound(params.value(QStringLiteral("blendAmount")).toDouble() * 100));
+        return api::ApiResponse::success();
+    }
+
+    if (command == QLatin1StringView("set_compare_audio_mode")) {
+        const QString mode = params.value(QStringLiteral("mode")).toString();
+        if (mode == QLatin1StringView("a")) applyComparisonAudioMode(playback::CompareAudioMode::SourceA);
+        else if (mode == QLatin1StringView("b")) applyComparisonAudioMode(playback::CompareAudioMode::SourceB);
+        else if (mode == QLatin1StringView("external")) applyComparisonAudioMode(playback::CompareAudioMode::External);
+        else return fail(QStringLiteral("audio mode must be a, b, or external"));
+        return api::ApiResponse::success();
+    }
+
+    if (command == QLatin1StringView("load_external_audio")) {
+        QString path;
+        if (!localFile(QStringLiteral("path"), true, &path))
+            return fail(QStringLiteral("path must be an absolute existing local file"));
+        QString validationError;
+        if (!media::CompareAudioWorker::validateSource(path, &validationError))
+            return fail(QStringLiteral("file has no usable audio stream"));
+        m_compare->setExternalAudioPath(path);
+        applyComparisonAudioMode(playback::CompareAudioMode::External);
+        return api::ApiResponse::success({{QStringLiteral("path"), path}});
+    }
+
+    if (command == QLatin1StringView("clear_external_audio")) {
+        clearExternalAudio();
+        return api::ApiResponse::success();
+    }
+
+    if (command == QLatin1StringView("list_bookmarks")) {
+        QJsonArray bookmarks;
+        for (const auto& bookmark : m_timeline->bookmarks()) {
+            bookmarks.append(QJsonObject{
+                {QStringLiteral("id"), QString::number(bookmark.id)},
+                {QStringLiteral("type"), bookmark.isRange() ? QStringLiteral("range") : QStringLiteral("point")},
+                {QStringLiteral("start"), static_cast<double>(bookmark.frame)},
+                {QStringLiteral("end"), static_cast<double>(bookmark.endFrame)},
+                {QStringLiteral("displayStart"), static_cast<double>(bookmark.frame + 1)},
+                {QStringLiteral("displayEnd"), static_cast<double>(bookmark.endFrame + 1)},
+                {QStringLiteral("name"), bookmark.name},
+                {QStringLiteral("note"), bookmark.note},
+                {QStringLiteral("color"), bookmark.colorIndex},
+            });
+        }
+        return api::ApiResponse::success({{QStringLiteral("bookmarks"), bookmarks}});
+    }
+
+    if (command == QLatin1StringView("export_review")) {
+        if (exportInProgress()) return fail(QStringLiteral("an export is already active"));
+        QString path;
+        if (!localFile(QStringLiteral("path"), false, &path)
+            || !path.endsWith(QStringLiteral(".mp4"), Qt::CaseInsensitive))
+            return fail(QStringLiteral("path must be an absolute local .mp4 destination"));
+        if (QFileInfo::exists(path) && !params.value(QStringLiteral("overwrite")).toBool(false))
+            return fail(QStringLiteral("destination exists; set overwrite=true to replace it"));
+        exporter::ExportSpec spec = exportSnapshot(path);
+        const QString validation = spec.validate();
+        if (!validation.isEmpty()) return fail(validation);
+        m_apiExportJobId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        m_apiExportState = QStringLiteral("running");
+        m_apiExportOutputPath = path;
+        m_apiExportError.clear();
+        m_apiExportProgress = 0;
+        m_apiExportFrame = 0;
+        m_apiExportTotal = spec.frameCount();
+        startExport(std::move(spec), false);
+        return api::ApiResponse::success({{QStringLiteral("jobId"), m_apiExportJobId}});
+    }
+
+    if (command == QLatin1StringView("get_export_status")) {
+        const QString requested = params.value(QStringLiteral("jobId")).toString();
+        if (!requested.isEmpty() && requested != m_apiExportJobId)
+            return fail(QStringLiteral("unknown export job"));
+        return api::ApiResponse::success({
+            {QStringLiteral("jobId"), m_apiExportJobId},
+            {QStringLiteral("state"), m_apiExportState},
+            {QStringLiteral("progress"), m_apiExportProgress / 100.0},
+            {QStringLiteral("currentFrame"), static_cast<double>(m_apiExportFrame)},
+            {QStringLiteral("totalFrames"), static_cast<double>(m_apiExportTotal)},
+            {QStringLiteral("outputPath"), m_apiExportOutputPath},
+            {QStringLiteral("error"), m_apiExportError},
+        });
+    }
+
+    if (command == QLatin1StringView("cancel_export")) {
+        if (!exportInProgress()) return fail(QStringLiteral("no export is active"));
+        m_exportJob->cancel();
+        return api::ApiResponse::success({{QStringLiteral("accepted"), true}});
+    }
+
+    if (command == QLatin1StringView("show_window")) {
+        if (isMinimized()) showNormal(); else show();
+        raise();
+        activateWindow();
+        return api::ApiResponse::success();
+    }
+
+    return fail(QStringLiteral("application command is not implemented: %1").arg(command));
 }
 
 void MainWindow::updateWindowTitle()

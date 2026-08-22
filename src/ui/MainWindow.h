@@ -23,8 +23,10 @@ class QThread;
 class QVBoxLayout;
 class QSplitter;
 class QProgressDialog;
+class QJsonObject;
 
 namespace atk::api { class ApiServer; }
+namespace atk::api { struct ApiResponse; }
 namespace atk::playback { class CompareSession; class CompareVideoLane; enum class CompareLayout; enum class CompareAudioMode; }
 namespace atk::project { class Project; }
 namespace atk::media { class PlaylistProbeWorker; }
@@ -96,6 +98,7 @@ public:
     ComparisonCompositeWidget* comparisonComposite() const { return m_compareComposite; }
     exporter::ExportSpec exportSnapshot(const QString& outputPath = {}) const;
     bool exportInProgress() const;
+    api::ApiServer* apiServer() const { return m_apiServer.get(); }
 
 protected:
     void closeEvent(QCloseEvent* event) override;
@@ -154,7 +157,9 @@ private:
     void loadExternalAudio();
     void clearExternalAudio();
     void exportReview();
-    void startExport(exporter::ExportSpec spec);
+    void startExport(exporter::ExportSpec spec, bool showProgressUi = true);
+    api::ApiResponse handleApiApplicationCommand(const QString& command,
+                                                 const QJsonObject& params);
     bool cancelExportForProjectChange();
     ViewerWidget* activeViewer() const;
 
@@ -214,6 +219,13 @@ private:
     quint64 m_pendingRelinkProjectGeneration = 0;
     quint64 m_projectGeneration = 1;
     bool m_suppressProjectOpenError = false;
+    QString m_apiExportJobId;
+    QString m_apiExportState = QStringLiteral("idle");
+    QString m_apiExportOutputPath;
+    QString m_apiExportError;
+    int m_apiExportProgress = 0;
+    qint64 m_apiExportFrame = 0;
+    qint64 m_apiExportTotal = 0;
 
     /// Directory the last Open Media dialog was pointed at.
     QString m_lastMediaDirectory;

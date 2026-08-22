@@ -142,6 +142,7 @@ target_link_libraries(atk_core
         # Audio output only. Still no Qt6::Widgets, so core code remains unable
         # to include a widget header.
         Qt6::Multimedia
+        Qt6::Network
     PRIVATE
         ${FFMPEG_LIBRARIES}
 )

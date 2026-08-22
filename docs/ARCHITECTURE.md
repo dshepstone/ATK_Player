@@ -630,14 +630,16 @@ remains a separate full-interface mode.
 Split deliberately in two:
 
 - `ApiCommandDispatcher` turns a JSON request object into calls on the player and
-  returns a JSON response. It is a pure function of its inputs, needs no socket,
-  and is unit-tested. **This part is implemented.**
-- `ApiServer` will carry those objects over a loopback TCP socket. **This part is
-  not implemented** — `start()` logs and returns `false`.
+  returns a JSON response. Playback calls `PlaybackController`; application
+  commands cross a narrow callback into the same project, comparison and export
+  operations used by the UI.
+- `ApiServer` carries those objects over persistent, loopback-only TCP sockets as
+  newline-delimited UTF-8 JSON. Request and pending-write buffers are bounded.
 
-Splitting them means the protocol can be finished and tested before any network
-code exists, and a future transport only has to move bytes. See
-[API.md](API.md).
+Both live on the UI thread, so socket callbacks do not mutate QObject state from
+an arbitrary worker. Expensive media and export work remains asynchronous in its
+existing services. Shutdown stops accepting, disconnects clients and clears
+buffers before UI state is destroyed. See [API.md](API.md).
 
 ### `src/platform/` — the only place OS headers may appear
 

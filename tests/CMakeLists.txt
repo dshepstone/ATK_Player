@@ -20,6 +20,7 @@ set(ATK_TEST_SOURCES
     tst_bookmark.cpp
     tst_commanddefinitions.cpp
     tst_apicommands.cpp
+    tst_apiserver.cpp
     tst_project.cpp
 )
 
@@ -134,3 +135,13 @@ foreach(test_source IN LISTS ATK_TEST_SOURCES ATK_FFMPEG_TEST_SOURCES ATK_UI_TES
         )
     endif()
 endforeach()
+
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+add_test(NAME tst_python_client
+    COMMAND ${Python3_EXECUTABLE} -m unittest discover -s tests -v)
+set_tests_properties(tst_python_client PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/integrations/python")
+add_test(NAME tst_maya_mapping
+    COMMAND ${Python3_EXECUTABLE} -m unittest discover -s tests -v)
+set_tests_properties(tst_maya_mapping PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/integrations/maya")

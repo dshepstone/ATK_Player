@@ -61,7 +61,7 @@ private slots:
     void setsLoopRange();
     void addsBookmarkAtCurrentFrameByDefault();
     void addsBookmarkAtGivenFrame();
-    void reportsUnimplementedCommandsExplicitly();
+    void reportsCommandsRequiringApplicationServices();
     void responseSerialisesWithId();
 };
 
@@ -103,6 +103,9 @@ void TestApiCommands::reportsStatus()
     // an open file.
     QCOMPARE(response.result.value(QStringLiteral("state")).toString(), QStringLiteral("ready"));
     QCOMPARE(response.result.value(QStringLiteral("frameCount")).toDouble(), 100.0);
+    QCOMPARE(response.result.value(QStringLiteral("currentFrame")).toDouble(), 0.0);
+    QCOMPARE(response.result.value(QStringLiteral("displayFrame")).toDouble(), 1.0);
+    QCOMPARE(response.result.value(QStringLiteral("frameIndexBase")).toInt(), 0);
     QCOMPARE(response.result.value(QStringLiteral("fps")).toDouble(), 24.0);
     QCOMPARE(response.result.value(QStringLiteral("hasMedia")).toBool(), false);
 
@@ -245,11 +248,11 @@ void TestApiCommands::addsBookmarkAtGivenFrame()
     QCOMPARE(bookmark.colorIndex, 3);
 }
 
-void TestApiCommands::reportsUnimplementedCommandsExplicitly()
+void TestApiCommands::reportsCommandsRequiringApplicationServices()
 {
     Fixture fixture;
-    // These are advertised by list_commands, so a client must be able to tell
-    // "not implemented" from "not recognised".
+    // Core-only callers have no application facade, and receive a stable
+    // feature-availability error rather than an unknown-command response.
     const QStringList names{
         QStringLiteral("open_media"),
         QStringLiteral("load_compare_a"),
@@ -259,7 +262,7 @@ void TestApiCommands::reportsUnimplementedCommandsExplicitly()
     for (const QString& name : names) {
         const ApiResponse response = fixture.dispatcher.dispatch(request(name));
         QVERIFY(!response.ok);
-        QVERIFY2(response.error.contains(QStringLiteral("not implemented")), qPrintable(name));
+        QVERIFY2(response.error.contains(QStringLiteral("application services")), qPrintable(name));
         QVERIFY2(!response.error.contains(QStringLiteral("unknown")), qPrintable(name));
     }
 }

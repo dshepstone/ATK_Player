@@ -3,6 +3,7 @@
 #include <QJsonObject>
 #include <QString>
 #include <QStringList>
+#include <functional>
 
 namespace atk::playback { class PlaybackController; }
 namespace atk::timeline { class TimelineModel; }
@@ -38,9 +39,14 @@ struct ApiResponse {
 /// See docs/API.md for the full command reference.
 class ApiCommandDispatcher {
 public:
+    using ApplicationCommandHandler =
+        std::function<ApiResponse(const QString&, const QJsonObject&)>;
+    using ApiInfoProvider = std::function<QJsonObject()>;
     /// Neither pointer is owned; both must outlive the dispatcher.
     ApiCommandDispatcher(playback::PlaybackController* playback,
-                         timeline::TimelineModel* timeline);
+                         timeline::TimelineModel* timeline,
+                         ApplicationCommandHandler applicationHandler = {},
+                         ApiInfoProvider apiInfoProvider = {});
 
     ApiResponse dispatch(const QJsonObject& request);
 
@@ -51,6 +57,8 @@ public:
 private:
     playback::PlaybackController* m_playback = nullptr;
     timeline::TimelineModel* m_timeline = nullptr;
+    ApplicationCommandHandler m_applicationHandler;
+    ApiInfoProvider m_apiInfoProvider;
 };
 
 } // namespace atk::api

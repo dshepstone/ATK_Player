@@ -87,7 +87,7 @@ if(ATK_BUILD_TESTS)
     list(APPEND ATK_QT_COMPONENTS Test)
 endif()
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS ${ATK_QT_COMPONENTS})
+find_package(Qt6 6.5 REQUIRED COMPONENTS ${ATK_QT_COMPONENTS} Network)
 
 message(STATUS "Qt ${Qt6_VERSION} found at ${Qt6_DIR}")
 

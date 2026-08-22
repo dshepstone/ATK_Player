@@ -2,6 +2,7 @@
 #include "ui/ApplicationSettings.h"
 #include "ui/PreferencesDialog.h"
 #include "ui/MainWindow.h"
+#include "api/ApiServer.h"
 #include "ui/TimelineWidget.h"
 #include "ui/commands/CommandRegistry.h"
 
@@ -13,6 +14,8 @@
 #include <QSettings>
 #include <QSignalSpy>
 #include <QTemporaryDir>
+#include <QTcpServer>
+#include <QHostAddress>
 #include <QTest>
 #include <QToolButton>
 #include <QTableWidget>
@@ -41,6 +44,7 @@ private slots:
     void shortcutEditorClearAndResetSelected();
     void muteAndVolumePopupPersistAndSynchronize();
     void recentProjectsAndReopenPreference();
+    void apiDefaultsPersistenceAndPortFailure();
 };
 
 void TestSettings::recentProjectsAndReopenPreference()
@@ -71,12 +75,16 @@ void TestSettings::defaultsValidationAndPersistence()
     QVERIFY(settings.bookmarkSnapEnabled());
     QCOMPARE(settings.volume(), 1.0);
     QVERIFY(!settings.muted());
+    QVERIFY(!settings.apiEnabled());
+    QCOMPARE(settings.apiPort(), 45571);
     settings.setAudioScrubEnabled(false);
     settings.setFrameStepAudioEnabled(true);
     settings.setBookmarkSnapEnabled(false);
     settings.setRestoreWindowLayout(false);
     settings.setVolume(0.35);
     settings.setMuted(true);
+    settings.setApiEnabled(true);
+    settings.setApiPort(45672);
     settings.setWindowGeometry(QByteArray("geometry"));
     settings.setWindowState(QByteArray("state"));
     settings.sync();
@@ -88,6 +96,8 @@ void TestSettings::defaultsValidationAndPersistence()
     QVERIFY(!reopened.bookmarkSnapEnabled());
     QCOMPARE(reopened.volume(), 0.35);
     QVERIFY(reopened.muted());
+    QVERIFY(reopened.apiEnabled());
+    QCOMPARE(reopened.apiPort(), 45672);
     QCOMPARE(reopened.windowGeometry(), QByteArray("geometry"));
     QCOMPARE(reopened.windowState(), QByteArray("state"));
 
@@ -103,6 +113,26 @@ void TestSettings::defaultsValidationAndPersistence()
     QVERIFY(invalid.audioScrubEnabled());
     QVERIFY(!invalid.frameStepAudioEnabled());
     QVERIFY(invalid.bookmarkSnapEnabled());
+}
+
+void TestSettings::apiDefaultsPersistenceAndPortFailure()
+{
+    QTemporaryDir directory;
+    const QString file = directory.filePath(QStringLiteral("settings.ini"));
+    {
+        atk::ui::MainWindow disabled(file);
+        QVERIFY(!disabled.apiServer()->isRunning());
+    }
+
+    QTcpServer occupied;
+    QVERIFY(occupied.listen(QHostAddress::LocalHost, 0));
+    ApplicationSettings settings(file);
+    settings.setApiEnabled(true);
+    settings.setApiPort(occupied.serverPort());
+    settings.sync();
+    atk::ui::MainWindow blocked(file);
+    QVERIFY(!blocked.apiServer()->isRunning());
+    QVERIFY(!blocked.apiServer()->errorString().isEmpty());
 }
 
 void TestSettings::muteAndVolumePopupPersistAndSynchronize()

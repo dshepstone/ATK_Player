@@ -27,6 +27,8 @@ public:
     static constexpr bool defaultMuted() { return false; }
     static constexpr bool defaultReopenLastProject() { return false; }
     static constexpr int maximumRecentProjects() { return 10; }
+    static constexpr bool defaultApiEnabled() { return false; }
+    static constexpr int defaultApiPort() { return 45571; }
 
     bool restoreWindowLayout() const;
     bool audioScrubEnabled() const;
@@ -37,6 +39,8 @@ public:
     bool reopenLastProject() const;
     QStringList recentProjects() const;
     QString lastProjectPath() const;
+    bool apiEnabled() const;
+    int apiPort() const;
 
     void setRestoreWindowLayout(bool value);
     void setAudioScrubEnabled(bool value);
@@ -48,6 +52,8 @@ public:
     void addRecentProject(const QString& path);
     void clearRecentProjects();
     void setLastProjectPath(const QString& path);
+    void setApiEnabled(bool value);
+    void setApiPort(int value);
 
     QByteArray windowGeometry() const;
     QByteArray windowState() const;
