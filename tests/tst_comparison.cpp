@@ -6,6 +6,7 @@
 #include "project/Project.h"
 #include "project/ProjectSerializer.h"
 #include "ui/MainWindow.h"
+#include "ui/ComparisonCompositeWidget.h"
 #include "ui/TimelineWidget.h"
 #include "ui/ViewerWidget.h"
 
@@ -13,10 +14,12 @@
 #include <QComboBox>
 #include <QFile>
 #include <QLabel>
+#include <QSpinBox>
 #include <QToolButton>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTest>
+#include <cmath>
 
 using atk::playback::CompareLayout;
 using atk::playback::ComparePane;
@@ -66,6 +69,10 @@ private slots:
     void audioModeChangeCannotPinVisualPlayhead();
     void playFromComparisonEndRestartsActiveRange();
     void compareBarHasGroupedControlHierarchy();
+    void offsetControlsUseExactTransientTimeAndReanchor();
+    void compositorProducesWipeBlendAndDifference();
+    void viewModeSwitchPreservesPlaybackAuthority();
+    void independentAndCompositeTransformsArePreserved();
 };
 
 void TestComparison::timestampMappingHasNoCumulativeDrift()
@@ -127,7 +134,7 @@ void TestComparison::enableLayoutActiveViewerAndExitAreNonDestructive()
     QCOMPARE(window.compareSession()->activePane(), ComparePane::B);
 
     QAction* videoFullscreen = command(window, "view.toggleVideoFullScreen");
-    QVERIFY(videoFullscreen && !videoFullscreen->isEnabled());
+    QVERIFY(videoFullscreen && videoFullscreen->isEnabled());
     toggle->trigger();
     QVERIFY(!window.isComparisonActive());
     QVERIFY(videoFullscreen->isEnabled());
@@ -288,7 +295,7 @@ void TestComparison::selectedAudioControlsWaveformMapping()
     audioMode->setCurrentIndex(2);
     QTRY_VERIFY(window.playbackController()->waveformGeneration() > externalGeneration);
     QVERIFY(window.playbackController()->waveform().isEmpty());
-    QCOMPARE(timeline->waveformTimeOffsetUs(), qint64(500'000));
+    QCOMPARE(timeline->waveformTimeOffsetUs(), qint64(0));
 
     audioMode->setCurrentIndex(1);
     sourceB->setCurrentIndex(1); // generated video-only source
@@ -440,21 +447,114 @@ void TestComparison::compareBarHasGroupedControlHierarchy()
         QVERIFY(window.findChild<QLabel*>(QString::fromLatin1(name)));
     auto* load = window.findChild<QToolButton*>(QStringLiteral("CompareLoadExternalAudio"));
     auto* clear = window.findChild<QToolButton*>(QStringLiteral("CompareClearExternalAudio"));
-    auto* side = window.findChild<QToolButton*>(QStringLiteral("CompareSideBySideButton"));
-    auto* stacked = window.findChild<QToolButton*>(QStringLiteral("CompareStackedButton"));
+    auto* view = window.findChild<QComboBox*>(QStringLiteral("CompareViewMode"));
+    auto* bOffset = window.findChild<QSpinBox*>(QStringLiteral("CompareBOffsetFrames"));
+    auto* audioOffset = window.findChild<QSpinBox*>(QStringLiteral("CompareExternalOffsetFrames"));
     auto* bar = window.findChild<QWidget*>(QStringLiteral("CompareBar"));
-    QVERIFY(load && clear && side && stacked && bar);
+    QVERIFY(load && clear && view && bOffset && audioOffset && bar);
     QCOMPARE(load->text(), QStringLiteral("Load…"));
     QCOMPARE(clear->text(), QStringLiteral("Clear"));
-    QVERIFY(side->isChecked());
-    stacked->click();
+    view->setCurrentIndex(view->findData(static_cast<int>(CompareLayout::Stacked)));
     QCOMPARE(window.compareSession()->layout(), CompareLayout::Stacked);
-    QVERIFY(stacked->isChecked());
-    QVERIFY(!side->isChecked());
-    QTRY_VERIFY(side->isVisible() && stacked->isVisible());
-    QVERIFY(side->width() > 0 && stacked->width() > 0);
-    QVERIFY2(stacked->mapTo(bar, stacked->rect().bottomRight()).x() < bar->width(),
-             "layout controls must remain inside the CompareBar at the saved window width");
+    QTRY_VERIFY(view->isVisible() && bOffset->isVisible());
+    QVERIFY2(view->mapTo(bar, view->rect().bottomRight()).x() < bar->width(),
+             "view controls must remain inside the CompareBar at the saved window width");
+}
+
+void TestComparison::offsetControlsUseExactTransientTimeAndReanchor()
+{
+    QTemporaryDir directory;
+    atk::ui::MainWindow window(directory.filePath(QStringLiteral("settings.ini")));
+    QVERIFY(window.openProjectFile(writeProject(directory)));
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->state(), PlayerState::Ready, 10000);
+    const bool modified = window.project()->isModified();
+    command(window, "view.toggleComparison")->trigger();
+    QTRY_VERIFY(window.compareVideoLane() && window.compareVideoLane()->isReady());
+    auto* bOffset = window.findChild<QSpinBox*>(QStringLiteral("CompareBOffsetFrames"));
+    QVERIFY(bOffset);
+    QCOMPARE(window.compareSession()->sourceBOffsetUs(), qint64(0));
+    bOffset->setValue(12);
+    QCOMPARE(window.compareSession()->sourceBOffsetUs(), qint64(500'000));
+    QTRY_COMPARE(window.compareVideoLane()->requestedTargetUs(), qint64(500'000));
+    bOffset->setValue(-1);
+    QCOMPARE(window.compareSession()->sourceBOffsetUs(), qint64(-41'666));
+    bOffset->setValue(0);
+    QCOMPARE(window.compareSession()->sourceBOffsetUs(), qint64(0));
+    QCOMPARE(window.project()->isModified(), modified);
+
+    const atk::media::FrameRate ntsc{24000, 1001};
+    QCOMPARE(CompareSession::frameTimeUs(24, ntsc), qint64(1'001'000));
+
+    const QUuid replacement = window.project()->entries().at(2).id;
+    auto* sourceB = window.findChild<QComboBox*>(QStringLiteral("CompareSourceB"));
+    bOffset->setValue(5);
+    sourceB->setCurrentIndex(window.project()->indexForId(replacement));
+    QTRY_COMPARE(window.compareSession()->sourceBId(), replacement);
+    QCOMPARE(window.compareSession()->sourceBOffsetUs(), qint64(0));
+    QCOMPARE(window.project()->isModified(), modified);
+}
+
+void TestComparison::compositorProducesWipeBlendAndDifference()
+{
+    const QImage red(4, 2, QImage::Format_ARGB32);
+    const QImage blue(4, 2, QImage::Format_ARGB32);
+    QImage a = red; a.fill(Qt::red);
+    QImage b = blue; b.fill(Qt::blue);
+    QImage wipe = atk::ui::ComparisonCompositeWidget::compositeImages(a, b, CompareLayout::Wipe, 50);
+    QCOMPARE(wipe.pixelColor(0, 0), QColor(Qt::red));
+    QCOMPARE(wipe.pixelColor(1, 0), QColor(Qt::red));
+    QCOMPARE(wipe.pixelColor(2, 0), QColor(Qt::blue));
+    QCOMPARE(atk::ui::ComparisonCompositeWidget::compositeImages(a, b, CompareLayout::Wipe, 0).pixelColor(0, 0), QColor(Qt::blue));
+    QCOMPARE(atk::ui::ComparisonCompositeWidget::compositeImages(a, b, CompareLayout::Wipe, 100).pixelColor(3, 0), QColor(Qt::red));
+    const QColor blend = atk::ui::ComparisonCompositeWidget::compositeImages(a, b, CompareLayout::Blend, 50).pixelColor(0, 0);
+    QVERIFY(std::abs(blend.red() - 127) <= 1 && std::abs(blend.blue() - 128) <= 1);
+    QCOMPARE(atk::ui::ComparisonCompositeWidget::compositeImages(a, a, CompareLayout::Difference, 0).pixelColor(0, 0), QColor(Qt::black));
+    QCOMPARE(atk::ui::ComparisonCompositeWidget::compositeImages(a, b, CompareLayout::Difference, 0).pixelColor(0, 0), QColor(255, 0, 255));
+}
+
+void TestComparison::viewModeSwitchPreservesPlaybackAuthority()
+{
+    QTemporaryDir directory;
+    atk::ui::MainWindow window(directory.filePath(QStringLiteral("settings.ini")));
+    window.show(); QVERIFY(window.openProjectFile(writeProject(directory)));
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->state(), PlayerState::Ready, 10000);
+    command(window, "view.toggleComparison")->trigger();
+    auto* view = window.findChild<QComboBox*>(QStringLiteral("CompareViewMode"));
+    QVERIFY(view);
+    window.playbackController()->play();
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->state(), PlayerState::Playing, 5000);
+    qint64 previous = window.playbackController()->currentFrame();
+    for (CompareLayout mode : {CompareLayout::Wipe, CompareLayout::Difference,
+                               CompareLayout::Blend, CompareLayout::Stacked}) {
+        view->setCurrentIndex(view->findData(static_cast<int>(mode)));
+        QCOMPARE(window.compareSession()->layout(), mode);
+        QTRY_VERIFY_WITH_TIMEOUT(window.playbackController()->currentFrame() > previous, 3000);
+        previous = window.playbackController()->currentFrame();
+    }
+    window.playbackController()->pause();
+}
+
+void TestComparison::independentAndCompositeTransformsArePreserved()
+{
+    QTemporaryDir directory;
+    atk::ui::MainWindow window(directory.filePath(QStringLiteral("settings.ini")));
+    window.show(); QVERIFY(window.openProjectFile(writeProject(directory)));
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->state(), PlayerState::Ready, 10000);
+    command(window, "view.toggleComparison")->trigger();
+    QTRY_VERIFY(window.compareVideoLane() && window.compareVideoLane()->isReady());
+    window.viewerA()->showActualSize(); window.viewerA()->zoomIn();
+    window.viewerB()->showActualSize(); window.viewerB()->zoomIn(); window.viewerB()->zoomIn();
+    const auto a = window.viewerA()->transform();
+    const auto b = window.viewerB()->transform();
+    auto* view = window.findChild<QComboBox*>(QStringLiteral("CompareViewMode"));
+    view->setCurrentIndex(view->findData(static_cast<int>(CompareLayout::Wipe)));
+    window.comparisonComposite()->showActualSize(); window.comparisonComposite()->zoomIn();
+    const auto composite = window.comparisonComposite()->transform();
+    view->setCurrentIndex(view->findData(static_cast<int>(CompareLayout::SideBySide)));
+    QCOMPARE(window.viewerA()->transform().scale(), a.scale());
+    QCOMPARE(window.viewerB()->transform().scale(), b.scale());
+    view->setCurrentIndex(view->findData(static_cast<int>(CompareLayout::Difference)));
+    QCOMPARE(window.comparisonComposite()->transform().scale(), composite.scale());
 }
 
 QTEST_MAIN(TestComparison)

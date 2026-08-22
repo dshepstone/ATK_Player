@@ -4,7 +4,7 @@ Milestones are ordered by dependency, not by preference. Each one should leave
 the application in a state that runs and is worth using — no milestone is a
 half-landed refactor.
 
-**Current milestone: M4 — A/B Comparison, in progress.**
+**Current milestone: M4 — A/B Comparison, complete and awaiting acceptance.**
 
 ---
 
@@ -160,16 +160,17 @@ Make a review session something you can save and hand to someone else.
 - [x] Fixed-pair replay from the Source A review-range start
 - [x] Grouped Sources / Audio / Layout comparison toolbar
 - [x] Fixed-pair range/Loop behavior
-- [ ] User-facing source offset controls
-- [ ] User-facing External Audio offset controls
-- [ ] Wipe comparison
-- [ ] Difference/blend display
-- [ ] Comparison video fullscreen
-- [ ] Additional comparison interaction and performance polish
+- [x] User-facing source offset controls
+- [x] User-facing External Audio offset controls
+- [x] Wipe comparison
+- [x] Difference/blend display
+- [x] Comparison video fullscreen
+- [x] Composite viewer transform and comparison interaction polish
 
-**Status:** IN PROGRESS. The foundation delivers synchronized horizontal and
-vertical A/B from one master clock. Offset editing and image-combination modes
-remain future M4 increments.
+**Status:** COMPLETE. M4 now provides synchronized A/B/External review from one
+Source A clock, frame-oriented time offsets, five presentation modes, selected
+waveform/audio mapping, and comparison video fullscreen. Human acceptance is the
+remaining release gate; M5 — Export and External API is next.
 
 ---
 

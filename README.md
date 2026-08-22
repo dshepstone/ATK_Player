@@ -79,16 +79,17 @@ marking disappears the moment a real file opens.
 
 **What is in progress or not implemented yet**
 
-- M4 A/B comparison now has its synchronized foundation: transient A/B source
-  selection, Side-by-Side and Stacked viewers, one Source A master clock,
+- M4 A/B comparison is complete: transient A/B source selection, Side-by-Side,
+  Stacked, Wipe, Blend and Difference views, one Source A master clock,
   timestamp mapping across different frame rates, independent viewer transforms,
   and selectable A, B, or independent External Audio through one output. This
   supports two animation-only takes sharing a dialogue/reference track. The
   Source A timeline displays the selected A/B/External soundtrack waveform, Play
-  from comparison end restarts at A's review-range start, and the comparison bar
-  groups Sources, Audio and Layout for faster scanning. Wipe,
-  difference/blend, offset controls and comparison
-  video fullscreen remain future M4 work.
+  from comparison end restarts at A's review-range start, B and External Audio
+  offsets use frame-oriented controls backed by signed microseconds, and selected
+  waveforms follow those offsets without reanalysis. Composite modes share one
+  zoom/pan transform, while dual views retain independent transforms. Video Full
+  Screen displays the active comparison presentation without recreating decoders.
 - Export (M5).
 - The API server opens no socket — only the dispatcher underneath it is real.
 - Maya and Harmony integrations, the MSI installer, macOS and Linux.

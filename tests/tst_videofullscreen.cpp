@@ -1,5 +1,6 @@
 #include "core/commands/CommandDefinitions.h"
 #include "media/MediaSource.h"
+#include "playback/CompareSession.h"
 #include "project/Project.h"
 #include "project/ProjectSerializer.h"
 #include "ui/ApplicationSettings.h"
@@ -8,6 +9,7 @@
 #include "ui/ViewerWidget.h"
 
 #include <QAction>
+#include <QComboBox>
 #include <QTemporaryDir>
 #include <QTest>
 
@@ -51,6 +53,7 @@ private slots:
     void playingPlaylistTransitionRemainsFullscreen();
     void loopAndLayoutRemainUnchanged();
     void shutdownWhileFullscreenIsSafe();
+    void comparisonModesEnterAndExitWithoutPlaybackMutation();
 };
 
 void TestVideoFullscreen::commandDefinitionAndNoMediaState()
@@ -184,6 +187,36 @@ void TestVideoFullscreen::shutdownWhileFullscreenIsSafe()
     window->enterVideoFullScreen();
     QVERIFY(window->isVideoFullScreen());
     delete window;
+}
+
+void TestVideoFullscreen::comparisonModesEnterAndExitWithoutPlaybackMutation()
+{
+    QTemporaryDir directory;
+    atk::ui::MainWindow window(directory.filePath(QStringLiteral("settings.ini")));
+    window.show();
+    QVERIFY(window.openProjectFile(writeProject(directory, 2)));
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->state(), PlayerState::Ready, 10000);
+    command(window, "view.toggleComparison")->trigger();
+    auto* view = window.findChild<QComboBox*>(QStringLiteral("CompareViewMode"));
+    QVERIFY(view);
+    for (auto mode : {atk::playback::CompareLayout::SideBySide,
+                      atk::playback::CompareLayout::Stacked,
+                      atk::playback::CompareLayout::Wipe,
+                      atk::playback::CompareLayout::Blend,
+                      atk::playback::CompareLayout::Difference}) {
+        view->setCurrentIndex(view->findData(static_cast<int>(mode)));
+        const qint64 frame = window.playbackController()->currentFrame();
+        const PlayerState state = window.playbackController()->state();
+        window.enterVideoFullScreen();
+        QTRY_VERIFY(window.isVideoFullScreen());
+        QCOMPARE(window.compareSession()->layout(), mode);
+        QCOMPARE(window.playbackController()->state(), state);
+        QCOMPARE(window.playbackController()->currentFrame(), frame);
+        window.exitVideoFullScreen();
+        QVERIFY(!window.isVideoFullScreen());
+        QVERIFY(window.isComparisonActive());
+        QCOMPARE(window.compareSession()->layout(), mode);
+    }
 }
 
 QTEST_MAIN(TestVideoFullscreen)

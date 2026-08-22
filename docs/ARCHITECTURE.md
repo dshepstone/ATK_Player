@@ -537,8 +537,9 @@ the controller to normal audio, scrub grains and frame-step grains.
 ### `src/playback/` — A/B comparison
 
 `CompareSession` is transient UI/session state: it holds the stable source A and
-B UUIDs, layout, active pane, a signed-microsecond B offset foundation and a
-generation. It is never serialized and cannot dirty `.atkproj` v1.
+B UUIDs, presentation mode, active pane, signed-microsecond B and External Audio
+offsets, wipe/blend values and a generation. It is never serialized and cannot
+dirty `.atkproj` v1.
 
 Source A remains the normal `PlaybackController` source. It owns the only
 `PlaybackClock`, timeline, bookmarks and authoritative review
@@ -553,7 +554,10 @@ are used to resolve constant-rate sources and decoded presentation timestamps
 remain the presentation authority. This naturally repeats or skips B frames for
 unequal frame rates without cumulative addition or drift. Targets clamp at B's
 range boundaries when B is shorter; extra B duration is simply unused when it
-is longer. The internal signed offset is zero and has no UI in this increment.
+is longer. Offsets remain authoritative signed microseconds. The CompareBar
+presents them in Source A frame units and converts each edit from the exact
+rational rate in one operation, so repeated nudges do not accumulate rounded
+frame durations. Positive B offset advances later into B's source timeline.
 
 B owns a generation-safe worker thread and a 64 MiB bounded cache. Only one
 decode request is in flight; a newer master target supersedes queued intent and
@@ -562,10 +566,15 @@ invalidates generations, disconnects delivery, stops the worker and joins its
 thread before destruction.
 
 The comparison host contains two independent `ViewerWidget` transforms in a
-splitter. Its compact bar groups Sources, Audio and Layout with separators;
-External Load/Clear are secondary actions and the layout actions present one
-checked choice. Side-by-Side and Stacked change only splitter orientation. The clicked
-pane receives Viewer Fit/100%/zoom commands. Source A audio is the default, but
+splitter plus one `ComparisonCompositeWidget`. Side-by-Side and Stacked only
+change splitter orientation and retain independent A/B transforms. Wipe, Blend
+and Difference consume the latest frames from those same decode lanes, map them
+onto an A-sized aspect-preserving black canvas, and use a separate shared
+composite transform. Wipe is a draggable vertical A-left/B-right split; Blend
+uses B opacity from 0–100%; Difference computes absolute RGB channel deltas with
+scanline access. Switching modes is presentation-only and never reopens media.
+The clicked dual pane, or the shared composite in composite modes, receives
+Viewer Fit/100%/zoom commands. Source A audio is the default, but
 `CompareAudioMode` can select Source B or a transient External file.
 `CompareAudioWorker` owns an audio-only reader on a dedicated thread, resamples
 the selected follower through libswresample, and fills the same bounded ring
@@ -587,7 +596,8 @@ so late A, B or replaced External results cannot overwrite the current display.
 The painter maps A media time into provider time using `B range origin +
 BOffsetUs - A range origin` or `externalAudioOffsetUs - A range origin`.
 Shorter follower audio therefore ends in an empty region rather than being
-stretched or looped. Only waveform lookup changes: ruler, playhead, frame
+stretched or looped. Offset edits update waveform mapping without decoding the
+same peaks again. Only waveform lookup changes: ruler, playhead, frame
 numbers, ranges, timecode and bookmarks remain Source A. Mode, path and offsets
 are transient: they do not dirty or serialize into `.atkproj`.
 
@@ -595,8 +605,12 @@ With comparison active,
 Loop OFF stops at A's range end and Loop ON repeats the fixed pair. A subsequent
 Play from the inclusive A range end seeks exactly to A's review-range start,
 remaps B and selected audio to comparison time zero, and starts the new run; the
-final frame remains visible until that explicit Play. Video Full Screen is
-temporarily disabled; application Full Screen remains available.
+final frame remains visible until that explicit Play. Video Full Screen reparents
+the current dual or composite presentation into the existing frameless host;
+there is no decoder recreation. It snapshots, fits and restores independent or
+composite transforms, retains mode/audio/playback state, targets the current
+screen, hides the idle cursor and exits with Escape. Application Full Screen
+remains a separate full-interface mode.
 
 ### `src/api/` — external control
 
