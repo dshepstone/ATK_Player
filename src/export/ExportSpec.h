@@ -4,10 +4,29 @@
 #include "playback/CompareSession.h"
 #include <QString>
 #include <QUuid>
+#include <QVector>
 
 namespace atk::exporter {
 
 enum class ExportKind { ReviewVideo, CurrentFrame, ImageSequence };
+
+struct ExportBurnIns {
+    bool frameNumber = false;
+    bool bookmarkLabels = false;
+    bool bookmarkNotes = false;
+
+    bool enabled() const { return frameNumber || bookmarkLabels || bookmarkNotes; }
+};
+
+struct ExportBookmark {
+    quint64 id = 0;
+    bool range = false;
+    qint64 startFrame = 0;
+    qint64 endFrame = 0;
+    QString name;
+    QString note;
+    int colorIndex = -1;
+};
 
 struct ExportSource {
     QUuid id;
@@ -32,6 +51,8 @@ struct ExportSpec {
     qint64 externalAudioOffsetUs = 0;
     QString outputPath;
     QString imagePrefix;
+    ExportBurnIns burnIns;
+    QVector<ExportBookmark> bookmarks;
     /// Optional output subset. Mapping origins remain the source review ranges.
     qint64 firstFrame = -1;
     qint64 lastFrame = -1;

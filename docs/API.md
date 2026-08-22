@@ -47,4 +47,12 @@ digits, such as `shot_0021.png`. Both commands share `get_export_status` and
 `cancel_export`; failed or cancelled sequences never install a partial final
 directory.
 
+All three export commands accept an optional `burnIns` object with boolean
+`frameNumber`, `bookmarkLabels`, and `bookmarkNotes` fields. Every field defaults
+to false, and omitting the object preserves clean export output. Frame-number
+text is the one-based Source A frame even in comparison mode. Bookmark burn-ins
+use a snapshot of Source A review bookmarks: points apply only on their exact
+frame and ranges apply inclusively. The Python wrappers expose matching trailing
+`frame_number`, `bookmark_labels`, and `bookmark_notes` keyword arguments.
+
 The standard-library reference client is in [`integrations/python`](../integrations/python/). Maya support in [`integrations/maya`](../integrations/maya/) maps scene frames to zero-based playblast frames rather than changing the protocol.

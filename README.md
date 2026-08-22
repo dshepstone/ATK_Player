@@ -96,8 +96,9 @@ marking disappears the moment a real file opens.
   independent of viewer visibility, zoom, crop, playback, and window size; it
   provides progress, cancellation, and atomic destination replacement. **Export
   Current Frame…** writes a lossless PNG, and **Export Image Sequence…** writes
-  the inclusive review range into a new atomically installed directory. Burn-ins
-  remain future M5 work.
+  the inclusive review range into a new atomically installed directory. All
+  three export forms offer optional Source A frame-number, bookmark-label, and
+  bookmark-note burn-ins; clean output remains the default.
 - The optional loopback API includes transport, projects, comparison, review
   video, current-frame PNG, and image-sequence export commands.
 - Maya and Harmony integrations, the MSI installer, macOS and Linux.

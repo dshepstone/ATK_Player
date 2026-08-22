@@ -1,4 +1,5 @@
 #include "export/ExportJob.h"
+#include "export/ExportBurnInRenderer.h"
 #include "export/ExportRenderer.h"
 #include "export/FFmpegExporter.h"
 #include "media/MediaDecoder.h"
@@ -144,8 +145,70 @@ private slots:
     void imageSequenceUsesInclusiveVisibleFrameNames();
     void imageExportBoundariesCollisionFailureAndCancellation();
     void apiImageExportsValidateAndShareStatus();
+    void burnInStringsActivationAndSnapshotAreDeterministic();
+    void burnInRasterIsBoundedAndCleanPathIsIdentical();
+    void stillAndComparisonBurnInsUseSourceAFrame();
     void manualPrivateMediaAcceptance();
 };
+
+void TestExport::burnInStringsActivationAndSnapshotAreDeterministic()
+{
+    QCOMPARE(exporter::ExportBurnInRenderer::frameNumberText(0), QStringLiteral("FRAME 1"));
+    QCOMPARE(exporter::ExportBurnInRenderer::frameNumberText(50), QStringLiteral("FRAME 51"));
+    QCOMPARE(exporter::ExportBurnInRenderer::frameNumberText(74), QStringLiteral("FRAME 75"));
+    exporter::ExportBookmark point{2, false, 50, 50, QStringLiteral("Pose Fix"), QStringLiteral("Note"), 0};
+    exporter::ExportBookmark range{1, true, 44, 74, {}, {}, -1};
+    QCOMPARE(exporter::ExportBurnInRenderer::bookmarkTitle(point), QStringLiteral("Pose Fix"));
+    QCOMPARE(exporter::ExportBurnInRenderer::bookmarkFrameText(point), QStringLiteral("Frame 51"));
+    QCOMPARE(exporter::ExportBurnInRenderer::bookmarkTitle(range), QStringLiteral("Bookmark"));
+    QCOMPARE(exporter::ExportBurnInRenderer::bookmarkFrameText(range), QStringLiteral("Frames 45–75"));
+    exporter::ExportSpec spec; spec.bookmarks = {point, range};
+    QCOMPARE(exporter::ExportBurnInRenderer::activeBookmarks(spec, 43).size(), 0);
+    QCOMPARE(exporter::ExportBurnInRenderer::activeBookmarks(spec, 44).size(), 1);
+    QCOMPARE(exporter::ExportBurnInRenderer::activeBookmarks(spec, 50).size(), 2);
+    QCOMPARE(exporter::ExportBurnInRenderer::activeBookmarks(spec, 74).size(), 1);
+    QCOMPARE(exporter::ExportBurnInRenderer::activeBookmarks(spec, 75).size(), 0);
+    auto snapshot = spec; spec.bookmarks[0].name = QStringLiteral("Changed"); spec.bookmarks.clear();
+    QCOMPARE(snapshot.bookmarks.size(), 2); QCOMPARE(snapshot.bookmarks[0].name, QStringLiteral("Pose Fix"));
+}
+
+void TestExport::burnInRasterIsBoundedAndCleanPathIsIdentical()
+{
+    QImage original(640, 360, QImage::Format_ARGB32); original.fill(QColor(40, 80, 120));
+    QImage clean = original; exporter::ExportSpec spec;
+    exporter::ExportBurnInRenderer::apply(clean, spec, 50); QCOMPARE(clean, original);
+    spec.burnIns.frameNumber = true;
+    QImage painted = original; exporter::ExportBurnInRenderer::apply(painted, spec, 50);
+    QCOMPARE(painted.size(), original.size()); QVERIFY(painted != original);
+    const QRect expected = exporter::ExportBurnInRenderer::frameNumberBounds(original.size());
+    for (int y = 0; y < painted.height(); ++y) for (int x = 0; x < painted.width(); ++x)
+        if (painted.pixel(x, y) != original.pixel(x, y)) QVERIFY(expected.contains(x, y));
+    spec.burnIns = {false, false, true};
+    spec.bookmarks = {{1, true, 44, 74, {}, QStringLiteral("Line one\nA very long note that must wrap safely inside the bounded card area."), 999}};
+    painted = original; exporter::ExportBurnInRenderer::apply(painted, spec, 50);
+    const QRect area = exporter::ExportBurnInRenderer::bookmarkBounds(original.size());
+    for (int y = 0; y < painted.height(); ++y) for (int x = 0; x < painted.width(); ++x)
+        if (painted.pixel(x, y) != original.pixel(x, y)) QVERIFY(area.contains(x, y));
+}
+
+void TestExport::stillAndComparisonBurnInsUseSourceAFrame()
+{
+    QTemporaryDir directory; QVERIFY(directory.isValid()); QString error;
+    auto cleanSpec = specFor(exportFixture(), QDir(directory.path()).filePath(QStringLiteral("clean.png")), 0, 119);
+    cleanSpec.kind = exporter::ExportKind::CurrentFrame; cleanSpec.firstFrame = cleanSpec.lastFrame = 50;
+    QVERIFY2(runExport(cleanSpec, &error), qPrintable(error)); QImage clean(cleanSpec.outputPath);
+    auto burned = cleanSpec; burned.outputPath = QDir(directory.path()).filePath(QStringLiteral("burned.png"));
+    burned.burnIns.frameNumber = true; QVERIFY2(runExport(burned, &error), qPrintable(error));
+    QImage overlay(burned.outputPath); QCOMPARE(overlay.size(), clean.size()); QVERIFY(overlay != clean);
+    const QRect badge = exporter::ExportBurnInRenderer::frameNumberBounds(clean.size());
+    QCOMPARE(overlay.copy(QRect(0, badge.bottom() + 1, overlay.width(), overlay.height() - badge.bottom() - 1)),
+             clean.copy(QRect(0, badge.bottom() + 1, clean.width(), clean.height() - badge.bottom() - 1)));
+    burned.outputPath = QDir(directory.path()).filePath(QStringLiteral("difference.png"));
+    burned.comparison = true; burned.sourceB = burned.sourceA; burned.layout = playback::CompareLayout::Difference;
+    QVERIFY2(runExport(burned, &error), qPrintable(error)); QImage difference(burned.outputPath);
+    QCOMPARE(difference.size(), burned.contentSize()); QVERIFY(difference != clean);
+    QCOMPARE(difference.pixelColor(difference.width() / 2, difference.height() / 2), QColor(Qt::black));
+}
 
 void TestExport::compositorModesAreDeterministic()
 {
@@ -388,10 +451,17 @@ void TestExport::apiImageExportsValidateAndShareStatus()
                      {{QStringLiteral("path"), QStringLiteral("relative.png")}}).ok);
     QVERIFY(!request(QStringLiteral("export_image_sequence"),
                      {{QStringLiteral("directory"), QStringLiteral("relative")}}).ok);
+    QVERIFY(!request(QStringLiteral("export_frame"), {{QStringLiteral("path"),
+        QDir(directory.path()).filePath(QStringLiteral("invalid.png"))},
+        {QStringLiteral("burnIns"), true}}).ok);
+    QVERIFY(!request(QStringLiteral("export_frame"), {{QStringLiteral("path"),
+        QDir(directory.path()).filePath(QStringLiteral("invalid2.png"))},
+        {QStringLiteral("burnIns"), QJsonObject{{QStringLiteral("frameNumber"), 1}}}}).ok);
 
     const QString framePath = QDir(directory.path()).filePath(QStringLiteral("api_0051.png"));
     const auto frame = request(QStringLiteral("export_frame"), {
-        {QStringLiteral("path"), framePath}, {QStringLiteral("frame"), 50}});
+        {QStringLiteral("path"), framePath}, {QStringLiteral("frame"), 50},
+        {QStringLiteral("burnIns"), QJsonObject{{QStringLiteral("frameNumber"), true}}}});
     QVERIFY(frame.ok); QVERIFY(!frame.result.value(QStringLiteral("jobId")).toString().isEmpty());
     QJsonObject status;
     QTRY_VERIFY_WITH_TIMEOUT((status = request(QStringLiteral("get_export_status")).result)
