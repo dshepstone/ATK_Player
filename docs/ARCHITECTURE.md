@@ -541,7 +541,7 @@ B UUIDs, layout, active pane, a signed-microsecond B offset foundation and a
 generation. It is never serialized and cannot dirty `.atkproj` v1.
 
 Source A remains the normal `PlaybackController` source. It owns the only
-`PlaybackClock`, audio, timeline, waveform, bookmarks and authoritative review
+`PlaybackClock`, timeline, bookmarks and authoritative review
 range. Each accepted A `VideoFrame::ptsUs` establishes comparison time relative
 to A's range origin. `CompareVideoLane` maps that time onto B's own range origin
 and asks a video-only `DecoderWorker` for the corresponding B presentation. B
@@ -562,7 +562,9 @@ invalidates generations, disconnects delivery, stops the worker and joins its
 thread before destruction.
 
 The comparison host contains two independent `ViewerWidget` transforms in a
-splitter. Side-by-Side and Stacked change only splitter orientation. The clicked
+splitter. Its compact bar groups Sources, Audio and Layout with separators;
+External Load/Clear are secondary actions and the layout actions present one
+checked choice. Side-by-Side and Stacked change only splitter orientation. The clicked
 pane receives Viewer Fit/100%/zoom commands. Source A audio is the default, but
 `CompareAudioMode` can select Source B or a transient External file.
 `CompareAudioWorker` owns an audio-only reader on a dedicated thread, resamples
@@ -576,13 +578,25 @@ normalized stream origin plus the internal signed `externalAudioOffsetUs`.
 Mode/source generations flush stale PCM on mode changes, seeks, loops, source
 replacement, compare exit and shutdown. Missing or shorter audio contributes
 silence and never changes A's duration. The selected source also feeds existing
-timestamp-mapped scrub and frame-step grains, including reverse scrub. Waveform
-display remains Source A for this increment. Mode, path and offsets are
-transient: they do not dirty or serialize into `.atkproj`.
+timestamp-mapped scrub and frame-step grains, including reverse scrub.
+
+The waveform follows the selected soundtrack through the existing dedicated
+`WaveformWorker` and its independent FFmpeg context, never the live audio
+decoder. Every request receives a monotonically increasing waveform generation,
+so late A, B or replaced External results cannot overwrite the current display.
+The painter maps A media time into provider time using `B range origin +
+BOffsetUs - A range origin` or `externalAudioOffsetUs - A range origin`.
+Shorter follower audio therefore ends in an empty region rather than being
+stretched or looped. Only waveform lookup changes: ruler, playhead, frame
+numbers, ranges, timecode and bookmarks remain Source A. Mode, path and offsets
+are transient: they do not dirty or serialize into `.atkproj`.
 
 With comparison active,
-Loop OFF stops at A's range end and Loop ON repeats the fixed pair. Video Full
-Screen is temporarily disabled; application Full Screen remains available.
+Loop OFF stops at A's range end and Loop ON repeats the fixed pair. A subsequent
+Play from the inclusive A range end seeks exactly to A's review-range start,
+remaps B and selected audio to comparison time zero, and starts the new run; the
+final frame remains visible until that explicit Play. Video Full Screen is
+temporarily disabled; application Full Screen remains available.
 
 ### `src/api/` — external control
 

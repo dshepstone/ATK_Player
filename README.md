@@ -83,7 +83,10 @@ marking disappears the moment a real file opens.
   selection, Side-by-Side and Stacked viewers, one Source A master clock,
   timestamp mapping across different frame rates, independent viewer transforms,
   and selectable A, B, or independent External Audio through one output. This
-  supports two animation-only takes sharing a dialogue/reference track. Wipe,
+  supports two animation-only takes sharing a dialogue/reference track. The
+  Source A timeline displays the selected A/B/External soundtrack waveform, Play
+  from comparison end restarts at A's review-range start, and the comparison bar
+  groups Sources, Audio and Layout for faster scanning. Wipe,
   difference/blend, offset controls and comparison
   video fullscreen remain future M4 work.
 - Export (M5).

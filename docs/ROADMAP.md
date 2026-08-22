@@ -156,6 +156,9 @@ Make a review session something you can save and hand to someone else.
 - [x] Independent A/B viewer transforms and active-pane commands
 - [x] Selectable Source A, Source B, or independent External comparison audio
 - [x] One-output follower routing with timestamp-mapped scrub/step audio
+- [x] Selected A/B/External waveform mapped onto Source A comparison time
+- [x] Fixed-pair replay from the Source A review-range start
+- [x] Grouped Sources / Audio / Layout comparison toolbar
 - [x] Fixed-pair range/Loop behavior
 - [ ] User-facing source offset controls
 - [ ] User-facing External Audio offset controls
