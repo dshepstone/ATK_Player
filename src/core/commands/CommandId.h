@@ -56,6 +56,8 @@ enum class CommandId {
     ToggleFrameStepAudio,
     VolumeUp,
     VolumeDown,
+    LoadExternalAudio,
+    ClearExternalAudio,
 
     // View
     ZoomIn,

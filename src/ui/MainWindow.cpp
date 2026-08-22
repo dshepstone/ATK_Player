@@ -6,6 +6,7 @@
 #include "core/Logging.h"
 #include "core/Version.h"
 #include "media/MediaSource.h"
+#include "media/CompareAudioWorker.h"
 #include "media/PlaylistProbeWorker.h"
 #include "project/Project.h"
 #include "project/ProjectSerializer.h"
@@ -165,6 +166,8 @@ void MainWindow::buildModels()
                     activatePlaylistIndex(index, false);
                 } else if (isComparisonActive() && id == m_compare->sourceBId()) {
                     openComparisonSourceB();
+                    if (m_compare->audioMode() == playback::CompareAudioMode::SourceB)
+                        applyComparisonAudioMode(playback::CompareAudioMode::SourceB);
                 }
                 return;
             }
@@ -400,6 +403,7 @@ void MainWindow::connectSignals()
             [this] { if (isComparisonActive()) m_compare->setActivePane(playback::ComparePane::B); });
     connect(m_compareBar, &CompareBar::sourceASelected, this, &MainWindow::selectComparisonSourceA);
     connect(m_compareBar, &CompareBar::sourceBSelected, this, &MainWindow::selectComparisonSourceB);
+    connect(m_compareBar, &CompareBar::audioModeSelected, this, &MainWindow::applyComparisonAudioMode);
     connect(m_compare.get(), &playback::CompareSession::layoutChanged,
             this, &MainWindow::setComparisonLayout);
     connect(m_compare.get(), &playback::CompareSession::activePaneChanged, this,
@@ -424,6 +428,9 @@ void MainWindow::connectSignals()
             if (replacementB < 0) exitComparison();
             else { m_compare->setSources(m_compare->sourceAId(), m_project->entries().at(replacementB).id); openComparisonSourceB(); }
         }
+        if (isComparisonActive()
+            && m_compare->audioMode() == playback::CompareAudioMode::SourceB)
+            applyComparisonAudioMode(playback::CompareAudioMode::SourceB);
         refreshComparisonUi();
     });
 
@@ -720,6 +727,10 @@ void MainWindow::onCommand(CommandId id, bool checked)
     case CommandId::CompareStacked:
         if (checked) m_compare->setLayout(playback::CompareLayout::Stacked);
         return;
+    case CommandId::LoadExternalAudio:
+        loadExternalAudio(); return;
+    case CommandId::ClearExternalAudio:
+        clearExternalAudio(); return;
     case CommandId::ToggleSourcesPanel:
         m_sourcesDock->setVisible(checked);
         return;
@@ -988,6 +999,9 @@ void MainWindow::updateTransportEnabled()
     m_commands->action(CommandId::ToggleComparison)->setEnabled(m_playback->hasMedia() && usableSources >= 2);
     m_commands->action(CommandId::CompareSideBySide)->setEnabled(isComparisonActive());
     m_commands->action(CommandId::CompareStacked)->setEnabled(isComparisonActive());
+    m_commands->action(CommandId::LoadExternalAudio)->setEnabled(isComparisonActive());
+    m_commands->action(CommandId::ClearExternalAudio)->setEnabled(
+        isComparisonActive() && !m_compare->externalAudioPath().isEmpty());
 
     for (const commands::CommandId id : { commands::CommandId::PlayPause,
                                           commands::CommandId::Stop,
@@ -1115,6 +1129,9 @@ void MainWindow::onMediaOpened(const media::MediaMetadata& metadata)
         m_sources->setCurrentMedia(metadata.fileName, metadata.shortDescription());
     }
     m_statusInfo->setMediaInfo(metadata.fileName, metadata.hasExactFrameCount());
+
+    if (isComparisonActive() && m_compare->audioMode() != playback::CompareAudioMode::SourceA)
+        applyComparisonAudioMode(m_compare->audioMode());
 
     updateTransportEnabled();
     updateWindowTitle();
@@ -1500,6 +1517,7 @@ void MainWindow::enterComparison()
     }
 
     m_compare->setActive(true);
+    m_compare->setAudioMode(playback::CompareAudioMode::SourceA);
     m_compare->setActivePane(playback::ComparePane::A);
     m_centralLayout->removeWidget(m_viewer);
     m_compareSplitter->insertWidget(0, m_viewer);
@@ -1533,6 +1551,7 @@ void MainWindow::enterComparison()
 void MainWindow::exitComparison()
 {
     if (!isComparisonActive()) return;
+    m_playback->clearComparisonAudioSource();
     m_compareLane.reset();
     m_compareHost->hide();
     m_centralLayout->removeWidget(m_compareHost);
@@ -1581,6 +1600,8 @@ void MainWindow::selectComparisonSourceB(const QUuid& id)
     if (!sourceUsableForComparison(index)) { refreshComparisonUi(); return; }
     m_compare->setSources(m_compare->sourceAId(), id);
     openComparisonSourceB();
+    if (m_compare->audioMode() == playback::CompareAudioMode::SourceB)
+        applyComparisonAudioMode(playback::CompareAudioMode::SourceB);
     refreshComparisonUi();
 }
 
@@ -1621,6 +1642,71 @@ void MainWindow::refreshComparisonUi()
     m_compareBar->refresh(m_compare->sourceAId(), m_compare->sourceBId());
     const int a = m_project->indexForId(m_compare->sourceAId());
     if (a >= 0) m_viewer->setCornerLabel(tr("A\n%1").arg(m_project->entries().at(a).displayName));
+    const int b = m_project->indexForId(m_compare->sourceBId());
+    const bool aAudio = a >= 0 && m_project->entries().at(a).source
+        && m_project->entries().at(a).source->metadata().hasAudio;
+    const bool bAudio = b >= 0 && m_project->entries().at(b).source
+        && m_project->entries().at(b).source->metadata().hasAudio;
+    m_compareBar->setAudioState(m_compare->audioMode(), m_compare->externalAudioPath(),
+                                aAudio, bAudio);
+    if (QAction* clear = m_commands->action(CommandId::ClearExternalAudio))
+        clear->setEnabled(!m_compare->externalAudioPath().isEmpty());
+}
+
+void MainWindow::applyComparisonAudioMode(playback::CompareAudioMode mode)
+{
+    if (!isComparisonActive()) return;
+    m_compare->setAudioMode(mode);
+    if (mode == playback::CompareAudioMode::SourceA) {
+        m_playback->clearComparisonAudioSource();
+    } else {
+        QString path; qint64 providerOriginUs = 0; bool hasAudio = false;
+        if (mode == playback::CompareAudioMode::SourceB) {
+            const int index = m_project->indexForId(m_compare->sourceBId());
+            if (index >= 0) {
+                const auto& entry = m_project->entries().at(index);
+                path = entry.source ? entry.source->filePath() : QString();
+                hasAudio = entry.source && entry.source->metadata().hasAudio;
+                const qint64 startFrame = entry.playbackRange.enabled
+                    ? entry.playbackRange.startFrame : 0;
+                providerOriginUs = playback::CompareSession::frameTimeUs(
+                    startFrame, entry.source->metadata().frameRate) + m_compare->sourceBOffsetUs();
+            }
+        } else {
+            path = m_compare->externalAudioPath();
+            hasAudio = !path.isEmpty();
+            providerOriginUs = m_compare->externalAudioOffsetUs();
+        }
+        const qint64 masterOriginUs = playback::CompareSession::frameTimeUs(
+            m_timeline->effectiveStartFrame(), m_playback->metadata().frameRate);
+        m_playback->setComparisonAudioSource(path, providerOriginUs, masterOriginUs, hasAudio);
+    }
+    refreshComparisonUi();
+}
+
+void MainWindow::loadExternalAudio()
+{
+    if (!isComparisonActive()) return;
+    const QString path = QFileDialog::getOpenFileName(this, tr("Load External Audio"), QString(),
+        tr("Audio and Media (*.wav *.mp3 *.m4a *.aac *.flac *.ogg *.opus *.mp4 *.mov);;All Files (*)"));
+    if (path.isEmpty()) return;
+    QString error;
+    if (!media::CompareAudioWorker::validateSource(path, &error)) {
+        QMessageBox::warning(this, tr("External Audio"),
+                             tr("The selected file does not contain a usable audio stream."));
+        return;
+    }
+    m_compare->setExternalAudioPath(path);
+    applyComparisonAudioMode(playback::CompareAudioMode::External);
+}
+
+void MainWindow::clearExternalAudio()
+{
+    if (!isComparisonActive()) return;
+    m_compare->setExternalAudioPath(QString());
+    if (m_compare->audioMode() == playback::CompareAudioMode::External)
+        applyComparisonAudioMode(playback::CompareAudioMode::External);
+    else refreshComparisonUi();
 }
 
 ViewerWidget* MainWindow::activeViewer() const

@@ -68,6 +68,8 @@ constexpr std::array kCommands{
     CommandDefinition{ CommandId::ToggleFrameStepAudio,"audio.toggleFrameStep",QT_TRANSLATE_NOOP("Command", "Frame-step Audio"),     C::Audio,    nullptr,        true  },
     CommandDefinition{ CommandId::VolumeUp,           "audio.volumeUp",        QT_TRANSLATE_NOOP("Command", "Volume Up"),            C::Audio,    "Ctrl+Up",      false },
     CommandDefinition{ CommandId::VolumeDown,         "audio.volumeDown",      QT_TRANSLATE_NOOP("Command", "Volume Down"),          C::Audio,    "Ctrl+Down",    false },
+    CommandDefinition{ CommandId::LoadExternalAudio,  "audio.loadExternal",   QT_TRANSLATE_NOOP("Command", "Load External Audio..."), C::Audio, nullptr, false },
+    CommandDefinition{ CommandId::ClearExternalAudio, "audio.clearExternal",  QT_TRANSLATE_NOOP("Command", "Clear External Audio"), C::Audio, nullptr, false },
 
     // View
     CommandDefinition{ CommandId::ZoomIn,             "view.zoomIn",           QT_TRANSLATE_NOOP("Command", "Zoom In"),              C::View,     "Ctrl+=",       false },

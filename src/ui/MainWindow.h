@@ -23,7 +23,7 @@ class QVBoxLayout;
 class QSplitter;
 
 namespace atk::api { class ApiServer; }
-namespace atk::playback { class CompareSession; class CompareVideoLane; enum class CompareLayout; }
+namespace atk::playback { class CompareSession; class CompareVideoLane; enum class CompareLayout; enum class CompareAudioMode; }
 namespace atk::project { class Project; }
 namespace atk::media { class PlaylistProbeWorker; }
 namespace atk::timeline { class TimelineModel; }
@@ -138,6 +138,9 @@ private:
     int defaultComparisonBIndex(int sourceAIndex) const;
     bool sourceUsableForComparison(int index) const;
     void refreshComparisonUi();
+    void applyComparisonAudioMode(playback::CompareAudioMode mode);
+    void loadExternalAudio();
+    void clearExternalAudio();
     ViewerWidget* activeViewer() const;
 
 
