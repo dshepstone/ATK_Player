@@ -442,6 +442,10 @@ void MainWindow::connectSignals()
     // repaint request crosses to the widget, never a copy of the peaks.
     connect(m_playback.get(), &playback::PlaybackController::waveformChanged,
             this, [this] { m_timelineWidget->refreshWaveform(); });
+    connect(m_playback.get(), &playback::PlaybackController::waveformSourceChanged,
+            m_timelineWidget, [this](qint64 offsetUs, quint64) {
+                m_timelineWidget->setWaveformTimeOffsetUs(offsetUs);
+            });
 
     // A quiet, self-clearing note rather than a progress bar: analysis is
     // usually over in seconds and the player should not grow a widget for it.
@@ -943,6 +947,11 @@ void MainWindow::onPlayerStateChanged(playback::PlayerState state)
 
     switch (state) {
     case PlayerState::Playing:
+        // A released scrub preview is presentation-only. Starting playback
+        // always hands the playhead back to Source A's authoritative model,
+        // including when the release landed on the already-current frame and
+        // therefore produced no currentFrameChanged signal to clear it.
+        m_timelineWidget->followAuthoritativeFrame();
         m_playlistPlaybackActive = true;
         statusBar()->showMessage(tr("Playing"), 1500);
         break;
@@ -1553,8 +1562,7 @@ void MainWindow::exitComparison()
 {
     if (!isComparisonActive()) return;
     m_playback->clearComparisonAudioSource();
-    m_playback->clearComparisonWaveformSource();
-    m_timelineWidget->setWaveformTimeOffsetUs(0);
+    m_playback->clearComparisonWaveformSource(m_compare->generation());
     m_compareLane.reset();
     m_compareHost->hide();
     m_centralLayout->removeWidget(m_compareHost);
@@ -1662,8 +1670,7 @@ void MainWindow::applyComparisonAudioMode(playback::CompareAudioMode mode)
     m_compare->setAudioMode(mode);
     if (mode == playback::CompareAudioMode::SourceA) {
         m_playback->clearComparisonAudioSource();
-        m_playback->clearComparisonWaveformSource();
-        m_timelineWidget->setWaveformTimeOffsetUs(0);
+        m_playback->clearComparisonWaveformSource(m_compare->generation());
     } else {
         QString path; qint64 providerOriginUs = 0; bool hasAudio = false;
         if (mode == playback::CompareAudioMode::SourceB) {
@@ -1685,8 +1692,8 @@ void MainWindow::applyComparisonAudioMode(playback::CompareAudioMode mode)
         const qint64 masterOriginUs = playback::CompareSession::frameTimeUs(
             m_timeline->effectiveStartFrame(), m_playback->metadata().frameRate);
         m_playback->setComparisonAudioSource(path, providerOriginUs, masterOriginUs, hasAudio);
-        m_playback->setComparisonWaveformSource(path, hasAudio);
-        m_timelineWidget->setWaveformTimeOffsetUs(providerOriginUs - masterOriginUs);
+        m_playback->setComparisonWaveformSource(path, hasAudio, providerOriginUs,
+                                                masterOriginUs, m_compare->generation());
     }
     refreshComparisonUi();
 }

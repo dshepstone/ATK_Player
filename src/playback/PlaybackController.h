@@ -116,9 +116,14 @@ public:
 
     /// Waveform peaks for the open media. Empty until analysis produces some.
     const media::WaveformData& waveform() const { return m_waveform; }
-    void setComparisonWaveformSource(const QString& path, bool sourceHasAudio);
-    void clearComparisonWaveformSource();
+    void setComparisonWaveformSource(const QString& path, bool sourceHasAudio,
+                                     qint64 providerOriginUs, qint64 masterOriginUs,
+                                     quint64 selectionGeneration);
+    void clearComparisonWaveformSource(quint64 selectionGeneration = 0);
     quint64 waveformGeneration() const { return m_waveformGeneration; }
+    QString waveformSourcePath() const { return m_waveformSourcePath; }
+    qint64 waveformTimeOffsetUs() const { return m_waveformTimeOffsetUs; }
+    quint64 waveformSelectionGeneration() const { return m_waveformSelectionGeneration; }
 
     void beginScrub();
     void scrubToFrame(int64_t frame);
@@ -189,6 +194,7 @@ signals:
 
     /// More waveform peaks are available, or the waveform was cleared.
     void waveformChanged();
+    void waveformSourceChanged(qint64 timeOffsetUs, quint64 waveformGeneration);
 
     /// True while background waveform analysis is running, so the UI can say so
     /// unobtrusively rather than leaving a half-drawn waveform unexplained.
@@ -312,7 +318,8 @@ private:
     qint64 comparisonProviderTimeUs(qint64 sourceATimeUs) const;
     void restartSelectedAudioAt(qint64 sourceATimeUs);
 
-    void startWaveformAnalysis(const QString& filePath, bool sourceHasAudio = true);
+    void startWaveformAnalysis(const QString& filePath, bool sourceHasAudio,
+                               qint64 timeOffsetUs, quint64 selectionGeneration);
     void finishScrubIfReady();
     void enqueueNavigationTarget(int64_t frame);
     void dispatchNavigationDecode();
@@ -394,6 +401,9 @@ private:
     media::WaveformWorker* m_waveformWorker = nullptr;
     media::WaveformData m_waveform;
     quint64 m_waveformGeneration = 0;
+    QString m_waveformSourcePath;
+    qint64 m_waveformTimeOffsetUs = 0;
+    quint64 m_waveformSelectionGeneration = 0;
 
     QThread* m_scrubAudioThread = nullptr;
     media::ScrubAudioWorker* m_scrubAudioWorker = nullptr;

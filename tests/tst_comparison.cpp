@@ -62,6 +62,8 @@ private slots:
     void compareAudioModesAreTransientAndMapped();
     void externalAudioValidationAndSilentMode();
     void selectedAudioControlsWaveformMapping();
+    void firstExternalWaveformIsAuthoritative();
+    void audioModeChangeCannotPinVisualPlayhead();
     void playFromComparisonEndRestartsActiveRange();
     void compareBarHasGroupedControlHierarchy();
 };
@@ -264,6 +266,8 @@ void TestComparison::selectedAudioControlsWaveformMapping()
     QTRY_VERIFY_WITH_TIMEOUT(window.playbackController()->waveformGeneration() > aGeneration, 5000);
     QTRY_VERIFY_WITH_TIMEOUT(window.playbackController()->waveform().isComplete(), 5000);
     QCOMPARE(timeline->waveformTimeOffsetUs(), qint64(250'000));
+    QCOMPARE(window.playbackController()->waveformTimeOffsetUs(), qint64(250'000));
+    QCOMPARE(window.playbackController()->waveformSourcePath(), media("atk_compare_30fps.mkv"));
     QVERIFY(!window.playbackController()->waveform().isEmpty());
 
     const quint64 bGeneration = window.playbackController()->waveformGeneration();
@@ -273,6 +277,8 @@ void TestComparison::selectedAudioControlsWaveformMapping()
     QTRY_VERIFY_WITH_TIMEOUT(window.playbackController()->waveformGeneration() > bGeneration, 5000);
     QTRY_VERIFY_WITH_TIMEOUT(window.playbackController()->waveform().isComplete(), 5000);
     QCOMPARE(timeline->waveformTimeOffsetUs(), qint64(500'000));
+    QCOMPARE(window.playbackController()->waveformTimeOffsetUs(), qint64(500'000));
+    QCOMPARE(window.playbackController()->waveformSourcePath(), media("atk_external_32k.wav"));
     QVERIFY(window.playbackController()->waveform().coveredUs() >= 2'900'000);
     QVERIFY(window.playbackController()->waveform().coveredUs() <= 3'100'000);
 
@@ -288,6 +294,103 @@ void TestComparison::selectedAudioControlsWaveformMapping()
     sourceB->setCurrentIndex(1); // generated video-only source
     QTRY_COMPARE(window.compareSession()->sourceBId(), window.project()->entries().at(1).id);
     QTRY_VERIFY(window.playbackController()->waveform().isEmpty());
+}
+
+void TestComparison::firstExternalWaveformIsAuthoritative()
+{
+    QTemporaryDir directory;
+    atk::ui::MainWindow window(directory.filePath(QStringLiteral("settings.ini")));
+    QVERIFY(window.openProjectFile(writeProject(directory)));
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->state(), PlayerState::Ready, 10000);
+    QTRY_VERIFY_WITH_TIMEOUT(window.playbackController()->waveform().isComplete(), 5000);
+    command(window, "view.toggleComparison")->trigger();
+    auto* audioMode = window.findChild<QComboBox*>(QStringLiteral("CompareAudioMode"));
+    QVERIFY(audioMode);
+
+    // The review fixture has deliberately silent and active regions, unlike A's
+    // continuous tone. This makes an accidentally retained A waveform fail.
+    const QString external = media("atk_review_10s.mkv");
+    window.compareSession()->setExternalAudioPath(external);
+    audioMode->setCurrentIndex(2);
+    QTRY_COMPARE(window.playbackController()->waveformSourcePath(), external);
+    QCOMPARE(window.playbackController()->waveformSelectionGeneration(),
+             window.compareSession()->generation());
+    QTRY_VERIFY_WITH_TIMEOUT(window.playbackController()->waveform().isComplete(), 5000);
+    const auto& first = window.playbackController()->waveform();
+    QVERIFY(first.peakOverRange(0, 100'000, 300'000).isSilent());
+    QVERIFY(first.peakOverRange(0, 1'600'000, 1'900'000).amplitude() > 0.01f);
+    const auto firstBuckets = first.level(0);
+
+    audioMode->setCurrentIndex(0);
+    QTRY_COMPARE(window.playbackController()->waveformSourcePath(), media("atk_fixture_48f.mkv"));
+    audioMode->setCurrentIndex(2);
+    QTRY_COMPARE(window.playbackController()->waveformSourcePath(), external);
+    QTRY_VERIFY_WITH_TIMEOUT(window.playbackController()->waveform().isComplete(), 5000);
+    const auto secondBuckets = window.playbackController()->waveform().level(0);
+    QCOMPARE(secondBuckets.size(), firstBuckets.size());
+    for (qsizetype i = 0; i < firstBuckets.size(); i += 97) {
+        QCOMPARE(secondBuckets.at(i).minimum, firstBuckets.at(i).minimum);
+        QCOMPARE(secondBuckets.at(i).maximum, firstBuckets.at(i).maximum);
+    }
+
+    // Rapid replacements must settle on the last immutable request snapshot.
+    window.compareSession()->setExternalAudioPath(media("atk_external_32k.wav"));
+    audioMode->setCurrentIndex(0); audioMode->setCurrentIndex(2);
+    window.compareSession()->setExternalAudioPath(external);
+    audioMode->setCurrentIndex(0); audioMode->setCurrentIndex(2);
+    window.compareSession()->setExternalAudioPath(media("atk_external_32k.wav"));
+    audioMode->setCurrentIndex(0); audioMode->setCurrentIndex(2);
+    QTRY_COMPARE(window.playbackController()->waveformSourcePath(), media("atk_external_32k.wav"));
+    QTRY_VERIFY_WITH_TIMEOUT(window.playbackController()->waveform().isComplete(), 5000);
+    QVERIFY(window.playbackController()->waveform().coveredUs() < 3'100'000);
+}
+
+void TestComparison::audioModeChangeCannotPinVisualPlayhead()
+{
+    QTemporaryDir directory;
+    atk::ui::MainWindow window(directory.filePath(QStringLiteral("settings.ini")));
+    window.show();
+    QVERIFY(window.openProjectFile(writeProject(directory)));
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->state(), PlayerState::Ready, 10000);
+    command(window, "view.toggleComparison")->trigger();
+    auto* sourceB = window.findChild<QComboBox*>(QStringLiteral("CompareSourceB"));
+    auto* audioMode = window.findChild<QComboBox*>(QStringLiteral("CompareAudioMode"));
+    auto* timeline = window.findChild<atk::ui::TimelineWidget*>(QStringLiteral("TimelineWidget"));
+    QVERIFY(sourceB && audioMode && timeline);
+    sourceB->setCurrentIndex(2);
+    QTRY_COMPARE(window.compareSession()->sourceBId(), window.project()->entries().at(2).id);
+
+    // Reproduce the visual-only stale overlay: release a scrub on the already
+    // current first frame, which does not make TimelineModel emit a change.
+    const QPoint firstFrame(timeline->positionForFrame(0), timeline->height() - 18);
+    QTest::mousePress(timeline, Qt::LeftButton, Qt::NoModifier, firstFrame);
+    QTest::mouseRelease(timeline, Qt::LeftButton, Qt::NoModifier, firstFrame);
+    QCOMPARE(timeline->displayedFrame(), qint64(0));
+
+    audioMode->setCurrentIndex(1);
+    command(window, "playback.playPause")->trigger();
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->state(), PlayerState::Playing, 5000);
+    QTRY_VERIFY_WITH_TIMEOUT(window.playbackController()->currentFrame() > 2, 5000);
+    QTRY_COMPARE(timeline->displayedFrame(), window.playbackController()->currentFrame());
+    window.playbackController()->pause();
+
+    window.playbackController()->seekFrame(10);
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->currentFrame(), qint64(10), 5000);
+    window.compareSession()->setExternalAudioPath(media("atk_external_32k.wav"));
+    audioMode->setCurrentIndex(2);
+    command(window, "playback.playPause")->trigger();
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->state(), PlayerState::Playing, 5000);
+    QTRY_VERIFY_WITH_TIMEOUT(window.playbackController()->currentFrame() > 10, 5000);
+    QVERIFY(window.playbackController()->currentFrame() < 30);
+
+    qint64 previous = window.playbackController()->currentFrame();
+    for (int index : {0, 1, 2, 0, 1}) {
+        audioMode->setCurrentIndex(index);
+        QTRY_VERIFY_WITH_TIMEOUT(window.playbackController()->currentFrame() > previous, 3000);
+        QCOMPARE(timeline->displayedFrame(), window.playbackController()->currentFrame());
+        previous = window.playbackController()->currentFrame();
+    }
+    window.playbackController()->pause();
 }
 
 void TestComparison::playFromComparisonEndRestartsActiveRange()

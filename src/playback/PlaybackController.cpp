@@ -496,7 +496,9 @@ void PlaybackController::onScrubGrain(const QByteArray& pcm, qint64 requestedUs,
         << (m_scrubAudioReversed ? "reversed" : "forward");
 }
 
-void PlaybackController::startWaveformAnalysis(const QString& filePath, bool sourceHasAudio)
+void PlaybackController::startWaveformAnalysis(const QString& filePath, bool sourceHasAudio,
+                                               qint64 timeOffsetUs,
+                                               quint64 selectionGeneration)
 {
     const quint64 waveformGeneration = ++m_waveformGeneration;
     // Cancel whatever is running before the new source generation is announced,
@@ -507,6 +509,10 @@ void PlaybackController::startWaveformAnalysis(const QString& filePath, bool sou
 
     m_waveform.clear();
     m_waveform.setSourceGeneration(waveformGeneration);
+    m_waveformSourcePath = filePath;
+    m_waveformTimeOffsetUs = timeOffsetUs;
+    m_waveformSelectionGeneration = selectionGeneration;
+    emit waveformSourceChanged(timeOffsetUs, waveformGeneration);
     emit waveformChanged();
 
     if (m_waveformWorker != nullptr && sourceHasAudio && !filePath.isEmpty()) {
@@ -517,14 +523,18 @@ void PlaybackController::startWaveformAnalysis(const QString& filePath, bool sou
     }
 }
 
-void PlaybackController::setComparisonWaveformSource(const QString& path, bool sourceHasAudio)
+void PlaybackController::setComparisonWaveformSource(const QString& path, bool sourceHasAudio,
+                                                     qint64 providerOriginUs,
+                                                     qint64 masterOriginUs,
+                                                     quint64 selectionGeneration)
 {
-    startWaveformAnalysis(path, sourceHasAudio);
+    startWaveformAnalysis(path, sourceHasAudio, providerOriginUs - masterOriginUs,
+                          selectionGeneration);
 }
 
-void PlaybackController::clearComparisonWaveformSource()
+void PlaybackController::clearComparisonWaveformSource(quint64 selectionGeneration)
 {
-    startWaveformAnalysis(m_metadata.filePath, m_metadata.hasAudio);
+    startWaveformAnalysis(m_metadata.filePath, m_metadata.hasAudio, 0, selectionGeneration);
 }
 
 void PlaybackController::onWaveformPeaks(const QVector<media::WaveformPeak>& peaks,
@@ -635,7 +645,7 @@ void PlaybackController::openMedia(const QString& filePath)
 
     // Waveform analysis starts immediately and runs on its own thread, so the
     // picture appears without waiting for it.
-    startWaveformAnalysis(filePath);
+    startWaveformAnalysis(filePath, true, 0, sourceGeneration);
 
     emit requestOpen(filePath, sourceGeneration);
 }
