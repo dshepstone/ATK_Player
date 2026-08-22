@@ -82,7 +82,9 @@ marking disappears the moment a real file opens.
 - M4 A/B comparison now has its synchronized foundation: transient A/B source
   selection, Side-by-Side and Stacked viewers, one Source A master clock,
   timestamp mapping across different frame rates, independent viewer transforms,
-  and Source A-only audio. Wipe, difference/blend, offset controls and comparison
+  and selectable A, B, or independent External Audio through one output. This
+  supports two animation-only takes sharing a dialogue/reference track. Wipe,
+  difference/blend, offset controls and comparison
   video fullscreen remain future M4 work.
 - Export (M5).
 - The API server opens no socket — only the dispatcher underneath it is real.

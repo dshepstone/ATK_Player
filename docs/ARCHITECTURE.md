@@ -563,8 +563,24 @@ thread before destruction.
 
 The comparison host contains two independent `ViewerWidget` transforms in a
 splitter. Side-by-Side and Stacked change only splitter orientation. The clicked
-pane receives Viewer Fit/100%/zoom commands. Source A audio remains the only
-audio for playback, timeline scrub and frame-step audio. With comparison active,
+pane receives Viewer Fit/100%/zoom commands. Source A audio is the default, but
+`CompareAudioMode` can select Source B or a transient External file.
+`CompareAudioWorker` owns an audio-only reader on a dedicated thread, resamples
+the selected follower through libswresample, and fills the same bounded ring
+buffer consumed by the controller's single `AudioOutput`. It owns no sink and
+no clock. Primary decoder audio is disabled for B/External, preventing mixing
+or competing device clocks.
+
+B audio uses B's range origin and signed B offset. External audio uses its
+normalized stream origin plus the internal signed `externalAudioOffsetUs`.
+Mode/source generations flush stale PCM on mode changes, seeks, loops, source
+replacement, compare exit and shutdown. Missing or shorter audio contributes
+silence and never changes A's duration. The selected source also feeds existing
+timestamp-mapped scrub and frame-step grains, including reverse scrub. Waveform
+display remains Source A for this increment. Mode, path and offsets are
+transient: they do not dirty or serialize into `.atkproj`.
+
+With comparison active,
 Loop OFF stops at A's range end and Loop ON repeats the fixed pair. Video Full
 Screen is temporarily disabled; application Full Screen remains available.
 

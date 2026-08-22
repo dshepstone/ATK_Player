@@ -154,8 +154,11 @@ Make a review session something you can save and hand to someone else.
 - [x] Timestamp/rational mapping for unequal frame rates and source ranges
 - [x] Side-by-Side and Stacked layouts
 - [x] Independent A/B viewer transforms and active-pane commands
-- [x] Source A-only audio and fixed-pair range/Loop behavior
+- [x] Selectable Source A, Source B, or independent External comparison audio
+- [x] One-output follower routing with timestamp-mapped scrub/step audio
+- [x] Fixed-pair range/Loop behavior
 - [ ] User-facing source offset controls
+- [ ] User-facing External Audio offset controls
 - [ ] Wipe comparison
 - [ ] Difference/blend display
 - [ ] Comparison video fullscreen

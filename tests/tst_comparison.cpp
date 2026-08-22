@@ -1,5 +1,6 @@
 #include "core/commands/CommandDefinitions.h"
 #include "media/MediaSource.h"
+#include "media/CompareAudioWorker.h"
 #include "playback/CompareSession.h"
 #include "playback/CompareVideoLane.h"
 #include "project/Project.h"
@@ -9,6 +10,8 @@
 
 #include <QAction>
 #include <QComboBox>
+#include <QFile>
+#include <QLabel>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTest>
@@ -54,6 +57,8 @@ private slots:
     void enableLayoutActiveViewerAndExitAreNonDestructive();
     void unequalRateLaneTracksAuthoritativeSeek();
     void comparisonEndDoesNotAdvancePlaylist();
+    void compareAudioModesAreTransientAndMapped();
+    void externalAudioValidationAndSilentMode();
 };
 
 void TestComparison::timestampMappingHasNoCumulativeDrift()
@@ -152,6 +157,84 @@ void TestComparison::comparisonEndDoesNotAdvancePlaylist()
     QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->state(), PlayerState::Ended, 10000);
     QCOMPARE(window.project()->activeIndex(), 0);
     QVERIFY(window.isComparisonActive());
+}
+
+void TestComparison::compareAudioModesAreTransientAndMapped()
+{
+    QTemporaryDir directory;
+    atk::ui::MainWindow window(directory.filePath(QStringLiteral("settings.ini")));
+    QVERIFY(window.openProjectFile(writeProject(directory)));
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->state(), PlayerState::Ready, 10000);
+    command(window, "view.toggleComparison")->trigger();
+    QTRY_VERIFY(window.isComparisonActive());
+    const bool modified = window.project()->isModified();
+    auto* sourceB = window.findChild<QComboBox*>(QStringLiteral("CompareSourceB"));
+    auto* audioMode = window.findChild<QComboBox*>(QStringLiteral("CompareAudioMode"));
+    QVERIFY(sourceB && audioMode);
+    sourceB->setCurrentIndex(2); // generated 30 fps / 44.1 kHz source
+    QTRY_COMPARE(window.compareSession()->sourceBId(), window.project()->entries().at(2).id);
+    audioMode->setCurrentIndex(1);
+    QTRY_COMPARE(window.compareSession()->audioMode(), atk::playback::CompareAudioMode::SourceB);
+    QVERIFY(window.playbackController()->hasComparisonAudioOverride());
+    QVERIFY(window.playbackController()->comparisonAudioGeneration() > 0);
+    QTRY_VERIFY_WITH_TIMEOUT(window.playbackController()->comparisonAudioAvailable(), 5000);
+    QCOMPARE(window.project()->isModified(), modified);
+
+    window.compareSession()->setSourceBOffsetUs(250'000);
+    audioMode->setCurrentIndex(0);
+    audioMode->setCurrentIndex(1);
+    QTRY_VERIFY_WITH_TIMEOUT(window.playbackController()->comparisonAudioAvailable(), 5000);
+    window.playbackController()->play();
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->state(), PlayerState::Playing, 5000);
+    QTRY_VERIFY_WITH_TIMEOUT(window.playbackController()->lastComparisonAudioTargetUs() >= 250'000, 5000);
+    window.playbackController()->pause();
+
+    QSignalSpy reviewAudio(window.playbackController(),
+                           &atk::playback::PlaybackController::reviewAudioRequested);
+    window.playbackController()->setFrameStepAudioEnabled(true);
+    window.playbackController()->stepForward();
+    QTRY_VERIFY_WITH_TIMEOUT(!reviewAudio.isEmpty(), 5000);
+    const qint64 requestedUs = reviewAudio.last().at(0).toLongLong();
+    QVERIFY(requestedUs >= 250'000);
+
+    audioMode->setCurrentIndex(0);
+    QTRY_COMPARE(window.compareSession()->audioMode(), atk::playback::CompareAudioMode::SourceA);
+    QVERIFY(!window.playbackController()->hasComparisonAudioOverride());
+    QCOMPARE(window.project()->isModified(), modified);
+}
+
+void TestComparison::externalAudioValidationAndSilentMode()
+{
+    QString error;
+    QVERIFY(atk::media::CompareAudioWorker::validateSource(media("atk_external_32k.wav"), &error));
+    QVERIFY(!atk::media::CompareAudioWorker::validateSource(media("atk_compare_5994fps.mkv"), &error));
+
+    QTemporaryDir directory;
+    atk::ui::MainWindow window(directory.filePath(QStringLiteral("settings.ini")));
+    QVERIFY(window.openProjectFile(writeProject(directory)));
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->state(), PlayerState::Ready, 10000);
+    command(window, "view.toggleComparison")->trigger();
+    auto* audioMode = window.findChild<QComboBox*>(QStringLiteral("CompareAudioMode"));
+    auto* label = window.findChild<QLabel*>(QStringLiteral("CompareExternalAudioName"));
+    QVERIFY(audioMode && label);
+    window.compareSession()->setExternalAudioPath(media("atk_external_32k.wav"));
+    audioMode->setCurrentIndex(2);
+    QTRY_COMPARE(window.compareSession()->audioMode(), atk::playback::CompareAudioMode::External);
+    QVERIFY(window.playbackController()->hasComparisonAudioOverride());
+    QTRY_VERIFY_WITH_TIMEOUT(window.playbackController()->comparisonAudioAvailable(), 5000);
+    QVERIFY(label->text().contains(QStringLiteral("atk_external_32k")));
+    command(window, "file.saveProject")->trigger();
+    QFile saved(window.project()->filePath()); QVERIFY(saved.open(QIODevice::ReadOnly));
+    const QByteArray json = saved.readAll();
+    QVERIFY(!json.contains("externalAudio"));
+    QVERIFY(!json.contains("compareAudio"));
+    window.compareSession()->setExternalAudioPath(QString());
+    audioMode->setCurrentIndex(0);
+    audioMode->setCurrentIndex(2);
+    QTRY_VERIFY(label->text().contains(QStringLiteral("No External")));
+    window.playbackController()->play();
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->state(), PlayerState::Playing, 5000);
+    window.playbackController()->pause();
 }
 
 QTEST_MAIN(TestComparison)
