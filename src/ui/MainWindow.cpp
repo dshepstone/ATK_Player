@@ -457,12 +457,18 @@ void MainWindow::connectSignals()
             const int replacementA = m_project->activeIndex();
             const int replacementB = defaultComparisonBIndex(replacementA);
             if (!sourceUsableForComparison(replacementA) || replacementB < 0) exitComparison();
-            else { m_compare->setSources(m_project->entries().at(replacementA).id,
-                                         m_project->entries().at(replacementB).id); openComparisonSourceB(); }
+            else if (m_compare->setSources(m_project->entries().at(replacementA).id,
+                                           m_project->entries().at(replacementB).id)) {
+                activatePlaylistIndex(replacementA);
+                openComparisonSourceB();
+            } else exitComparison();
         } else if (!sourceUsableForComparison(b)) {
             const int replacementB = defaultComparisonBIndex(a);
             if (replacementB < 0) exitComparison();
-            else { m_compare->setSources(m_compare->sourceAId(), m_project->entries().at(replacementB).id); openComparisonSourceB(); }
+            else if (m_compare->setSources(m_compare->sourceAId(),
+                                           m_project->entries().at(replacementB).id)) {
+                openComparisonSourceB();
+            } else exitComparison();
         }
         if (isComparisonActive()
             && m_compare->audioMode() == playback::CompareAudioMode::SourceB)
@@ -1872,30 +1878,41 @@ void MainWindow::setComparisonLayout(playback::CompareLayout layout)
     refreshComparisonUi();
 }
 
-void MainWindow::selectComparisonSourceA(const QUuid& id)
+bool MainWindow::selectComparisonSourceA(const QUuid& id)
 {
-    if (!isComparisonActive() || id.isNull() || id == m_compare->sourceBId()) return;
-    const int index = m_project->indexForId(id);
-    if (!sourceUsableForComparison(index)) return;
-    m_compare->setSources(id, m_compare->sourceBId());
-    activatePlaylistIndex(index, m_playback->isPlaying());
-    refreshComparisonUi();
-}
-
-void MainWindow::selectComparisonSourceB(const QUuid& id)
-{
-    if (!isComparisonActive() || id.isNull() || id == m_compare->sourceAId()) {
-        refreshComparisonUi(); return;
+    if (!isComparisonActive() || id.isNull() || id == m_compare->sourceBId()) {
+        refreshComparisonUi();
+        return false;
     }
     const int index = m_project->indexForId(id);
-    if (!sourceUsableForComparison(index)) { refreshComparisonUi(); return; }
+    if (!sourceUsableForComparison(index)
+        || !m_compare->setSources(id, m_compare->sourceBId())) {
+        refreshComparisonUi();
+        return false;
+    }
+    activatePlaylistIndex(index, m_playback->isPlaying());
+    refreshComparisonUi();
+    return m_compare->sourceAId() == id && m_project->currentSourceId() == id;
+}
+
+bool MainWindow::selectComparisonSourceB(const QUuid& id)
+{
+    if (!isComparisonActive() || id.isNull() || id == m_compare->sourceAId()) {
+        refreshComparisonUi(); return false;
+    }
+    const int index = m_project->indexForId(id);
+    if (!sourceUsableForComparison(index)) { refreshComparisonUi(); return false; }
     const QUuid previous = m_compare->sourceBId();
-    m_compare->setSources(m_compare->sourceAId(), id);
+    if (!m_compare->setSources(m_compare->sourceAId(), id)) {
+        refreshComparisonUi();
+        return false;
+    }
     if (previous != id) m_compare->setSourceBOffsetUs(0);
     openComparisonSourceB();
     if (m_compare->audioMode() == playback::CompareAudioMode::SourceB)
         applyComparisonAudioMode(playback::CompareAudioMode::SourceB);
     refreshComparisonUi();
+    return m_compare->sourceBId() == id;
 }
 
 void MainWindow::openComparisonSourceB()
@@ -2288,10 +2305,11 @@ api::ApiResponse MainWindow::handleApiApplicationCommand(
         if (!sourceUsableForComparison(index)) return fail(QStringLiteral("comparison source is unavailable"));
         if (!isComparisonActive()) enterComparison();
         if (!isComparisonActive()) return fail(QStringLiteral("comparison could not be enabled"));
-        if (command == QLatin1StringView("load_compare_a"))
-            selectComparisonSourceA(m_project->entries().at(index).id);
-        else
-            selectComparisonSourceB(m_project->entries().at(index).id);
+        const QUuid requestedId = m_project->entries().at(index).id;
+        const bool accepted = command == QLatin1StringView("load_compare_a")
+            ? selectComparisonSourceA(requestedId)
+            : selectComparisonSourceB(requestedId);
+        if (!accepted) return fail(QStringLiteral("comparison source conflicts with the other slot"));
         return api::ApiResponse::success();
     }
 

@@ -146,8 +146,8 @@ private:
     qint64 offsetUsForFrames(int frames) const;
     int framesForOffsetUs(qint64 offsetUs) const;
     void reanchorComparisonFollowers(bool waveformMappingOnly);
-    void selectComparisonSourceA(const QUuid& id);
-    void selectComparisonSourceB(const QUuid& id);
+    bool selectComparisonSourceA(const QUuid& id);
+    bool selectComparisonSourceB(const QUuid& id);
     void openComparisonSourceB();
     void synchronizeComparison(const media::VideoFrame& sourceAFrame);
     int defaultComparisonBIndex(int sourceAIndex) const;
