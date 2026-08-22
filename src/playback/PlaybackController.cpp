@@ -1376,11 +1376,14 @@ void PlaybackController::play()
         emit requestPlayheadFrame(from);
 
         if (m_compareAudioOverride) {
-            if (m_compareAudioAvailable && m_audioActive) {
+            if (m_compareAudioAvailable) {
                 m_lastCompareAudioTargetUs = comparisonProviderTimeUs(m_playbackStartUs);
-                emit requestCompareAudioStart(m_lastCompareAudioTargetUs, m_playbackStartUs,
-                                              m_compareAudioGeneration);
-            } else {
+                if (m_audioActive) {
+                    emit requestCompareAudioStart(m_lastCompareAudioTargetUs, m_playbackStartUs,
+                                                  m_compareAudioGeneration);
+                }
+            }
+            if (!m_compareAudioAvailable || !m_audioActive) {
                 m_playbackEpochDirty = false;
                 m_playbackReanchorInProgress = false;
                 startDisplayTimer();
@@ -1880,11 +1883,12 @@ qint64 PlaybackController::comparisonProviderTimeUs(qint64 sourceATimeUs) const
 
 void PlaybackController::restartSelectedAudioAt(qint64 sourceATimeUs)
 {
-    if (!m_compareAudioOverride || !m_compareAudioAvailable || !m_audioActive) return;
+    if (!m_compareAudioOverride || !m_compareAudioAvailable) return;
+    m_lastCompareAudioTargetUs = comparisonProviderTimeUs(sourceATimeUs);
+    if (!m_audioActive) return;
     m_audioOutput->stop();
     m_playbackStartUs = sourceATimeUs;
     m_monotonicStartNs = monotonicNowNs();
-    m_lastCompareAudioTargetUs = comparisonProviderTimeUs(sourceATimeUs);
     emit requestCompareAudioStart(m_lastCompareAudioTargetUs, sourceATimeUs,
                                   m_compareAudioGeneration);
 }
