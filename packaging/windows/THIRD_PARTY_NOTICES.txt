@@ -1,0 +1,38 @@
+ATK PLAYER THIRD-PARTY NOTICES
+================================
+
+This file accompanies the ATK Player Windows binary distribution. Complete
+license texts are installed beside it in the licenses directory.
+
+ATK Player 0.2.0
+----------------
+Copyright (c) 2026 David Shepstone.
+Licensed under the MIT License.
+Project and source: https://github.com/dshepstone/ATK_Player
+
+Qt 6.9.3
+--------
+ATK Player dynamically links unmodified Qt runtime libraries distributed
+under the GNU Lesser General Public License, version 3. The Qt DLLs remain
+separate and replaceable files.
+Project and source: https://www.qt.io/ and https://code.qt.io/
+License text: Qt-LGPL-3.0.txt
+
+FFmpeg 9.0.1 (vcpkg port revision 1)
+------------------------------------
+ATK Player dynamically links FFmpeg libraries built by vcpkg under the GNU
+Lesser General Public License, version 2.1 or later. This build disables GPL
+and nonfree components and does not enable x264, x265, or fdk-aac. The MSI
+does not distribute ffmpeg.exe or ffprobe.exe.
+Project and source: https://ffmpeg.org/ and https://ffmpeg.org/download.html
+Build source: https://github.com/microsoft/vcpkg/tree/45f9f39362a4c52e2b1fbe57b7e649db7f3d96d4/ports/ffmpeg
+License and component notices: FFmpeg-LGPL-2.1.txt
+
+Microsoft Visual C++ Runtime
+----------------------------
+The Microsoft Visual C++ 2015-2022 x64 Redistributable is a prerequisite and
+is not embedded in this MSI. It is distributed separately by Microsoft:
+https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist
+
+Windows system libraries are supplied by Microsoft as part of Windows and are
+not redistributed in the ATK Player MSI.

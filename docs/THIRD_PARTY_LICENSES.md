@@ -12,7 +12,7 @@ ships, so the licence position can be reviewed rather than reconstructed.
 This file is maintained from the first commit rather than assembled before a
 release, because reconstructing it after the fact is how obligations get missed.
 
-**Status:** M1. Qt and FFmpeg are both linked and both redistributed.
+**Status:** M6 release packaging implemented, awaiting installer acceptance.
 
 ---
 
@@ -22,7 +22,7 @@ release, because reconstructing it after the fact is how obligations get missed.
 
 | | |
 |---|---|
-| Version | 6.5 or newer (development uses 6.9.3) |
+| Version | **6.9.3** in the Windows RC distribution |
 | Licence | LGPL v3 (also available commercially) |
 | Linkage | **Dynamic** |
 | Used for | Application framework, widgets, event loop, JSON |
@@ -37,9 +37,9 @@ licence requires:
 - The Qt DLLs ship beside the executable rather than being merged into it.
 - Qt is used unmodified.
 
-**To review before distribution:** which LGPL v3 obligations apply to this
-usage; what notice, licence text and relinking provisions must accompany a
-binary release; and whether the commercial licence would be preferable.
+The Windows stage installs the authoritative LGPL v3 text as
+`licenses/Qt-LGPL-3.0.txt`, identifies Qt/source URLs in
+`THIRD_PARTY_NOTICES.txt`, and keeps every Qt DLL separately replaceable.
 
 ---
 
@@ -75,20 +75,21 @@ ATK Player relies on FFmpeg's built-in LGPL decoders. Enabling any GPL or
 nonfree feature would change the licence position of the whole distribution and
 must not be done without a deliberate decision recorded here.
 
-**To review before distribution:** which LGPL v2.1 obligations attach to this
-usage and this linkage; what notices, licence texts and source or relinking
-provisions must accompany a binary release; and whether the full `configure`
-line should be captured verbatim in the release artefacts.
+The Windows MSI ships only application-required `avcodec-63.dll`,
+`avformat-63.dll`, `avutil-61.dll`, `swresample-7.dll` and `swscale-10.dll`.
+The pinned vcpkg copyright/license bundle is installed as
+`licenses/FFmpeg-LGPL-2.1.txt`; version, build constraints and source URLs are
+recorded in `THIRD_PARTY_NOTICES.txt`.
 
 ---
 
 ## Fonts, icons and other assets
 
-None yet. `assets/icons/` is empty in Phase 0; the transport controls use text
-glyphs from the system UI font.
-
-When artwork is added, record for each item: the source, the author, the licence,
-and whether attribution must appear in the About dialog.
+`assets/icons/ATK_Player_Icon.png` is the repository's canonical ATK Player
+application artwork. M6 derives `ATK_Player_Icon.ico` from that committed image
+for Windows executable, shortcut, installer and project-association identity.
+The current master is 32×32; a future artwork pass should supply a genuine
+multi-resolution master rather than upscaling it and claiming extra detail.
 
 ---
 
