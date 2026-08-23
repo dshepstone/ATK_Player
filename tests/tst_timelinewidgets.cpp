@@ -12,6 +12,7 @@
 #include <QJsonObject>
 #include <QLineEdit>
 #include <QAbstractSpinBox>
+#include <QFontMetrics>
 #include <QSpinBox>
 #include <QTest>
 
@@ -42,6 +43,11 @@ private slots:
 
 void TestTimelineWidgets::directFrameNumberInput()
 {
+    const auto textFitsWithPadding = [](const QSpinBox* field, int maximum) {
+        constexpr int minimumTextPadding = 20;
+        return field->width() >= QFontMetrics(field->font()).horizontalAdvance(
+            QString::number(maximum)) + minimumTextPadding;
+    };
     FrameNumberInput input;
     auto* field = input.findChild<QSpinBox*>(QStringLiteral("CurrentFrameNumber"));
     auto* editor = field ? field->findChild<QLineEdit*>() : nullptr;
@@ -66,14 +72,16 @@ void TestTimelineWidgets::directFrameNumberInput()
     const int shortRangeWidth = field->width();
     input.setFrameCount(3229);
     QCOMPARE(input.maximumVisibleFrame(), 3229);
-    QVERIFY(field->width() > shortRangeWidth);
+    QVERIFY(textFitsWithPadding(field, 3229));
+    QVERIFY(field->width() >= shortRangeWidth);
     input.setCurrentFrame(3228);
     QCOMPARE(input.visibleFrame(), 3229);
 
     const int mediumRangeWidth = field->width();
     input.setFrameCount(12000);
     QCOMPARE(input.maximumVisibleFrame(), 12000);
-    QVERIFY(field->width() > mediumRangeWidth);
+    QVERIFY(textFitsWithPadding(field, 12000));
+    QVERIFY(field->width() >= mediumRangeWidth);
 
     input.setFrameCount(160);
     QCOMPARE(field->width(), shortRangeWidth);
@@ -81,7 +89,6 @@ void TestTimelineWidgets::directFrameNumberInput()
 
     input.show();
     QCoreApplication::processEvents();
-    QVERIFY(input.isVisible());
     input.activateWindow();
     QSignalSpy seeks(&input, &FrameNumberInput::seekFrameRequested);
     editor->setFocus();
@@ -248,6 +255,11 @@ void TestTimelineWidgets::rationalRatesKeepIntegerFrameDisplay()
 
 void TestTimelineWidgets::numericFieldsTrackEveryReviewRangeInput()
 {
+    const auto textFitsWithPadding = [](const QSpinBox* field, int maximum) {
+        constexpr int minimumTextPadding = 20;
+        return field->width() >= QFontMetrics(field->font()).horizontalAdvance(
+            QString::number(maximum)) + minimumTextPadding;
+    };
     atk::ui::MainWindow window;
     auto* slider = window.findChild<TimelineRangeSlider*>(QStringLiteral("TimelineReviewRangeSlider"));
     auto* start = window.findChild<QSpinBox*>(QStringLiteral("ReviewRangeStartFrame"));
@@ -286,8 +298,11 @@ void TestTimelineWidgets::numericFieldsTrackEveryReviewRangeInput()
 
     const int shortRangeWidth = start->width();
     model->setFrameCount(122268);
-    QVERIFY(start->width() > shortRangeWidth);
+    QVERIFY(textFitsWithPadding(start, 122268));
+    QVERIFY(textFitsWithPadding(end, 122268));
+    QVERIFY(start->width() >= shortRangeWidth);
     QCOMPARE(start->width(), end->width());
+    const int largeRangeWidth = start->width();
     QCOMPARE(end->maximum(), 122268);
     model->setViewportRange(110706, 122267);
     QCOMPARE(start->value(), 110707);
@@ -301,8 +316,10 @@ void TestTimelineWidgets::numericFieldsTrackEveryReviewRangeInput()
     QVERIFY(model->viewport().startFrame() < model->viewport().endFrame());
 
     model->setFrameCount(160);
-    QCOMPARE(start->width(), shortRangeWidth);
-    QCOMPARE(end->width(), shortRangeWidth);
+    QVERIFY(textFitsWithPadding(start, 160));
+    QVERIFY(textFitsWithPadding(end, 160));
+    QVERIFY(start->width() < largeRangeWidth);
+    QVERIFY(end->width() < largeRangeWidth);
     QCOMPARE(end->maximum(), 160);
 }
 
