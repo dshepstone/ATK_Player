@@ -1,14 +1,16 @@
 # Icons
 
-Empty in Phase 0.
+`ATK_Player_Icon.png` is the canonical application artwork. The Windows M6
+packaging uses the derived `ATK_Player_Icon.ico` for the executable, MSI,
+Start Menu shortcut and `.atkproj` association.
 
-The transport controls currently use text glyphs from the system UI font
-(`src/ui/TransportControls.cpp`), which keeps the framework free of binary assets and
-licence questions while the architecture is being established.
+The current committed master is 32×32. The ICO deliberately preserves that
+real resolution rather than claiming invented high-resolution detail. Replace
+both from a genuine multi-resolution master in a future artwork pass.
 
-Real artwork arrives with milestone **M2**.
+The transport controls continue to use text glyphs from the system UI font.
 
-## When icons are added
+## Asset rules
 
 - **SVG**, rendered at runtime through Qt's SVG support, so the same asset serves
   every scale factor. High-DPI displays are the norm, and shipping a PNG per

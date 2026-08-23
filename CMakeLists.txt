@@ -50,6 +50,9 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(ATK_BUILD_TESTS "Build ATK Player unit tests" ON)
 
+set(ATK_RELEASE_PUBLISHER "David Shepstone" CACHE STRING
+    "Publisher displayed in Windows executable and installer metadata.")
+
 include(ATKCompilerWarnings)
 
 # ---------------------------------------------------------------------------

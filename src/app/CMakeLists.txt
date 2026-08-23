@@ -15,6 +15,12 @@ qt_add_executable(ATKPlayer
     Application.h
 )
 
+if(WIN32)
+    set(ATK_WINDOWS_ICON "${PROJECT_SOURCE_DIR}/assets/icons/ATK_Player_Icon.ico")
+    configure_file(ATKPlayer.rc.in "${CMAKE_CURRENT_BINARY_DIR}/ATKPlayer.rc" @ONLY)
+    target_sources(ATKPlayer PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/ATKPlayer.rc")
+endif()
+
 target_link_libraries(ATKPlayer
     PRIVATE
         ATK::ui
@@ -87,9 +93,51 @@ install(TARGETS ATKPlayer
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 
+if(WIN32)
+    install(FILES "${ATK_WINDOWS_ICON}" DESTINATION .)
+
+    # Install only the FFmpeg libraries the application uses. Development
+    # tools and unrelated vcpkg DLLs deliberately stay out of the release.
+    foreach(_atk_ffmpeg_runtime_name IN ITEMS
+            avcodec avformat avutil swresample swscale)
+        file(GLOB _atk_ffmpeg_runtime_dll
+            "${ATK_FFMPEG_RUNTIME_DIR}/${_atk_ffmpeg_runtime_name}-*.dll")
+        list(LENGTH _atk_ffmpeg_runtime_dll _atk_ffmpeg_runtime_count)
+        if(NOT _atk_ffmpeg_runtime_count EQUAL 1)
+            message(FATAL_ERROR
+                "Expected exactly one ${_atk_ffmpeg_runtime_name} runtime DLL in "
+                "${ATK_FFMPEG_RUNTIME_DIR}; found ${_atk_ffmpeg_runtime_count}")
+        endif()
+        install(FILES ${_atk_ffmpeg_runtime_dll} DESTINATION ${CMAKE_INSTALL_BINDIR})
+    endforeach()
+
+    install(FILES
+        "${PROJECT_SOURCE_DIR}/LICENSE"
+        DESTINATION licenses
+        RENAME ATK-Player-MIT.txt)
+    install(FILES
+        "${PROJECT_SOURCE_DIR}/packaging/windows/licenses/Qt-LGPL-3.0.txt"
+        "${PROJECT_SOURCE_DIR}/packaging/windows/licenses/FFmpeg-LGPL-2.1.txt"
+        "${PROJECT_SOURCE_DIR}/packaging/windows/THIRD_PARTY_NOTICES.txt"
+        DESTINATION licenses)
+endif()
+
+set(_atk_deploy_app_arguments)
+if(WIN32)
+    list(APPEND _atk_deploy_app_arguments
+        NO_TRANSLATIONS
+        NO_COMPILER_RUNTIME
+        DEPLOY_TOOL_OPTIONS
+            --no-system-d3d-compiler
+            --no-system-dxc-compiler
+            --no-opengl-sw
+            --exclude-plugins ffmpegmediaplugin)
+endif()
+
 qt_generate_deploy_app_script(
     TARGET ATKPlayer
     OUTPUT_SCRIPT ATK_DEPLOY_SCRIPT
     NO_UNSUPPORTED_PLATFORM_ERROR
+    ${_atk_deploy_app_arguments}
 )
 install(SCRIPT ${ATK_DEPLOY_SCRIPT})
