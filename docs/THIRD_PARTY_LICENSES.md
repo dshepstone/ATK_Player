@@ -1,112 +1,219 @@
 # Third-Party Licenses
 
-A running record of every third-party component ATK Player links, bundles or
-ships, so the licence position can be reviewed rather than reconstructed.
+This document records the major third-party components that ATK Player links, bundles, or distributes.
 
-> **Not legal advice.** Nothing in this file is a legal conclusion. It records
-> what each dependency is, how it is used, and which questions need answering.
-> **The licences and redistribution obligations of every component listed here
-> must be reviewed — by someone qualified to do so — before ATK Player is
-> distributed publicly.** That review has not happened yet.
+It is maintained alongside the source code so dependency versions, linkage choices, licence information, and distribution requirements remain documented as the project evolves.
 
-This file is maintained from the first commit rather than assembled before a
-release, because reconstructing it after the fact is how obligations get missed.
-
-**Status:** M6 release packaging implemented, awaiting installer acceptance.
+> **Note**
+>
+> This document is provided for project and distribution documentation. It is not legal advice.
 
 ---
 
-## Currently used
+## Distribution Status
 
-### Qt 6
+ATK Player 0.2.0 is released as open-source software under the MIT License.
+
+The Windows installer and portable distribution include the applicable licence texts and third-party notices for redistributed runtime components.
+
+The major redistributed components in ATK Player 0.2.0 are:
+
+- ATK Player — MIT License
+- Qt 6.9.3 — LGPL v3, dynamically linked
+- FFmpeg 9.0.1 — LGPL v2.1 or later as built for ATK Player, dynamically linked
+
+The Windows distribution also requires the Microsoft Visual C++ 2015–2022 x64 Redistributable, which is supplied separately by Microsoft.
+
+The authoritative Windows distribution notice is:
+
+`packaging/windows/THIRD_PARTY_NOTICES.txt`
+
+---
+
+## Qt 6
 
 | | |
 |---|---|
-| Version | **6.9.3** in the Windows RC distribution |
-| Licence | LGPL v3 (also available commercially) |
+| Version | **6.9.3** |
+| Licence | GNU Lesser General Public License v3 |
 | Linkage | **Dynamic** |
-| Used for | Application framework, widgets, event loop, JSON |
-| Source | https://www.qt.io/ |
-| Obtained via | Official prebuilt `win64_msvc2022_64` binaries |
+| Used for | Application framework, widgets, event loop, JSON, networking, multimedia and UI infrastructure |
+| Project | https://www.qt.io/ |
+| Source | https://code.qt.io/ |
+| Windows build | Official MSVC 2022 x64 Qt binaries |
 
-**Engineering constraints the project applies.** These are choices made to keep
-the licence position simple and reviewable — not determinations about what the
-licence requires:
+ATK Player dynamically links Qt runtime libraries.
 
-- Qt is **dynamically linked**, and the build offers no static-linking option.
-- The Qt DLLs ship beside the executable rather than being merged into it.
-- Qt is used unmodified.
+The Qt DLLs remain separate files in the Windows distribution rather than being statically incorporated into the ATK Player executable.
 
-The Windows stage installs the authoritative LGPL v3 text as
-`licenses/Qt-LGPL-3.0.txt`, identifies Qt/source URLs in
-`THIRD_PARTY_NOTICES.txt`, and keeps every Qt DLL separately replaceable.
+ATK Player uses the distributed Qt runtime libraries without modifying Qt itself.
+
+The Windows installer and portable package include the LGPL v3 licence text as:
+
+```text
+licenses/Qt-LGPL-3.0.txt
+```
+
+Qt project and source references are also included in the distribution's third-party notices.
 
 ---
 
-### FFmpeg — in use since M1
+## FFmpeg
+
+ATK Player uses FFmpeg for media decoding and processing.
 
 | | |
 |---|---|
-| Version | **9.0.1** (vcpkg port `ffmpeg`, port-version 1) |
-| Licence | LGPL v2.1 or later, as built here |
-| Linkage | **Dynamic** — `avcodec-63.dll`, `avformat-63.dll`, `avutil-61.dll`, `swscale-10.dll`, `swresample-7.dll`, `avfilter-12.dll`, `avdevice-62.dll` |
-| Used for | Demuxing, video and audio decoding, pixel format conversion, audio resampling |
-| Source | https://ffmpeg.org/ , built from source by vcpkg |
-| Pinned by | `builtin-baseline` `45f9f39362a4c52e2b1fbe57b7e649db7f3d96d4` in `vcpkg.json` |
+| Version | **9.0.1** |
+| vcpkg port revision | **1** |
+| Licence | LGPL v2.1 or later, as built for ATK Player |
+| Linkage | **Dynamic** |
+| Used for | Demuxing, video decoding, audio decoding, pixel conversion and audio resampling |
+| Project | https://ffmpeg.org/ |
+| Source | https://ffmpeg.org/download.html |
+| Package source | Microsoft vcpkg |
+| vcpkg baseline | `45f9f39362a4c52e2b1fbe57b7e649db7f3d96d4` |
 
-**Features enabled** (`vcpkg.json`): `avcodec`, `avformat`, `swresample`,
-`swscale`, `avdevice`, `ffmpeg`, `ffprobe`.
+ATK Player dynamically links the application-required FFmpeg runtime libraries.
 
-`avdevice` is present only to supply the `lavfi` input device used to generate
-deterministic test fixtures; the application does not use it. `ffmpeg` and
-`ffprobe` are development tools for generating and validating those fixtures and
-are **not** redistributed with the application.
+The Windows 0.2.0 distribution includes:
 
-**GPL and nonfree components are disabled.** The vcpkg port is configured with
-`--disable-gpl` and no `nonfree`, `x264`, `x265`, or `fdk-aac` feature is
-requested. The port's configure line records this explicitly:
-
-```
---disable-libx264 --disable-libx265 --disable-libfdk-aac
---disable-nonfree --disable-libvpx --disable-libmp3lame ...
+```text
+avcodec-63.dll
+avformat-63.dll
+avutil-61.dll
+swresample-7.dll
+swscale-10.dll
 ```
 
-ATK Player relies on FFmpeg's built-in LGPL decoders. Enabling any GPL or
-nonfree feature would change the licence position of the whole distribution and
-must not be done without a deliberate decision recorded here.
+Development dependencies may contain additional FFmpeg libraries and command-line tools, but those are not part of the ATK Player Windows runtime distribution.
 
-The Windows MSI ships only application-required `avcodec-63.dll`,
-`avformat-63.dll`, `avutil-61.dll`, `swresample-7.dll` and `swscale-10.dll`.
-The pinned vcpkg copyright/license bundle is installed as
-`licenses/FFmpeg-LGPL-2.1.txt`; version, build constraints and source URLs are
-recorded in `THIRD_PARTY_NOTICES.txt`.
+### FFmpeg Build Configuration
+
+The FFmpeg build used by ATK Player is configured without optional GPL or nonfree components.
+
+The distributed build does not enable:
+
+- x264
+- x265
+- fdk-aac
+- FFmpeg nonfree components
+
+ATK Player relies on FFmpeg functionality available under the LGPL configuration used by the project.
+
+Changing the FFmpeg build configuration to enable GPL or nonfree components requires a deliberate dependency and distribution review before such a build is released.
+
+### FFmpeg Tools
+
+Development environments may include:
+
+```text
+ffmpeg.exe
+ffprobe.exe
+```
+
+These utilities are used for development, testing, fixture generation, and validation.
+
+They are **not distributed** in the ATK Player 0.2.0 Windows MSI or portable package.
+
+### FFmpeg Licence Files
+
+The Windows distribution includes the applicable FFmpeg licence and component information as:
+
+```text
+licenses/FFmpeg-LGPL-2.1.txt
+```
+
+The distribution also includes FFmpeg version, source, build provenance, and configuration information in the third-party notice file.
 
 ---
 
-## Fonts, icons and other assets
+## Microsoft Visual C++ Runtime
 
-`assets/icons/ATK_Player_Icon.png` is the repository's canonical ATK Player
-application artwork. M6 derives `ATK_Player_Icon.ico` from that committed image
-for Windows executable, shortcut, installer and project-association identity.
-The current master is 32×32; a future artwork pass should supply a genuine
-multi-resolution master rather than upscaling it and claiming extra detail.
+ATK Player requires the:
 
----
+**Microsoft Visual C++ 2015–2022 Redistributable (x64)**
 
-## ATK Player itself
+This runtime is distributed separately by Microsoft and is not embedded as arbitrary Visual Studio runtime files inside the ATK Player MSI.
 
-Released under the MIT Licence — see [../LICENSE](../LICENSE).
+Microsoft provides the redistributable through its official Windows development channels.
+
+Windows system libraries used by ATK Player are supplied as part of Microsoft Windows and are not redistributed as part of the ATK Player package.
 
 ---
 
-## How to add an entry
+## Fonts, Icons and Other Assets
 
-When adding a dependency, record before merging:
+### ATK Player Application Icon
 
-1. Name, version and project URL.
-2. The exact licence, including which variant — LGPL v2.1 and LGPL v3 differ.
-3. Static or dynamic linkage, and why.
-4. What is expected to ship alongside the binary: licence text, notices, source
-   offers.
-5. Any constraint the project is choosing to adopt so the licence position stays
-   simple, and what still needs checking.
+The canonical ATK Player application artwork is stored at:
+
+```text
+assets/icons/ATK_Player_Icon.png
+```
+
+The Windows packaging process derives the required Windows icon resources from this repository-owned artwork.
+
+The current canonical image is 32×32 pixels.
+
+A future artwork revision may provide a native multi-resolution source for larger Windows icon sizes.
+
+### UI Icons
+
+Repository-owned UI icons under:
+
+```text
+assets/icons/
+```
+
+are distributed as part of ATK Player and are covered by the project's licensing terms unless otherwise noted.
+
+Any future third-party artwork or icon library must have its licence and attribution requirements documented here before being distributed.
+
+---
+
+## ATK Player
+
+ATK Player itself is released under the MIT License.
+
+See:
+
+```text
+LICENSE
+```
+
+Copyright © 2026 David Shepstone.
+
+---
+
+## Distribution Licence Files
+
+The Windows ATK Player distribution includes a `licenses` directory containing the applicable project and third-party licence information.
+
+For ATK Player 0.2.0 this includes:
+
+```text
+ATK-Player-MIT.txt
+Qt-LGPL-3.0.txt
+FFmpeg-LGPL-2.1.txt
+THIRD_PARTY_NOTICES.txt
+```
+
+These files should remain part of future Windows installer and portable distributions unless the dependency set or licensing configuration changes.
+
+---
+
+## Adding a New Dependency
+
+Before merging a new distributable dependency, record:
+
+1. Dependency name and version.
+2. Official project and source URLs.
+3. Exact licence.
+4. Whether ATK Player links it statically or dynamically.
+5. Which runtime files will be redistributed.
+6. Which licence texts or notices must accompany the binary distribution.
+7. Any optional features that materially change the dependency's licence configuration.
+8. How the dependency is obtained and version-pinned.
+
+A dependency should not be added to a public ATK Player binary distribution without documenting its distribution configuration here.

@@ -18,10 +18,15 @@ First public Windows release.
 ## Requirements
 
 - Windows 11 x64 (the currently verified release platform)
-- Microsoft Visual C++ 2015-2022 x64 Redistributable
+- Microsoft Visual C++ 2015–2022 x64 Redistributable
 
-ATK Player is open-source software under the MIT License. Source and license
+ATK Player is open-source software under the MIT License. Source and licence
 information: https://github.com/dshepstone/ATK_Player
 
-The `0.2.0-rc1` installer is an unsigned acceptance build. Windows SmartScreen
-may display a warning; verify the published SHA-256 checksum before installing.
+## Unsigned Build Notice
+
+The Windows 0.2.0 MSI and executable are currently unsigned. Windows may display
+an Unknown Publisher or Microsoft Defender SmartScreen warning.
+
+SHA-256 checksum files are provided with the release downloads so users can
+verify the integrity of the downloaded installer and portable package before use.
