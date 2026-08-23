@@ -135,12 +135,29 @@ class AtkPlayer:
     def load_external_audio(self, path): return self.request("load_external_audio", path=str(Path(path).absolute()))
     def clear_external_audio(self): return self.request("clear_external_audio")
     def set_external_audio_offset(self, frame_offset): return self.request("set_external_audio_offset", frameOffset=int(frame_offset))
-    def export_review(self, path, overwrite=False): return self.request("export_review", path=str(Path(path).absolute()), overwrite=overwrite)
-    def export_frame(self, path, frame=None, overwrite=False):
+    @staticmethod
+    def _burn_ins(frame_number=False, bookmark_labels=False, bookmark_notes=False):
+        if not (frame_number or bookmark_labels or bookmark_notes):
+            return None
+        return {"frameNumber": bool(frame_number),
+                "bookmarkLabels": bool(bookmark_labels),
+                "bookmarkNotes": bool(bookmark_notes)}
+    def export_review(self, path, overwrite=False, frame_number=False,
+                      bookmark_labels=False, bookmark_notes=False):
+        params = {"path": str(Path(path).absolute()), "overwrite": bool(overwrite)}
+        burn_ins = self._burn_ins(frame_number, bookmark_labels, bookmark_notes)
+        if burn_ins is not None: params["burnIns"] = burn_ins
+        return self.request("export_review", **params)
+    def export_frame(self, path, frame=None, overwrite=False, frame_number=False,
+                     bookmark_labels=False, bookmark_notes=False):
         params = {"path": str(Path(path).absolute()), "overwrite": bool(overwrite)}
         if frame is not None: params["frame"] = int(frame)
+        burn_ins = self._burn_ins(frame_number, bookmark_labels, bookmark_notes)
+        if burn_ins is not None: params["burnIns"] = burn_ins
         return self.request("export_frame", **params)
-    def export_image_sequence(self, directory, prefix=None, start_frame=None, end_frame=None, overwrite=False):
+    def export_image_sequence(self, directory, prefix=None, start_frame=None, end_frame=None,
+                              overwrite=False, frame_number=False, bookmark_labels=False,
+                              bookmark_notes=False):
         params = {"directory": str(Path(directory).absolute()), "overwrite": bool(overwrite)}
         if prefix is not None: params["prefix"] = str(prefix)
         if (start_frame is None) != (end_frame is None):
@@ -148,6 +165,8 @@ class AtkPlayer:
         if start_frame is not None:
             params["startFrame"] = int(start_frame)
             params["endFrame"] = int(end_frame)
+        burn_ins = self._burn_ins(frame_number, bookmark_labels, bookmark_notes)
+        if burn_ins is not None: params["burnIns"] = burn_ins
         return self.request("export_image_sequence", **params)
     def export_status(self, job_id=None): return self.request("get_export_status", **({"jobId": job_id} if job_id else {}))
     def cancel_export(self, job_id=None): return self.request("cancel_export", **({"jobId": job_id} if job_id else {}))

@@ -1,4 +1,5 @@
 #include "ui/ExportDialog.h"
+#include "ui/BurnInOptionsWidget.h"
 #include "export/FFmpegExporter.h"
 #include <QDialogButtonBox>
 #include <QFileDialog>
@@ -43,6 +44,9 @@ ExportDialog::ExportDialog(exporter::ExportSpec spec, QWidget* parent)
         .arg(m_spec.outputSize().width()).arg(m_spec.outputSize().height()).arg(mode), this));
     form->addRow(tr("Audio:"), new QLabel(m_spec.audioSummary(), this));
     root->addLayout(form);
+    m_burnIns = new BurnInOptionsWidget(this);
+    m_burnIns->setOptions(m_spec.burnIns);
+    root->addWidget(m_burnIns);
     if (!exporter::FFmpegExporter::isSupported())
         root->addWidget(new QLabel(tr("No compatible H.264 encoder is available in this FFmpeg build."), this));
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Cancel, this);
@@ -60,6 +64,7 @@ QString ExportDialog::destination() const
     if (!path.endsWith(QStringLiteral(".mp4"), Qt::CaseInsensitive)) path += QStringLiteral(".mp4");
     return path;
 }
+exporter::ExportBurnIns ExportDialog::burnIns() const { return m_burnIns->options(); }
 void ExportDialog::browse()
 {
     const QString path = QFileDialog::getSaveFileName(this, tr("Export Review"), destination(), tr("MP4 Video (*.mp4)"));

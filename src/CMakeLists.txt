@@ -48,6 +48,7 @@ set(ATK_CORE_SOURCES
     project/ProjectSerializer.cpp
 
     export/ExportSpec.cpp
+    export/ExportBurnInRenderer.cpp
     export/ExportRenderer.cpp
     export/ExportJob.cpp
     export/FFmpegExporter.cpp
@@ -101,6 +102,7 @@ set(ATK_CORE_HEADERS
     project/ProjectSerializer.h
 
     export/ExportSpec.h
+    export/ExportBurnInRenderer.h
     export/ExportRenderer.h
     export/ExportJob.h
     export/FFmpegExporter.h

@@ -85,5 +85,20 @@ class ClientTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             AtkPlayer().export_image_sequence("sequence", start_frame=20)
 
+    def test_export_burn_ins_are_additive_and_legacy_payloads_stay_clean(self):
+        requests = []
+        def reply(request):
+            requests.append(request)
+            return {"id": request["id"], "ok": True, "result": {"jobId": "job"}}
+        with StubServer(reply) as server, AtkPlayer(port=server.port) as player:
+            player.export_review("clean.mp4")
+            player.export_frame("frame.png", frame=50, frame_number=True)
+            player.export_image_sequence("sequence", bookmark_labels=True, bookmark_notes=True)
+        self.assertNotIn("burnIns", requests[0]["params"])
+        self.assertEqual(requests[1]["params"]["burnIns"], {
+            "frameNumber": True, "bookmarkLabels": False, "bookmarkNotes": False})
+        self.assertEqual(requests[2]["params"]["burnIns"], {
+            "frameNumber": False, "bookmarkLabels": True, "bookmarkNotes": True})
+
 
 if __name__ == "__main__": unittest.main()

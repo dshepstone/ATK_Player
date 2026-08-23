@@ -15,6 +15,7 @@
 #include "timeline/TimelineModel.h"
 #include "ui/ApplicationSettings.h"
 #include "ui/BookmarkPanel.h"
+#include "ui/BurnInOptionsWidget.h"
 #include "ui/CompareBar.h"
 #include "ui/ComparisonCompositeWidget.h"
 #include "ui/ExportDialog.h"
@@ -53,6 +54,7 @@
 #include <QApplication>
 #include <QCoreApplication>
 #include <QDockWidget>
+#include <QDialogButtonBox>
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
@@ -67,8 +69,22 @@
 
 namespace atk::ui {
 namespace {
-
 using commands::CommandId;
+
+bool chooseBurnIns(QWidget* parent, const QString& title, exporter::ExportBurnIns& result)
+{
+    QDialog dialog(parent); dialog.setWindowTitle(title);
+    auto* layout = new QVBoxLayout(&dialog);
+    auto* options = new BurnInOptionsWidget(&dialog); options->setOptions(result);
+    layout->addWidget(options);
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    layout->addWidget(buttons);
+    QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    if (dialog.exec() != QDialog::Accepted) return false;
+    result = options->options();
+    return true;
+}
 
 /// Commands that get a separator drawn above them, to group the menus without
 /// hard-coding the menu structure a second time.
@@ -1553,6 +1569,12 @@ exporter::ExportSpec MainWindow::exportSnapshot(const QString& outputPath) const
     };
     const auto& a = m_project->entries().at(aIndex);
     spec.sourceA = snapshotSource(a, m_timeline->effectiveStartFrame(), m_timeline->effectiveEndFrame());
+    spec.bookmarks.reserve(m_timeline->bookmarks().size());
+    for (const auto& bookmark : m_timeline->bookmarks()) {
+        spec.bookmarks.push_back({bookmark.id, bookmark.isRange(), bookmark.frame,
+            bookmark.isRange() ? bookmark.endFrame : bookmark.frame,
+            bookmark.name, bookmark.note, bookmark.colorIndex});
+    }
     spec.comparison = isComparisonActive();
     if (spec.comparison) {
         const int bIndex = m_project->indexForId(m_compare->sourceBId());
@@ -1597,6 +1619,7 @@ void MainWindow::exportReview()
     ExportDialog dialog(spec, this);
     if (dialog.exec() != QDialog::Accepted) return;
     spec.outputPath = dialog.destination();
+    spec.burnIns = dialog.burnIns();
     if (QFileInfo::exists(spec.outputPath)
         && QMessageBox::question(this, tr("Export Review"),
             tr("Replace the existing file?\n%1").arg(QDir::toNativeSeparators(spec.outputPath)),
@@ -1627,6 +1650,7 @@ void MainWindow::exportCurrentFrame()
         && QMessageBox::question(this, tr("Export Current Frame"),
             tr("Replace the existing image?\n%1").arg(QDir::toNativeSeparators(path)),
             QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes) return;
+    if (!chooseBurnIns(this, tr("Export Current Frame"), spec.burnIns)) return;
     spec.outputPath = QFileInfo(path).absoluteFilePath();
     const QString validation = spec.validate();
     if (!validation.isEmpty()) { QMessageBox::critical(this, tr("Export Current Frame"), validation); return; }
@@ -1643,6 +1667,7 @@ void MainWindow::exportImageSequence()
         this, tr("Choose Parent Folder for Image Sequence"), QFileInfo(spec.outputPath).absolutePath());
     if (parent.isEmpty()) return;
     spec.outputPath = QDir(parent).filePath(spec.imagePrefix + QStringLiteral("_frames"));
+    if (!chooseBurnIns(this, tr("Export Image Sequence"), spec.burnIns)) return;
     const QString validation = spec.validate();
     if (!validation.isEmpty()) { QMessageBox::critical(this, tr("Export Image Sequence"), validation); return; }
     startExport(std::move(spec));
@@ -2163,6 +2188,20 @@ api::ApiResponse MainWindow::handleApiApplicationCommand(
         *out = info.absoluteFilePath();
         return true;
     };
+    const auto readBurnIns = [&](exporter::ExportBurnIns* out, QString* error) {
+        if (!params.contains(QStringLiteral("burnIns"))) return true;
+        const QJsonValue value = params.value(QStringLiteral("burnIns"));
+        if (!value.isObject()) { *error = QStringLiteral("burnIns must be an object"); return false; }
+        const QJsonObject object = value.toObject();
+        const auto read = [&](const QString& key, bool* target) {
+            if (!object.contains(key)) return true;
+            if (!object.value(key).isBool()) { *error = key + QStringLiteral(" must be a boolean"); return false; }
+            *target = object.value(key).toBool(); return true;
+        };
+        return read(QStringLiteral("frameNumber"), &out->frameNumber)
+            && read(QStringLiteral("bookmarkLabels"), &out->bookmarkLabels)
+            && read(QStringLiteral("bookmarkNotes"), &out->bookmarkNotes);
+    };
     const auto mayDiscard = [&] {
         return !m_project->isModified()
             || params.value(QStringLiteral("discardUnsaved")).toBool(false);
@@ -2465,6 +2504,8 @@ api::ApiResponse MainWindow::handleApiApplicationCommand(
         if (QFileInfo::exists(path) && !params.value(QStringLiteral("overwrite")).toBool(false))
             return fail(QStringLiteral("destination exists; set overwrite=true to replace it"));
         exporter::ExportSpec spec = exportSnapshot(path);
+        QString burnInError;
+        if (!readBurnIns(&spec.burnIns, &burnInError)) return fail(burnInError);
         const QString validation = spec.validate();
         if (!validation.isEmpty()) return fail(validation);
         m_apiExportJobId = QUuid::createUuid().toString(QUuid::WithoutBraces);
@@ -2488,6 +2529,8 @@ api::ApiResponse MainWindow::handleApiApplicationCommand(
             return fail(QStringLiteral("destination exists; set overwrite=true to replace it"));
         exporter::ExportSpec spec = exportSnapshot(path);
         spec.kind = exporter::ExportKind::CurrentFrame;
+        QString burnInError;
+        if (!readBurnIns(&spec.burnIns, &burnInError)) return fail(burnInError);
         qint64 frame = m_timeline->currentFrame();
         if (params.contains(QStringLiteral("frame"))) {
             const double value = params.value(QStringLiteral("frame")).toDouble(-1.0);
@@ -2518,6 +2561,8 @@ api::ApiResponse MainWindow::handleApiApplicationCommand(
             return fail(QStringLiteral("image-sequence destination already exists"));
         exporter::ExportSpec spec = exportSnapshot(destination.absoluteFilePath());
         spec.kind = exporter::ExportKind::ImageSequence;
+        QString burnInError;
+        if (!readBurnIns(&spec.burnIns, &burnInError)) return fail(burnInError);
         spec.imagePrefix = safeImagePrefix(params.value(QStringLiteral("prefix")).toString(
             QFileInfo(spec.sourceA.path).completeBaseName()));
         const bool hasStart = params.contains(QStringLiteral("startFrame"));

@@ -1,4 +1,5 @@
 #include "export/ExportRenderer.h"
+#include "export/ExportBurnInRenderer.h"
 #include "media/ffmpeg/FFmpegUtil.h"
 #include "playback/ComparisonCompositor.h"
 #include "playback/CompareSession.h"
@@ -48,6 +49,7 @@ bool ExportRenderer::render(qint64 index, RenderedExportFrame& out, QString* err
         painter.drawImage(0, 0, image);
         image = std::move(canvas);
     }
+    ExportBurnInRenderer::apply(image, m_spec, out.sourceAFrameIndex);
     out.image = std::move(image);
     return true;
 }

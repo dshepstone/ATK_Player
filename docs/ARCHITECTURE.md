@@ -752,6 +752,14 @@ replacing the requested destination, preserving an existing file on failure.
 Current-frame PNGs use the same sibling-file replacement. Image sequences render
 into a unique sibling directory and rename it into place only after every PNG is
 written; the first version rejects an existing final sequence directory.
+`ExportSpec` also snapshots Source A bookmarks and three independently disabled
+burn-in options. After comparison composition and final canvas padding,
+`ExportBurnInRenderer` paints enabled frame/bookmark metadata once onto the final
+`QImage`; MP4 and both PNG paths therefore share identical overlay behavior.
+The disabled path returns before constructing `QPainter`, preserving clean
+pixels, dimensions, mapping, timing and audio. Active point bookmarks match one
+zero-based frame; ranges match their inclusive bounds, while all painted labels
+are one-based.
 
 ---
 

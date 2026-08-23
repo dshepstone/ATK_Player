@@ -9,6 +9,7 @@
 set(ATK_UI_SOURCES
     ApplicationSettings.cpp
     BookmarkPanel.cpp
+    BurnInOptionsWidget.cpp
     CompareBar.cpp
     ComparisonCompositeWidget.cpp
     ExportDialog.cpp
@@ -31,6 +32,7 @@ set(ATK_UI_SOURCES
 set(ATK_UI_HEADERS
     ApplicationSettings.h
     BookmarkPanel.h
+    BurnInOptionsWidget.h
     CompareBar.h
     ComparisonCompositeWidget.h
     ExportDialog.h
