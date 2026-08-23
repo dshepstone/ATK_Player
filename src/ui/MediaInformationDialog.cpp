@@ -45,10 +45,27 @@ QString frameRateText(const media::FrameRate& rate)
     return QStringLiteral("%1 fps").arg(QString::number(rate.toDouble(), 'f', precision));
 }
 
-QString codecText(const QString& longName, const QString& shortName)
+QString codecText(const QString& shortName, const QString& longName)
 {
+    const QString codec = shortName.trimmed().toLower();
+    if (codec == QStringLiteral("h264")) return QStringLiteral("H.264 (AVC)");
+    if (codec == QStringLiteral("hevc")) return QStringLiteral("HEVC (H.265)");
+    if (codec == QStringLiteral("av1")) return QStringLiteral("AV1");
+    if (codec == QStringLiteral("vp9")) return QStringLiteral("VP9");
+    if (codec == QStringLiteral("vp8")) return QStringLiteral("VP8");
+    if (codec == QStringLiteral("prores")) return QStringLiteral("ProRes");
+    if (codec == QStringLiteral("dnxhd")) return QStringLiteral("DNxHD / DNxHR");
+    if (codec == QStringLiteral("mpeg4")) return QStringLiteral("MPEG-4");
+    if (codec == QStringLiteral("aac")) return QStringLiteral("AAC");
+    if (codec.startsWith(QStringLiteral("pcm_"))) return QStringLiteral("PCM");
+    if (codec == QStringLiteral("opus")) return QStringLiteral("Opus");
+    if (codec == QStringLiteral("vorbis")) return QStringLiteral("Vorbis");
+    if (codec == QStringLiteral("mp3")) return QStringLiteral("MP3");
+    if (codec == QStringLiteral("flac")) return QStringLiteral("FLAC");
+    if (codec == QStringLiteral("ac3")) return QStringLiteral("AC-3");
+    if (codec == QStringLiteral("eac3")) return QStringLiteral("E-AC-3");
+    if (!codec.isEmpty()) return codec.toUpper();
     if (!longName.trimmed().isEmpty()) return longName.trimmed();
-    if (!shortName.trimmed().isEmpty()) return shortName.trimmed().toUpper();
     return kUnavailable;
 }
 
@@ -166,13 +183,13 @@ void MediaInformationDialog::setMediaInformation(const media::MediaMetadata& met
     setValue(QStringLiteral("NormalSize"), resolutionText(metadata.resolution));
     setValue(QStringLiteral("CurrentSize"), kUnavailable);
     setValue(QStringLiteral("VideoCodec"),
-             metadata.hasVideo ? codecText(metadata.videoCodecLongName, metadata.videoCodecName) : kUnavailable);
+             metadata.hasVideo ? codecText(metadata.videoCodecName, metadata.videoCodecLongName) : kUnavailable);
     setValue(QStringLiteral("Frames"), authoritativeFrameCount > 0
         ? QString::number(authoritativeFrameCount) : kUnavailable);
     setValue(QStringLiteral("FrameRate"), frameRateText(metadata.frameRate));
     setValue(QStringLiteral("PixelFormat"), metadata.pixelFormatName);
     setValue(QStringLiteral("AudioCodec"), metadata.hasAudio
-        ? codecText(metadata.audioCodecLongName, metadata.audioCodecName) : tr("None"));
+        ? codecText(metadata.audioCodecName, metadata.audioCodecLongName) : tr("None"));
     setValue(QStringLiteral("Channels"), metadata.hasAudio ? channelsText(metadata) : kUnavailable);
     setValue(QStringLiteral("SampleRate"), metadata.hasAudio && metadata.audioSampleRate > 0
         ? tr("%1 Hz").arg(metadata.audioSampleRate) : kUnavailable);

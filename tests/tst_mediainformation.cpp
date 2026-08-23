@@ -63,18 +63,51 @@ void TestMediaInformation::formatsMetadataAndCopiesSafely()
     QCOMPARE(value(&dialog, "CurrentSize")->text(), QStringLiteral("—"));
     QCOMPARE(value(&dialog, "Frames")->text(), QStringLiteral("160"));
     QCOMPARE(value(&dialog, "FrameRate")->text(), QStringLiteral("23.976 fps"));
-    QCOMPARE(value(&dialog, "VideoCodec")->text(), QStringLiteral("H.264 / AVC"));
+    QCOMPARE(value(&dialog, "VideoCodec")->text(), QStringLiteral("H.264 (AVC)"));
     QCOMPARE(value(&dialog, "PixelFormat")->text(), QStringLiteral("yuv420p"));
     QCOMPARE(value(&dialog, "AudioCodec")->text(), QStringLiteral("AAC"));
     QCOMPARE(value(&dialog, "Channels")->text(), QStringLiteral("2 (Stereo)"));
     QCOMPARE(value(&dialog, "SampleRate")->text(), QStringLiteral("48000 Hz"));
 
+    const QList<QPair<QString, QString>> friendlyVideoCodecs{
+        { QStringLiteral("h264"), QStringLiteral("H.264 (AVC)") },
+        { QStringLiteral("hevc"), QStringLiteral("HEVC (H.265)") },
+        { QStringLiteral("prores"), QStringLiteral("ProRes") },
+        { QStringLiteral("unknown_codec"), QStringLiteral("UNKNOWN_CODEC") },
+    };
+    for (const auto& [shortName, expected] : friendlyVideoCodecs) {
+        metadata.videoCodecName = shortName;
+        metadata.videoCodecLongName = QStringLiteral("Verbose FFmpeg description");
+        dialog.setMediaInformation(metadata, 160);
+        QCOMPARE(value(&dialog, "VideoCodec")->text(), expected);
+    }
+
+    metadata.videoCodecName.clear();
+    metadata.videoCodecLongName = QStringLiteral("Available Long Name");
+    dialog.setMediaInformation(metadata, 160);
+    QCOMPARE(value(&dialog, "VideoCodec")->text(), QStringLiteral("Available Long Name"));
+
+    metadata.videoCodecName = QStringLiteral("h264");
+    metadata.videoCodecLongName = QStringLiteral("H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10");
+    metadata.audioCodecName = QStringLiteral("opus");
+    metadata.audioCodecLongName = QStringLiteral("Opus (Opus Interactive Audio Codec)");
+    dialog.setMediaInformation(metadata, 160);
+    QCOMPARE(value(&dialog, "AudioCodec")->text(), QStringLiteral("Opus"));
+
     const QString copied = dialog.copyText();
     QVERIFY(copied.contains(QStringLiteral("Source: review.mov")));
     QVERIFY(copied.contains(QStringLiteral("Frames: 160")));
+    QVERIFY(copied.contains(QStringLiteral("Codec: H.264 (AVC)")));
+    QVERIFY(copied.contains(QStringLiteral("Codec: Opus")));
+    QVERIFY(!copied.contains(QStringLiteral("MPEG-4 part 10")));
     QVERIFY(!copied.contains(QStringLiteral("C:/private")));
     dialog.findChild<QPushButton*>(QStringLiteral("MediaInfoCopy"))->click();
     QCOMPARE(QApplication::clipboard()->text(), copied);
+
+    metadata.audioCodecName = QStringLiteral("aac");
+    metadata.audioCodecLongName = QStringLiteral("AAC (Advanced Audio Coding)");
+    dialog.setMediaInformation(metadata, 160);
+    QCOMPARE(value(&dialog, "AudioCodec")->text(), QStringLiteral("AAC"));
 
     metadata.hasAudio = false;
     dialog.setMediaInformation(metadata, 160);
