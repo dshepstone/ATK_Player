@@ -73,7 +73,9 @@ ATK_Transport.prototype.close = function() {
 
 ATK_Transport.prototype.request = function(command, params, timeoutMs) {
     var id = this.nextId++;
-    var encoded = JSON.stringify({ id: id, command: command, params: params || {} }) + "\n";
+    // RemoteCmd.send() terminates raw commands itself. Appending a newline here
+    // creates a second empty NDJSON request on ATK Player.
+    var encoded = JSON.stringify({ id: id, command: command, params: params || {} });
     if (!this.socket.send(encoded)) throw new Error("ATK Player request could not be sent.");
     if (!this.socket.receive(timeoutMs || 5000)) throw new Error("ATK Player response timed out.");
     var raw = String(this.socket.lastReceived());

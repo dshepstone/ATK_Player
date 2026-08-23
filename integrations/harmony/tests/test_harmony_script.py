@@ -15,6 +15,14 @@ def atk_to_harmony(frame, start):
     return int(start) + int(frame)
 
 
+def serialize_harmony_request(request_id, command, params=None):
+    return json.dumps({
+        "id": request_id,
+        "command": command,
+        "params": params or {},
+    }, separators=(",", ":"))
+
+
 def parse_response(raw, request_id=1):
     if "\n" not in raw:
         raise ValueError("incomplete")
@@ -87,13 +95,20 @@ def remove_previous_movie(file_factory, path):
 
 class HarmonyScriptTests(unittest.TestCase):
     def test_sequential_request_diagnostics_and_id_validation(self):
+        requests = [serialize_harmony_request(request_id, command) for request_id, command in (
+            (1, "get_api_info"), (2, "get_status"), (3, "get_api_info"))]
+        self.assertEqual([json.loads(request)["id"] for request in requests], [1, 2, 3])
+
         first, first_diagnostic = diagnose_response(
             "get_api_info", '{"id":1,"ok":true,"result":{}}\n', 1)
         second, second_diagnostic = diagnose_response(
             "get_status", '{"id":2,"ok":true,"result":{}}\n', 2)
-        self.assertEqual((first["id"], second["id"]), (1, 2))
+        third, third_diagnostic = diagnose_response(
+            "get_api_info", '{"id":3,"ok":true,"result":{}}\n', 3)
+        self.assertEqual((first["id"], second["id"], third["id"]), (1, 2, 3))
         self.assertIn("command=get_api_info, expected id=1, actual id=1", first_diagnostic)
         self.assertIn("command=get_status, expected id=2, actual id=2", second_diagnostic)
+        self.assertIn("command=get_api_info, expected id=3, actual id=3", third_diagnostic)
 
         with self.assertRaisesRegex(
                 ValueError, r"mismatched response for get_status \(expected id 2, received id 1\)"):
@@ -195,10 +210,12 @@ class HarmonyScriptTests(unittest.TestCase):
 
     def test_ndjson_encoding_and_safe_parsing_are_explicit(self):
         payload = {"id": 1, "command": "get_api_info", "params": {}}
-        encoded = json.dumps(payload, separators=(",", ":")) + "\n"
-        self.assertTrue(encoded.endswith("\n"))
+        encoded = serialize_harmony_request(1, "get_api_info")
+        self.assertFalse(encoded.endswith(("\n", "\r", "\r\n")))
         self.assertEqual(json.loads(encoded), payload)
-        self.assertIn('JSON.stringify({ id: id, command: command, params: params || {} }) + "\\n"', SCRIPT)
+        self.assertIn('JSON.stringify({ id: id, command: command, params: params || {} });', SCRIPT)
+        self.assertNotIn('JSON.stringify({ id: id, command: command, params: params || {} }) +', SCRIPT)
+        self.assertIn("RemoteCmd.send() terminates raw commands itself", SCRIPT)
         self.assertIn("JSON.parse", SCRIPT)
         self.assertNotRegex(SCRIPT, r"\beval\s*\(")
         self.assertIn('if (newline < 0)', SCRIPT)
