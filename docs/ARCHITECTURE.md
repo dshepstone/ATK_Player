@@ -769,7 +769,7 @@ are one-based.
 
 `integrations/harmony/scripts/ATK_Review.js` is a standalone Harmony 25 Qt
 Script adapter; no Harmony code enters `ATKPlayer.exe`. Harmony's documented
-`exporter.exportMovie` produces an OpenH264 MOV with sound at the scene preview
+`exporter.exportToQuicktime` produces an OpenH264 MOV with sound at the scene preview
 resolution under its temporary folder. The adapter uses `RemoteCmd.send()` for
 raw newline-delimited JSON (not the separately framed `sendMsg()`), validates
 the protocol-v1 handshake, and reuses `open_media`, status polling, loop-range,

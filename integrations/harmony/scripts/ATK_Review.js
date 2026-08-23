@@ -135,15 +135,11 @@ function ATK_ExportMovie(startFrame, endFrame) {
         if (!directory.exists) throw new Error("Could not create the ATK Harmony review folder.");
     }
     var path = directoryPath + "/" + ATK_SafeSceneName() + "_atk_review_" + String(new Date().getTime()) + ".mov";
-    exporter.exportMovie({
-        codec: "openH264",
-        startFrame: startFrame,
-        lastFrame: endFrame,
-        dstPath: path,
-        withSound: true,
-        resX: scene.currentResolutionX(),
-        resY: scene.currentResolutionY()
-    });
+    var exported = exporter.exportToQuicktime(
+        "openH264", startFrame, endFrame, true,
+        scene.currentResolutionX(), scene.currentResolutionY(),
+        path, "", false, 0);
+    if (exported === false) throw new Error("Harmony could not export the review movie.");
     var exportedMovie = new File(path);
     if (!exportedMovie.exists) throw new Error("Harmony did not create the review movie.");
     return path;

@@ -26,8 +26,10 @@ Harmony frame 45, Harmony frame 51 maps to ATK internal frame 6. ATK therefore
 shows UI Frame 7 because its labels describe the exported movie, not the
 absolute Harmony scene timeline. Jump-back reverses that mapping.
 
-The movie is rendered with Harmony's documented `exporter.exportMovie` API,
-`openH264`, scene preview resolution, and sound enabled. Output goes under
+The movie is rendered with `exporter.exportToQuicktime`, `openH264`, scene
+preview resolution, and sound enabled. This positional exporter was selected
+after real Harmony 25 validation showed its object-form `exportMovie` did not
+honor a non-1 start frame. Output goes under
 `specialFolders.temp/ATK_Player/Harmony`. A timestamped successor is loaded
 before the prior session preview is removed, avoiding deletion of media still
 open in ATK.

@@ -158,6 +158,13 @@ def validate_exported_movie(file_factory, path):
         raise RuntimeError("Harmony did not create the review movie.")
 
 
+def model_export_movie(exporter, file_factory, path, start, end, width=1920, height=1080):
+    result = exporter("openH264", start, end, True, width, height, path, "", False, 0)
+    if result is False:
+        raise RuntimeError("Harmony could not export the review movie.")
+    validate_exported_movie(file_factory, path)
+
+
 def remove_previous_movie(file_factory, path):
     previous = file_factory(path)
     if previous.exists:
@@ -178,6 +185,65 @@ def model_atomic_replacement(state, preferences, new_path, file_factory, workflo
 
 
 class HarmonyScriptTests(unittest.TestCase):
+    def test_range_aware_quicktime_export(self):
+        calls = []
+        existing = set(("full.mov", "range.mov"))
+        def exporter(*args):
+            calls.append(args)
+            return True
+        class File:
+            def __init__(self, path): self.path = path
+            @property
+            def exists(self): return self.path in existing
+
+        model_export_movie(exporter, File, "full.mov", 1, 28)
+        model_export_movie(exporter, File, "range.mov", 5, 20)
+        self.assertEqual(calls[0],
+                         ("openH264", 1, 28, True, 1920, 1080, "full.mov", "", False, 0))
+        self.assertEqual(calls[1],
+                         ("openH264", 5, 20, True, 1920, 1080, "range.mov", "", False, 0))
+
+        class Transport:
+            def __init__(self): self.calls = []
+            def request(self, command, params):
+                self.calls.append((command, params))
+                if command == "get_api_info":
+                    return {"application": "ATK Player", "protocolVersion": 1, "frameIndexBase": 0}
+                return {"currentFrame": 7, "hasMedia": True}
+        transport = Transport()
+        model_review_workflow(transport, "range.mov", 12, 5, 20)
+        self.assertIn(("set_loop_range", {"start": 0, "end": 15}), transport.calls)
+        self.assertIn(("set_loop_enabled", {"enabled": True}), transport.calls)
+        self.assertIn(("seek_frame", {"frame": 7}), transport.calls)
+
+        preferences = {"ATK_HARMONY_MOVIE_PATH": "old.mov",
+                       "ATK_HARMONY_SCENE_NAME": "OldScene"}
+        original_preferences = dict(preferences)
+        state = {"moviePath": ""}
+        removed = []
+        class PreviousFile:
+            @property
+            def exists(self): return True
+            def remove(self): removed.append("old.mov")
+        def failed_workflow(path):
+            model_export_movie(lambda *args: False, File, path, 5, 20)
+        with self.assertRaisesRegex(RuntimeError, "could not export"):
+            model_atomic_replacement(state, preferences, "failed.mov",
+                                     lambda path: PreviousFile(), failed_workflow)
+        self.assertEqual(preferences, original_preferences)
+        self.assertEqual(state, {"moviePath": ""})
+        self.assertEqual(removed, [])
+
+        export_body = SCRIPT.split("function ATK_ExportMovie", 1)[1].split(
+            "function ATK_WaitForLoaded", 1)[0]
+        self.assertIn("exporter.exportToQuicktime(", export_body)
+        self.assertNotIn("exporter.exportMovie", export_body)
+        self.assertIn('"openH264", startFrame, endFrame, true', export_body)
+        self.assertIn("scene.currentResolutionX(), scene.currentResolutionY()", export_body)
+        self.assertIn('path, "", false, 0', export_body)
+        self.assertIn("if (exported === false)", export_body)
+        self.assertIn('String(specialFolders.temp) + "/ATK_Player/Harmony"', export_body)
+
     def test_atomic_preview_replacement_restores_persisted_path(self):
         class Filesystem:
             def __init__(self, existing=()):
@@ -467,8 +533,8 @@ class HarmonyScriptTests(unittest.TestCase):
         export_position = SCRIPT.index("ATK_ExportMovie(start, end)")
         open_position = SCRIPT.index('transport.request("open_media"')
         self.assertLess(export_position, open_position)
-        self.assertIn('codec: "openH264"', SCRIPT)
-        self.assertIn("withSound: true", SCRIPT)
+        self.assertIn('exporter.exportToQuicktime(', SCRIPT)
+        self.assertIn('"openH264", startFrame, endFrame, true', SCRIPT)
         self.assertIn("scene.currentResolutionX()", SCRIPT)
         self.assertIn("scene.currentResolutionY()", SCRIPT)
         self.assertIn("frame.setCurrent(Math.round(destination))", SCRIPT)
