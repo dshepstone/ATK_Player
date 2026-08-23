@@ -20,7 +20,49 @@ def serialize_harmony_request(request_id, command, params=None):
         "id": request_id,
         "command": command,
         "params": params or {},
-    }, separators=(",", ":"))
+    }, separators=(",", ":")) + "\n"
+
+
+class FakeRemoteCmd:
+    def __init__(self, response, connect=True, send=True, receive=True):
+        self.response = response
+        self.connect_result = connect
+        self.send_result = send
+        self.receive_result = receive
+        self.connected_state = False
+        self.sent = []
+        self.disconnect_calls = 0
+
+    def connect_timeout(self):
+        self.connected_state = self.connect_result
+        return self.connect_result
+
+    def send(self, payload):
+        self.sent.append(payload + "\0")
+        return self.send_result
+
+    def receive(self):
+        return self.receive_result
+
+    def disconnect(self):
+        self.connected_state = False
+        self.disconnect_calls += 1
+
+
+def model_remote_request(socket_factory, request_id, command):
+    socket = socket_factory()
+    try:
+        if not socket.connect_timeout():
+            raise RuntimeError("connect")
+        payload = serialize_harmony_request(request_id, command)
+        if not socket.send(payload):
+            raise RuntimeError("send")
+        if not socket.receive():
+            raise RuntimeError("receive")
+        return diagnose_response(command, socket.response, request_id)[0]
+    finally:
+        if socket.connected_state:
+            socket.disconnect()
 
 
 def parse_response(raw, request_id=1):
@@ -134,8 +176,40 @@ class HarmonyScriptTests(unittest.TestCase):
         self.assertNotIn("ATK_ExportMovie", sequential_body)
         self.assertNotIn("sendMsg", SCRIPT)
         self.assertNotIn("receiveMsg", SCRIPT)
-        self.assertIn("this.socket.send(encoded)", SCRIPT)
-        self.assertIn("this.socket.receive(timeoutMs || 5000)", SCRIPT)
+        self.assertIn("socket.send(encoded)", SCRIPT)
+        self.assertIn("socket.receive(timeoutMs || 5000)", SCRIPT)
+
+    def test_remote_cmd_wire_framing_and_per_request_connections(self):
+        created = []
+        responses = iter((
+            '{"id":1,"ok":true}\n',
+            '{"id":2,"ok":true}\n',
+            '{"id":3,"ok":true}\n'))
+
+        def socket_factory():
+            socket = FakeRemoteCmd(next(responses))
+            created.append(socket)
+            return socket
+
+        for request_id, command in ((1, "get_api_info"), (2, "get_status"), (3, "get_api_info")):
+            self.assertEqual(model_remote_request(socket_factory, request_id, command)["id"], request_id)
+
+        self.assertEqual(len(created), 3)
+        for socket in created:
+            self.assertEqual(socket.disconnect_calls, 1)
+            self.assertTrue(socket.sent[0].endswith("\n\0"))
+            self.assertFalse(socket.sent[0].endswith("\n\n\0"))
+
+        failed = FakeRemoteCmd('{"id":1,"ok":true}\n', receive=False)
+        with self.assertRaisesRegex(RuntimeError, "receive"):
+            model_remote_request(lambda: failed, 1, "get_api_info")
+        self.assertEqual(failed.disconnect_calls, 1)
+
+        self.assertNotIn("this.socket", SCRIPT)
+        self.assertIn("var socket = new RemoteCmd();", SCRIPT)
+        self.assertIn("if (socket.connected()) socket.disconnect();", SCRIPT)
+        self.assertNotIn("transport.connect()", SCRIPT)
+        self.assertNotIn("transport.close()", SCRIPT)
 
     def test_script_editor_file_exists_property_and_cleanup(self):
         class Filesystem:
@@ -211,11 +285,11 @@ class HarmonyScriptTests(unittest.TestCase):
     def test_ndjson_encoding_and_safe_parsing_are_explicit(self):
         payload = {"id": 1, "command": "get_api_info", "params": {}}
         encoded = serialize_harmony_request(1, "get_api_info")
-        self.assertFalse(encoded.endswith(("\n", "\r", "\r\n")))
+        self.assertTrue(encoded.endswith("\n"))
+        self.assertFalse(encoded.endswith("\n\n"))
         self.assertEqual(json.loads(encoded), payload)
-        self.assertIn('JSON.stringify({ id: id, command: command, params: params || {} });', SCRIPT)
-        self.assertNotIn('JSON.stringify({ id: id, command: command, params: params || {} }) +', SCRIPT)
-        self.assertIn("RemoteCmd.send() terminates raw commands itself", SCRIPT)
+        self.assertIn('JSON.stringify({ id: id, command: command, params: params || {} }) + "\\n";', SCRIPT)
+        self.assertIn("RemoteCmd.send() appends NUL", SCRIPT)
         self.assertIn("JSON.parse", SCRIPT)
         self.assertNotRegex(SCRIPT, r"\beval\s*\(")
         self.assertIn('if (newline < 0)', SCRIPT)

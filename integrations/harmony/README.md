@@ -13,6 +13,8 @@ is `45571` and can be changed with `ATK_Settings()`.
 
 - `ATK_TestConnection()` validates the ATK application, protocol version 1, and
   zero-based frame convention.
+- `ATK_TestSequentialRequests()` diagnoses three sequential logical API requests
+  without exporting a movie.
 - `ATK_ReviewInPlayer()` exports Harmony frames 1 through `frame.numberOf()`.
 - `ATK_ReviewRangeInPlayer(start, end)` exports an explicit inclusive,
   one-based Harmony range and is useful from a custom wrapper script.
@@ -37,7 +39,8 @@ See [install.md](install.md) for installation and toolbar setup.
 - Connection errors mean ATK is closed, its Local API is disabled, or the port
   differs. The script never launches ATK.
 - The first OpenH264 export may require Harmony's normal Cisco codec download.
-- The direct `RemoteCmd.send()` raw-text transport follows Harmony 25's API and
-  deliberately avoids framed `sendMsg()`. A real Harmony-to-ATK handshake is
-  still pending human acceptance; it is not claimed as validated here.
+- Harmony 25's `RemoteCmd.send()` appends NUL to raw commands. The adapter adds
+  the LF required by ATK's NDJSON protocol and uses a fresh connection for each
+  request so that NUL cannot contaminate the next request. It deliberately
+  avoids framed `sendMsg()`.
 - No Python helper, Node.js, npm package, or Harmony plug-in is required.

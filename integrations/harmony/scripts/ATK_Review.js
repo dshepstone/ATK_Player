@@ -31,7 +31,6 @@ function ATK_Port() {
 }
 
 function ATK_Transport() {
-    this.socket = new RemoteCmd();
     this.nextId = 1;
     this.diagnostics = false;
 }
@@ -62,38 +61,36 @@ function ATK_LogResponse(command, expectedId, actualId, raw) {
         + ", raw=" + ATK_EscapeResponse(raw));
 }
 
-ATK_Transport.prototype.connect = function() {
-    if (!this.socket.connectTimeout(ATK_Host, ATK_Port(), 2000))
-        throw new Error("Could not connect to ATK Player.\nStart ATK Player and enable Local API in\nPreferences > Integrations.");
-};
-
-ATK_Transport.prototype.close = function() {
-    if (this.socket.connected()) this.socket.disconnect();
-};
-
 ATK_Transport.prototype.request = function(command, params, timeoutMs) {
+    var socket = new RemoteCmd();
     var id = this.nextId++;
-    // RemoteCmd.send() terminates raw commands itself. Appending a newline here
-    // creates a second empty NDJSON request on ATK Player.
-    var encoded = JSON.stringify({ id: id, command: command, params: params || {} });
-    if (!this.socket.send(encoded)) throw new Error("ATK Player request could not be sent.");
-    if (!this.socket.receive(timeoutMs || 5000)) throw new Error("ATK Player response timed out.");
-    var raw = String(this.socket.lastReceived());
-    var newline = raw.indexOf("\n");
-    if (newline < 0) throw new Error("ATK Player returned an incomplete response.");
-    var response;
-    try { response = JSON.parse(raw.substring(0, newline)); }
-    catch (error) {
-        ATK_LogResponse(command, id, "unparseable", raw);
-        throw new Error("ATK Player returned malformed JSON for " + command + " (expected id " + id + ").");
+    try {
+        if (!socket.connectTimeout(ATK_Host, ATK_Port(), 2000))
+            throw new Error("Could not connect to ATK Player.\nStart ATK Player and enable Local API in\nPreferences > Integrations.");
+        // Harmony 25 RemoteCmd.send() appends NUL. ATK is NDJSON, so include one
+        // LF, then close this connection so the trailing NUL cannot affect the next request.
+        var encoded = JSON.stringify({ id: id, command: command, params: params || {} }) + "\n";
+        if (!socket.send(encoded)) throw new Error("ATK Player request could not be sent.");
+        if (!socket.receive(timeoutMs || 5000)) throw new Error("ATK Player response timed out.");
+        var raw = String(socket.lastReceived());
+        var newline = raw.indexOf("\n");
+        if (newline < 0) throw new Error("ATK Player returned an incomplete response.");
+        var response;
+        try { response = JSON.parse(raw.substring(0, newline)); }
+        catch (error) {
+            ATK_LogResponse(command, id, "unparseable", raw);
+            throw new Error("ATK Player returned malformed JSON for " + command + " (expected id " + id + ").");
+        }
+        var actualId = ATK_ResponseId(response);
+        if (this.diagnostics || !response || response.id !== id) ATK_LogResponse(command, id, actualId, raw);
+        if (!response || response.id !== id)
+            throw new Error("ATK Player returned a mismatched response for " + command
+                + " (expected id " + id + ", received id " + actualId + ").");
+        if (response.ok !== true) throw new Error(String(response.error || "ATK Player command failed."));
+        return response.result || {};
+    } finally {
+        if (socket.connected()) socket.disconnect();
     }
-    var actualId = ATK_ResponseId(response);
-    if (this.diagnostics || !response || response.id !== id) ATK_LogResponse(command, id, actualId, raw);
-    if (!response || response.id !== id)
-        throw new Error("ATK Player returned a mismatched response for " + command
-            + " (expected id " + id + ", received id " + actualId + ").");
-    if (response.ok !== true) throw new Error(String(response.error || "ATK Player command failed."));
-    return response.result || {};
 };
 
 function ATK_VerifyApi(transport) {
@@ -163,17 +160,14 @@ function ATK_ReviewRangeInPlayer(startFrame, endFrame) {
     target = Math.max(0, Math.min(end - start, target));
     var moviePath = ATK_ExportMovie(start, end);
     var transport = new ATK_Transport();
-    try {
-        transport.connect();
-        ATK_VerifyApi(transport);
-        transport.request("open_media", { path: moviePath, discardUnsaved: true }, 5000);
-        ATK_WaitForLoaded(transport, moviePath);
-        transport.request("set_loop_range", { start: 0, end: end - start }, 5000);
-        transport.request("set_loop_enabled", { enabled: true }, 5000);
-        transport.request("seek_frame", { frame: target }, 5000);
-        ATK_WaitForFrame(transport, target);
-        transport.request("show_window", {}, 5000);
-    } finally { transport.close(); }
+    ATK_VerifyApi(transport);
+    transport.request("open_media", { path: moviePath, discardUnsaved: true }, 5000);
+    ATK_WaitForLoaded(transport, moviePath);
+    transport.request("set_loop_range", { start: 0, end: end - start }, 5000);
+    transport.request("set_loop_enabled", { enabled: true }, 5000);
+    transport.request("seek_frame", { frame: target }, 5000);
+    ATK_WaitForFrame(transport, target);
+    transport.request("show_window", {}, 5000);
     ATK_HarmonyState.previousMoviePath = ATK_HarmonyState.moviePath;
     ATK_HarmonyState.moviePath = moviePath;
     ATK_HarmonyState.sceneName = String(scene.currentScene());
@@ -199,20 +193,18 @@ function ATK_ReviewInPlayer() {
 function ATK_TestConnection() {
     var transport = new ATK_Transport();
     try {
-        transport.connect();
         var info = ATK_VerifyApi(transport);
         MessageLog.trace("ATK Player: connected; protocol " + info.protocolVersion + ", frame base " + info.frameIndexBase + ".");
         return true;
     } catch (error) {
         MessageLog.error("ATK Player: " + error.message); MessageBox.critical(String(error.message)); return false;
-    } finally { transport.close(); }
+    }
 }
 
 function ATK_TestSequentialRequests() {
     var transport = new ATK_Transport();
     transport.diagnostics = true;
     try {
-        transport.connect();
         ATK_VerifyApi(transport);
         transport.request("get_status", {}, 5000);
         ATK_VerifyApi(transport);
@@ -220,7 +212,7 @@ function ATK_TestSequentialRequests() {
         return true;
     } catch (error) {
         MessageLog.error("ATK Player: " + error.message); MessageBox.critical(String(error.message)); return false;
-    } finally { transport.close(); }
+    }
 }
 
 function ATK_JumpToReviewFrame() {
@@ -235,7 +227,7 @@ function ATK_JumpToReviewFrame() {
     }
     var transport = new ATK_Transport();
     try {
-        transport.connect(); ATK_VerifyApi(transport);
+        ATK_VerifyApi(transport);
         var status = transport.request("get_status", {}, 5000);
         var destination = ATK_IndexToHarmony(Number(status.currentFrame), ATK_HarmonyState.startFrame);
         if (destination < ATK_HarmonyState.startFrame || destination > ATK_HarmonyState.endFrame || destination > frame.numberOf())
@@ -245,7 +237,7 @@ function ATK_JumpToReviewFrame() {
         return true;
     } catch (error) {
         MessageLog.error("ATK Player: " + error.message); MessageBox.critical(String(error.message)); return false;
-    } finally { transport.close(); }
+    }
 }
 
 function ATK_Settings() {
