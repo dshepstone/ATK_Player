@@ -5,6 +5,8 @@ Harmony exports an OpenH264 `.mov`, opens it in an already-running ATK Player,
 sets the exported clip's loop range and relative frame, and can later jump the
 Harmony timeline back to the frame under review.
 
+Validated against Toon Boom Harmony Premium 25.0.0 build 23967 on Windows 11.
+
 ATK Player must already be running with **Preferences → Integrations → Enable
 Local API** selected. The script connects only to `127.0.0.1`; its default port
 is `45571` and can be changed with `ATK_Settings()`.
@@ -43,6 +45,12 @@ See [install.md](install.md) for installation and toolbar setup.
 - The first OpenH264 export may require Harmony's normal Cisco codec download.
 - Harmony 25's `RemoteCmd.send()` appends NUL to raw commands. The adapter adds
   the LF required by ATK's NDJSON protocol and uses a fresh connection for each
-  request so that NUL cannot contaminate the next request. It deliberately
-  avoids framed `sendMsg()`.
+  request so that NUL cannot contaminate the next request. Responses are
+  assembled through LF instead of assuming one `receive()` call is complete.
+  It deliberately avoids framed `sendMsg()`.
+- Harmony frames are one-based and absolute; ATK API frames are zero-based and
+  relative to the exported review. Reverse jump uses `reviewStart + currentFrame`.
+- In the validated Harmony 25 build, disabling the API may cause Harmony to show
+  overlapping duplicate error dialogs. The script issues one dialog per caught
+  error, so this remains a nonblocking cosmetic follow-up.
 - No Python helper, Node.js, npm package, or Harmony plug-in is required.

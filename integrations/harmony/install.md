@@ -1,5 +1,7 @@
 # Installing the Harmony 25 review script on Windows
 
+Validated against Toon Boom Harmony Premium 25.0.0 build 23967 on Windows 11.
+
 Do not copy files into Harmony's packaged application scripts and do not run as
 Administrator.
 
