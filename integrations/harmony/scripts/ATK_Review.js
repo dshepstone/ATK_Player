@@ -61,6 +61,28 @@ function ATK_LogResponse(command, expectedId, actualId, raw) {
         + ", raw=" + ATK_EscapeResponse(raw));
 }
 
+function ATK_ReceiveLine(socket, command, expectedId, timeoutMs) {
+    var deadline = new Date().getTime() + (timeoutMs || 5000);
+    var assembled = "";
+    var receiveCalls = 0;
+    while (new Date().getTime() < deadline) {
+        var remaining = Math.max(1, deadline - new Date().getTime());
+        ++receiveCalls;
+        if (!socket.receive(remaining)) {
+            System.processOneEvent();
+            continue;
+        }
+        var latest = String(socket.lastReceived());
+        if (latest.indexOf(assembled) === 0) assembled = latest;
+        else assembled += latest;
+        if (assembled.indexOf("\n") >= 0) return assembled;
+    }
+    MessageLog.trace("ATK DEBUG: incomplete response; command=" + command
+        + ", expected id=" + expectedId + ", receive calls=" + receiveCalls
+        + ", characters=" + assembled.length + ", raw=" + ATK_EscapeResponse(assembled));
+    throw new Error("ATK Player returned an incomplete response for " + command + ".");
+}
+
 ATK_Transport.prototype.request = function(command, params, timeoutMs) {
     var socket = new RemoteCmd();
     var id = this.nextId++;
@@ -71,10 +93,8 @@ ATK_Transport.prototype.request = function(command, params, timeoutMs) {
         // LF, then close this connection so the trailing NUL cannot affect the next request.
         var encoded = JSON.stringify({ id: id, command: command, params: params || {} }) + "\n";
         if (!socket.send(encoded)) throw new Error("ATK Player request could not be sent.");
-        if (!socket.receive(timeoutMs || 5000)) throw new Error("ATK Player response timed out.");
-        var raw = String(socket.lastReceived());
+        var raw = ATK_ReceiveLine(socket, command, id, timeoutMs || 5000);
         var newline = raw.indexOf("\n");
-        if (newline < 0) throw new Error("ATK Player returned an incomplete response.");
         var response;
         try { response = JSON.parse(raw.substring(0, newline)); }
         catch (error) {

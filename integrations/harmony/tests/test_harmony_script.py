@@ -24,14 +24,16 @@ def serialize_harmony_request(request_id, command, params=None):
 
 
 class FakeRemoteCmd:
-    def __init__(self, response, connect=True, send=True, receive=True):
-        self.response = response
+    def __init__(self, receives, connect=True, send=True, cumulative=False):
+        self.receives = list(receives)
         self.connect_result = connect
         self.send_result = send
-        self.receive_result = receive
+        self.cumulative = cumulative
         self.connected_state = False
         self.sent = []
         self.disconnect_calls = 0
+        self.receive_calls = 0
+        self.latest = ""
 
     def connect_timeout(self):
         self.connected_state = self.connect_result
@@ -42,7 +44,15 @@ class FakeRemoteCmd:
         return self.send_result
 
     def receive(self):
-        return self.receive_result
+        self.receive_calls += 1
+        if not self.receives:
+            return False
+        chunk = self.receives.pop(0)
+        self.latest = self.latest + chunk if self.cumulative else chunk
+        return True
+
+    def last_received(self):
+        return self.latest
 
     def disconnect(self):
         self.connected_state = False
@@ -57,12 +67,31 @@ def model_remote_request(socket_factory, request_id, command):
         payload = serialize_harmony_request(request_id, command)
         if not socket.send(payload):
             raise RuntimeError("send")
-        if not socket.receive():
-            raise RuntimeError("receive")
-        return diagnose_response(command, socket.response, request_id)[0]
+        raw, _ = model_receive_line(socket, command, request_id)
+        return diagnose_response(command, raw, request_id)[0]
     finally:
         if socket.connected_state:
             socket.disconnect()
+
+
+def model_receive_line(socket, command, request_id, max_calls=4):
+    assembled = ""
+    calls = 0
+    while calls < max_calls:
+        calls += 1
+        if not socket.receive():
+            continue
+        latest = socket.last_received()
+        if latest.startswith(assembled):
+            assembled = latest
+        else:
+            assembled += latest
+        if "\n" in assembled:
+            return assembled, calls
+    escaped = assembled.replace("\\", "\\\\").replace("\r", "\\r").replace("\n", "\\n")[:800]
+    raise RuntimeError(
+        f"incomplete response for {command}; expected id={request_id}; "
+        f"receive calls={calls}; characters={len(assembled)}; raw={escaped}")
 
 
 def parse_response(raw, request_id=1):
@@ -177,7 +206,7 @@ class HarmonyScriptTests(unittest.TestCase):
         self.assertNotIn("sendMsg", SCRIPT)
         self.assertNotIn("receiveMsg", SCRIPT)
         self.assertIn("socket.send(encoded)", SCRIPT)
-        self.assertIn("socket.receive(timeoutMs || 5000)", SCRIPT)
+        self.assertIn("ATK_ReceiveLine(socket, command, id, timeoutMs || 5000)", SCRIPT)
 
     def test_remote_cmd_wire_framing_and_per_request_connections(self):
         created = []
@@ -187,7 +216,7 @@ class HarmonyScriptTests(unittest.TestCase):
             '{"id":3,"ok":true}\n'))
 
         def socket_factory():
-            socket = FakeRemoteCmd(next(responses))
+            socket = FakeRemoteCmd([next(responses)])
             created.append(socket)
             return socket
 
@@ -200,8 +229,8 @@ class HarmonyScriptTests(unittest.TestCase):
             self.assertTrue(socket.sent[0].endswith("\n\0"))
             self.assertFalse(socket.sent[0].endswith("\n\n\0"))
 
-        failed = FakeRemoteCmd('{"id":1,"ok":true}\n', receive=False)
-        with self.assertRaisesRegex(RuntimeError, "receive"):
+        failed = FakeRemoteCmd([])
+        with self.assertRaisesRegex(RuntimeError, "incomplete response"):
             model_remote_request(lambda: failed, 1, "get_api_info")
         self.assertEqual(failed.disconnect_calls, 1)
 
@@ -210,6 +239,32 @@ class HarmonyScriptTests(unittest.TestCase):
         self.assertIn("if (socket.connected()) socket.disconnect();", SCRIPT)
         self.assertNotIn("transport.connect()", SCRIPT)
         self.assertNotIn("transport.close()", SCRIPT)
+
+    def test_fragmented_chunk_and_cumulative_responses(self):
+        full = '{"id":2,"ok":true,"result":{"state":"stopped"}}\n'
+        cases = (
+            FakeRemoteCmd([full]),
+            FakeRemoteCmd([full[:-1], "\n"]),
+            FakeRemoteCmd([full[:10], full[10:30], full[30:]]),
+            FakeRemoteCmd([full[:10], full[10:30], full[30:]], cumulative=True),
+        )
+        for socket in cases:
+            assembled, calls = model_receive_line(socket, "get_status", 2)
+            self.assertEqual(assembled, full)
+            self.assertGreaterEqual(calls, 1)
+
+        partial = "x" * 900
+        with self.assertRaisesRegex(
+                RuntimeError,
+                r"incomplete response for get_status; expected id=2; receive calls=4; characters=900; raw=x{800}$"):
+            model_receive_line(FakeRemoteCmd([partial]), "get_status", 2)
+
+        self.assertIn("function ATK_ReceiveLine(socket, command, expectedId, timeoutMs)", SCRIPT)
+        self.assertIn("var deadline = new Date().getTime() +", SCRIPT)
+        self.assertIn("socket.receive(remaining)", SCRIPT)
+        self.assertIn("latest.indexOf(assembled) === 0", SCRIPT)
+        self.assertIn("receive calls=", SCRIPT)
+        self.assertIn("characters=", SCRIPT)
 
     def test_script_editor_file_exists_property_and_cleanup(self):
         class Filesystem:
@@ -292,7 +347,7 @@ class HarmonyScriptTests(unittest.TestCase):
         self.assertIn("RemoteCmd.send() appends NUL", SCRIPT)
         self.assertIn("JSON.parse", SCRIPT)
         self.assertNotRegex(SCRIPT, r"\beval\s*\(")
-        self.assertIn('if (newline < 0)', SCRIPT)
+        self.assertIn('if (assembled.indexOf("\\n") >= 0) return assembled;', SCRIPT)
 
     def test_handshake_and_workflow_order(self):
         for fragment in ('info.application !== "ATK Player"',
