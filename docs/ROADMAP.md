@@ -206,12 +206,16 @@ failure handling, and synchronized audio playback. M6 packaging is next.
 
 ## M6 — Windows MSI Installer
 
-- WiX or equivalent installer definition in `packaging/windows/`
-- Bundled Qt and FFmpeg runtimes with their licence texts
-- File associations for supported media and for `.atkproj`
-- Start-menu entry and optional per-user install
-- Code signing
-- CI builds the installer on tagged releases
+- [x] WiX v4 per-machine x64 MSI definition in `packaging/windows/`
+- [x] CMake install staging with Qt and required FFmpeg runtimes
+- [x] Installed open-source licence texts and third-party notices
+- [x] Start Menu shortcut and `.atkproj` association
+- [x] Stable major-upgrade identity and clean uninstall ownership
+- [x] Optional trusted SHA-256 signing architecture; RC1 remains unsigned
+- [x] Manual/tagged release CI builds and verifies MSI/checksum artifacts
+
+**Status:** IMPLEMENTED — awaiting real RC1 install, application, uninstall and
+reinstall human acceptance. M6 is not complete until that acceptance passes.
 
 ---
 

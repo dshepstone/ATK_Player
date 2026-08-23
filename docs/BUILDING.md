@@ -417,3 +417,35 @@ this usually means stale DLLs — delete `build/<preset>/bin/` and rebuild.
 ```bash
 cmake -E rm -rf build/windows-debug
 ```
+## Building a Windows release
+
+Normal development remains `0.2.0-dev` through the tracked presets:
+
+```powershell
+cmake --preset windows-release
+cmake --build --preset windows-release
+```
+
+The M6 release entry point requires an x64 Visual Studio 2022 developer
+environment, Ninja, Qt 6.9.3, and the vcpkg baseline pinned by `vcpkg.json`.
+Set `QT_ROOT`, `VCPKG_ROOT`, and (when using a shared binary tree)
+`ATK_VCPKG_INSTALLED_DIR`, then build RC1 with:
+
+```powershell
+.\packaging\windows\build-installer.ps1
+```
+
+That script explicitly configures `ATK_VERSION_SUFFIX=rc1`; it does not change
+the normal `dev` default. It bootstraps pinned developer-local WiX tooling when
+needed, runs the full Release tests, stages through `cmake --install`, verifies
+and smoke-tests the package, and creates MSI/SHA-256 artifacts under
+`build/package/windows`.
+
+Only after RC acceptance, use the same architecture for suffix-free final:
+
+```powershell
+.\packaging\windows\build-installer.ps1 -VersionSuffix ""
+```
+
+See [Windows packaging](../packaging/windows/README.md) for installer identity,
+signing inputs, prerequisites, install/uninstall and upgrade acceptance.
