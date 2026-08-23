@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+      Name="ATK Player"
+      Manufacturer="David Shepstone"
+      Version="$(var.ProductVersion)"
+      UpgradeCode="{6E41AAE8-13C4-4D46-AB5B-7F04E92E9B76}"
+      Language="1033"
+      Scope="perMachine">
+
+    <SummaryInformation Description="ATK Player $(var.DisplayVersion) Windows x64 installer" />
+    <MajorUpgrade
+        AllowSameVersionUpgrades="yes"
+        DowngradeErrorMessage="A newer version of ATK Player is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Property Id="ARPCOMMENTS" Value="ATK Player $(var.DisplayVersion)" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/dshepstone/ATK_Player" />
+    <Property Id="ARPPRODUCTICON" Value="ATKPlayer.ico" />
+    <Icon Id="ATKPlayer.ico" SourceFile="$(var.SourceDir)\assets\icons\ATK_Player_Icon.ico" />
+
+    <Property Id="VCRUNTIME_X64_INSTALLED">
+      <RegistrySearch
+          Id="FindVCRuntimeX64"
+          Root="HKLM"
+          Key="SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64"
+          Name="Installed"
+          Type="raw"
+          Bitness="always64" />
+    </Property>
+    <Launch Condition="Installed OR VCRUNTIME_X64_INSTALLED"
+            Message="ATK Player requires the Microsoft Visual C++ 2015-2022 x64 Redistributable." />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="ATK Player" />
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ApplicationProgramsFolder" Name="ATK Player" />
+    </StandardDirectory>
+
+    <Component Id="StartMenuShortcut" Directory="ApplicationProgramsFolder" Guid="*">
+      <Shortcut
+          Id="ATKPlayerStartMenuShortcut"
+          Name="ATK Player"
+          Description="Animation playback and review application"
+          Target="[INSTALLFOLDER]ATKPlayer.exe"
+          WorkingDirectory="INSTALLFOLDER"
+          Icon="ATKPlayer.ico" />
+      <RemoveFolder Id="RemoveApplicationProgramsFolder" Directory="ApplicationProgramsFolder" On="uninstall" />
+      <RegistryValue Root="HKLM" Key="Software\ATK Player" Name="StartMenuShortcut"
+                     Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+    <Component Id="ATKProjectAssociation" Directory="INSTALLFOLDER" Guid="*">
+      <RegistryValue Root="HKCR" Key=".atkproj" Type="string"
+                     Value="ATKPlayer.Project" KeyPath="yes" />
+      <RegistryValue Root="HKCR" Key="ATKPlayer.Project" Type="string"
+                     Value="ATK Player Project" />
+      <RegistryValue Root="HKCR" Key="ATKPlayer.Project\DefaultIcon" Type="string"
+                     Value="[INSTALLFOLDER]ATK_Player_Icon.ico,0" />
+      <RegistryValue Root="HKCR" Key="ATKPlayer.Project\shell\open\command" Type="string"
+                     Value="&quot;[INSTALLFOLDER]ATKPlayer.exe&quot; &quot;%1&quot;" />
+    </Component>
+
+    <Feature Id="Complete" Title="ATK Player" Level="1">
+      <ComponentGroupRef Id="ApplicationFiles" />
+      <ComponentRef Id="StartMenuShortcut" />
+      <ComponentRef Id="ATKProjectAssociation" />
+    </Feature>
+  </Package>
+</Wix>
