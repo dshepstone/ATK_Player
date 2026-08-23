@@ -19,6 +19,7 @@
 #include "ui/CompareBar.h"
 #include "ui/ComparisonCompositeWidget.h"
 #include "ui/ExportDialog.h"
+#include "ui/FrameNumberInput.h"
 #include "ui/PreferencesDialog.h"
 #include "ui/Resources.h"
 #include "ui/SourcesPanel.h"
@@ -270,7 +271,15 @@ void MainWindow::buildWidgets()
     m_timelineWidget = new TimelineWidget(central);
     m_timelineWidget->setObjectName(QStringLiteral("TimelineWidget"));
     m_timelineWidget->setModel(m_timeline.get());
-    column->addWidget(m_timelineWidget);
+    m_frameNumberInput = new FrameNumberInput(central);
+    m_frameNumberInput->setFrameCount(m_timeline->frameCount());
+    m_frameNumberInput->setCurrentFrame(m_timeline->currentFrame());
+    auto* timelineRow = new QHBoxLayout;
+    timelineRow->setContentsMargins(0, 0, 0, 0);
+    timelineRow->setSpacing(0);
+    timelineRow->addWidget(m_frameNumberInput);
+    timelineRow->addWidget(m_timelineWidget, 1);
+    column->addLayout(timelineRow);
     m_timelineRangeSlider = new TimelineRangeSlider(central);
     m_timelineRangeSlider->setObjectName(QStringLiteral("TimelineReviewRangeSlider"));
     m_timelineRangeSlider->setModel(m_timeline.get());
@@ -558,6 +567,10 @@ void MainWindow::connectSignals()
             m_playback.get(), &playback::PlaybackController::scrubToFrame);
     connect(m_timelineWidget, &TimelineWidget::scrubFinished,
             m_playback.get(), &playback::PlaybackController::endScrub);
+    connect(m_frameNumberInput, &FrameNumberInput::seekFrameRequested,
+            m_playback.get(), &playback::PlaybackController::seekFrame);
+    connect(m_timeline.get(), &timeline::TimelineModel::currentFrameChanged,
+            m_frameNumberInput, &FrameNumberInput::setCurrentFrame);
 
     connect(m_timelineWidget, &TimelineWidget::bookmarkSelected,
             m_bookmarks, &BookmarkPanel::selectBookmark);
@@ -601,6 +614,7 @@ void MainWindow::connectSignals()
     connect(m_timeline.get(), &timeline::TimelineModel::frameCountChanged,
             this, [this](qint64 count) {
                 updateTransportEnabled();
+                m_frameNumberInput->setFrameCount(count);
                 const int maximum = static_cast<int>(std::max<qint64>(1, count));
                 m_reviewStartFrame->setRange(1, maximum);
                 m_reviewEndFrame->setRange(1, maximum);
@@ -1118,6 +1132,7 @@ void MainWindow::updateTransportEnabled()
     const bool hasExtent = m_timeline->frameCount() > 0;
     const bool notErrored = m_playback->state() != playback::PlayerState::Error;
     const bool enabled = hasExtent && notErrored;
+    m_frameNumberInput->setMediaAvailable(m_playback->hasMedia() && notErrored);
 
     if (QAction* action = m_commands->action(CommandId::ExportReview))
         action->setEnabled(m_playback->hasMedia() && !exportInProgress());

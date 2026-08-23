@@ -2,6 +2,7 @@
 #include "timeline/Timecode.h"
 #include "ui/TimelineRangeSlider.h"
 #include "ui/TimelineWidget.h"
+#include "ui/FrameNumberInput.h"
 #include "ui/MainWindow.h"
 #include "ui/StatusInfoBar.h"
 #include "api/ApiServer.h"
@@ -9,6 +10,7 @@
 #include <QSignalSpy>
 #include <QLabel>
 #include <QJsonObject>
+#include <QLineEdit>
 #include <QSpinBox>
 #include <QTest>
 
@@ -17,10 +19,13 @@ using atk::timeline::Bookmark;
 using atk::timeline::TimelineModel;
 using atk::ui::TimelineRangeSlider;
 using atk::ui::TimelineWidget;
+using atk::ui::FrameNumberInput;
+using atk::ui::MainWindow;
 
 class TestTimelineWidgets : public QObject {
     Q_OBJECT
 private slots:
+    void directFrameNumberInput();
     void sliderTracksModelBothWays();
     void sliderHandlesAndBodyEditViewport();
     void frameMappingIsExactAtReviewZoom();
@@ -33,6 +38,79 @@ private slots:
     void releasedScrubFollowsSubsequentAuthoritativeNavigation();
     void activeAndFinalScrubPresentationRemainResponsive();
 };
+
+void TestTimelineWidgets::directFrameNumberInput()
+{
+    FrameNumberInput input;
+    auto* field = input.findChild<QSpinBox*>(QStringLiteral("CurrentFrameNumber"));
+    auto* editor = field ? field->findChild<QLineEdit*>() : nullptr;
+    QVERIFY(field && editor);
+    QVERIFY(!field->isEnabled());
+    QCOMPARE(input.visibleFrame(), 1);
+
+    input.setFrameCount(160);
+    QCOMPARE(input.maximumVisibleFrame(), 160);
+    QVERIFY(!field->isEnabled());
+    input.setMediaAvailable(true);
+    QVERIFY(field->isEnabled());
+
+    input.setCurrentFrame(0);
+    QCOMPARE(input.visibleFrame(), 1);
+    input.setCurrentFrame(1);
+    QCOMPARE(input.visibleFrame(), 2);
+    input.setCurrentFrame(159);
+    QCOMPARE(input.visibleFrame(), 160);
+
+    input.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&input));
+    input.activateWindow();
+    QSignalSpy seeks(&input, &FrameNumberInput::seekFrameRequested);
+    editor->setFocus();
+    editor->selectAll();
+    QTest::keyClicks(editor, QStringLiteral("121"));
+    QTest::keyClick(editor, Qt::Key_Return);
+    QTRY_COMPARE(seeks.count(), 1);
+    QCOMPARE(seeks.takeFirst().at(0).toLongLong(), qint64(120));
+    QTRY_VERIFY(!editor->hasFocus());
+    QTest::qWait(1);
+
+    editor->setFocus();
+    editor->selectAll();
+    QTest::keyClicks(editor, QStringLiteral("999"));
+    QTest::keyClick(editor, Qt::Key_Return);
+    QTRY_COMPARE(seeks.count(), 1);
+    const auto constrainedFrame = seeks.takeFirst().at(0).toLongLong();
+    QVERIFY(constrainedFrame >= 0);
+    QVERIFY(constrainedFrame < 160);
+    QTRY_VERIFY(!editor->hasFocus());
+    QTest::qWait(1);
+
+    input.setFrameCount(36);
+    QCOMPARE(input.maximumVisibleFrame(), 36);
+    QCOMPARE(input.visibleFrame(), 36);
+
+    editor->setFocus();
+    editor->selectAll();
+    QTest::keyClicks(editor, QStringLiteral("12"));
+    QTest::keyClick(editor, Qt::Key_Escape);
+    QCOMPARE(seeks.count(), 0);
+    QCOMPARE(input.visibleFrame(), 36);
+
+    input.setMediaAvailable(false);
+    QVERIFY(!field->isEnabled());
+    input.setFrameCount(0);
+    QCOMPARE(input.maximumVisibleFrame(), 1);
+
+    MainWindow window;
+    auto* integratedTimeline = window.findChild<TimelineWidget*>(QStringLiteral("TimelineWidget"));
+    auto* integratedField = window.findChild<QSpinBox*>(QStringLiteral("CurrentFrameNumber"));
+    QVERIFY(integratedTimeline && integratedField);
+    integratedTimeline->model()->setFrameCount(48);
+    integratedTimeline->model()->setCurrentFrame(35);
+    QCOMPARE(integratedField->maximum(), 48);
+    QCOMPARE(integratedField->value(), 36);
+    QVERIFY(!integratedField->isEnabled()); // Placeholder/no-media state is never seekable.
+}
 
 void TestTimelineWidgets::sliderTracksModelBothWays()
 {

@@ -40,6 +40,7 @@ class ApplicationSettings;
 class BookmarkPanel;
 class CompareBar;
 class ComparisonCompositeWidget;
+class FrameNumberInput;
 class PreferencesDialog;
 class SourcesPanel;
 class StatusInfoBar;
@@ -196,6 +197,7 @@ private:
     QWidget* m_fullscreenPresentation = nullptr;
     ViewerTransform m_normalCompositeTransform;
     TimelineWidget* m_timelineWidget = nullptr;
+    FrameNumberInput* m_frameNumberInput = nullptr;
     TimelineRangeSlider* m_timelineRangeSlider = nullptr;
     QSpinBox* m_reviewStartFrame = nullptr;
     QSpinBox* m_reviewEndFrame = nullptr;
