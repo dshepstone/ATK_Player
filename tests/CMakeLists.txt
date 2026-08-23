@@ -145,3 +145,7 @@ add_test(NAME tst_maya_mapping
     COMMAND ${Python3_EXECUTABLE} -m unittest discover -s tests -v)
 set_tests_properties(tst_maya_mapping PROPERTIES
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/integrations/maya")
+add_test(NAME tst_harmony_integration
+    COMMAND ${Python3_EXECUTABLE} -m unittest discover -s tests -v)
+set_tests_properties(tst_harmony_integration PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/integrations/harmony")

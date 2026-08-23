@@ -101,7 +101,8 @@ marking disappears the moment a real file opens.
   bookmark-note burn-ins; clean output remains the default.
 - The optional loopback API includes transport, projects, comparison, review
   video, current-frame PNG, and image-sequence export commands.
-- Maya and Harmony integrations, the MSI installer, macOS and Linux.
+- Maya and Harmony review integrations are implemented; the MSI installer,
+  macOS and Linux remain future work. Real-Harmony acceptance is pending.
 
 Menu entries for unimplemented commands are present and report themselves in the
 status bar rather than doing nothing silently.

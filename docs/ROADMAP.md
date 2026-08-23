@@ -191,14 +191,15 @@ The milestone that connects ATK Player to the rest of a pipeline.
       socket, off by default
 - [x] Python client library in `integrations/python/`
 - [x] Maya integration built on the Python client
-- Harmony integration via the Python client or a script bridge
+- [x] Harmony integration via a Qt Script bridge to the Local API
 
 **Capabilities this milestone delivers:** FFmpeg encoding for export, a Python
 client library, and Maya and Harmony integrations built on top of it.
 
 **Status:** IN PROGRESS. MP4 review export, current-frame and PNG image-sequence
-output, local API transport, Python client and Maya playblast handoff are
-implemented. Harmony integration remains.
+output, burn-ins, local API transport, Python client, Maya playblast handoff and
+the Harmony 25 script adapter are implemented. Real-Harmony acceptance remains
+before M5 can be marked complete.
 
 ---
 

@@ -765,6 +765,18 @@ are one-based.
 
 ## Threading
 
+## Harmony adapter
+
+`integrations/harmony/scripts/ATK_Review.js` is a standalone Harmony 25 Qt
+Script adapter; no Harmony code enters `ATKPlayer.exe`. Harmony's documented
+`exporter.exportMovie` produces an OpenH264 MOV with sound at the scene preview
+resolution under its temporary folder. The adapter uses `RemoteCmd.send()` for
+raw newline-delimited JSON (not the separately framed `sendMsg()`), validates
+the protocol-v1 handshake, and reuses `open_media`, status polling, loop-range,
+seek and window commands. It stores only the scene/range/movie mapping in
+Harmony preferences for reverse frame navigation. Harmony absolute frames are
+one-based; ATK indices are relative and zero-based.
+
 Phase 0 is single-threaded: everything runs on the UI thread, and the "decoder"
 returns immediately because it does nothing.
 
