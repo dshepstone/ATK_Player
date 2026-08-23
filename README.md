@@ -1,222 +1,539 @@
 # ATK Player
 
-A cross-platform animation playback and review application.
+ATK Player is an open-source, frame-accurate video playback and animation review application designed for animators, students, educators, and production workflows.
 
-ATK Player is **Animation Tool Kit - Media Player**, the companion application
-for the Animation Tool Kit - Maya tools series. Created by David Shepstone.
+**Latest release: ATK Player 0.2.0**
 
-The View menu provides two fullscreen modes: **Full Screen Application** (`F11`)
-keeps the ATK interface visible, while **Video Full Screen** (`Ctrl+Shift+F`)
-presents only the aspect-correct video on black. Press `Esc` to leave video-only
-fullscreen.
+ATK Player is **Animation Tool Kit — Media Player**, the companion application for the Animation Tool Kit Maya tools series. Created by David Shepstone.
 
-ATK Player is built for the way animators actually watch their work: scrubbing a
-few seconds back and forth frame by frame, marking the frames that need fixing,
-and comparing a new take against the previous one. It is a review tool first and
-a media player second.
+ATK Player is built for the way animators actually review their work: scrubbing a few seconds back and forth, stepping frame by frame, marking frames that need attention, comparing takes, and quickly sending review material back into a production workflow.
 
-> **Independent project.** ATK Player is inspired by the workflow of
-> professional animation review players. It is an independently developed
-> application and contains no third-party proprietary source code, assets or
-> branding.
+It is an **animation review tool first and a media player second**.
+
+> **Independent project**
+>
+> ATK Player is inspired by the workflows of professional animation review players. It is independently developed and contains no third-party proprietary source code, assets, or branding.
 
 ---
 
-## Current status
+## Download
 
-**Version 0.2.0-dev — M5 export and external API complete; M6 packaging next.**
+The latest Windows release is available from:
 
-ATK Player now provides frame-accurate video/audio review, exact ranges,
-bookmarks, waveform/audio scrubbing, viewer navigation and persistent global
-preferences, portable projects, ordered playlists and missing-media recovery.
+**[Download ATK Player](https://github.com/dshepstone/ATK_Player/releases/latest)**
 
-**What works today**
+### Windows Installer — Recommended
 
-- **Projects and playlists** — create/open a project, multi-add clips, reorder or
-  remove them, double-click to activate, and save/reopen portable `.atkproj` files.
-  Point/Range Bookmarks and review ranges are restored per clip.
-- **Project recovery** — missing and unreadable sources stay in the playlist with
-  an explicit state. Relink validates replacement media with FFmpeg before it
-  changes the project, preserves the source UUID and keeps all review work that
-  still fits the replacement clip.
-- **Progressive playlist metadata** — rows appear immediately, then a dedicated
-  background worker fills in resolution, exact rational frame rate and duration
-  without decoding frames or blocking playback/UI work.
-- **Recent projects** — File → Recent Projects keeps a normalized ten-project
-  history, marks unavailable files, and can clear the list. An opt-in General
-  preference reopens the last valid project when no command-line path was given.
-- **Opening one video** — File → Open Media, or `ATKPlayer.exe <file>` from the
-  command line. FFmpeg decides what is readable, so the format list is a
-  convenience rather than a gate.
-- **FFmpeg decoding** of MP4, MOV, MKV, AVI and anything else the LGPL build
-  demuxes.
-- **Normal audio playback**, decoded and resampled with FFmpeg and played through
-  Qt Multimedia's `QAudioSink`.
-- **Play / pause** with real video and audio.
-- **Continuous playlist playback** advances at each clip's review-range end when
-  Loop is off; Loop keeps the current clip repeating.
-- **Quick skip and global audio** — transport buttons move ±10 seconds within the
-  review range; the compact volume popup controls persistent volume and mute.
-- **Frame stepping** — Right and Left arrows move exactly one *decoded
-  presentation* frame, not one nominal frame duration. Backward stepping seeks to
-  an earlier keyframe and decodes forward to land on the right picture.
-- **Timeline seek** by click or drag, against the real duration.
-- **Whole-clip looping** (`L`).
-- **Stop** (`Esc`) returns to frame 0 without unloading the media.
-- **Real frame, timecode and FPS readout**, with an estimated total frame count
-  marked as such rather than presented as exact.
-- Decoding runs on its own thread, so the interface stays responsive while
-  seeking.
-- **Preferences** live under Edit → Preferences. Review toggles, volume,
-  configurable shortcuts and optional window/dock layout persist between runs.
-  Shortcut conflicts are identified before assignment and cleared shortcuts are
-  remembered.
+Download:
 
-With no media loaded the window still installs a clearly-marked **placeholder**
-100-frame extent so the transport is demonstrable; the status bar says
-`NO MEDIA — placeholder values` and the API reports `"placeholder": true`. That
-marking disappears the moment a real file opens.
+`ATK-Player-0.2.0-Windows-x64.msi`
 
-**What is complete or next**
+The installer:
 
-- M4 A/B comparison is complete: transient A/B source selection, Side-by-Side,
-  Stacked, Wipe, Blend and Difference views, one Source A master clock,
-  timestamp mapping across different frame rates, independent viewer transforms,
-  and selectable A, B, or independent External Audio through one output. This
-  supports two animation-only takes sharing a dialogue/reference track. The
-  Source A timeline displays the selected A/B/External soundtrack waveform, Play
-  from comparison end restarts at A's review-range start, B and External Audio
-  offsets use frame-oriented controls backed by signed microseconds, and selected
-  waveforms follow those offsets without reanalysis. Composite modes share one
-  zoom/pan transform, while dual views retain independent transforms. Video Full
-  Screen displays the active comparison presentation without recreating decoders.
-- M5 export and external API are complete: **File → Export Review…** renders the
-  active inclusive review range to H.264/AAC MP4, including all five comparison
-  layouts and the selected A/B/External soundtrack. Rendering is offline and
-  independent of viewer visibility, zoom, crop, playback, and window size; it
-  provides progress, cancellation, and atomic destination replacement. **Export
-  Current Frame…** writes a lossless PNG, and **Export Image Sequence…** writes
-  the inclusive review range into a new atomically installed directory. All
-  three export forms offer optional Source A frame-number, bookmark-label, and
-  bookmark-note burn-ins; clean output remains the default.
-- The optional loopback API includes transport, projects, comparison, review
-  video, current-frame PNG, and image-sequence export commands.
-- Maya and Harmony review integrations are implemented. Harmony was validated
-  with Toon Boom Harmony Premium 25.0.0 build 23967 on Windows 11, including
-  full/custom-range review, reverse frame mapping, replacement cleanup and
-  synchronized audio. The M6 MSI installer, macOS and Linux remain future work.
+- installs ATK Player under `C:\Program Files\ATK Player`
+- adds ATK Player to the Windows Start Menu
+- registers ATK Player with Windows Installed Apps
+- associates `.atkproj` project files with ATK Player
+- includes the required Qt and FFmpeg runtime components
+- includes applicable open-source licence texts and third-party notices
 
-Menu entries for unimplemented commands are present and report themselves in the
-status bar rather than doing nothing silently.
+### Portable Version
 
-### High-value default shortcuts
+Download:
+
+`ATK-Player-0.2.0-Windows-x64-Portable.zip`
+
+Extract the complete folder and run:
+
+`ATKPlayer.exe`
+
+Do not separate `ATKPlayer.exe` from the DLL and plugin folders included with the portable distribution.
+
+### Windows Requirements
+
+- **Windows 11 x64** is the currently verified release platform
+- Microsoft Visual C++ 2015–2022 Redistributable (x64)
+
+### Unsigned Build Notice
+
+ATK Player 0.2.0 is currently distributed without a commercial Windows code-signing certificate.
+
+Windows may therefore display an **Unknown Publisher** or Microsoft Defender SmartScreen warning when launching the installer.
+
+SHA-256 checksum files are provided with the GitHub Release so downloaded files can be independently verified.
+
+---
+
+## Features
+
+### Frame-Accurate Playback
+
+ATK Player is designed around frame-accurate animation review rather than approximate media-player seeking.
+
+- Frame-accurate video playback
+- Synchronized audio playback
+- Exact forward and backward frame stepping
+- Direct frame-number navigation
+- Frame, timecode, and frame-rate display
+- Exact rational frame-rate handling
+- Timeline scrubbing
+- Review-range playback
+- Looping
+- Whole-clip playback
+- Quick ±10 second navigation
+
+Internal frame indexing is zero-based where appropriate for automation and APIs, while artist-facing UI frame numbers are presented in a familiar one-based form.
+
+### Audio Review
+
+ATK Player includes animation-focused audio tools for timing, dialogue, and lip-sync review.
+
+- Audible timeline scrubbing
+- Reverse audio while scrubbing backward
+- Optional frame-step audio
+- Progressive waveform generation
+- Waveform normalization for useful visual review
+- Persistent volume and mute controls
+- Audio synchronization after seeks and range changes
+
+### Timeline and Review Ranges
+
+The timeline provides a dedicated animation-review range that controls playback, looping, waveform display, and review operations.
+
+- Inclusive Start and End frames
+- Direct numeric range input
+- Timeline range handles
+- Range body panning
+- Fit Entire Timeline
+- Frame ruler
+- Exact playhead synchronization
+- Looping within the selected review range
+
+### Bookmarks and Notes
+
+Bookmarks allow review comments to stay associated with exact frames or frame ranges.
+
+- Point Bookmarks
+- Range Bookmarks
+- Bookmark names
+- Review notes
+- Bookmark colours
+- Previous / Next Bookmark navigation
+- Bookmark timeline display
+- Bookmark range activation
+- Optional snapping
+
+Bookmarks and review ranges are stored with project sources.
+
+### Projects and Playlists
+
+ATK Player projects use the `.atkproj` format.
+
+Projects support:
+
+- Multiple media sources
+- Ordered playlists
+- Drag-and-drop reordering
+- Current-source tracking
+- Per-source bookmarks
+- Per-source review ranges
+- Relative media paths where possible
+- Missing-media detection
+- Media relinking
+- Recent Projects
+- Optional reopen-last-project behavior
+- Portable human-readable JSON project files
+
+Missing media remains represented in the project instead of silently discarding review information.
+
+### A/B Comparison
+
+ATK Player includes synchronized A/B animation comparison using **Source A as the master playback clock**.
+
+Comparison layouts include:
+
+- Side-by-Side
+- Stacked
+- Wipe
+- Blend
+- Difference
+
+Additional comparison tools include:
+
+- Source A / Source B selection
+- Independent viewer transforms
+- Source B frame offset
+- External Audio source
+- External Audio offset
+- A / B / External audio selection
+- Comparison waveform mapping
+- Fullscreen comparison review
+
+Identical-rate, zero-offset A/B sources are mapped frame-for-frame without cumulative timing drift.
+
+### Viewer Navigation
+
+The viewer includes animation-review navigation independent of playback timing.
+
+- Fit Viewer
+- True 100% pixel view
+- Mouse-wheel zoom
+- Middle-mouse pan
+- Cursor-anchored zoom
+- Smooth minification
+- Pixel-oriented sampling above 100%
+- Persistent viewer state during playback and stepping
+
+### Fullscreen Review
+
+Two fullscreen modes are available:
+
+- **Full Screen Application** — `F11`
+- **Video Full Screen** — `Ctrl+Shift+F`
+
+Video Full Screen displays the active video or comparison presentation without the application interface.
+
+Press `Esc` to leave video-only fullscreen.
+
+---
+
+## Export
+
+ATK Player provides offline review export independent of viewer size, zoom, window layout, or playback state.
+
+### Review Video
+
+**File → Export Review…**
+
+Exports the active inclusive review range to H.264/AAC MP4.
+
+Export supports:
+
+- Single-source review
+- A/B comparison layouts
+- Selected A/B/External soundtrack
+- Offline rendering
+- Progress reporting
+- Cancellation
+- Atomic destination replacement
+
+### Current Frame
+
+**Export Current Frame…**
+
+Exports the current exact frame as a lossless PNG.
+
+### Image Sequence
+
+**Export Image Sequence…**
+
+Exports the selected inclusive review range as a PNG image sequence.
+
+### Burn-ins
+
+Optional review burn-ins include:
+
+- Frame number
+- Bookmark label
+- Bookmark range information
+- Bookmark note
+- Bookmark colour accents
+
+Clean output without burn-ins remains the default.
+
+---
+
+## Media Information
+
+**View → Media Information…**
+
+Displays information about the active media including:
+
+- Source name
+- Duration
+- Resolution
+- Frame count
+- Frame rate
+- Video codec
+- Pixel format
+- Audio codec
+- Channel layout
+- Sample rate
+
+Media Information can be copied to the clipboard for troubleshooting or review notes.
+
+---
+
+## Local API
+
+ATK Player includes an optional local automation API for production tools and DCC integrations.
+
+The API:
+
+- is **disabled by default**
+- listens only on the local loopback interface
+- uses protocol version 1
+- uses newline-delimited JSON messages
+- uses zero-based API frame indices
+- supports playback and review commands
+- supports project operations
+- supports bookmark operations
+- supports A/B comparison
+- supports review export
+- supports still and image-sequence export
+
+The default port is:
+
+`45571`
+
+See:
+
+**[docs/API.md](docs/API.md)**
+
+for the protocol and command reference.
+
+---
+
+## Maya Integration
+
+ATK Player includes a Python client and Autodesk Maya review integration.
+
+The integration can send animation review media to ATK Player while maintaining explicit scene-frame mapping between Maya and ATK.
+
+Integration files are located under:
+
+`integrations/`
+
+See the integration documentation and source files for setup details.
+
+---
+
+## Toon Boom Harmony Integration
+
+ATK Player includes a Toon Boom Harmony review workflow.
+
+The integration has been validated with:
+
+**Toon Boom Harmony Premium 25**
+
+The workflow supports:
+
+- full-scene review
+- custom frame-range review
+- movie export with audio
+- launch/open in ATK Player
+- Harmony-to-ATK frame mapping
+- ATK-to-Harmony jump-back
+- replacement of previous generated preview media
+- Local API connection testing
+
+Harmony frames remain one-based while ATK's internal/API frame mapping remains zero-based relative to the exported review range.
+
+---
+
+## High-Value Default Shortcuts
 
 | Action | Shortcut |
 |---|---|
-| Play / Pause | Space |
-| Previous / Next Frame | Left / Right |
-| Add Point Bookmark | B |
-| Previous / Next Bookmark | Alt+Left / Alt+Right |
-| Fit Entire Timeline | F |
-| Fit Viewer / Viewer 100% | Ctrl+0 / Ctrl+1 |
+| Play / Pause | `Space` |
+| Previous Frame | `Left` |
+| Next Frame | `Right` |
+| Add Point Bookmark | `B` |
+| Previous Bookmark | `Alt+Left` |
+| Next Bookmark | `Alt+Right` |
+| Fit Entire Timeline | `F` |
+| Fit Viewer | `Ctrl+0` |
+| Viewer 100% | `Ctrl+1` |
+| Full Screen Application | `F11` |
+| Video Full Screen | `Ctrl+Shift+F` |
+| Stop | `Esc` |
 
-Range Bookmark creation remains explicit in the Bookmarks panel; `Shift+B` is
-unassigned by default. All commands, including Add Range Bookmark, can be given
-a custom binding in Preferences.
+Range Bookmark creation is explicit in the Bookmarks panel. `Shift+B` is unassigned by default.
 
----
+Shortcuts can be customized under:
 
-## The long-term goal
-
-An animation review player that a small studio or an individual animator can
-rely on:
-
-- Frame-accurate playback of the formats that come out of Maya, Harmony, Blender
-  and a render farm.
-- Review annotation — bookmarks, notes, in/out ranges — that survives being saved
-  and sent to someone else.
-- A/B comparison of two takes against a single shared clock, so the two can never
-  drift apart.
-- A local API that lets Maya and Harmony drive the player directly, so a review
-  loop does not mean alt-tabbing and re-finding your place.
-- The same source tree building on Windows, macOS and Linux.
-
-See [docs/ROADMAP.md](docs/ROADMAP.md) for the milestone plan.
+**Edit → Preferences → Shortcuts**
 
 ---
 
-## Platform support
+## Current Release Status
+
+### ATK Player 0.2.0
+
+The first public Windows release includes milestones M0 through M6:
+
+- **M0** — Application framework
+- **M1** — FFmpeg video/audio playback
+- **M2** — Animation review tools
+- **M3** — Projects and playlists
+- **M4** — A/B comparison
+- **M5** — Export and external API
+- **M6** — Windows MSI packaging
+
+The Windows MSI installer and portable distribution have completed release validation.
+
+Future platform milestones:
+
+- **M7** — macOS
+- **M8** — Linux
+
+See:
+
+**[docs/ROADMAP.md](docs/ROADMAP.md)**
+
+for the development roadmap.
+
+---
+
+## Platform Support
 
 | Platform | Status |
 |---|---|
-| Windows 10/11 (x64) | **Current development target** |
-| macOS | Planned — milestone M7. Source tree and CMake are already structured for it. |
-| Linux | Planned — milestone M8. Same. |
+| Windows 11 x64 | **Supported and currently verified** |
+| Windows 10 x64 | Not currently part of the verified release matrix |
+| macOS | Planned — M7 |
+| Linux | Planned — M8 |
 
-Operating-system-specific code is confined to `src/platform/<os>/`; nothing else
-in the tree may include a platform header.
+The source architecture is designed for multiple platforms, but the current public binary release is for Windows x64.
+
+Operating-system-specific implementation code is isolated under:
+
+`src/platform/<os>/`
 
 ---
 
-## Building
+## Building from Source
 
-Full instructions, including how to install the prerequisites, are in
-[docs/BUILDING.md](docs/BUILDING.md). The short version:
+Full build instructions are available in:
 
-**Prerequisites:** Visual Studio 2022 with the C++ desktop workload (it bundles
-CMake and Ninja), and Qt 6.5+ for MSVC 2022 (64-bit).
+**[docs/BUILDING.md](docs/BUILDING.md)**
 
-Point the build at Qt once — `CMakePresets.json` is committed, so it reads this
-rather than carrying anyone's local path:
+### Windows Development Requirements
 
-```bash
-setx QT_ROOT C:/Qt/6.9.3/msvc2022_64
+Current development configuration uses:
+
+- Windows 11
+- Visual Studio 2022
+- MSVC x64
+- CMake
+- Ninja
+- Qt 6.9.3
+- vcpkg
+- FFmpeg 9.0.1
+
+ATK Player uses C++20.
+
+### Qt
+
+Set the Qt installation through `QT_ROOT` or the project's supported local configuration.
+
+Example:
+
+```powershell
+setx QT_ROOT "C:\Qt\6.9.3\msvc2022_64"
 ```
 
-Then, from a **Developer Command Prompt for VS 2022**:
+Do not commit developer-specific Qt paths to the repository.
 
-```bash
+### Configure
+
+From a Visual Studio 2022 developer environment:
+
+```powershell
 cmake --preset windows-debug
 ```
 
-```bash
+### Build
+
+```powershell
 cmake --build --preset windows-debug
 ```
 
-```bash
-ctest --preset windows-debug
+### Test
+
+```powershell
+ctest --test-dir build/windows-debug --output-on-failure
 ```
 
-The executable lands at `build/windows-debug/bin/ATKPlayer.exe`. The Qt
-runtime is copied next to it automatically, so it can be launched directly.
+### Release Build
 
-In VS Code: accept the recommended extensions, pick the **Windows x64 Debug**
-preset, build with **F7** and debug with **F5**. Configure, build, test and run
-are also available as tasks.
+```powershell
+cmake --preset windows-release
+cmake --build --preset windows-release
+ctest --test-dir build/windows-release --output-on-failure
+```
+
+See `docs/BUILDING.md` for the complete dependency and packaging workflow.
 
 ---
 
-## Repository layout
+## Windows Packaging
 
-```
-src/core/         Version, logging, the command table
-src/app/          Entry point and the Application startup object
-src/ui/           Widgets: viewer, timeline, transport, sources, status
-src/media/        Media sources, metadata, frame cache, decoders
-src/playback/     Playback clock, transport controller, A/B compare session
-src/timeline/     Timeline model, bookmarks, playback range, timecode
-src/project/      Project model and the .atkproj serializer
-src/export/       Export jobs (milestone M5)
-src/api/          External control API
-src/platform/     Per-OS implementations -- windows / macos / linux
-integrations/     Python client, Maya and Harmony bridges (milestone M5)
-tests/            Unit tests for the core library
-docs/             Architecture, roadmap, build and API documentation
-packaging/        Installer and bundle definitions (milestone M6+)
+Windows packaging is located under:
+
+`packaging/windows/`
+
+The release pipeline uses:
+
+- CMake install staging
+- Qt deployment tooling
+- dynamically linked Qt runtime libraries
+- dynamically linked FFmpeg runtime libraries
+- WiX Toolset v4
+- per-machine MSI installation
+- SHA-256 release checksums
+
+The installed application location is:
+
+```text
+C:\Program Files\ATK Player
 ```
 
-Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) before making structural
-changes — it explains which layer is allowed to depend on which, and why.
+The installer creates a Start Menu shortcut and registers `.atkproj` files with ATK Player.
+
+It does **not** take over general media associations such as `.mp4`, `.mov`, `.mkv`, or `.avi`.
+
+See:
+
+**[packaging/windows/README.md](packaging/windows/README.md)**
+
+for packaging details.
+
+---
+
+## Repository Layout
+
+```text
+.github/workflows/  GitHub Actions build and release validation
+.vscode/            VS Code development configuration
+
+assets/icons/       Application and UI icons
+
+cmake/              CMake helper modules
+
+src/core/           Versioning, logging and shared core infrastructure
+src/app/            Application startup and executable
+src/ui/             Main window, viewer, timeline and controls
+src/media/          Media metadata, FFmpeg decoding and frame/audio data
+src/playback/       Playback controller, clock and comparison state
+src/timeline/       Timeline, bookmarks, ranges and timecode
+src/project/        .atkproj project model and serialization
+src/export/         Offline video, still and image-sequence export
+src/api/            Local external-control API
+src/platform/       Windows / macOS / Linux platform implementations
+
+integrations/       Python, Maya and Toon Boom Harmony integrations
+
+tests/              Automated test suites
+docs/               Architecture, build, API, roadmap and licence documentation
+packaging/          Windows installer and distribution tooling
+```
+
+Read:
+
+**[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**
+
+before making structural changes. It documents layer boundaries, threading, ownership, decoder behavior, and timing architecture.
 
 ---
 
@@ -224,18 +541,150 @@ changes — it explains which layer is allowed to depend on which, and why.
 
 | Document | Contents |
 |---|---|
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Layer boundaries, ownership, threading and the reasoning behind them |
-| [docs/BUILDING.md](docs/BUILDING.md) | Prerequisites, presets, VS Code setup, troubleshooting |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | Milestones M0 through M8 |
-| [docs/API.md](docs/API.md) | Local external-control protocol and command reference |
-| [docs/THIRD_PARTY_LICENSES.md](docs/THIRD_PARTY_LICENSES.md) | Dependency licences and the obligations they carry |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Architecture, layer boundaries, ownership and threading |
+| [docs/BUILDING.md](docs/BUILDING.md) | Build prerequisites, presets and development setup |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | Development milestones |
+| [docs/API.md](docs/API.md) | Local API protocol and commands |
+| [docs/THIRD_PARTY_LICENSES.md](docs/THIRD_PARTY_LICENSES.md) | Third-party dependency and distribution information |
+| [packaging/windows/README.md](packaging/windows/README.md) | Windows installer and packaging workflow |
+
+---
+
+## Architecture Principles
+
+ATK Player follows several important architectural rules.
+
+### Frame Accuracy
+
+Frame identity is based on actual presentation timestamps and rational frame-rate mapping rather than approximate floating-point frame durations.
+
+### Decoder Ownership
+
+FFmpeg decoder contexts are owned by dedicated decoder workers and do not run on the GUI thread.
+
+### Bounded Memory
+
+Decoded-frame caches and playback queues are explicitly bounded.
+
+### Generation Safety
+
+Source changes and seek operations use generation identifiers so stale asynchronous decoder results cannot replace newer state.
+
+### A/B Synchronization
+
+Source A is the sole comparison playback clock.
+
+Source B follows Source A through deterministic timestamp/frame mapping rather than maintaining an independent playback clock.
+
+### Project Portability
+
+`.atkproj` files are human-readable JSON and prefer relative media paths where possible.
+
+### Local Automation
+
+The Local API is intentionally loopback-only and disabled by default.
+
+---
+
+## Open Source and Third-Party Software
+
+ATK Player is open-source software released under the **MIT License**.
+
+See:
+
+**[LICENSE](LICENSE)**
+
+The Windows distribution also uses open-source third-party runtime components.
+
+Major components include:
+
+### Qt 6.9.3
+
+- GNU Lesser General Public License v3
+- dynamically linked
+- runtime libraries remain separate from ATK Player
+
+### FFmpeg 9.0.1
+
+- GNU Lesser General Public License v2.1 or later as built for ATK Player
+- dynamically linked
+- supplied through the project's pinned vcpkg configuration
+- optional GPL/nonfree features are not enabled in the distributed build
+- x264, x265, and fdk-aac are not enabled
+
+Applicable licence texts and third-party notices are included with the Windows binary distributions.
+
+See:
+
+**[docs/THIRD_PARTY_LICENSES.md](docs/THIRD_PARTY_LICENSES.md)**
+
+and:
+
+**[packaging/windows/THIRD_PARTY_NOTICES.txt](packaging/windows/THIRD_PARTY_NOTICES.txt)**
+
+for more information.
+
+---
+
+## Security
+
+ATK Player's Local API is disabled by default and binds only to the local loopback interface when enabled.
+
+Security issues should not be disclosed through a public issue.
+
+See:
+
+**[SECURITY.md](SECURITY.md)**
+
+for vulnerability-reporting information.
+
+---
+
+## Issues and Feedback
+
+Bug reports, workflow feedback, and feature requests are welcome through GitHub Issues.
+
+When reporting a playback or media problem, useful information includes:
+
+- ATK Player version
+- Windows version
+- media container
+- video codec
+- frame rate
+- resolution
+- audio codec
+- whether the issue occurs during playback, stepping, scrubbing, comparison, or export
+
+The **Media Information** window can provide much of this information.
+
+---
+
+## Contributing
+
+Contributions and well-scoped pull requests are welcome.
+
+Before making architectural changes, please review:
+
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- [docs/BUILDING.md](docs/BUILDING.md)
+- [AGENTS.md](AGENTS.md)
+
+Changes should preserve ATK Player's core requirements around:
+
+- frame accuracy
+- deterministic playback
+- bounded memory
+- decoder-thread ownership
+- source-generation safety
+- Source A comparison clock authority
+- portable build configuration
 
 ---
 
 ## Licence
 
-ATK Player is released under the MIT Licence — see [LICENSE](LICENSE).
+Copyright © 2026 David Shepstone.
 
-Its dependencies are not MIT. Qt is used under the LGPL v3 and FFmpeg will be
-used under the LGPL v2.1; both must remain dynamically linked. See
-[docs/THIRD_PARTY_LICENSES.md](docs/THIRD_PARTY_LICENSES.md).
+ATK Player is released under the **MIT License**.
+
+See [LICENSE](LICENSE) for the full licence text.
