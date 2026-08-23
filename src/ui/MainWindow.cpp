@@ -21,6 +21,7 @@
 #include "ui/ExportDialog.h"
 #include "ui/FrameFieldStyle.h"
 #include "ui/FrameNumberInput.h"
+#include "ui/MediaInformationDialog.h"
 #include "ui/PreferencesDialog.h"
 #include "ui/Resources.h"
 #include "ui/SourcesPanel.h"
@@ -550,6 +551,7 @@ void MainWindow::connectSignals()
                 installPlaceholderTimeline();
                 updateTransportEnabled();
                 updateWindowTitle();
+                refreshMediaInformation();
             });
 
     connect(m_playback.get(), &playback::PlaybackController::loopEnabledChanged,
@@ -598,6 +600,10 @@ void MainWindow::connectSignals()
 
     connect(m_project.get(), &project::Project::modifiedChanged,
             this, [this](bool) { updateWindowTitle(); });
+    connect(m_project.get(), &project::Project::activeIndexChanged,
+            this, [this](int) {
+                if (m_mediaInformationDialog) m_mediaInformationDialog->clearMediaInformation();
+            });
     connect(m_timeline.get(), &timeline::TimelineModel::bookmarksChanged, this, [this] {
         if (m_restoringSourceState || m_project->activeIndex() < 0) return;
         m_project->mutableEntries()[m_project->activeIndex()].bookmarks = m_timeline->bookmarks();
@@ -621,6 +627,7 @@ void MainWindow::connectSignals()
                 m_reviewEndFrame->setRange(1, maximum);
                 updateFrameFieldWidth(m_reviewStartFrame, maximum);
                 updateFrameFieldWidth(m_reviewEndFrame, maximum);
+                refreshMediaInformation();
             });
 
     const auto refreshReviewFields = [this](qint64 start, qint64 end) {
@@ -806,6 +813,9 @@ void MainWindow::onCommand(CommandId id, bool checked)
             && m_compare->layout() != playback::CompareLayout::Stacked) m_compareComposite->zoomOut();
         else activeViewer()->zoomOut();
         return;
+    case CommandId::MediaInformation:
+        openMediaInformation();
+        return;
     case CommandId::ToggleFullScreen:
         if (checked) {
             showFullScreen();
@@ -983,6 +993,28 @@ void MainWindow::openPreferences()
         : (m_apiServer->errorString().isEmpty() ? tr("Stopped")
                                                 : tr("Stopped — %1").arg(m_apiServer->errorString())));
     if (dialog.exec() == QDialog::Accepted) applyPreferences(dialog);
+}
+
+void MainWindow::openMediaInformation()
+{
+    if (!m_mediaInformationDialog) {
+        m_mediaInformationDialog = new MediaInformationDialog(this);
+        refreshMediaInformation();
+    }
+    m_mediaInformationDialog->show();
+    m_mediaInformationDialog->raise();
+    m_mediaInformationDialog->activateWindow();
+}
+
+void MainWindow::refreshMediaInformation()
+{
+    if (!m_mediaInformationDialog) return;
+    if (m_playback->hasMedia()) {
+        m_mediaInformationDialog->setMediaInformation(
+            m_playback->metadata(), m_timeline->frameCount());
+    } else {
+        m_mediaInformationDialog->clearMediaInformation();
+    }
 }
 
 void MainWindow::applyPreferences(const PreferencesDialog& dialog)
@@ -1296,6 +1328,7 @@ void MainWindow::onMediaOpened(const media::MediaMetadata& metadata)
 
     updateTransportEnabled();
     updateWindowTitle();
+    refreshMediaInformation();
 
     statusBar()->showMessage(tr("Opened %1").arg(metadata.fileName), 3000);
     if (m_playAfterSourceOpen) {

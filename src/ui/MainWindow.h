@@ -8,6 +8,7 @@
 #include "ui/ViewerTransform.h"
 
 #include <QMainWindow>
+#include <QPointer>
 #include <QStringList>
 #include <QUuid>
 
@@ -41,6 +42,7 @@ class BookmarkPanel;
 class CompareBar;
 class ComparisonCompositeWidget;
 class FrameNumberInput;
+class MediaInformationDialog;
 class PreferencesDialog;
 class SourcesPanel;
 class StatusInfoBar;
@@ -118,6 +120,8 @@ private:
     void updateWindowTitle();
     void activateBookmark(quint64 id);
     void openPreferences();
+    void openMediaInformation();
+    void refreshMediaInformation();
     void applyPreferences(const PreferencesDialog& dialog);
     void restoreApplicationLayout();
     void saveApplicationLayout();
@@ -198,6 +202,7 @@ private:
     ViewerTransform m_normalCompositeTransform;
     TimelineWidget* m_timelineWidget = nullptr;
     FrameNumberInput* m_frameNumberInput = nullptr;
+    QPointer<MediaInformationDialog> m_mediaInformationDialog;
     TimelineRangeSlider* m_timelineRangeSlider = nullptr;
     QSpinBox* m_reviewStartFrame = nullptr;
     QSpinBox* m_reviewEndFrame = nullptr;
