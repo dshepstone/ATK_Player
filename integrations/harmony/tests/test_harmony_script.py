@@ -42,7 +42,52 @@ def model_review_workflow(transport, movie, current, start, end):
     transport.request("show_window", {})
 
 
+def ensure_review_directory(directory_factory, path):
+    directory = directory_factory(path)
+    if not directory.exists:
+        directory.mkdirs()
+        directory = directory_factory(path)
+        if not directory.exists:
+            raise RuntimeError("Could not create the ATK Harmony review folder.")
+
+
 class HarmonyScriptTests(unittest.TestCase):
+    def test_review_directory_first_use_postcondition(self):
+        class Filesystem:
+            def __init__(self, initially_exists, creation_succeeds):
+                self.exists = initially_exists
+                self.creation_succeeds = creation_succeeds
+                self.mkdir_calls = 0
+                self.export_calls = 0
+            def directory(self, path):
+                filesystem = self
+                class Directory:
+                    @property
+                    def exists(self): return filesystem.exists
+                    def mkdirs(self):
+                        filesystem.mkdir_calls += 1
+                        if filesystem.creation_succeeds: filesystem.exists = True
+                        return None
+                return Directory()
+            def export(self): self.export_calls += 1
+
+        for initially_exists, creation_succeeds, expected_mkdirs in (
+                (True, False, 0), (False, True, 1)):
+            filesystem = Filesystem(initially_exists, creation_succeeds)
+            ensure_review_directory(filesystem.directory, "temp/ATK_Player/Harmony")
+            filesystem.export()
+            self.assertEqual(filesystem.mkdir_calls, expected_mkdirs)
+            self.assertEqual(filesystem.export_calls, 1)
+
+        failed = Filesystem(False, False)
+        with self.assertRaisesRegex(RuntimeError, "Could not create"):
+            ensure_review_directory(failed.directory, "temp/ATK_Player/Harmony")
+        self.assertEqual(failed.mkdir_calls, 1)
+        self.assertEqual(failed.export_calls, 0)
+        self.assertIn("directory.mkdirs();", SCRIPT)
+        self.assertIn("directory = new Dir(directoryPath);", SCRIPT)
+        self.assertNotIn("!directory.mkdirs()", SCRIPT)
+
     def test_forward_and_reverse_mapping(self):
         for start, harmony, expected in ((1, 1, 0), (1, 51, 50), (45, 45, 0),
                                          (45, 51, 6), (45, 75, 30)):

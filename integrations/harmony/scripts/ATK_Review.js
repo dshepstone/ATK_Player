@@ -76,7 +76,11 @@ function ATK_SafeSceneName() {
 function ATK_ExportMovie(startFrame, endFrame) {
     var directoryPath = String(specialFolders.temp) + "/ATK_Player/Harmony";
     var directory = new Dir(directoryPath);
-    if (!directory.exists && !directory.mkdirs()) throw new Error("Could not create the ATK Harmony review folder.");
+    if (!directory.exists) {
+        directory.mkdirs();
+        directory = new Dir(directoryPath);
+        if (!directory.exists) throw new Error("Could not create the ATK Harmony review folder.");
+    }
     var path = directoryPath + "/" + ATK_SafeSceneName() + "_atk_review_" + String(new Date().getTime()) + ".mov";
     exporter.exportMovie({
         codec: "openH264",
