@@ -176,6 +176,9 @@ function ATK_ReviewRangeInPlayer(startFrame, endFrame) {
     var end = Math.round(Number(endFrame));
     if (start < 1 || end < start || end > frame.numberOf())
         throw new Error("Harmony review range must be within the scene and start at frame 1 or later.");
+    var previousMoviePath = ATK_HarmonyState.moviePath;
+    if (!previousMoviePath)
+        previousMoviePath = String(preferences.getString("ATK_HARMONY_MOVIE_PATH", ""));
     var target = ATK_HarmonyToIndex(current, start);
     target = Math.max(0, Math.min(end - start, target));
     var moviePath = ATK_ExportMovie(start, end);
@@ -188,7 +191,7 @@ function ATK_ReviewRangeInPlayer(startFrame, endFrame) {
     transport.request("seek_frame", { frame: target }, 5000);
     ATK_WaitForFrame(transport, target);
     transport.request("show_window", {}, 5000);
-    ATK_HarmonyState.previousMoviePath = ATK_HarmonyState.moviePath;
+    ATK_HarmonyState.previousMoviePath = previousMoviePath;
     ATK_HarmonyState.moviePath = moviePath;
     ATK_HarmonyState.sceneName = String(scene.currentScene());
     ATK_HarmonyState.startFrame = start;
@@ -197,8 +200,8 @@ function ATK_ReviewRangeInPlayer(startFrame, endFrame) {
     preferences.setString("ATK_HARMONY_SCENE_NAME", ATK_HarmonyState.sceneName);
     preferences.setInt("ATK_HARMONY_START_FRAME", start);
     preferences.setInt("ATK_HARMONY_END_FRAME", end);
-    if (ATK_HarmonyState.previousMoviePath && ATK_HarmonyState.previousMoviePath !== moviePath) {
-        var previous = new File(ATK_HarmonyState.previousMoviePath);
+    if (previousMoviePath && previousMoviePath !== moviePath) {
+        var previous = new File(previousMoviePath);
         if (previous.exists) previous.remove();
     }
     MessageLog.trace("ATK Player: reviewing Harmony frames " + start + "-" + end + " at ATK frame " + target + ".");

@@ -164,7 +164,82 @@ def remove_previous_movie(file_factory, path):
         previous.remove()
 
 
+def model_atomic_replacement(state, preferences, new_path, file_factory, workflow):
+    previous_path = state.get("moviePath", "") or preferences.get("ATK_HARMONY_MOVIE_PATH", "")
+    workflow(new_path)
+    state.update({"previousMoviePath": previous_path, "moviePath": new_path,
+                  "sceneName": "Scene", "startFrame": 1, "endFrame": 28})
+    preferences.update({"ATK_HARMONY_MOVIE_PATH": new_path,
+                        "ATK_HARMONY_SCENE_NAME": "Scene",
+                        "ATK_HARMONY_START_FRAME": 1,
+                        "ATK_HARMONY_END_FRAME": 28})
+    if previous_path and previous_path != new_path:
+        remove_previous_movie(file_factory, previous_path)
+
+
 class HarmonyScriptTests(unittest.TestCase):
+    def test_atomic_preview_replacement_restores_persisted_path(self):
+        class Filesystem:
+            def __init__(self, existing=()):
+                self.existing = set(existing)
+                self.removed = []
+            def file(self, path):
+                filesystem = self
+                class File:
+                    @property
+                    def exists(self): return path in filesystem.existing
+                    def remove(self):
+                        filesystem.removed.append(path)
+                        filesystem.existing.remove(path)
+                return File()
+
+        for initial_state in ({"moviePath": "old.mov"}, {"moviePath": ""}):
+            preferences = {"ATK_HARMONY_MOVIE_PATH": "old.mov",
+                           "ATK_HARMONY_SCENE_NAME": "OldScene",
+                           "ATK_HARMONY_START_FRAME": 5,
+                           "ATK_HARMONY_END_FRAME": 12}
+            filesystem = Filesystem(("old.mov", "new.mov"))
+            events = []
+            model_atomic_replacement(initial_state, preferences, "new.mov", filesystem.file,
+                                     lambda path: events.extend(("open " + path, "loaded", "configured")))
+            self.assertEqual(filesystem.removed, ["old.mov"])
+            self.assertEqual(preferences["ATK_HARMONY_MOVIE_PATH"], "new.mov")
+            self.assertEqual(events, ["open new.mov", "loaded", "configured"])
+
+        preferences = {"ATK_HARMONY_MOVIE_PATH": "old.mov"}
+        missing = Filesystem(("new.mov",))
+        model_atomic_replacement({"moviePath": ""}, preferences, "new.mov", missing.file, lambda path: None)
+        self.assertEqual(missing.removed, [])
+
+        same = Filesystem(("same.mov",))
+        model_atomic_replacement({"moviePath": "same.mov"}, {}, "same.mov", same.file, lambda path: None)
+        self.assertEqual(same.removed, [])
+
+        old_preferences = {"ATK_HARMONY_MOVIE_PATH": "old.mov",
+                           "ATK_HARMONY_SCENE_NAME": "OldScene",
+                           "ATK_HARMONY_START_FRAME": 5,
+                           "ATK_HARMONY_END_FRAME": 12}
+        failed_preferences = dict(old_preferences)
+        failed_state = {"moviePath": ""}
+        failed = Filesystem(("old.mov", "failed.mov"))
+        def fail_workflow(path): raise RuntimeError("load failed")
+        with self.assertRaisesRegex(RuntimeError, "load failed"):
+            model_atomic_replacement(failed_state, failed_preferences, "failed.mov", failed.file, fail_workflow)
+        self.assertEqual(failed.removed, [])
+        self.assertEqual(failed_preferences, old_preferences)
+        self.assertEqual(failed_state, {"moviePath": ""})
+
+        review_body = SCRIPT.split("function ATK_ReviewRangeInPlayer", 1)[1].split(
+            "function ATK_ReviewInPlayer", 1)[0]
+        snapshot = review_body.index('preferences.getString("ATK_HARMONY_MOVIE_PATH", "")')
+        export = review_body.index("ATK_ExportMovie(start, end)")
+        persist = review_body.index('preferences.setString("ATK_HARMONY_MOVIE_PATH", moviePath)')
+        remove = review_body.index("if (previous.exists) previous.remove();")
+        self.assertLess(snapshot, export)
+        self.assertLess(export, persist)
+        self.assertLess(persist, remove)
+        self.assertIn("previousMoviePath && previousMoviePath !== moviePath", review_body)
+
     def test_sequential_request_diagnostics_and_id_validation(self):
         requests = [serialize_harmony_request(request_id, command) for request_id, command in (
             (1, "get_api_info"), (2, "get_status"), (3, "get_api_info"))]
