@@ -48,6 +48,7 @@ set(ATK_UI_TEST_SOURCES
     tst_playlistend.cpp
     tst_videofullscreen.cpp
     tst_comparison.cpp
+    tst_mediainformation.cpp
 )
 
 foreach(test_source IN LISTS ATK_TEST_SOURCES ATK_FFMPEG_TEST_SOURCES ATK_UI_TEST_SOURCES)
@@ -99,7 +100,8 @@ foreach(test_source IN LISTS ATK_TEST_SOURCES ATK_FFMPEG_TEST_SOURCES ATK_UI_TES
 
     if(test_name STREQUAL "tst_playbackinteraction" OR test_name STREQUAL "tst_bookmarkeditor"
        OR test_name STREQUAL "tst_playlistend" OR test_name STREQUAL "tst_videofullscreen"
-       OR test_name STREQUAL "tst_comparison" OR test_name STREQUAL "tst_export")
+       OR test_name STREQUAL "tst_comparison" OR test_name STREQUAL "tst_mediainformation"
+       OR test_name STREQUAL "tst_export")
         # This GUI-linked Windows test has no inherited console handle on the
         # hosted runner, so CTest cannot show Qt Test's assertion text. Keep a
         # text report beside the executable; the always-uploaded CI artifact
@@ -111,7 +113,7 @@ foreach(test_source IN LISTS ATK_TEST_SOURCES ATK_FFMPEG_TEST_SOURCES ATK_UI_TES
     endif()
 
     if(test_name STREQUAL "tst_playlistend" OR test_name STREQUAL "tst_videofullscreen"
-       OR test_name STREQUAL "tst_comparison")
+       OR test_name STREQUAL "tst_comparison" OR test_name STREQUAL "tst_mediainformation")
         target_compile_definitions(${test_name}
             PRIVATE ATK_TEST_MEDIA_DIR="${ATK_TEST_MEDIA_DIR}"
                     ATK_VERSION_STRING="${ATK_VERSION_STRING}")

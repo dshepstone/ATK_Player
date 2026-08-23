@@ -82,6 +82,7 @@ constexpr std::array kCommands{
     CommandDefinition{ CommandId::ZoomOut,            "view.zoomOut",          QT_TRANSLATE_NOOP("Command", "Zoom Out"),             C::View,     "Ctrl+-",       false },
     CommandDefinition{ CommandId::ZoomFit,            "view.zoomFit",          QT_TRANSLATE_NOOP("Command", "Viewer Fit"),           C::View,     "Ctrl+0",       false },
     CommandDefinition{ CommandId::ZoomActualSize,     "view.zoomActualSize",   QT_TRANSLATE_NOOP("Command", "Viewer 100%"),          C::View,     "Ctrl+1",       false },
+    CommandDefinition{ CommandId::MediaInformation,  "view.mediaInformation", QT_TRANSLATE_NOOP("Command", "Media Information..."), C::View, nullptr, false },
     CommandDefinition{ CommandId::ToggleFullScreen,   "view.toggleFullScreen", QT_TRANSLATE_NOOP("Command", "Full Screen Application"), C::View,  "F11",          true  },
     CommandDefinition{ CommandId::ToggleVideoFullScreen,"view.toggleVideoFullScreen",QT_TRANSLATE_NOOP("Command", "Video Full Screen"), C::View, "Ctrl+Shift+F", true },
     CommandDefinition{ CommandId::ToggleComparison,    "view.toggleComparison", QT_TRANSLATE_NOOP("Command", "A/B Comparison"), C::View, nullptr, true },

@@ -16,6 +16,7 @@ set(ATK_UI_SOURCES
     FrameFieldStyle.cpp
     FrameNumberInput.cpp
     MainWindow.cpp
+    MediaInformationDialog.cpp
     PreferencesDialog.cpp
     Resources.cpp
     SourcesPanel.cpp
@@ -41,6 +42,7 @@ set(ATK_UI_HEADERS
     FrameFieldStyle.h
     FrameNumberInput.h
     MainWindow.h
+    MediaInformationDialog.h
     PreferencesDialog.h
     Resources.h
     SourcesPanel.h
