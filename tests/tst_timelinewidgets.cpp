@@ -80,7 +80,8 @@ void TestTimelineWidgets::directFrameNumberInput()
     input.setCurrentFrame(159);
 
     input.show();
-    QVERIFY(QTest::qWaitForWindowExposed(&input));
+    QCoreApplication::processEvents();
+    QVERIFY(input.isVisible());
     input.activateWindow();
     QSignalSpy seeks(&input, &FrameNumberInput::seekFrameRequested);
     editor->setFocus();
@@ -254,6 +255,10 @@ void TestTimelineWidgets::numericFieldsTrackEveryReviewRangeInput()
     auto* statusFrame = window.findChild<QLabel*>(QStringLiteral("StatusFrameValue"));
     QVERIFY(slider && start && end && statusFrame);
     TimelineModel* model = slider->model();
+    QCOMPARE(start->buttonSymbols(), QAbstractSpinBox::NoButtons);
+    QCOMPARE(end->buttonSymbols(), QAbstractSpinBox::NoButtons);
+    QCOMPARE(start->height(), 26);
+    QCOMPARE(end->height(), 26);
     QCOMPARE(start->value(), 1);
     QCOMPARE(end->value(), 100);
 
@@ -278,6 +283,27 @@ void TestTimelineWidgets::numericFieldsTrackEveryReviewRangeInput()
     QCOMPARE(start->value(), 45);
     QCOMPARE(end->value(), 75);
     QCOMPARE(statusFrame->text(), QStringLiteral("45 / 100"));
+
+    const int shortRangeWidth = start->width();
+    model->setFrameCount(122268);
+    QVERIFY(start->width() > shortRangeWidth);
+    QCOMPARE(start->width(), end->width());
+    QCOMPARE(end->maximum(), 122268);
+    model->setViewportRange(110706, 122267);
+    QCOMPARE(start->value(), 110707);
+    QCOMPARE(end->value(), 122268);
+
+    start->setValue(110708);
+    QCOMPARE(model->viewport().startFrame(), qint64(110707));
+    QVERIFY(model->viewport().startFrame() < model->viewport().endFrame());
+    end->setValue(122267);
+    QCOMPARE(model->viewport().endFrame(), qint64(122266));
+    QVERIFY(model->viewport().startFrame() < model->viewport().endFrame());
+
+    model->setFrameCount(160);
+    QCOMPARE(start->width(), shortRangeWidth);
+    QCOMPARE(end->width(), shortRangeWidth);
+    QCOMPARE(end->maximum(), 160);
 }
 
 void TestTimelineWidgets::sliderDoubleClickFitsWithoutMovingPlayhead()

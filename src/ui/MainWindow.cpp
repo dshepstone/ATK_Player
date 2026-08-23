@@ -19,6 +19,7 @@
 #include "ui/CompareBar.h"
 #include "ui/ComparisonCompositeWidget.h"
 #include "ui/ExportDialog.h"
+#include "ui/FrameFieldStyle.h"
 #include "ui/FrameNumberInput.h"
 #include "ui/PreferencesDialog.h"
 #include "ui/Resources.h"
@@ -292,8 +293,8 @@ void MainWindow::buildWidgets()
     m_reviewEndFrame->setKeyboardTracking(false);
     m_reviewEndFrame->setToolTip(tr("Last frame in the visible review range. Playback is constrained to this range."));
     for (QSpinBox* field : {m_reviewStartFrame, m_reviewEndFrame}) {
-        field->setFixedWidth(72);
-        field->setAlignment(Qt::AlignCenter);
+        configureFrameField(field);
+        updateFrameFieldWidth(field, m_timeline->frameCount());
     }
     auto* reviewRangeRow = new QHBoxLayout;
     reviewRangeRow->setContentsMargins(8, 0, 8, 0);
@@ -618,6 +619,8 @@ void MainWindow::connectSignals()
                 const int maximum = static_cast<int>(std::max<qint64>(1, count));
                 m_reviewStartFrame->setRange(1, maximum);
                 m_reviewEndFrame->setRange(1, maximum);
+                updateFrameFieldWidth(m_reviewStartFrame, maximum);
+                updateFrameFieldWidth(m_reviewEndFrame, maximum);
             });
 
     const auto refreshReviewFields = [this](qint64 start, qint64 end) {

@@ -24,8 +24,6 @@ signals:
     void seekFrameRequested(qint64 zeroBasedFrame);
 
 private:
-    void updateFieldWidth();
-
     QSpinBox* m_spinBox = nullptr;
     qint64 m_frameCount = 0;
     bool m_mediaAvailable = false;

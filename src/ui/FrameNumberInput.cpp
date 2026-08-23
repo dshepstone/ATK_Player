@@ -1,8 +1,6 @@
 #include "ui/FrameNumberInput.h"
-#include "ui/Theme.h"
+#include "ui/FrameFieldStyle.h"
 
-#include <QAbstractSpinBox>
-#include <QFontMetrics>
 #include <QHBoxLayout>
 #include <QKeyEvent>
 #include <QLabel>
@@ -16,9 +14,6 @@
 
 namespace atk::ui {
 namespace {
-
-constexpr int kMinimumFieldWidth = 64;
-constexpr int kFieldHorizontalChrome = 40;
 
 class CancelableSpinBox final : public QSpinBox {
 public:
@@ -80,38 +75,9 @@ FrameNumberInput::FrameNumberInput(QWidget* parent)
     m_spinBox = new CancelableSpinBox(this);
     m_spinBox->setObjectName(QStringLiteral("CurrentFrameNumber"));
     m_spinBox->setRange(1, 1);
-    m_spinBox->setAlignment(Qt::AlignCenter);
-    m_spinBox->setButtonSymbols(QAbstractSpinBox::NoButtons);
     m_spinBox->setKeyboardTracking(false);
-    m_spinBox->setFixedHeight(26);
-    m_spinBox->setStyleSheet(QStringLiteral(R"CSS(
-        QSpinBox#CurrentFrameNumber {
-            background-color: %1;
-            color: %2;
-            border: 1px solid transparent;
-            border-radius: 4px;
-            padding: 2px 10px;
-            selection-background-color: %3;
-        }
-        QSpinBox#CurrentFrameNumber:hover {
-            background-color: %4;
-            border-color: %5;
-        }
-        QSpinBox#CurrentFrameNumber:focus {
-            background-color: %4;
-            border-color: %2;
-        }
-        QSpinBox#CurrentFrameNumber:disabled {
-            background-color: %6;
-            color: %7;
-            border-color: transparent;
-        }
-    )CSS")
-        .arg(theme::controlBackground().name(), theme::accent().name(),
-             theme::accentMuted().name(), theme::controlHover().name(),
-             theme::panelBorder().name(), theme::panelBackground().name(),
-             theme::textDisabled().name()));
-    updateFieldWidth();
+    configureFrameField(m_spinBox);
+    updateFrameFieldWidth(m_spinBox, 1);
     m_spinBox->setToolTip(tr("Current visible frame. Type a frame number and press Enter."));
     m_spinBox->setEnabled(false);
     layout->addWidget(m_spinBox);
@@ -138,16 +104,8 @@ void FrameNumberInput::setFrameCount(qint64 count)
     QSignalBlocker blocker(m_spinBox);
     m_spinBox->setRange(1, spinMaximum(m_frameCount));
     m_spinBox->setValue(std::clamp(m_spinBox->value(), 1, m_spinBox->maximum()));
-    updateFieldWidth();
+    updateFrameFieldWidth(m_spinBox, m_spinBox->maximum());
     m_spinBox->setEnabled(m_mediaAvailable && m_frameCount > 0);
-}
-
-void FrameNumberInput::updateFieldWidth()
-{
-    const QString maximumText = QString::number(m_spinBox->maximum());
-    const int measuredWidth = QFontMetrics(m_spinBox->font()).horizontalAdvance(maximumText)
-        + kFieldHorizontalChrome;
-    m_spinBox->setFixedWidth(std::max(kMinimumFieldWidth, measuredWidth));
 }
 
 void FrameNumberInput::setCurrentFrame(qint64 zeroBasedFrame)
