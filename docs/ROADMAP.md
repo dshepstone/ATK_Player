@@ -4,7 +4,7 @@ Milestones are ordered by dependency, not by preference. Each one should leave
 the application in a state that runs and is worth using — no milestone is a
 half-landed refactor.
 
-**Current milestone: M5 — Export and External API, in progress.**
+**Current milestone: M6 — Windows MSI Installer.**
 
 ---
 
@@ -167,14 +167,13 @@ Make a review session something you can save and hand to someone else.
 - [x] Comparison video fullscreen
 - [x] Composite viewer transform and comparison interaction polish
 
-**Status:** COMPLETE. M4 now provides synchronized A/B/External review from one
+**Status:** COMPLETE. M4 provides synchronized A/B/External review from one
 Source A clock, frame-oriented time offsets, five presentation modes, selected
-waveform/audio mapping, and comparison video fullscreen. Human acceptance is the
-remaining release gate; M5 — Export and External API is next.
+waveform/audio mapping, and comparison video fullscreen.
 
 ---
 
-## M5 — Export and External API
+## M5 — Export and External API ✅ COMPLETE
 
 The milestone that connects ATK Player to the rest of a pipeline.
 
@@ -191,14 +190,17 @@ The milestone that connects ATK Player to the rest of a pipeline.
       socket, off by default
 - [x] Python client library in `integrations/python/`
 - [x] Maya integration built on the Python client
-- Harmony integration via the Python client or a script bridge
+- [x] Harmony integration via a Qt Script bridge to the Local API
 
 **Capabilities this milestone delivers:** FFmpeg encoding for export, a Python
 client library, and Maya and Harmony integrations built on top of it.
 
-**Status:** IN PROGRESS. MP4 review export, current-frame and PNG image-sequence
-output, local API transport, Python client and Maya playblast handoff are
-implemented. Harmony integration remains.
+**Status:** COMPLETE. MP4 review export, current-frame and PNG image-sequence
+output, burn-ins, local API transport, Python client, Maya playblast handoff and
+the Harmony 25 script adapter are implemented. The Harmony integration completed
+real human acceptance with Toon Boom Harmony Premium 25.0.0 build 23967 on
+Windows 11, including full/custom-range review, reverse jump, preview cleanup,
+failure handling, and synchronized audio playback. M6 packaging is next.
 
 ---
 

@@ -18,14 +18,14 @@ environments from leaking into the application's build.
 Harmony ──┘                                                                     (API server)
 ```
 
-Harmony can also reach the API through a small script bridge where its
-environment makes the Python client awkward — the protocol is plain
-newline-delimited JSON, so a bridge needs a socket and nothing else.
+Harmony reaches the same API through a small Qt Script adapter and its
+`RemoteCmd` raw-text transport. It contains only preview export, relative-frame
+mapping, polling, and toolbar workflow code.
 
 ## Status
 
-The generic Python client and Maya playblast adapter are implemented in M5.
-Harmony remains future work and can reuse the same protocol.
+The generic Python client, Maya playblast adapter, and Harmony 25 review script
+are implemented in M5. Real-Harmony acceptance remains pending.
 
 | Directory | Purpose |
 |---|---|

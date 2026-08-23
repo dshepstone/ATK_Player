@@ -24,7 +24,7 @@ a media player second.
 
 ## Current status
 
-**Version 0.2.0-dev — M3 projects and playlists complete.**
+**Version 0.2.0-dev — M5 export and external API complete; M6 packaging next.**
 
 ATK Player now provides frame-accurate video/audio review, exact ranges,
 bookmarks, waveform/audio scrubbing, viewer navigation and persistent global
@@ -77,7 +77,7 @@ With no media loaded the window still installs a clearly-marked **placeholder**
 `NO MEDIA — placeholder values` and the API reports `"placeholder": true`. That
 marking disappears the moment a real file opens.
 
-**What is in progress or not implemented yet**
+**What is complete or next**
 
 - M4 A/B comparison is complete: transient A/B source selection, Side-by-Side,
   Stacked, Wipe, Blend and Difference views, one Source A master clock,
@@ -90,7 +90,7 @@ marking disappears the moment a real file opens.
   waveforms follow those offsets without reanalysis. Composite modes share one
   zoom/pan transform, while dual views retain independent transforms. Video Full
   Screen displays the active comparison presentation without recreating decoders.
-- M5 export foundation is in progress: **File → Export Review…** renders the
+- M5 export and external API are complete: **File → Export Review…** renders the
   active inclusive review range to H.264/AAC MP4, including all five comparison
   layouts and the selected A/B/External soundtrack. Rendering is offline and
   independent of viewer visibility, zoom, crop, playback, and window size; it
@@ -101,7 +101,10 @@ marking disappears the moment a real file opens.
   bookmark-note burn-ins; clean output remains the default.
 - The optional loopback API includes transport, projects, comparison, review
   video, current-frame PNG, and image-sequence export commands.
-- Maya and Harmony integrations, the MSI installer, macOS and Linux.
+- Maya and Harmony review integrations are implemented. Harmony was validated
+  with Toon Boom Harmony Premium 25.0.0 build 23967 on Windows 11, including
+  full/custom-range review, reverse frame mapping, replacement cleanup and
+  synchronized audio. The M6 MSI installer, macOS and Linux remain future work.
 
 Menu entries for unimplemented commands are present and report themselves in the
 status bar rather than doing nothing silently.
