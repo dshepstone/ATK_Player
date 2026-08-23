@@ -2,6 +2,7 @@
 #include "timeline/Timecode.h"
 #include "ui/TimelineRangeSlider.h"
 #include "ui/TimelineWidget.h"
+#include "ui/FrameNumberInput.h"
 #include "ui/MainWindow.h"
 #include "ui/StatusInfoBar.h"
 #include "api/ApiServer.h"
@@ -9,6 +10,9 @@
 #include <QSignalSpy>
 #include <QLabel>
 #include <QJsonObject>
+#include <QLineEdit>
+#include <QAbstractSpinBox>
+#include <QFontMetrics>
 #include <QSpinBox>
 #include <QTest>
 
@@ -17,10 +21,13 @@ using atk::timeline::Bookmark;
 using atk::timeline::TimelineModel;
 using atk::ui::TimelineRangeSlider;
 using atk::ui::TimelineWidget;
+using atk::ui::FrameNumberInput;
+using atk::ui::MainWindow;
 
 class TestTimelineWidgets : public QObject {
     Q_OBJECT
 private slots:
+    void directFrameNumberInput();
     void sliderTracksModelBothWays();
     void sliderHandlesAndBodyEditViewport();
     void frameMappingIsExactAtReviewZoom();
@@ -33,6 +40,103 @@ private slots:
     void releasedScrubFollowsSubsequentAuthoritativeNavigation();
     void activeAndFinalScrubPresentationRemainResponsive();
 };
+
+void TestTimelineWidgets::directFrameNumberInput()
+{
+    const auto textFitsWithPadding = [](const QSpinBox* field, int maximum) {
+        constexpr int minimumTextPadding = 20;
+        return field->width() >= QFontMetrics(field->font()).horizontalAdvance(
+            QString::number(maximum)) + minimumTextPadding;
+    };
+    FrameNumberInput input;
+    auto* field = input.findChild<QSpinBox*>(QStringLiteral("CurrentFrameNumber"));
+    auto* editor = field ? field->findChild<QLineEdit*>() : nullptr;
+    QVERIFY(field && editor);
+    QVERIFY(!field->isEnabled());
+    QCOMPARE(field->buttonSymbols(), QAbstractSpinBox::NoButtons);
+    QCOMPARE(input.visibleFrame(), 1);
+
+    input.setFrameCount(160);
+    QCOMPARE(input.maximumVisibleFrame(), 160);
+    QVERIFY(!field->isEnabled());
+    input.setMediaAvailable(true);
+    QVERIFY(field->isEnabled());
+
+    input.setCurrentFrame(0);
+    QCOMPARE(input.visibleFrame(), 1);
+    input.setCurrentFrame(1);
+    QCOMPARE(input.visibleFrame(), 2);
+    input.setCurrentFrame(159);
+    QCOMPARE(input.visibleFrame(), 160);
+
+    const int shortRangeWidth = field->width();
+    input.setFrameCount(3229);
+    QCOMPARE(input.maximumVisibleFrame(), 3229);
+    QVERIFY(textFitsWithPadding(field, 3229));
+    QVERIFY(field->width() >= shortRangeWidth);
+    input.setCurrentFrame(3228);
+    QCOMPARE(input.visibleFrame(), 3229);
+
+    const int mediumRangeWidth = field->width();
+    input.setFrameCount(12000);
+    QCOMPARE(input.maximumVisibleFrame(), 12000);
+    QVERIFY(textFitsWithPadding(field, 12000));
+    QVERIFY(field->width() >= mediumRangeWidth);
+
+    input.setFrameCount(160);
+    QCOMPARE(field->width(), shortRangeWidth);
+    input.setCurrentFrame(159);
+
+    input.show();
+    QCoreApplication::processEvents();
+    input.activateWindow();
+    QSignalSpy seeks(&input, &FrameNumberInput::seekFrameRequested);
+    editor->setFocus();
+    editor->selectAll();
+    QTest::keyClicks(editor, QStringLiteral("121"));
+    QTest::keyClick(editor, Qt::Key_Return);
+    QTRY_COMPARE(seeks.count(), 1);
+    QCOMPARE(seeks.takeFirst().at(0).toLongLong(), qint64(120));
+    QTRY_VERIFY(!editor->hasFocus());
+    QTest::qWait(1);
+
+    editor->setFocus();
+    editor->selectAll();
+    QTest::keyClicks(editor, QStringLiteral("999"));
+    QTest::keyClick(editor, Qt::Key_Return);
+    QTRY_COMPARE(seeks.count(), 1);
+    const auto constrainedFrame = seeks.takeFirst().at(0).toLongLong();
+    QVERIFY(constrainedFrame >= 0);
+    QVERIFY(constrainedFrame < 160);
+    QTRY_VERIFY(!editor->hasFocus());
+    QTest::qWait(1);
+
+    input.setFrameCount(36);
+    QCOMPARE(input.maximumVisibleFrame(), 36);
+    QCOMPARE(input.visibleFrame(), 36);
+
+    editor->setFocus();
+    editor->selectAll();
+    QTest::keyClicks(editor, QStringLiteral("12"));
+    QTest::keyClick(editor, Qt::Key_Escape);
+    QCOMPARE(seeks.count(), 0);
+    QCOMPARE(input.visibleFrame(), 36);
+
+    input.setMediaAvailable(false);
+    QVERIFY(!field->isEnabled());
+    input.setFrameCount(0);
+    QCOMPARE(input.maximumVisibleFrame(), 1);
+
+    MainWindow window;
+    auto* integratedTimeline = window.findChild<TimelineWidget*>(QStringLiteral("TimelineWidget"));
+    auto* integratedField = window.findChild<QSpinBox*>(QStringLiteral("CurrentFrameNumber"));
+    QVERIFY(integratedTimeline && integratedField);
+    integratedTimeline->model()->setFrameCount(48);
+    integratedTimeline->model()->setCurrentFrame(35);
+    QCOMPARE(integratedField->maximum(), 48);
+    QCOMPARE(integratedField->value(), 36);
+    QVERIFY(!integratedField->isEnabled()); // Placeholder/no-media state is never seekable.
+}
 
 void TestTimelineWidgets::sliderTracksModelBothWays()
 {
@@ -151,6 +255,11 @@ void TestTimelineWidgets::rationalRatesKeepIntegerFrameDisplay()
 
 void TestTimelineWidgets::numericFieldsTrackEveryReviewRangeInput()
 {
+    const auto textFitsWithPadding = [](const QSpinBox* field, int maximum) {
+        constexpr int minimumTextPadding = 20;
+        return field->width() >= QFontMetrics(field->font()).horizontalAdvance(
+            QString::number(maximum)) + minimumTextPadding;
+    };
     atk::ui::MainWindow window;
     auto* slider = window.findChild<TimelineRangeSlider*>(QStringLiteral("TimelineReviewRangeSlider"));
     auto* start = window.findChild<QSpinBox*>(QStringLiteral("ReviewRangeStartFrame"));
@@ -158,6 +267,10 @@ void TestTimelineWidgets::numericFieldsTrackEveryReviewRangeInput()
     auto* statusFrame = window.findChild<QLabel*>(QStringLiteral("StatusFrameValue"));
     QVERIFY(slider && start && end && statusFrame);
     TimelineModel* model = slider->model();
+    QCOMPARE(start->buttonSymbols(), QAbstractSpinBox::NoButtons);
+    QCOMPARE(end->buttonSymbols(), QAbstractSpinBox::NoButtons);
+    QCOMPARE(start->height(), 26);
+    QCOMPARE(end->height(), 26);
     QCOMPARE(start->value(), 1);
     QCOMPARE(end->value(), 100);
 
@@ -182,6 +295,32 @@ void TestTimelineWidgets::numericFieldsTrackEveryReviewRangeInput()
     QCOMPARE(start->value(), 45);
     QCOMPARE(end->value(), 75);
     QCOMPARE(statusFrame->text(), QStringLiteral("45 / 100"));
+
+    const int shortRangeWidth = start->width();
+    model->setFrameCount(122268);
+    QVERIFY(textFitsWithPadding(start, 122268));
+    QVERIFY(textFitsWithPadding(end, 122268));
+    QVERIFY(start->width() >= shortRangeWidth);
+    QCOMPARE(start->width(), end->width());
+    const int largeRangeWidth = start->width();
+    QCOMPARE(end->maximum(), 122268);
+    model->setViewportRange(110706, 122267);
+    QCOMPARE(start->value(), 110707);
+    QCOMPARE(end->value(), 122268);
+
+    start->setValue(110708);
+    QCOMPARE(model->viewport().startFrame(), qint64(110707));
+    QVERIFY(model->viewport().startFrame() < model->viewport().endFrame());
+    end->setValue(122267);
+    QCOMPARE(model->viewport().endFrame(), qint64(122266));
+    QVERIFY(model->viewport().startFrame() < model->viewport().endFrame());
+
+    model->setFrameCount(160);
+    QVERIFY(textFitsWithPadding(start, 160));
+    QVERIFY(textFitsWithPadding(end, 160));
+    QVERIFY(start->width() < largeRangeWidth);
+    QVERIFY(end->width() < largeRangeWidth);
+    QCOMPARE(end->maximum(), 160);
 }
 
 void TestTimelineWidgets::sliderDoubleClickFitsWithoutMovingPlayhead()
