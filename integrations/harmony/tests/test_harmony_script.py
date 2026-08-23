@@ -24,6 +24,28 @@ def parse_response(raw, request_id=1):
     return response.get("result", {})
 
 
+def diagnose_response(command, raw, request_id):
+    line_count = len([line for line in raw.split("\n") if line])
+    escaped = raw.replace("\\", "\\\\").replace("\r", "\\r").replace("\n", "\\n")
+    if "\n" not in raw:
+        raise ValueError("incomplete")
+    try:
+        response = json.loads(raw.split("\n", 1)[0])
+    except json.JSONDecodeError as error:
+        raise ValueError(
+            f"malformed JSON for {command} (expected id {request_id}); "
+            f"response lines={line_count}; raw={escaped}") from error
+    actual = response.get("id")
+    actual_label = "missing" if actual is None else str(actual)
+    diagnostic = (f"command={command}, expected id={request_id}, actual id={actual_label}, "
+                  f"response lines={line_count}, raw={escaped}")
+    if actual != request_id:
+        raise ValueError(
+            f"mismatched response for {command} (expected id {request_id}, "
+            f"received id {actual_label}); {diagnostic}")
+    return response, diagnostic
+
+
 def verify_info(info):
     if (info.get("application"), info.get("protocolVersion"), info.get("frameIndexBase")) != (
             "ATK Player", 1, 0):
@@ -64,6 +86,42 @@ def remove_previous_movie(file_factory, path):
 
 
 class HarmonyScriptTests(unittest.TestCase):
+    def test_sequential_request_diagnostics_and_id_validation(self):
+        first, first_diagnostic = diagnose_response(
+            "get_api_info", '{"id":1,"ok":true,"result":{}}\n', 1)
+        second, second_diagnostic = diagnose_response(
+            "get_status", '{"id":2,"ok":true,"result":{}}\n', 2)
+        self.assertEqual((first["id"], second["id"]), (1, 2))
+        self.assertIn("command=get_api_info, expected id=1, actual id=1", first_diagnostic)
+        self.assertIn("command=get_status, expected id=2, actual id=2", second_diagnostic)
+
+        with self.assertRaisesRegex(
+                ValueError, r"mismatched response for get_status \(expected id 2, received id 1\)"):
+            diagnose_response("get_status", '{"id":1,"ok":true}\n', 2)
+        for response in ('{"ok":true}\n', '{"id":null,"ok":true}\n'):
+            with self.assertRaisesRegex(ValueError, r"received id missing"):
+                diagnose_response("get_status", response, 2)
+
+        _, multiline_diagnostic = diagnose_response(
+            "get_status", '{"id":2,"ok":true}\n{"id":1,"ok":true}\n', 2)
+        self.assertIn("response lines=2", multiline_diagnostic)
+        self.assertIn(r'raw={"id":2,"ok":true}\n{"id":1,"ok":true}\n', multiline_diagnostic)
+        with self.assertRaisesRegex(ValueError, r"malformed JSON for get_status \(expected id 2\)"):
+            diagnose_response("get_status", "not-json\n", 2)
+
+        self.assertIn("function ATK_TestSequentialRequests()", SCRIPT)
+        sequential_body = SCRIPT.split("function ATK_TestSequentialRequests()", 1)[1].split(
+            "function ATK_JumpToReviewFrame()", 1)[0]
+        self.assertEqual(sequential_body.count("var transport = new ATK_Transport();"), 1)
+        self.assertIn('ATK_VerifyApi(transport);', sequential_body)
+        self.assertIn('transport.request("get_status", {}, 5000);', sequential_body)
+        self.assertEqual(sequential_body.count("ATK_VerifyApi(transport);"), 2)
+        self.assertNotIn("ATK_ExportMovie", sequential_body)
+        self.assertNotIn("sendMsg", SCRIPT)
+        self.assertNotIn("receiveMsg", SCRIPT)
+        self.assertIn("this.socket.send(encoded)", SCRIPT)
+        self.assertIn("this.socket.receive(timeoutMs || 5000)", SCRIPT)
+
     def test_script_editor_file_exists_property_and_cleanup(self):
         class Filesystem:
             def __init__(self, exists):

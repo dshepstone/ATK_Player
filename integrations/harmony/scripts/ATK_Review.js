@@ -33,6 +33,33 @@ function ATK_Port() {
 function ATK_Transport() {
     this.socket = new RemoteCmd();
     this.nextId = 1;
+    this.diagnostics = false;
+}
+
+function ATK_ResponseLineCount(raw) {
+    var lines = String(raw).split("\n");
+    var count = 0;
+    for (var index = 0; index < lines.length; ++index) {
+        if (lines[index].length > 0) ++count;
+    }
+    return count;
+}
+
+function ATK_EscapeResponse(raw) {
+    var escaped = String(raw).replace(/\\/g, "\\\\").replace(/\r/g, "\\r").replace(/\n/g, "\\n");
+    if (escaped.length > 800) escaped = escaped.substring(0, 800) + "...[truncated]";
+    return escaped;
+}
+
+function ATK_ResponseId(response) {
+    if (!response || response.id === undefined || response.id === null) return "missing";
+    return String(response.id);
+}
+
+function ATK_LogResponse(command, expectedId, actualId, raw) {
+    MessageLog.trace("ATK DEBUG: command=" + command + ", expected id=" + expectedId
+        + ", actual id=" + actualId + ", response lines=" + ATK_ResponseLineCount(raw)
+        + ", raw=" + ATK_EscapeResponse(raw));
 }
 
 ATK_Transport.prototype.connect = function() {
@@ -54,8 +81,15 @@ ATK_Transport.prototype.request = function(command, params, timeoutMs) {
     if (newline < 0) throw new Error("ATK Player returned an incomplete response.");
     var response;
     try { response = JSON.parse(raw.substring(0, newline)); }
-    catch (error) { throw new Error("ATK Player returned malformed JSON."); }
-    if (!response || response.id !== id) throw new Error("ATK Player returned a mismatched response.");
+    catch (error) {
+        ATK_LogResponse(command, id, "unparseable", raw);
+        throw new Error("ATK Player returned malformed JSON for " + command + " (expected id " + id + ").");
+    }
+    var actualId = ATK_ResponseId(response);
+    if (this.diagnostics || !response || response.id !== id) ATK_LogResponse(command, id, actualId, raw);
+    if (!response || response.id !== id)
+        throw new Error("ATK Player returned a mismatched response for " + command
+            + " (expected id " + id + ", received id " + actualId + ").");
     if (response.ok !== true) throw new Error(String(response.error || "ATK Player command failed."));
     return response.result || {};
 };
@@ -166,6 +200,21 @@ function ATK_TestConnection() {
         transport.connect();
         var info = ATK_VerifyApi(transport);
         MessageLog.trace("ATK Player: connected; protocol " + info.protocolVersion + ", frame base " + info.frameIndexBase + ".");
+        return true;
+    } catch (error) {
+        MessageLog.error("ATK Player: " + error.message); MessageBox.critical(String(error.message)); return false;
+    } finally { transport.close(); }
+}
+
+function ATK_TestSequentialRequests() {
+    var transport = new ATK_Transport();
+    transport.diagnostics = true;
+    try {
+        transport.connect();
+        ATK_VerifyApi(transport);
+        transport.request("get_status", {}, 5000);
+        ATK_VerifyApi(transport);
+        MessageLog.trace("ATK DEBUG: sequential request test completed successfully.");
         return true;
     } catch (error) {
         MessageLog.error("ATK Player: " + error.message); MessageBox.critical(String(error.message)); return false;
