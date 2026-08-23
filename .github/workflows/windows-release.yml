@@ -1,0 +1,89 @@
+name: Windows Release Package
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_suffix:
+        description: 'Version suffix (rc1 for acceptance; empty for final)'
+        required: false
+        default: 'rc1'
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Build Windows x64 MSI
+    runs-on: windows-2022
+
+    steps:
+      - name: Check out exact ref
+        uses: actions/checkout@v4
+
+      - name: Install Qt 6.9.3
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.9.3'
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          modules: qtmultimedia
+          cache: true
+
+      - name: Export Qt root
+        shell: pwsh
+        run: echo "QT_ROOT=$env:QT_ROOT_DIR" >> $env:GITHUB_ENV
+
+      - name: Set up MSVC x64
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Set up Ninja
+        uses: seanmiddleditch/gha-setup-ninja@v5
+
+      - name: Set up pinned vcpkg
+        shell: pwsh
+        run: |
+          $baseline = (Get-Content vcpkg.json -Raw | ConvertFrom-Json).'builtin-baseline'
+          $root = 'C:/vcpkg-atk'
+          git clone --filter=blob:none https://github.com/microsoft/vcpkg.git $root
+          git -C $root checkout --detach $baseline
+          & "$root/bootstrap-vcpkg.bat" -disableMetrics
+          echo "VCPKG_ROOT=$root" >> $env:GITHUB_ENV
+          echo "ATK_VCPKG_INSTALLED_DIR=C:/atkvcpkg" >> $env:GITHUB_ENV
+
+      - name: Cache vcpkg binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/AppData/Local/vcpkg/archives
+          key: release-vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
+
+      - name: Select version suffix
+        id: version
+        shell: pwsh
+        run: |
+          $suffix = '${{ inputs.version_suffix }}'
+          if ('${{ github.ref_type }}' -eq 'tag') {
+            $tag = '${{ github.ref_name }}'
+            if ($tag -match '^v\d+\.\d+\.\d+-(.+)$') { $suffix = $Matches[1] }
+            elseif ($tag -match '^v\d+\.\d+\.\d+$') { $suffix = '' }
+            else { throw "Unsupported release tag: $tag" }
+          }
+          "suffix=$suffix" >> $env:GITHUB_OUTPUT
+
+      - name: Build, test, stage and verify MSI
+        shell: pwsh
+        run: .\packaging\windows\build-installer.ps1 -VersionSuffix '${{ steps.version.outputs.suffix }}'
+
+      - name: Upload MSI and checksum
+        uses: actions/upload-artifact@v4
+        with:
+          name: ATK-Player-Windows-x64-${{ github.sha }}
+          path: |
+            build/package/windows/*.msi
+            build/package/windows/*.sha256
+          if-no-files-found: error
+          retention-days: 14
