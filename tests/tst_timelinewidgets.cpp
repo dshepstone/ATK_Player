@@ -11,6 +11,7 @@
 #include <QLabel>
 #include <QJsonObject>
 #include <QLineEdit>
+#include <QAbstractSpinBox>
 #include <QSpinBox>
 #include <QTest>
 
@@ -46,6 +47,7 @@ void TestTimelineWidgets::directFrameNumberInput()
     auto* editor = field ? field->findChild<QLineEdit*>() : nullptr;
     QVERIFY(field && editor);
     QVERIFY(!field->isEnabled());
+    QCOMPARE(field->buttonSymbols(), QAbstractSpinBox::NoButtons);
     QCOMPARE(input.visibleFrame(), 1);
 
     input.setFrameCount(160);
@@ -60,6 +62,22 @@ void TestTimelineWidgets::directFrameNumberInput()
     QCOMPARE(input.visibleFrame(), 2);
     input.setCurrentFrame(159);
     QCOMPARE(input.visibleFrame(), 160);
+
+    const int shortRangeWidth = field->width();
+    input.setFrameCount(3229);
+    QCOMPARE(input.maximumVisibleFrame(), 3229);
+    QVERIFY(field->width() > shortRangeWidth);
+    input.setCurrentFrame(3228);
+    QCOMPARE(input.visibleFrame(), 3229);
+
+    const int mediumRangeWidth = field->width();
+    input.setFrameCount(12000);
+    QCOMPARE(input.maximumVisibleFrame(), 12000);
+    QVERIFY(field->width() > mediumRangeWidth);
+
+    input.setFrameCount(160);
+    QCOMPARE(field->width(), shortRangeWidth);
+    input.setCurrentFrame(159);
 
     input.show();
     QVERIFY(QTest::qWaitForWindowExposed(&input));
