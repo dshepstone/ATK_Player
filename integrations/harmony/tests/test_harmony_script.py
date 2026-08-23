@@ -51,7 +51,47 @@ def ensure_review_directory(directory_factory, path):
             raise RuntimeError("Could not create the ATK Harmony review folder.")
 
 
+def validate_exported_movie(file_factory, path):
+    exported_movie = file_factory(path)
+    if not exported_movie.exists:
+        raise RuntimeError("Harmony did not create the review movie.")
+
+
+def remove_previous_movie(file_factory, path):
+    previous = file_factory(path)
+    if previous.exists:
+        previous.remove()
+
+
 class HarmonyScriptTests(unittest.TestCase):
+    def test_script_editor_file_exists_property_and_cleanup(self):
+        class Filesystem:
+            def __init__(self, exists):
+                self.exists = exists
+                self.remove_calls = 0
+            def file(self, path):
+                filesystem = self
+                class File:
+                    @property
+                    def exists(self): return filesystem.exists
+                    def remove(self): filesystem.remove_calls += 1
+                return File()
+
+        present = Filesystem(True)
+        validate_exported_movie(present.file, "review.mov")
+        remove_previous_movie(present.file, "previous.mov")
+        self.assertEqual(present.remove_calls, 1)
+
+        missing = Filesystem(False)
+        with self.assertRaisesRegex(RuntimeError, "Harmony did not create the review movie"):
+            validate_exported_movie(missing.file, "review.mov")
+        remove_previous_movie(missing.file, "previous.mov")
+        self.assertEqual(missing.remove_calls, 0)
+
+        self.assertNotIn(".exists()", SCRIPT)
+        self.assertIn("if (!exportedMovie.exists)", SCRIPT)
+        self.assertIn("if (previous.exists) previous.remove();", SCRIPT)
+
     def test_review_directory_first_use_postcondition(self):
         class Filesystem:
             def __init__(self, initially_exists, creation_succeeds):

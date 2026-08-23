@@ -91,7 +91,8 @@ function ATK_ExportMovie(startFrame, endFrame) {
         resX: scene.currentResolutionX(),
         resY: scene.currentResolutionY()
     });
-    if (!(new File(path)).exists()) throw new Error("Harmony did not create the review movie.");
+    var exportedMovie = new File(path);
+    if (!exportedMovie.exists) throw new Error("Harmony did not create the review movie.");
     return path;
 }
 
@@ -148,7 +149,7 @@ function ATK_ReviewRangeInPlayer(startFrame, endFrame) {
     preferences.setInt("ATK_HARMONY_END_FRAME", end);
     if (ATK_HarmonyState.previousMoviePath && ATK_HarmonyState.previousMoviePath !== moviePath) {
         var previous = new File(ATK_HarmonyState.previousMoviePath);
-        if (previous.exists()) previous.remove();
+        if (previous.exists) previous.remove();
     }
     MessageLog.trace("ATK Player: reviewing Harmony frames " + start + "-" + end + " at ATK frame " + target + ".");
     return moviePath;
