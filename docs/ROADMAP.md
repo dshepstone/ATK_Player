@@ -214,8 +214,10 @@ failure handling, and synchronized audio playback. M6 packaging is next.
 - [x] Optional trusted SHA-256 signing architecture; RC1 remains unsigned
 - [x] Manual/tagged release CI builds and verifies MSI/checksum artifacts
 
-**Status:** IMPLEMENTED — awaiting real RC1 install, application, uninstall and
-reinstall human acceptance. M6 is not complete until that acceptance passes.
+**Status:** COMPLETE. The 0.2.0-rc1 MSI passed real human acceptance covering
+installation, installed launch, playback and audio, project association, Media
+Information, export, A/B comparison, installed licences, uninstall, user-data
+retention, and reinstall.
 
 ---
 

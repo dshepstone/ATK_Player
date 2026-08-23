@@ -1,6 +1,10 @@
 # Windows Packaging
 
-**Status: implemented — awaiting RC1 installer human acceptance.**
+**Status: COMPLETE — RC1 installer human acceptance passed.**
+
+Acceptance covered installation, installed launch, playback and audio,
+`.atkproj` association, Media Information, export, A/B comparison, installed
+licences, uninstall, user-data retention, and reinstall.
 
 ATK Player uses WiX Toolset **4.0.6** to produce a per-machine Windows x64 MSI.
 The permanent installer UpgradeCode is
