@@ -32,8 +32,9 @@ tests, installs to `build/package/windows/stage`, smoke-tests with a clean PATH,
 builds/verifies the MSI, and writes SHA-256.
 
 RC output is
-`build/package/windows/ATK-Player-0.2.0-rc1-Windows-x64.msi`. After acceptance,
-the same script supports `-VersionSuffix ""` for final 0.2.0.
+`build/package/windows/ATK-Player-0.2.1-rc1-Windows-x64.msi`. After acceptance,
+the same script supports `-VersionSuffix ""` for final 0.2.1, producing
+`ATK-Player-0.2.1-Windows-x64.msi`.
 
 ## Installed product
 
@@ -41,7 +42,7 @@ the same script supports `-VersionSuffix ""` for final 0.2.0.
 - Start Menu `ATK Player\ATK Player`; no desktop shortcut
 - `.atkproj` → `ATK Player Project`; no media associations
 - Publisher: David Shepstone
-- MSI ProductVersion `0.2.0`; RC identity remains in artifact name, executable
+- MSI ProductVersion `0.2.1`; RC identity remains in artifact name, executable
   version string and Installed Apps comments
 - Permanent UpgradeCode shown above; major upgrades remove older products,
   same-version upgrades support RC→final, and numeric downgrades are blocked
@@ -82,5 +83,5 @@ tag builds, uploads MSI/checksum artifacts, and never publishes a release.
 Install interactively with `Start-Process "<absolute-msi-path>"`. Uninstall
 through Windows Installed Apps or `msiexec.exe /x "{PRODUCT-CODE}"`; verify
 installer-created files are gone and user data remains, then reinstall RC1.
-When final 0.2.0 exists, install it over RC1 and confirm a major upgrade using
-the same UpgradeCode. Do not create a fake public final release for this test.
+Install the 0.2.1 MSI over an installed 0.2.0 (and over RC1 when one was
+tested) and confirm a major upgrade using the same UpgradeCode. Do not create a fake public final release for this test.
