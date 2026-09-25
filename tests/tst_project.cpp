@@ -26,6 +26,7 @@ private slots:
     void saveAsPersistsDestinationNameWithoutMutatingSource();
     void failedSaveAsLeavesProjectIdentityAndDirtyStateUntouched();
     void normalSavePreservesExistingProjectName();
+    void savePromptOnlyForReviewWork();
 };
 
 void TestProject::saveAsPersistsDestinationNameWithoutMutatingSource()
@@ -274,6 +275,37 @@ void TestProject::rejectsMalformedAndUnsupportedFilesWithoutMutation()
     const auto result = project::ProjectSerializer::load(project, newer.fileName());
     QVERIFY(!result.ok); QVERIFY(result.errorMessage.contains(QStringLiteral("newer")));
     QCOMPARE(project.entries().size(), originalCount);
+}
+
+void TestProject::savePromptOnlyForReviewWork()
+{
+    project::Project project;
+    QVERIFY(!project.needsSavePrompt());
+
+    // Watching one video is not work to save, even though the session changed.
+    project.addSource(std::make_shared<media::MediaSource>(QStringLiteral("a.mp4")));
+    project.mutableEntries()[0].playbackRange = {10, 20, true};
+    QVERIFY(project.isModified());
+    QVERIFY(!project.needsSavePrompt());
+
+    // Bookmarks are.
+    timeline::Bookmark note; note.id = 1; note.frame = 5; note.endFrame = 5;
+    project.mutableEntries()[0].bookmarks = {note};
+    QVERIFY(project.needsSavePrompt());
+    project.mutableEntries()[0].bookmarks.clear();
+    QVERIFY(!project.needsSavePrompt());
+
+    // So is a playlist.
+    project.addSource(std::make_shared<media::MediaSource>(QStringLiteral("b.mp4")));
+    QVERIFY(project.needsSavePrompt());
+    project.removeSourceAt(1);
+    QVERIFY(!project.needsSavePrompt());
+
+    // A saved project asks about any change, and nothing when clean.
+    project.setFilePath(QStringLiteral("review.atkproj"));
+    QVERIFY(project.needsSavePrompt());
+    project.setModified(false);
+    QVERIFY(!project.needsSavePrompt());
 }
 
 QTEST_MAIN(TestProject)

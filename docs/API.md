@@ -31,7 +31,7 @@ zero-based logical destination, not a claim that it has already painted. Poll
 authoritative `get_status.currentFrame`, or use the Python client's
 `wait_until_frame()`, to observe completion.
 
-Paths must be absolute local paths; URL schemes are rejected. Input files must exist. Project destinations end in `.atkproj`, review videos in `.mp4`, and current-frame images in `.png`. Image sequences require a non-existing destination directory whose parent exists. Replacing a dirty project is rejected unless `discardUnsaved:true` is explicit. API operations never open file dialogs or save/discard prompts. Playlist identity is the stable UUID from `list_sources`; duplicate paths are valid distinct sources.
+Paths must be absolute local paths; URL schemes are rejected. Input files must exist. Project destinations end in `.atkproj`, review videos in `.mp4`, and current-frame images in `.png`. Image sequences require a non-existing destination directory whose parent exists. Replacing a project with unsaved review work (the same rule as the save prompt: a modified saved project, or an untitled session holding bookmarks or more than one source) is rejected unless `discardUnsaved:true` is explicit. API operations never open file dialogs or save/discard prompts. Playlist identity is the stable UUID from `list_sources`; duplicate paths are valid distinct sources.
 
 Comparison view modes are `side_by_side`, `stacked`, `wipe`, `blend`, and `difference`; audio modes are `a`, `b`, and `external`. Offset requests specify exactly one of `frameOffset` or `offsetUs`, and comparison offsets apply to slot `b`.
 

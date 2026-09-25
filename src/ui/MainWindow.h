@@ -90,6 +90,10 @@ public:
     project::Project* project() const { return m_project.get(); }
     bool openProjectFile(const QString& path);
     void reopenLastProjectIfEnabled();
+    /// Shows the welcome dialog once per installed version. Called by main()
+    /// after the window is up; tests construct the window without it.
+    void showWelcomeIfFirstRun();
+    void showWelcome();
     bool isVideoFullScreen() const;
     void enterVideoFullScreen();
     void exitVideoFullScreen();

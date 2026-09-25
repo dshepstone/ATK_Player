@@ -65,9 +65,12 @@ Installed `licenses` contains ATK Player MIT, Qt LGPL v3, the pinned FFmpeg
 license/component notices, and source/version notices.
 
 RC1 is unsigned unless a trusted certificate is supplied. SmartScreen may warn;
-verify SHA-256. The build script accepts `-CertificateThumbprint` or `-PfxPath`
-plus `-PfxPassword`, signing EXE and MSI with SHA-256/RFC3161 timestamping.
-Never commit certificate material.
+verify SHA-256. The build script accepts `-CertificateThumbprint`, `-PfxPath`
+plus `-PfxPassword`, or Azure Trusted Signing via `-TrustedSigningDlib` plus
+`-TrustedSigningMetadata`, signing EXE and MSI with SHA-256/RFC3161
+timestamping. Never commit certificate material. See
+[CODE_SIGNING.md](CODE_SIGNING.md) for how to obtain a certificate and remove
+the SmartScreen warning.
 
 ## Verification, CI, uninstall and upgrades
 

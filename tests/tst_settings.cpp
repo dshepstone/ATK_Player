@@ -8,6 +8,8 @@
 
 #include <QAction>
 #include <QCheckBox>
+#include <QDialog>
+#include <QLabel>
 #include <QDockWidget>
 #include <QDir>
 #include <QFile>
@@ -44,6 +46,8 @@ private slots:
     void textEditingKeepsTypingShortcuts();
     void mainWindowLoadsReviewAndShortcutPreferences();
     void windowAndDockStateRoundTrip();
+    void bookmarksPanelStartsClosed();
+    void welcomeShownOncePerVersion();
     void transportIconsAndTooltipsReuseActions();
     void requiredM2ShortcutDefaultsRemainSafe();
     void shortcutEditorClearAndResetSelected();
@@ -340,6 +344,61 @@ void TestSettings::windowAndDockStateRoundTrip()
         QCOMPARE(restored.size(), QSize(920, 640));
         QVERIFY(bookmarks->isHidden());
     }
+}
+
+void TestSettings::bookmarksPanelStartsClosed()
+{
+    QTemporaryDir directory;
+    const QString file = directory.filePath(QStringLiteral("settings.ini"));
+    {
+        atk::ui::MainWindow window(file);
+        auto* bookmarks = window.findChild<QDockWidget*>(QStringLiteral("BookmarksDock"));
+        auto* toggle = window.findChild<QAction*>(QStringLiteral("view.toggleBookmarks"));
+        QVERIFY(bookmarks && toggle);
+        QVERIFY(bookmarks->isHidden());
+        QVERIFY(!toggle->isChecked());
+        window.show();
+        toggle->trigger();
+        QVERIFY(!bookmarks->isHidden());
+    }
+    {
+        // Leaving it open last session does not reopen it.
+        atk::ui::MainWindow restored(file);
+        auto* bookmarks = restored.findChild<QDockWidget*>(QStringLiteral("BookmarksDock"));
+        QVERIFY(bookmarks);
+        QVERIFY(bookmarks->isHidden());
+    }
+}
+
+void TestSettings::welcomeShownOncePerVersion()
+{
+    QTemporaryDir directory;
+    const QString file = directory.filePath(QStringLiteral("settings.ini"));
+    const auto welcomeCount = [](const atk::ui::MainWindow& window) {
+        return window.findChildren<QDialog*>(QStringLiteral("WelcomeDialog")).size();
+    };
+    {
+        atk::ui::MainWindow window(file);
+        QCOMPARE(welcomeCount(window), 0);
+        window.showWelcomeIfFirstRun();
+        QTRY_COMPARE(welcomeCount(window), 1);
+        auto* dialog = window.findChild<QDialog*>(QStringLiteral("WelcomeDialog"));
+        QVERIFY(dialog->findChild<QLabel*>(QStringLiteral("WelcomeMessage"))->text()
+                    .contains(QStringLiteral("shepstone.ca")));
+        dialog->accept();
+    }
+    {
+        atk::ui::MainWindow window(file);
+        window.showWelcomeIfFirstRun();
+        QCoreApplication::processEvents();
+        QCOMPARE(welcomeCount(window), 0);
+        // Still reachable from the Help menu.
+        window.findChild<QAction*>(QStringLiteral("help.welcome"))->trigger();
+        QCOMPARE(welcomeCount(window), 1);
+    }
+    ApplicationSettings settings(file);
+    settings.resetAll();
+    QVERIFY(!settings.welcomeShownVersion().isEmpty());
 }
 
 void TestSettings::transportIconsAndTooltipsReuseActions()

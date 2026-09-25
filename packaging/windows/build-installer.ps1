@@ -10,7 +10,12 @@ param(
     [string]$CertificateThumbprint,
     [string]$PfxPath,
     [string]$PfxPassword,
-    [string]$TimestampUrl = "http://timestamp.digicert.com"
+    # Azure Trusted Signing: path to Azure.CodeSigning.Dlib.dll (from the
+    # Microsoft.Trusted.Signing.Client package) and the metadata.json naming the
+    # account and certificate profile. See packaging/windows/CODE_SIGNING.md.
+    [string]$TrustedSigningDlib,
+    [string]$TrustedSigningMetadata,
+    [string]$TimestampUrl
 )
 
 $ErrorActionPreference = "Stop"
@@ -84,13 +89,20 @@ function Resolve-Wix {
 }
 
 function Invoke-Signing([string]$Path) {
-    if (-not $CertificateThumbprint -and -not $PfxPath) {
+    if (-not $CertificateThumbprint -and -not $PfxPath -and -not $TrustedSigningDlib) {
         Write-Warning "UNSIGNED: no trusted signing certificate was supplied for $Path"
         return
     }
     $signtool = Resolve-RequiredCommand "signtool"
-    $arguments = @("sign", "/fd", "SHA256", "/td", "SHA256", "/tr", $TimestampUrl)
-    if ($CertificateThumbprint) {
+    $timestamp = "http://timestamp.digicert.com"
+    if ($TrustedSigningDlib) { $timestamp = "http://timestamp.acs.microsoft.com" }
+    if ($TimestampUrl) { $timestamp = $TimestampUrl }
+    $arguments = @("sign", "/fd", "SHA256", "/td", "SHA256", "/tr", $timestamp)
+    if ($TrustedSigningDlib) {
+        if (-not $TrustedSigningMetadata) { throw "-TrustedSigningMetadata is required with -TrustedSigningDlib" }
+        $arguments += @("/dlib", (Resolve-Path $TrustedSigningDlib).Path,
+                        "/dmdf", (Resolve-Path $TrustedSigningMetadata).Path)
+    } elseif ($CertificateThumbprint) {
         $arguments += @("/sha1", $CertificateThumbprint)
     } else {
         $arguments += @("/f", (Resolve-Path $PfxPath).Path)

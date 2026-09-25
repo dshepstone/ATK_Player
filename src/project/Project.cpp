@@ -39,6 +39,15 @@ void Project::setModified(bool modified)
     emit modifiedChanged(m_modified);
 }
 
+bool Project::needsSavePrompt() const
+{
+    if (!m_modified) return false;
+    if (!m_filePath.isEmpty()) return true;
+    if (m_entries.size() > 1) return true;
+    return std::any_of(m_entries.cbegin(), m_entries.cend(),
+                       [](const SourceEntry& entry) { return !entry.bookmarks.isEmpty(); });
+}
+
 bool Project::isValidIndex(int index) const
 {
     return index >= 0 && index < m_entries.size();

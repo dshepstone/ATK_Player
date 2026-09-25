@@ -26,6 +26,7 @@ constexpr auto kLastProject = "projects/lastPath";
 constexpr auto kApiEnabled = "api/enabled";
 constexpr auto kApiPort = "api/port";
 constexpr auto kShortcutGroup = "shortcuts";
+constexpr auto kWelcomeShownVersion = "ui/welcomeShownVersion";
 }
 
 ApplicationSettings::ApplicationSettings()
@@ -67,6 +68,9 @@ int ApplicationSettings::apiPort() const
     const int value = m_settings->value(QString::fromLatin1(kApiPort), defaultApiPort()).toInt(&ok);
     return ok && value >= 1024 && value <= 65535 ? value : defaultApiPort();
 }
+
+QString ApplicationSettings::welcomeShownVersion() const { return m_settings->value(QString::fromLatin1(kWelcomeShownVersion)).toString(); }
+void ApplicationSettings::setWelcomeShownVersion(const QString& version) { m_settings->setValue(QString::fromLatin1(kWelcomeShownVersion), version); }
 
 double ApplicationSettings::volume() const
 {
@@ -137,7 +141,13 @@ void ApplicationSettings::resetShortcutOverride(const QString& commandKey)
 }
 
 void ApplicationSettings::resetAllShortcuts() { m_settings->remove(QString::fromLatin1(kShortcutGroup)); }
-void ApplicationSettings::resetAll() { m_settings->clear(); }
+void ApplicationSettings::resetAll()
+{
+    // Resetting preferences is not a reinstall; keep the welcome from reappearing.
+    const QVariant welcome = m_settings->value(QString::fromLatin1(kWelcomeShownVersion));
+    m_settings->clear();
+    if (welcome.isValid()) m_settings->setValue(QString::fromLatin1(kWelcomeShownVersion), welcome);
+}
 void ApplicationSettings::sync() { m_settings->sync(); }
 
 } // namespace atk::ui

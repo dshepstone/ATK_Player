@@ -5,6 +5,7 @@
 #include "timeline/TimelineModel.h"
 #include "ui/Theme.h"
 
+#include <QFontMetrics>
 #include <QMouseEvent>
 #include <QHelpEvent>
 #include <QPainter>
@@ -38,6 +39,7 @@ constexpr int kBookmarkMarkerWidth = 3;
 constexpr int kRangeBandHeight = 6;
 constexpr int kRangeLaneCount = 3;
 constexpr int kRangeCapWidth = 3;
+constexpr int kScrubLabelPadding = 6;
 
 /// Minimum gap between preview *decode* requests while dragging.
 ///
@@ -249,6 +251,7 @@ void TimelineWidget::paintEvent(QPaintEvent* event)
     paintBookmarks(painter);
     paintFrameLabels(painter);
     paintPlayhead(painter);
+    paintScrubFrameLabel(painter);
 }
 
 void TimelineWidget::paintWaveform(QPainter& painter)
@@ -432,6 +435,45 @@ void TimelineWidget::paintPlayhead(QPainter& painter)
     const QRect handle(x - kPlayheadHandleWidth / 2, track.bottom() + 2,
                        kPlayheadHandleWidth, 5);
     painter.fillRect(handle, theme::playhead());
+}
+
+QString TimelineWidget::scrubFrameLabelText() const
+{
+    // One-based, matching the FRAME field and the ruler labels.
+    return QString::number(displayFrame() + 1);
+}
+
+QRect TimelineWidget::scrubFrameLabelRect() const
+{
+    if (!m_scrubbing || !m_model || m_model->frameCount() <= 0) return {};
+    const int x = xForFrame(displayFrame());
+    if (x < 0) return {};
+    QFont bold = font();
+    bold.setBold(true);
+    const QFontMetrics metrics(bold);
+    const int width = metrics.horizontalAdvance(scrubFrameLabelText()) + 2 * kScrubLabelPadding;
+    const int height = metrics.height() + 4;
+    // Centred on the playhead, sitting just above the track so the line runs
+    // up into it, and kept inside the widget at either end of the ruler.
+    const int left = std::clamp(x - width / 2, 0, std::max(0, rect().width() - width));
+    return QRect(left, trackRect().top() - 4 - height, width, height);
+}
+
+void TimelineWidget::paintScrubFrameLabel(QPainter& painter)
+{
+    const QRect badge = scrubFrameLabelRect();
+    if (badge.isEmpty()) return;
+    painter.save();
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(theme::playhead());
+    painter.drawRoundedRect(badge, 3, 3);
+    QFont bold = font();
+    bold.setBold(true);
+    painter.setFont(bold);
+    painter.setPen(theme::timelineTrack());
+    painter.drawText(badge, Qt::AlignCenter, scrubFrameLabelText());
+    painter.restore();
 }
 
 void TimelineWidget::paintFrameLabels(QPainter& painter)

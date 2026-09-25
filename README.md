@@ -62,6 +62,8 @@ Windows may therefore display an **Unknown Publisher** or Microsoft Defender Sma
 
 SHA-256 checksum files are provided with the GitHub Release so downloaded files can be independently verified.
 
+To install anyway: when **Windows protected your PC** appears, click **More info** → **Run anyway** (or right-click the MSI → **Properties** → tick **Unblock** first). See [packaging/windows/CODE_SIGNING.md](packaging/windows/CODE_SIGNING.md) for the plan to ship signed builds.
+
 ---
 
 ## Features
@@ -76,7 +78,7 @@ ATK Player is designed around frame-accurate animation review rather than approx
 - Direct frame-number navigation
 - Frame, timecode, and frame-rate display
 - Exact rational frame-rate handling
-- Timeline scrubbing
+- Timeline scrubbing with a live frame-number readout above the playhead
 - Review-range playback
 - Looping
 - Whole-clip playback
@@ -348,7 +350,7 @@ Harmony frames remain one-based while ATK's internal/API frame mapping remains z
 | Video Full Screen | `Ctrl+Shift+F` |
 | Stop | `Esc` |
 
-Range Bookmark creation is explicit in the Bookmarks panel. `Shift+B` is unassigned by default.
+The Bookmarks panel starts closed so the viewer gets the full width; open it with `F5` or **View → Bookmarks Panel**. Range Bookmark creation is explicit in the Bookmarks panel. `Shift+B` is unassigned by default.
 
 Shortcuts can be customized under:
 

@@ -16,6 +16,8 @@
 #include <QSpinBox>
 #include <QTest>
 
+#include <cstdlib>
+
 using atk::media::FrameRate;
 using atk::timeline::Bookmark;
 using atk::timeline::TimelineModel;
@@ -39,6 +41,7 @@ private slots:
     void statusUsesOneBasedFramesAndZeroOriginTimecode();
     void releasedScrubFollowsSubsequentAuthoritativeNavigation();
     void activeAndFinalScrubPresentationRemainResponsive();
+    void scrubShowsFrameNumberAbovePlayhead();
 };
 
 void TestTimelineWidgets::directFrameNumberInput()
@@ -493,6 +496,37 @@ void TestTimelineWidgets::activeAndFinalScrubPresentationRemainResponsive()
 
     model.setCurrentFrame(50);
     QCOMPARE(widget.displayedFrame(), qint64(50));
+}
+
+void TestTimelineWidgets::scrubShowsFrameNumberAbovePlayhead()
+{
+    TimelineModel model;
+    model.setFrameCount(100);
+    TimelineWidget widget;
+    widget.resize(1000, 130);
+    widget.setModel(&model);
+    QVERIFY(widget.scrubFrameLabelRect().isEmpty());
+
+    const int y = widget.height() - 18;
+    QTest::mousePress(&widget, Qt::LeftButton, Qt::NoModifier,
+                      QPoint(widget.positionForFrame(10), y));
+    QTest::mouseMove(&widget, QPoint(widget.positionForFrame(44), y));
+    // One-based like the FRAME field, and following the pointer, not the decoder.
+    QCOMPARE(widget.scrubFrameLabelText(), QStringLiteral("45"));
+    const QRect badge = widget.scrubFrameLabelRect();
+    QVERIFY(!badge.isEmpty());
+    QVERIFY(std::abs(badge.center().x() - widget.positionForFrame(44)) <= 1);
+    QVERIFY(badge.bottom() < y);
+    QVERIFY(widget.rect().contains(badge));
+
+    // Clamped inside the widget at the ends of the ruler.
+    QTest::mouseMove(&widget, QPoint(widget.positionForFrame(99), y));
+    QCOMPARE(widget.scrubFrameLabelText(), QStringLiteral("100"));
+    QVERIFY(widget.rect().contains(widget.scrubFrameLabelRect()));
+
+    QTest::mouseRelease(&widget, Qt::LeftButton, Qt::NoModifier,
+                        QPoint(widget.positionForFrame(99), y));
+    QVERIFY(widget.scrubFrameLabelRect().isEmpty());
 }
 
 QTEST_MAIN(TestTimelineWidgets)

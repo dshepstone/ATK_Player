@@ -64,6 +64,14 @@ public:
     bool isModified() const { return m_modified; }
     void setModified(bool modified);
 
+    /// True when closing the project should offer to save it.
+    ///
+    /// A saved project asks whenever it is modified. An untitled session asks
+    /// only when it holds review work worth keeping -- bookmarks, or a playlist
+    /// of more than one source -- so opening and closing a single video to
+    /// watch it never prompts.
+    bool needsSavePrompt() const;
+
     // --- Sources / playlist ----------------------------------------------
     const QVector<SourceEntry>& entries() const { return m_entries; }
     QVector<SourceEntry>& mutableEntries() { return m_entries; }

@@ -61,6 +61,10 @@ public:
     int64_t displayedFrame() const { return displayFrame(); }
     void setSelectedBookmark(quint64 id) { m_selectedBookmarkId = id; update(); }
     quint64 selectedBookmarkId() const { return m_selectedBookmarkId; }
+    /// Badge above the playhead showing the frame under the pointer while a
+    /// scrub drag is in progress. Empty when not scrubbing.
+    QRect scrubFrameLabelRect() const;
+    QString scrubFrameLabelText() const;
     /// Drops only the pointer-preview overlay. The next painted position still
     /// comes from TimelineModel's authoritative presented frame.
     void followAuthoritativeFrame() { m_scrubbing = false; m_scrubFrame = -1; update(); }
@@ -106,6 +110,7 @@ private:
     void paintBookmarks(QPainter& painter);
     void paintPlayhead(QPainter& painter);
     void paintFrameLabels(QPainter& painter);
+    void paintScrubFrameLabel(QPainter& painter);
 
     /// Emits a seek request, but no more often than the throttle interval
     /// while a drag is in progress.

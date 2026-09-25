@@ -28,6 +28,7 @@ set(ATK_UI_SOURCES
     ViewerTransform.cpp
     ViewerWidget.cpp
     VideoFullscreenWindow.cpp
+    WelcomeDialog.cpp
     commands/CommandRegistry.cpp
     atk_resources.qrc
 )
@@ -54,6 +55,7 @@ set(ATK_UI_HEADERS
     ViewerTransform.h
     ViewerWidget.h
     VideoFullscreenWindow.h
+    WelcomeDialog.h
     commands/CommandRegistry.h
 )
 
