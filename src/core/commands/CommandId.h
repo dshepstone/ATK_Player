@@ -89,6 +89,7 @@ enum class CommandId {
     TimelineZoomFit,
 
     // Help
+    ShowWelcome,
     About,
 };
 

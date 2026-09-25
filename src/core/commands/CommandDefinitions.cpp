@@ -101,6 +101,7 @@ constexpr std::array kCommands{
     CommandDefinition{ CommandId::TimelineZoomFit,    "view.timelineZoomFit",  QT_TRANSLATE_NOOP("Command", "Fit Entire Timeline"), C::View,     "F",            false },
 
     // Help
+    CommandDefinition{ CommandId::ShowWelcome,        "help.welcome",          QT_TRANSLATE_NOOP("Command", "Welcome to ATK Player"), C::Help,    nullptr,        false },
     CommandDefinition{ CommandId::About,              "help.about",            QT_TRANSLATE_NOOP("Command", "About ATK Player"),     C::Help,     nullptr,        false },
 };
 

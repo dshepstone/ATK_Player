@@ -4,7 +4,7 @@ ATK PLAYER THIRD-PARTY NOTICES
 This file accompanies the ATK Player Windows binary distribution. Complete
 license texts are installed beside it in the licenses directory.
 
-ATK Player 0.2.0
+ATK Player 0.2.1
 ----------------
 Copyright (c) 2026 David Shepstone.
 Licensed under the MIT License.

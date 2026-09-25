@@ -7,7 +7,7 @@ cmake_minimum_required(VERSION 3.24)
 # Version is defined once here and propagated to C++ via core/Version.h.in.
 # ---------------------------------------------------------------------------
 project(ATKPlayer
-    VERSION 0.2.0
+    VERSION 0.2.1
     DESCRIPTION "Animation playback and review application"
     HOMEPAGE_URL "https://github.com/dshepstone/ATK_Player"
     LANGUAGES CXX

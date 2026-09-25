@@ -31,6 +31,7 @@
 #include "ui/TimelineRangeSlider.h"
 #include "ui/TransportControls.h"
 #include "ui/ViewerWidget.h"
+#include "ui/WelcomeDialog.h"
 #include "ui/VideoFullscreenWindow.h"
 #include "ui/commands/CommandRegistry.h"
 
@@ -50,6 +51,7 @@
 #include <QStyle>
 #include <QWidgetAction>
 #include <QThread>
+#include <QTimer>
 #include <QWindow>
 
 #include <QAction>
@@ -156,6 +158,9 @@ MainWindow::MainWindow(const QString& settingsIniPath, QWidget* parent)
     updateWindowTitle();
     resize(1280, 800);
     restoreApplicationLayout();
+    // Bookmarks open on demand (F5, View menu, or Add Range Bookmark); the
+    // viewer gets the full width by default whatever layout was last saved.
+    m_bookmarksDock->hide();
 
     qCInfo(log::ui) << "Main window constructed";
 }
@@ -404,7 +409,7 @@ void MainWindow::buildMenus()
         refreshRecentProjectsMenu();
     }
     if (QAction* bookmarksAction = m_commands->action(CommandId::ToggleBookmarksPanel)) {
-        bookmarksAction->setChecked(true);
+        bookmarksAction->setChecked(false);
     }
     if (QAction* snapAction = m_commands->action(CommandId::ToggleBookmarkSnap)) {
         snapAction->setChecked(m_settings->bookmarkSnapEnabled());
@@ -874,6 +879,9 @@ void MainWindow::onCommand(CommandId id, bool checked)
         return;
     case CommandId::Preferences:
         openPreferences();
+        return;
+    case CommandId::ShowWelcome:
+        showWelcome();
         return;
     case CommandId::About:
         QMessageBox::about(
@@ -1458,7 +1466,7 @@ void MainWindow::movePlaylistIndex(int from, int to)
 
 bool MainWindow::confirmDiscardChanges()
 {
-    if (!m_project->isModified()) return true;
+    if (!m_project->needsSavePrompt()) return true;
     const auto choice = QMessageBox::warning(this, tr("Unsaved Project"),
         tr("Save changes to the current project?"),
         QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel, QMessageBox::Save);
@@ -1790,6 +1798,23 @@ bool MainWindow::cancelExportForProjectChange()
     if (m_exportProgress) { m_exportProgress->close(); m_exportProgress->deleteLater(); m_exportProgress = nullptr; }
     updateTransportEnabled();
     return true;
+}
+
+void MainWindow::showWelcomeIfFirstRun()
+{
+    const QString current = QString::fromLatin1(version::kString);
+    if (m_settings->welcomeShownVersion() == current) return;
+    m_settings->setWelcomeShownVersion(current);
+    m_settings->sync();
+    // Queued so the main window has painted before the dialog appears over it.
+    QTimer::singleShot(0, this, &MainWindow::showWelcome);
+}
+
+void MainWindow::showWelcome()
+{
+    auto* dialog = new WelcomeDialog(this);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->open();
 }
 
 void MainWindow::closeEvent(QCloseEvent* event)
@@ -2254,7 +2279,7 @@ api::ApiResponse MainWindow::handleApiApplicationCommand(
             && read(QStringLiteral("bookmarkNotes"), &out->bookmarkNotes);
     };
     const auto mayDiscard = [&] {
-        return !m_project->isModified()
+        return !m_project->needsSavePrompt()
             || params.value(QStringLiteral("discardUnsaved")).toBool(false);
     };
     const auto sourceAvailability = [](project::SourceAvailability value) {

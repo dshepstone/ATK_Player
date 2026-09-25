@@ -41,6 +41,9 @@ public:
     QString lastProjectPath() const;
     bool apiEnabled() const;
     int apiPort() const;
+    /// Version string the welcome dialog was last shown for. Empty until the
+    /// first launch after installation has shown it.
+    QString welcomeShownVersion() const;
 
     void setRestoreWindowLayout(bool value);
     void setAudioScrubEnabled(bool value);
@@ -54,6 +57,7 @@ public:
     void setLastProjectPath(const QString& path);
     void setApiEnabled(bool value);
     void setApiPort(int value);
+    void setWelcomeShownVersion(const QString& version);
 
     QByteArray windowGeometry() const;
     QByteArray windowState() const;

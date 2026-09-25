@@ -33,6 +33,9 @@ int main(int argc, char* argv[])
         window.reopenLastProjectIfEnabled();
     }
 
+    // First launch after an install or upgrade: say thank you once.
+    window.showWelcomeIfFirstRun();
+
     qCInfo(atk::log::app) << "Entering event loop";
     const int result = application.exec();
     qCInfo(atk::log::app) << "Exiting with code" << result;

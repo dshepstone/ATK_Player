@@ -2,7 +2,7 @@
 
 ATK Player is an open-source, frame-accurate video playback and animation review application designed for animators, students, educators, and production workflows.
 
-**Latest release: ATK Player 0.2.0**
+**Latest release: ATK Player 0.2.1**
 
 ATK Player is **Animation Tool Kit — Media Player**, the companion application for the Animation Tool Kit Maya tools series. Created by David Shepstone.
 
@@ -26,7 +26,7 @@ The latest Windows release is available from:
 
 Download:
 
-`ATK-Player-0.2.0-Windows-x64.msi`
+`ATK-Player-0.2.1-Windows-x64.msi`
 
 The installer:
 
@@ -41,7 +41,7 @@ The installer:
 
 Download:
 
-`ATK-Player-0.2.0-Windows-x64-Portable.zip`
+`ATK-Player-0.2.1-Windows-x64-Portable.zip`
 
 Extract the complete folder and run:
 
@@ -56,11 +56,13 @@ Do not separate `ATKPlayer.exe` from the DLL and plugin folders included with th
 
 ### Unsigned Build Notice
 
-ATK Player 0.2.0 is currently distributed without a commercial Windows code-signing certificate.
+ATK Player 0.2.1 is currently distributed without a commercial Windows code-signing certificate.
 
 Windows may therefore display an **Unknown Publisher** or Microsoft Defender SmartScreen warning when launching the installer.
 
 SHA-256 checksum files are provided with the GitHub Release so downloaded files can be independently verified.
+
+To install anyway: when **Windows protected your PC** appears, click **More info** → **Run anyway** (or right-click the MSI → **Properties** → tick **Unblock** first). See [packaging/windows/CODE_SIGNING.md](packaging/windows/CODE_SIGNING.md) for the plan to ship signed builds.
 
 ---
 
@@ -76,7 +78,7 @@ ATK Player is designed around frame-accurate animation review rather than approx
 - Direct frame-number navigation
 - Frame, timecode, and frame-rate display
 - Exact rational frame-rate handling
-- Timeline scrubbing
+- Timeline scrubbing with a live frame-number readout above the playhead
 - Review-range playback
 - Looping
 - Whole-clip playback
@@ -348,7 +350,7 @@ Harmony frames remain one-based while ATK's internal/API frame mapping remains z
 | Video Full Screen | `Ctrl+Shift+F` |
 | Stop | `Esc` |
 
-Range Bookmark creation is explicit in the Bookmarks panel. `Shift+B` is unassigned by default.
+The Bookmarks panel starts closed so the viewer gets the full width; open it with `F5` or **View → Bookmarks Panel**. Range Bookmark creation is explicit in the Bookmarks panel. `Shift+B` is unassigned by default.
 
 Shortcuts can be customized under:
 
@@ -357,6 +359,10 @@ Shortcuts can be customized under:
 ---
 
 ## Current Release Status
+
+### ATK Player 0.2.1
+
+A polish release: a first-run welcome screen, a live frame number above the playhead while scrubbing, save prompts only when there is review work to keep, and the Bookmarks panel closed by default. See [docs/RELEASE_NOTES_0.2.1.md](docs/RELEASE_NOTES_0.2.1.md).
 
 ### ATK Player 0.2.0
 
