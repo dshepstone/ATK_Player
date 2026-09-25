@@ -60,6 +60,14 @@ if ((Read-Property "UpgradeCode").ToUpperInvariant() -ne $UpgradeCode.ToUpperInv
     throw "Incorrect UpgradeCode."
 }
 
+$dialogs = Read-MsiRows "SELECT ``Dialog`` FROM ``Dialog``"
+foreach ($dialog in @("WelcomeEulaDlg", "ProgressDlg", "ExitDialog")) {
+    if ($dialogs -notcontains $dialog) { throw "Setup wizard dialog $dialog is missing." }
+}
+if (-not (Read-Property "WIXUI_EXITDIALOGOPTIONALTEXT")) { throw "Finish-page thank-you text is missing." }
+$customActions = Read-MsiRows "SELECT ``Action`` FROM ``CustomAction``"
+if ($customActions -notcontains "LaunchApplication") { throw "Launch-after-install action is missing." }
+
 $summary = $database.SummaryInformation(0)
 $template = $summary.Property(7)
 if ($template -notmatch "x64|Intel64") { throw "MSI summary is not x64: $template" }

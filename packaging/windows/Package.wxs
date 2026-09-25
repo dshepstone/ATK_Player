@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
   <Package
       Name="ATK Player"
       Manufacturer="David Shepstone"
@@ -61,6 +62,27 @@
       <RegistryValue Root="HKCR" Key="ATKPlayer.Project\shell\open\command" Type="string"
                      Value="&quot;[INSTALLFOLDER]ATKPlayer.exe&quot; &quot;%1&quot;" />
     </Component>
+
+    <!-- Setup wizard (WixToolset.UI.wixext). The Finish page thanks the user
+         and offers to launch ATK Player, which then shows its own welcome
+         window. Silent installs (/qn) show none of this and launch nothing. -->
+    <WixVariable Id="WixUILicenseRtf" Value="$(var.SourceDir)\packaging\windows\assets\License.rtf" />
+    <WixVariable Id="WixUIDialogBmp" Value="$(var.SourceDir)\packaging\windows\assets\WixUIDialog.bmp" />
+    <WixVariable Id="WixUIBannerBmp" Value="$(var.SourceDir)\packaging\windows\assets\WixUIBanner.bmp" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALTEXT"
+              Value="Thank you for installing ATK Player! It installed successfully and is ready to use. ATK Player is a frame-accurate review player built for animation teams, students and production pipelines. It is free and open source, so please share your feedback on GitHub. Created by David Shepstone (shepstone.ca)." />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch ATK Player" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
+    <Property Id="WixShellExecTarget" Value="[INSTALLFOLDER]ATKPlayer.exe" />
+    <!-- Runs from the UI sequence, impersonated, so the app starts as the
+         signed-in user rather than elevated. -->
+    <CustomAction Id="LaunchApplication" BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)"
+                  DllEntry="WixShellExec" Impersonate="yes" />
+    <UI>
+      <ui:WixUI Id="WixUI_Minimal" />
+      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchApplication"
+               Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT Installed" />
+    </UI>
 
     <Feature Id="Complete" Title="ATK Player" Level="1">
       <ComponentGroupRef Id="ApplicationFiles" />
