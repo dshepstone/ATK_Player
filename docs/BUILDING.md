@@ -419,7 +419,7 @@ cmake -E rm -rf build/windows-debug
 ```
 ## Building a Windows release
 
-Normal development remains `0.2.0-dev` through the tracked presets:
+Normal development remains `0.2.1-dev` through the tracked presets:
 
 ```powershell
 cmake --preset windows-release

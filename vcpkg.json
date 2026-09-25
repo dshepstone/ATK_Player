@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
   "name": "atk-player",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Cross-platform animation playback and review application",
   "homepage": "https://github.com/dshepstone/ATK_Player",
   "license": "MIT",

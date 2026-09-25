@@ -27,8 +27,8 @@ $packageRoot = Join-Path $repoRoot "build/package/windows"
 $buildDir = Join-Path $repoRoot "build/windows-package"
 $stageDir = Join-Path $packageRoot "stage"
 $toolsDir = Join-Path $packageRoot "tools"
-$displayVersion = if ($VersionSuffix) { "0.2.0-$VersionSuffix" } else { "0.2.0" }
-$productVersion = "0.2.0"
+$displayVersion = if ($VersionSuffix) { "0.2.1-$VersionSuffix" } else { "0.2.1" }
+$productVersion = "0.2.1"
 $msiPath = Join-Path $packageRoot "ATK-Player-$displayVersion-Windows-x64.msi"
 
 function Assert-LastExitCode([string]$Action) {
@@ -348,7 +348,7 @@ Assert-LastExitCode "WiX MSI build"
 Invoke-Signing $msiPath
 
 & (Join-Path $scriptDir "verify-installer.ps1") -MsiPath $msiPath -StageDir $stageDir `
-    -DisplayVersion $displayVersion
+    -DisplayVersion $displayVersion -ProductVersion $productVersion
 Assert-LastExitCode "MSI verification"
 
 $hash = Get-Sha256 $msiPath

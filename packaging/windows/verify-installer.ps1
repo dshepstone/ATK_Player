@@ -2,7 +2,8 @@
 param(
     [Parameter(Mandatory)][string]$MsiPath,
     [Parameter(Mandatory)][string]$StageDir,
-    [string]$DisplayVersion = "0.2.0-rc1",
+    [string]$DisplayVersion = "0.2.1-rc1",
+    [string]$ProductVersion = "0.2.1",
     [string]$UpgradeCode = "{6E41AAE8-13C4-4D46-AB5B-7F04E92E9B76}"
 )
 
@@ -54,7 +55,7 @@ function Read-Property([string]$Name) {
 }
 
 if ((Read-Property "ProductName") -ne "ATK Player") { throw "Incorrect ProductName." }
-if ((Read-Property "ProductVersion") -ne "0.2.0") { throw "Incorrect MSI ProductVersion." }
+if ((Read-Property "ProductVersion") -ne $ProductVersion) { throw "Incorrect MSI ProductVersion." }
 if ((Read-Property "UpgradeCode").ToUpperInvariant() -ne $UpgradeCode.ToUpperInvariant()) {
     throw "Incorrect UpgradeCode."
 }
@@ -101,6 +102,6 @@ if ($stageBad) { throw "Stage includes prohibited files: $($stageBad.FullName -j
 $hash = Get-Sha256 $msi
 Write-Host "Verified x64 MSI: $msi"
 Write-Host "ProductName: ATK Player"
-Write-Host "ProductVersion: 0.2.0 ($DisplayVersion display release)"
+Write-Host "ProductVersion: $ProductVersion ($DisplayVersion display release)"
 Write-Host "UpgradeCode: $UpgradeCode"
 Write-Host "SHA-256: $hash"
