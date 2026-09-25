@@ -242,6 +242,22 @@ $python = if ($pythonCommand.PSObject.Properties.Name -contains "Source") {
 } else {
     $pythonCommand.FullName
 }
+function Resolve-WixExtension([string]$Wix, [string]$Id) {
+    # Pinned to the WiX version so a newer extension in the user's global
+    # cache is never picked up by the 4.x compiler.
+    $cacheDir = Join-Path $env:USERPROFILE ".wix/extensions/$Id/$WixVersion"
+    $dll = Get-ChildItem $cacheDir -Recurse -Filter "$Id.dll" -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if (-not $dll) {
+        & $Wix extension add -g "$Id/$WixVersion" | Out-Host
+        Assert-LastExitCode "WiX extension $Id bootstrap"
+        $dll = Get-ChildItem $cacheDir -Recurse -Filter "$Id.dll" -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+    }
+    if (-not $dll) { throw "WiX extension $Id $WixVersion was not found under $cacheDir" }
+    return $dll.FullName
+}
+
 & $python --version | Out-Host
 Assert-LastExitCode "Python 3 prerequisite"
 $python = $python.Replace('\', '/')
@@ -252,6 +268,10 @@ if (-not $env:VCPKG_ROOT -or -not (Test-Path "$env:VCPKG_ROOT/scripts/buildsyste
 }
 $wix = Resolve-Wix
 Write-Host "WiX: $(& $wix --version)"
+$wixExtensions = @(
+    (Resolve-WixExtension $wix "WixToolset.UI.wixext"),
+    (Resolve-WixExtension $wix "WixToolset.Util.wixext")
+)
 
 if (-not $SkipBuild) {
     $configure = @(
@@ -341,6 +361,7 @@ if (Test-Path $msiPath) { Remove-Item -LiteralPath $msiPath -Force }
 $filesWxs = Join-Path $packageRoot "Files.wxs"
 New-WixFilesFragment $stageDir $filesWxs
 & $wix build -arch x64 `
+    -ext $wixExtensions[0] -ext $wixExtensions[1] `
     -d "StageDir=$stageDir" -d "SourceDir=$repoRoot" `
     -d "ProductVersion=$productVersion" -d "DisplayVersion=$displayVersion" `
     -o $msiPath (Join-Path $scriptDir "Package.wxs") $filesWxs

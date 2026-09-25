@@ -4,6 +4,9 @@ A polish release focused on a smoother first run and faster review.
 
 ## What's new
 
+- **New installer wizard.** The MSI now opens a branded setup wizard with the
+  ATK logo. The final page confirms the install succeeded, thanks you for
+  installing, and offers a **Launch ATK Player** checkbox.
 - **Welcome screen.** The first launch after installing or upgrading shows a
   welcome window with a quick overview, a link to send feedback on GitHub and
   the creator's website. Reopen it any time from
