@@ -1,8 +1,10 @@
 ATK PLAYER THIRD-PARTY NOTICES
 ================================
 
-This file accompanies the ATK Player Windows binary distribution. Complete
-license texts are installed beside it in the licenses directory.
+This file accompanies the ATK Player Windows binary distribution. Project MIT,
+Qt LGPL v3 and FFmpeg LGPL v2.1 texts are installed beside it. Additional license
+texts, component notices, build records and matching source are installed in
+licenses/dependencies. See dependencies/SOURCE_MATERIALS.md and SHA256SUMS.txt.
 
 ATK Player 0.2.1
 ----------------
@@ -16,7 +18,13 @@ ATK Player dynamically links unmodified Qt runtime libraries distributed
 under the GNU Lesser General Public License, version 3. The Qt DLLs remain
 separate and replaceable files.
 Project and source: https://www.qt.io/ and https://code.qt.io/
-License text: Qt-LGPL-3.0.txt
+License text: Qt-LGPL-3.0.txt and dependencies/GPL-3.0.txt.
+Component notices: dependencies/Qt-qtbase-NOTICES.txt,
+Qt-qtmultimedia-NOTICES.txt and Qt-qtsvg-NOTICES.txt.
+Qt's static entry-point code uses the BSD-3-Clause option, with notices retained.
+This software is based in part on the work of the Independent JPEG Group.
+Portions of this software are copyright (C) The FreeType Project
+(www.freetype.org). All rights reserved.
 
 FFmpeg 9.0.1 (vcpkg port revision 1)
 ------------------------------------
@@ -26,7 +34,30 @@ and nonfree components and does not enable x264, x265, or fdk-aac. The MSI
 does not distribute ffmpeg.exe or ffprobe.exe.
 Project and source: https://ffmpeg.org/ and https://ffmpeg.org/download.html
 Build source: https://github.com/microsoft/vcpkg/tree/45f9f39362a4c52e2b1fbe57b7e649db7f3d96d4/ports/ffmpeg
-License and component notices: FFmpeg-LGPL-2.1.txt
+LGPL license text: FFmpeg-LGPL-2.1.txt
+Component notices and configuration: dependencies/FFmpeg-NOTICES.txt and
+dependencies/FFmpeg-BUILD-CONFIGURATION.json. Corresponding patched source and
+the complete pinned vcpkg port/build source are included in dependencies/sources.
+
+WiX Toolset 4.0.6 (MSI only)
+---------------------------
+
+The MSI embeds upstream utility/UI custom-action code and UI resources from
+WixToolset.Util.wixext and WixToolset.UI.wixext.
+Copyright (c) .NET Foundation and contributors.
+License: Microsoft Reciprocal License (MS-RL).
+Source and license: https://github.com/wixtoolset/wix/tree/v4.0.6
+The MS-RL text, contributor notices and corresponding source are included under
+dependencies. The portable distribution includes those source/notice materials
+for consistency, but does not embed or execute MSI custom actions.
+
+Source archives and notice scope
+-------------------------------
+Source-only archives omit unrelated prebuilt binaries, unused font fixtures and
+test signing material; every exclusion is listed in dependencies/SOURCE-EXCLUSIONS.json.
+No application runtime file is removed. Complete upstream source-wide notices
+can describe build tools, tests and unselected GPL code; this does not enable
+those components or change the configured Qt/FFmpeg runtime licenses.
 
 Microsoft Visual C++ Runtime
 ----------------------------

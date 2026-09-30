@@ -120,6 +120,17 @@ if(WIN32)
         "${PROJECT_SOURCE_DIR}/packaging/windows/licenses/FFmpeg-LGPL-2.1.txt"
         "${PROJECT_SOURCE_DIR}/packaging/windows/THIRD_PARTY_NOTICES.txt"
         DESTINATION licenses)
+
+    # Packaging supplies notices and matching source. Ordinary dev builds do
+    # not download sources or change runtime compilation/linkage.
+    set(ATK_DEPENDENCY_MATERIALS_DIR "" CACHE PATH
+        "Generated dependency notices and corresponding-source directory for Windows packaging.")
+    if(ATK_DEPENDENCY_MATERIALS_DIR)
+        if(NOT EXISTS "${ATK_DEPENDENCY_MATERIALS_DIR}/SHA256SUMS.txt")
+            message(FATAL_ERROR "Dependency materials are incomplete; run prepare-dependency-materials.py.")
+        endif()
+        install(DIRECTORY "${ATK_DEPENDENCY_MATERIALS_DIR}/" DESTINATION licenses/dependencies)
+    endif()
 endif()
 
 set(_atk_deploy_app_arguments)

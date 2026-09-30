@@ -1,0 +1,41 @@
+{
+  "qt_version": "6.9.3",
+  "wix_version": "4.0.6",
+  "vcpkg_baseline": "45f9f39362a4c52e2b1fbe57b7e649db7f3d96d4",
+  "archives": [
+    {
+      "name": "qtbase-6.9.3.tar.xz",
+      "url": "https://download.qt.io/archive/qt/6.9/6.9.3/submodules/qtbase-everywhere-src-6.9.3.tar.xz",
+      "sha256": "c5a1a2f660356ec081febfa782998ae5ddbc5925117e64f50e4be9cd45b8dc6e",
+      "revision": "be09b211db70e1b0155d05c18668ad76e7e3df51"
+    },
+    {
+      "name": "qtmultimedia-6.9.3.tar.xz",
+      "url": "https://download.qt.io/archive/qt/6.9/6.9.3/submodules/qtmultimedia-everywhere-src-6.9.3.tar.xz",
+      "sha256": "a275bee7ea60c91851236acdf99d76b891da90f428b68f51fe332354f19b86f5",
+      "revision": "0bbd3bc533aae9079e94d9c903a509239514aea7"
+    },
+    {
+      "name": "qtsvg-6.9.3.tar.xz",
+      "url": "https://download.qt.io/archive/qt/6.9/6.9.3/submodules/qtsvg-everywhere-src-6.9.3.tar.xz",
+      "sha256": "db76aa3358cbbe6fce7da576ff4669cb9801920188c750d3b12783bbe97026e2",
+      "revision": "84a5bad7715ac1a05043014a0f81f636117290da"
+    },
+    {
+      "name": "wix-4.0.6.zip",
+      "url": "https://codeload.github.com/wixtoolset/wix/zip/refs/tags/v4.0.6",
+      "sha256": "e122c95b3c7c7082855d7a77eed595550f4f8cf6bdae294431eae57f0f454d97"
+    },
+    {
+      "name": "vcpkg-source.zip",
+      "url": "https://codeload.github.com/microsoft/vcpkg/zip/45f9f39362a4c52e2b1fbe57b7e649db7f3d96d4",
+      "sha256": "c5746f7d1f88e1725a4d8abe97c132ddf251b9446728298952e46a451e08d664"
+    },
+    {
+      "name": "ffmpeg-9.0.1.tar.gz",
+      "url": "https://codeload.github.com/ffmpeg/ffmpeg/tar.gz/refs/tags/n9.0.1",
+      "sha256": "195d54bebe1a27f84d77f4b989d193466f305b355da92292766a69f16880b18a",
+      "sha512": "41aa687cec4e93d0ffde21ea96faa48e4344fda0e9d2c9c71adfb68fedadf03beb274ec712eb1e082bf64fdcee87c55a47bb5c78d5193934be3f3f06e5e792b2"
+    }
+  ]
+}

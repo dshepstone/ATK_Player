@@ -12,11 +12,11 @@ It is maintained alongside the source code so dependency versions, linkage choic
 
 ## Distribution Status
 
-ATK Player 0.2.0 is released as open-source software under the MIT License.
+ATK Player 0.2.1 is released as open-source software under the MIT License.
 
-The Windows installer and portable distribution include the applicable licence texts and third-party notices for redistributed runtime components.
+Windows packaging supplies the project MIT, Qt LGPL v3 and FFmpeg LGPL v2.1 texts plus `licenses/dependencies`: GPL v3, WiX MS-RL, upstream component notices, build configuration/SBOM records, and matching Qt, patched FFmpeg, WiX and vcpkg source. These materials are installed inside the MSI and included in portable archives made from the same stage. See [SIGNPATH_READINESS_AUDIT.md](SIGNPATH_READINESS_AUDIT.md) and [SOURCE_MATERIALS.md](../packaging/windows/SOURCE_MATERIALS.md) for the verified inventory, rebuild/relink instructions and source-only fixture exclusions.
 
-The major redistributed components in ATK Player 0.2.0 are:
+The major redistributed components in ATK Player 0.2.1 are:
 
 - ATK Player — MIT License
 - Qt 6.9.3 — LGPL v3, dynamically linked
@@ -24,7 +24,7 @@ The major redistributed components in ATK Player 0.2.0 are:
 
 The Windows distribution also requires the Microsoft Visual C++ 2015–2022 x64 Redistributable, which is supplied separately by Microsoft.
 
-The authoritative Windows distribution notice is:
+The Windows distribution summary notice is:
 
 `packaging/windows/THIRD_PARTY_NOTICES.txt`
 
@@ -76,7 +76,7 @@ ATK Player uses FFmpeg for media decoding and processing.
 
 ATK Player dynamically links the application-required FFmpeg runtime libraries.
 
-The Windows 0.2.0 distribution includes:
+The Windows 0.2.1 distribution includes:
 
 ```text
 avcodec-63.dll
@@ -114,17 +114,17 @@ ffprobe.exe
 
 These utilities are used for development, testing, fixture generation, and validation.
 
-They are **not distributed** in the ATK Player 0.2.0 Windows MSI or portable package.
+They are **not distributed** in the ATK Player 0.2.1 Windows MSI or portable package.
 
 ### FFmpeg Licence Files
 
-The Windows distribution includes the applicable FFmpeg licence and component information as:
+The Windows distribution includes the FFmpeg LGPL licence text as:
 
 ```text
 licenses/FFmpeg-LGPL-2.1.txt
 ```
 
-The distribution also includes FFmpeg version, source, build provenance, and configuration information in the third-party notice file.
+The dependency materials include FFmpeg source-wide notices, actual DLL configuration/license/hash records, matching patched source, all pinned port patches and the vcpkg build source. The `ffmpeg` tool feature transitively enables `avfilter` for development/testing; neither that DLL nor `avdevice` is installed by the release rules.
 
 ---
 
@@ -155,6 +155,8 @@ assets/icons/ATK_Player_Icon.png
 The Windows packaging process derives the required Windows icon resources from this repository-owned artwork.
 
 The current canonical image is 32×32 pixels.
+
+David Shepstone confirmed on September 30, 2026 that the ATK Player application and UI icons are his own designs, created with assistance from AI tools. These project assets are distributed under the repository's MIT License. AI tools were used as design assistance; they are not credited as a separate asset owner.
 
 A future artwork revision may provide a native multi-resolution source for larger Windows icon sizes.
 
@@ -190,7 +192,7 @@ Copyright © 2026 David Shepstone.
 
 The Windows ATK Player distribution includes a `licenses` directory containing the applicable project and third-party licence information.
 
-For ATK Player 0.2.0 this includes:
+For ATK Player 0.2.1 this includes:
 
 ```text
 ATK-Player-MIT.txt
@@ -202,6 +204,14 @@ THIRD_PARTY_NOTICES.txt
 These files should remain part of future Windows installer and portable distributions unless the dependency set or licensing configuration changes.
 
 ---
+
+## Additional Redistribution Findings
+
+Qt deployment also installs QtSvg and image, icon, TLS, network, platform, touch and style plugins. Qt's official binaries contain bundled third-party code such as libjpeg-turbo, libpng, FreeType, HarfBuzz, zlib, PCRE2 and public-suffix data; LGPL v3 alone is not a complete notice inventory. Packaging preserves the matching Qt 6.9.3 SBOM/build records, source-wide notices and license files, including static BSD entry-point code, and source for qtbase, qtmultimedia and qtsvg.
+
+The MSI embeds upstream WiX Toolset 4.0.6 utility custom-action code for launch-after-install. WiX is therefore not exclusively a build tool for this package. Its MS-RL license, contributor notices and corresponding native custom-action/UI source are supplied under `licenses/dependencies`. The portable package has no MSI custom actions.
+
+The installer bitmap generator rasterizes system-font text (Segoe UI on Windows, DejaVu Sans as a fallback). Font files are not installed. The installer branding derives from the project-owned icon. Font terms remain separate from the maintainer's confirmed icon ownership; those fonts are not relicensed by ATK.
 
 ## Adding a New Dependency
 
