@@ -21,14 +21,31 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
+# A source snapshot must accompany a build validated against that source.
+# Older build trees have no source fingerprint that makes -SkipBuild safe.
+if ($SkipBuild) {
+    throw "-SkipBuild is not supported for source-bearing packages. Run without it to build the executable from the source being bundled."
+}
+
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = (Resolve-Path (Join-Path $scriptDir "../..")).Path
 $packageRoot = Join-Path $repoRoot "build/package/windows"
 $buildDir = Join-Path $repoRoot "build/windows-package"
 $stageDir = Join-Path $packageRoot "stage"
 $toolsDir = Join-Path $packageRoot "tools"
-$displayVersion = if ($VersionSuffix) { "0.2.1-$VersionSuffix" } else { "0.2.1" }
-$productVersion = "0.2.1"
+$dependencyMaterialsDir = Join-Path $packageRoot "compliance/materials"
+# CMake owns the public version; MSI versions cannot carry a prerelease suffix.
+$projectCmake = Get-Content -LiteralPath (Join-Path $repoRoot "CMakeLists.txt") -Raw
+if ($projectCmake -notmatch '(?s)project\(ATKPlayer\s+VERSION\s+(\d+\.\d+\.\d+)\s') {
+    throw "Cannot determine the ATKPlayer project version from CMakeLists.txt."
+}
+$productVersion = $Matches[1]
+$manifestVersion = (Get-Content -LiteralPath (Join-Path $repoRoot "vcpkg.json") -Raw | ConvertFrom-Json).version
+if ($manifestVersion -ne $productVersion) { throw "vcpkg project version differs from CMake: $manifestVersion vs $productVersion" }
+$displayVersion = if ($VersionSuffix) { "$productVersion-$VersionSuffix" } else { $productVersion }
+if ($env:GITHUB_REF_TYPE -eq "tag" -and $env:GITHUB_REF_NAME -ne "v$displayVersion") {
+    throw "Release tag $env:GITHUB_REF_NAME differs from v$displayVersion."
+}
 $msiPath = Join-Path $packageRoot "ATK-Player-$displayVersion-Windows-x64.msi"
 
 function Assert-LastExitCode([string]$Action) {
@@ -267,11 +284,27 @@ if (-not $env:VCPKG_ROOT -or -not (Test-Path "$env:VCPKG_ROOT/scripts/buildsyste
     throw "VCPKG_ROOT must point to the pinned vcpkg checkout."
 }
 $wix = Resolve-Wix
-Write-Host "WiX: $(& $wix --version)"
+$actualWixVersion = & $wix --version
+Assert-LastExitCode "WiX version query"
+if ($actualWixVersion -notmatch "^$([regex]::Escape($WixVersion))(\+|\s|$)") {
+    throw "WiX version $actualWixVersion differs from requested $WixVersion."
+}
+Write-Host "WiX: $actualWixVersion"
 $wixExtensions = @(
     (Resolve-WixExtension $wix "WixToolset.UI.wixext"),
     (Resolve-WixExtension $wix "WixToolset.Util.wixext")
 )
+
+# Supply license notices and matching source inside both installer and portable
+# stage. Archives are pinned/checksummed; no application code is changed.
+$vcpkgInstalled = if ($env:ATK_VCPKG_INSTALLED_DIR) {
+    $env:ATK_VCPKG_INSTALLED_DIR
+} else {
+    Join-Path $buildDir "vcpkg_installed"
+}
+
+# FFmpeg must exist before querying the actual runtime configuration. A fresh
+# build below installs it through manifest mode; prepare materials after build.
 
 if (-not $SkipBuild) {
     $configure = @(
@@ -281,6 +314,7 @@ if (-not $SkipBuild) {
         "-DPython3_EXECUTABLE=$python",
         "-DCMAKE_INSTALL_BINDIR=.",
         "-DATK_BUILD_TESTS=ON", "-DATK_VERSION_SUFFIX=$VersionSuffix",
+        "-DATK_DEPENDENCY_MATERIALS_DIR=",
         "-DATK_QT_ROOT=$env:QT_ROOT",
         "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake",
         "-DVCPKG_TARGET_TRIPLET=x64-windows"
@@ -299,6 +333,17 @@ if (-not $SkipTests) {
     Assert-LastExitCode "Release candidate tests"
 }
 
+& $python (Join-Path $scriptDir "prepare-dependency-materials.py") `
+    --qt-root $env:QT_ROOT --ffmpeg-runtime (Join-Path $vcpkgInstalled "x64-windows/bin") `
+    --wix-version $WixVersion --output $dependencyMaterialsDir `
+    --cache (Join-Path $packageRoot "compliance/downloads")
+Assert-LastExitCode "Dependency notices and corresponding source preparation"
+& $python -m unittest discover -s (Join-Path $scriptDir "tests") -v
+Assert-LastExitCode "Dependency materials regression tests"
+# Reconfigure install rules only, using the existing build configuration.
+& cmake -S $repoRoot -B $buildDir "-DATK_DEPENDENCY_MATERIALS_DIR=$dependencyMaterialsDir"
+Assert-LastExitCode "Dependency materials install configuration"
+
 $resolvedPackageRoot = [System.IO.Path]::GetFullPath($packageRoot)
 $resolvedStage = [System.IO.Path]::GetFullPath($stageDir)
 if (-not $resolvedStage.StartsWith($resolvedPackageRoot, [StringComparison]::OrdinalIgnoreCase)) {
@@ -311,6 +356,18 @@ Assert-LastExitCode "Release staging install"
 
 $stagedExe = Join-Path $stageDir "ATKPlayer.exe"
 if (-not (Test-Path $stagedExe)) { throw "Staged executable is missing: $stagedExe" }
+$buildCache = Get-Content -LiteralPath (Join-Path $buildDir "CMakeCache.txt") -Raw
+if ($buildCache -notmatch '(?m)^ATK_VERSION_SUFFIX:STRING=(.*)\r?$' -or $Matches[1].TrimEnd("`r") -ne $VersionSuffix) {
+    throw "Staged build suffix differs from the requested suffix; rebuild without -SkipBuild."
+}
+$exeMetadata = (Get-Item -LiteralPath $stagedExe).VersionInfo
+if ($exeMetadata.ProductName -ne "ATK Player" -or
+    $exeMetadata.ProductVersion -ne $productVersion -or
+    $exeMetadata.FileVersion -ne "$productVersion.0" -or
+    $exeMetadata.CompanyName -ne "David Shepstone" -or
+    $exeMetadata.OriginalFilename -ne "ATKPlayer.exe") {
+    throw "Staged ATKPlayer.exe product, publisher or version metadata differs from the package."
+}
 Invoke-Signing $stagedExe
 
 $required = @(
@@ -318,10 +375,25 @@ $required = @(
     "Qt6Multimedia.dll", "Qt6Network.dll", "plugins/platforms/qwindows.dll",
     "plugins/multimedia/windowsmediaplugin.dll", "licenses/ATK-Player-MIT.txt",
     "licenses/Qt-LGPL-3.0.txt", "licenses/FFmpeg-LGPL-2.1.txt",
-    "licenses/THIRD_PARTY_NOTICES.txt"
+    "licenses/THIRD_PARTY_NOTICES.txt", "licenses/dependencies/GPL-3.0.txt",
+    "licenses/dependencies/WiX-MS-RL.txt", "licenses/dependencies/Qt-qtbase-NOTICES.txt",
+    "licenses/dependencies/Qt-qtmultimedia-NOTICES.txt", "licenses/dependencies/Qt-qtsvg-NOTICES.txt",
+    "licenses/dependencies/FFmpeg-NOTICES.txt", "licenses/dependencies/SHA256SUMS.txt",
+    "licenses/dependencies/sources/FFmpeg-9.0.1-patched-source.zip",
+    "licenses/dependencies/sources/WiX-4.0.6-source.zip", "licenses/dependencies/sources/ATK-Player-source.zip",
+    "licenses/dependencies/sources/qtbase-6.9.3-source.zip", "licenses/dependencies/SOURCE-EXCLUSIONS.json"
 )
 foreach ($relative in $required) {
     if (-not (Test-Path (Join-Path $stageDir $relative))) { throw "Staged file missing: $relative" }
+}
+$sourceLock = Get-Content -LiteralPath (Join-Path $scriptDir "dependency-sources.json") -Raw | ConvertFrom-Json
+foreach ($qtDll in Get-ChildItem $stageDir -Filter "Qt6*.dll" -File) {
+    # Qt's Windows resource uses four numeric fields (e.g. 6.9.3.0).
+    $qtNumericVersion = "$($qtDll.VersionInfo.ProductMajorPart).$($qtDll.VersionInfo.ProductMinorPart).$($qtDll.VersionInfo.ProductBuildPart)"
+    if ($qtDll.BaseName -notin @("Qt6Core", "Qt6Gui", "Qt6Widgets", "Qt6Network", "Qt6Multimedia", "Qt6Svg") -or
+        $qtNumericVersion -ne $sourceLock.qt_version -or $qtDll.VersionInfo.ProductPrivatePart -ne 0) {
+        throw "Qt deployment differs from the audited module/source version: $($qtDll.Name)"
+    }
 }
 $ffmpegPatterns = @("avcodec-*.dll", "avformat-*.dll", "avutil-*.dll", "swresample-*.dll", "swscale-*.dll")
 foreach ($pattern in $ffmpegPatterns) {

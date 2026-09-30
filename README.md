@@ -35,7 +35,7 @@ The installer:
 - registers ATK Player with Windows Installed Apps
 - associates `.atkproj` project files with ATK Player
 - includes the required Qt and FFmpeg runtime components
-- includes applicable open-source licence texts and third-party notices
+- includes project MIT, Qt LGPL and FFmpeg LGPL texts and third-party notices
 
 ### Portable Version
 
@@ -61,6 +61,8 @@ ATK Player 0.2.1 is currently distributed without a commercial Windows code-sign
 Windows may therefore display an **Unknown Publisher** or Microsoft Defender SmartScreen warning when launching the installer.
 
 SHA-256 checksum files are provided with the GitHub Release so downloaded files can be independently verified.
+
+ATK Player is preparing to apply to SignPath Foundation for trusted Windows code signing. Approval and signed releases are still pending. See the [Code signing policy](CODE_SIGNING_POLICY.md) for maintainer roles, future release approval, and privacy information.
 
 To install anyway: when **Windows protected your PC** appears, click **More info** → **Run anyway** (or right-click the MSI → **Properties** → tick **Unblock** first). See [packaging/windows/CODE_SIGNING.md](packaging/windows/CODE_SIGNING.md) for the plan to ship signed builds.
 
@@ -618,7 +620,7 @@ Major components include:
 - optional GPL/nonfree features are not enabled in the distributed build
 - x264, x265, and fdk-aac are not enabled
 
-Applicable licence texts and third-party notices are included with the Windows binary distributions.
+Project and major dependency licence texts and third-party notices are included with the Windows binary distributions. The prepared packaging path also bundles matching dependency source. The [SignPath readiness audit](docs/SIGNPATH_READINESS_AUDIT.md) documents that coverage and remaining asset, account and release-provenance checks; existing releases have not been repackaged.
 
 See:
 

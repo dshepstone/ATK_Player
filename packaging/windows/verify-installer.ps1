@@ -55,6 +55,7 @@ function Read-Property([string]$Name) {
 }
 
 if ((Read-Property "ProductName") -ne "ATK Player") { throw "Incorrect ProductName." }
+if ((Read-Property "Manufacturer") -ne "David Shepstone") { throw "Incorrect Manufacturer." }
 if ((Read-Property "ProductVersion") -ne $ProductVersion) { throw "Incorrect MSI ProductVersion." }
 if ((Read-Property "UpgradeCode").ToUpperInvariant() -ne $UpgradeCode.ToUpperInvariant()) {
     throw "Incorrect UpgradeCode."
@@ -86,7 +87,11 @@ $files = (Read-MsiRows "SELECT ``FileName`` FROM ``File``") | ForEach-Object {
 $requiredNames = @(
     "ATKPlayer.exe", "Qt6Core.dll", "Qt6Multimedia.dll", "qwindows.dll",
     "windowsmediaplugin.dll", "ATK-Player-MIT.txt", "Qt-LGPL-3.0.txt",
-    "FFmpeg-LGPL-2.1.txt", "THIRD_PARTY_NOTICES.txt"
+    "FFmpeg-LGPL-2.1.txt", "THIRD_PARTY_NOTICES.txt",
+    "GPL-3.0.txt", "WiX-MS-RL.txt", "Qt-qtbase-NOTICES.txt",
+    "Qt-qtmultimedia-NOTICES.txt", "Qt-qtsvg-NOTICES.txt", "FFmpeg-NOTICES.txt",
+    "FFmpeg-9.0.1-patched-source.zip", "WiX-4.0.6-source.zip", "ATK-Player-source.zip",
+    "qtbase-6.9.3-source.zip", "SOURCE-EXCLUSIONS.json"
 )
 foreach ($name in $requiredNames) {
     if ($files -notcontains $name) { throw "MSI file table is missing $name" }

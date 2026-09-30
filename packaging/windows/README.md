@@ -17,7 +17,7 @@ Player upgrades.
 - CMake, Ninja, Qt 6.9.3 with `qtmultimedia`
 - The vcpkg baseline pinned by `vcpkg.json`
 - `QT_ROOT`, `VCPKG_ROOT`, and optionally `ATK_VCPKG_INSTALLED_DIR`
-- Internet access on the first packaging run if WiX is absent
+- Internet access on the first packaging run for pinned dependency source archives and, if absent, WiX
 
 From an x64 MSVC developer environment:
 
@@ -28,7 +28,7 @@ From an x64 MSVC developer environment:
 The script pins WiX 4.0.6. If WiX is absent it bootstraps .NET SDK 8.0.419 and
 WiX into ignored `build/package/windows/tools`, without changing global tools.
 It configures `build/windows-package` with `ATK_VERSION_SUFFIX=rc1`, builds,
-tests, installs to `build/package/windows/stage`, smoke-tests with a clean PATH,
+tests, prepares dependency notices/corresponding source, installs to `build/package/windows/stage`, smoke-tests with a clean PATH,
 builds/verifies the MSI, and writes SHA-256.
 
 RC output is
@@ -49,8 +49,8 @@ the same script supports `-VersionSuffix ""` for final 0.2.1, producing
 - Start Menu `ATK Player\ATK Player`; no desktop shortcut
 - `.atkproj` → `ATK Player Project`; no media associations
 - Publisher: David Shepstone
-- MSI ProductVersion `0.2.1`; RC identity remains in artifact name, executable
-  version string and Installed Apps comments
+- MSI and EXE ProductVersion `0.2.1`; RC identity remains in artifact name,
+  application display version and Installed Apps comments
 - Permanent UpgradeCode shown above; major upgrades remove older products,
   same-version upgrades support RC→final, and numeric downgrades are blocked
 - Uninstall removes installer-owned files/registry/shortcut, never user projects,
@@ -70,7 +70,13 @@ The Microsoft Visual C++ 2015-2022 x64 Redistributable is a separately supported
 prerequisite; the MSI does not copy arbitrary Visual Studio files.
 
 Installed `licenses` contains ATK Player MIT, Qt LGPL v3, the pinned FFmpeg
-license/component notices, and source/version notices.
+license text and summary. `licenses/dependencies` also contains GPL v3,
+Qt/FFmpeg/WiX component notices, WiX MS-RL, source/build records and matching
+source archives. These materials are installed inside the MSI and travel in
+any portable ZIP made from the same stage; the package is therefore larger.
+See [SOURCE_MATERIALS.md](SOURCE_MATERIALS.md) for versions, source-only fixture
+exclusions and rebuild/relink instructions. Developer builds do not download
+these archives or change runtime compilation/linkage.
 
 RC1 is unsigned unless a trusted certificate is supplied. SmartScreen may warn;
 verify SHA-256. The build script accepts `-CertificateThumbprint`, `-PfxPath`

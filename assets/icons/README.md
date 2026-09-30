@@ -10,6 +10,8 @@ both from a genuine multi-resolution master in a future artwork pass.
 
 The transport controls continue to use text glyphs from the system UI font.
 
+David Shepstone designed the project icons with assistance from AI tools and confirmed ownership on September 30, 2026. The project icons are supplied under the repository's MIT License; see [asset provenance](../../docs/THIRD_PARTY_LICENSES.md).
+
 ## Asset rules
 
 - **SVG**, rendered at runtime through Qt's SVG support, so the same asset serves
