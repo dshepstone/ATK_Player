@@ -91,6 +91,12 @@ provided under the project's MIT License. Refer to `docs/BUILDING.md`; package
 builds use `-DATK_VERSION_SUFFIX=<selected suffix>` and `RelWithDebInfo`.
 Record the public commit and CI run separately when publishing an official release.
 
+Source-bearing package builds reject `-SkipBuild`: the packaging entry point must
+build the executable against the current source before creating its source archive.
+Dependency materials are regenerated in a fresh directory and replace the prior
+set only after preparation succeeds, so removed or renamed materials are not carried
+into later installers.
+
 These materials travel inside the MSI and any portable archive made from the same
 install stage, so source availability does not depend on publishing an additional
 release asset. The notice corpus must be regenerated and reviewed when dependency

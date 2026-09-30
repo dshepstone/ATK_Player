@@ -218,7 +218,7 @@ def ffmpeg_materials(archive: Path, vcpkg_archive: Path, runtime: Path, output: 
     write_text(output / "FFmpeg-BUILD-CONFIGURATION.json", json.dumps(configurations, indent=2) + "\n")
 
 
-def prepare(args: argparse.Namespace) -> None:
+def prepare_contents(args: argparse.Namespace) -> None:
     lock = json.loads((HERE / "dependency-sources.json").read_text())
     manifest = json.loads((REPO / "vcpkg.json").read_text())
     if manifest["builtin-baseline"] != lock["vcpkg_baseline"] or args.wix_version != lock["wix_version"]:
@@ -268,6 +268,29 @@ def prepare(args: argparse.Namespace) -> None:
     hashes = {p.relative_to(output).as_posix(): sha256(p) for p in sorted(output.rglob("*")) if p.is_file() and p.name != "SHA256SUMS.txt"}
     write_text(output / "SHA256SUMS.txt", "".join(f"{digest}  {name}\n" for name, digest in hashes.items()))
     print(f"Prepared {len(hashes)} dependency materials in {output}", flush=True)
+
+
+def prepare(args: argparse.Namespace) -> None:
+    build_root = (REPO / "build").resolve()
+    if args.output.is_symlink():
+        raise ValueError("Dependency materials output must not be a symlink")
+    output, cache = args.output.resolve(), args.cache.resolve()
+    output.relative_to(build_root)
+    cache.relative_to(build_root)
+    if output == build_root or cache.is_relative_to(output):
+        raise ValueError("Dependency materials output must be a dedicated directory separate from the download cache")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    # Build a complete fresh set before replacing the previous generated set.
+    # Failed preparation leaves the previous output intact; leftovers never
+    # enter the current manifest or install rules.
+    with tempfile.TemporaryDirectory(prefix="dependency-materials-", dir=output.parent) as temporary:
+        fresh_args = argparse.Namespace(**vars(args))
+        fresh_args.output = Path(temporary)
+        prepare_contents(fresh_args)
+        # Both resolved targets are within the checked build tree above.
+        if output.exists():
+            shutil.rmtree(output)
+        Path(temporary).rename(output)
 
 
 if __name__ == "__main__":

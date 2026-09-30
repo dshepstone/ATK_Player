@@ -4,6 +4,8 @@ from pathlib import Path
 import tempfile
 import unittest
 import zipfile
+import argparse
+from unittest import mock
 
 SCRIPT = Path(__file__).resolve().parents[1] / "prepare-dependency-materials.py"
 spec = importlib.util.spec_from_file_location("dependency_materials", SCRIPT)
@@ -12,6 +14,40 @@ spec.loader.exec_module(materials)
 
 
 class DependencyMaterialsTests(unittest.TestCase):
+    def test_regeneration_removes_stale_materials(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            output = root / "build/materials"
+            output.mkdir(parents=True)
+            (output / "removed-version.zip").write_bytes(b"stale")
+            args = argparse.Namespace(output=output, cache=root / "build/downloads")
+            def generate(fresh_args):
+                self.assertFalse((fresh_args.output / "removed-version.zip").exists())
+                (fresh_args.output / "current.txt").write_bytes(b"current")
+            with mock.patch.object(materials, "REPO", root), mock.patch.object(materials, "prepare_contents", side_effect=generate):
+                materials.prepare(args)
+            self.assertEqual([p.name for p in output.iterdir()], ["current.txt"])
+
+    def test_failed_regeneration_preserves_previous_materials(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            output = root / "build/materials"
+            output.mkdir(parents=True)
+            (output / "previous.txt").write_bytes(b"previous")
+            args = argparse.Namespace(output=output, cache=root / "build/downloads")
+            with mock.patch.object(materials, "REPO", root), mock.patch.object(materials, "prepare_contents", side_effect=ValueError("failed preparation")):
+                with self.assertRaisesRegex(ValueError, "failed preparation"):
+                    materials.prepare(args)
+            self.assertEqual((output / "previous.txt").read_bytes(), b"previous")
+
+    def test_output_cannot_replace_build_root_or_download_cache(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            with mock.patch.object(materials, "REPO", root):
+                for output, cache in [(root / "build", root / "build/downloads"), (root / "build/materials", root / "build/materials/downloads")]:
+                    with self.assertRaisesRegex(ValueError, "dedicated directory"):
+                        materials.prepare(argparse.Namespace(output=output, cache=cache))
+
     def test_cached_archive_mismatch_is_rejected_without_download(self):
         with tempfile.TemporaryDirectory() as temp:
             cache = Path(temp)

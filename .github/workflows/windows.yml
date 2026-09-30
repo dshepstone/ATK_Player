@@ -120,6 +120,9 @@ jobs:
       - name: Test
         run: ctest --preset ${{ matrix.preset }} --output-on-failure
 
+      - name: Test dependency source packaging
+        run: python -m unittest discover -s packaging/windows/tests -v
+
       # Proves the executable is actually runnable, not merely linkable -- a
       # missing Qt plugin only shows up at startup, never at link time.
       - name: Verify the application starts

@@ -21,6 +21,12 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
+# A source snapshot must accompany a build validated against that source.
+# Older build trees have no source fingerprint that makes -SkipBuild safe.
+if ($SkipBuild) {
+    throw "-SkipBuild is not supported for source-bearing packages. Run without it to build the executable from the source being bundled."
+}
+
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = (Resolve-Path (Join-Path $scriptDir "../..")).Path
 $packageRoot = Join-Path $repoRoot "build/package/windows"

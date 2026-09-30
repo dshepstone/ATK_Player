@@ -137,6 +137,13 @@ The maintainer confirmed ownership of his AI-assisted icon designs and enabled G
 
 ### Original application-change verification and local validation
 
+September 30 PR review follow-up: source-bearing packaging now rejects `-SkipBuild`
+to prevent bundling current source with an older executable. Materials are prepared
+in a fresh directory and replace the previous set only after successful preparation;
+stale outputs cannot enter the new manifest. Nine dependency-material tests pass,
+including stale-output removal, preservation after failed preparation, and output
+directory safety. These tests also run in both Windows CI jobs.
+
 Comparison against origin/main shows **no application C++ file, UI asset/resource, core/root CMake configuration, dependency feature, integration or runtime linkage change**. The only source-tree differences are src/app/ATKPlayer.rc.in (numeric product-version correction) and the install-only materials block in src/app/CMakeLists.txt. Packaging adds source/notices and guards; installer license text discloses third-party ownership. Existing unrelated untracked files were left untouched and excluded from the source snapshot.
 
 The follow-up reconfigured/built Debug and Release. Release passed 31/31 (102.80 seconds). Debug initially failed one comparison assertion during parallel validation: offsetControlsUseExactTransientTimeAndReanchor reported frame 0 instead of 29. Logs were preserved; **the complete isolated Debug rerun passed 31/31 (102.79 seconds) without code or test changes**. The failure's cause was not established. These automated results support the source comparison; David's manual UI/media verification is still useful.
