@@ -302,6 +302,21 @@ seeks to the keyframe at or before the target and decodes forward to the
 requested presentation frame, which is what makes backward stepping land on the
 right picture instead of on the keyframe FFmpeg happened to reach.
 
+**Still images go through the same entry point.** A path with a still-image
+extension (`media/StillImage.h`: png, jpg, jpeg, tif, tiff, bmp, tga, webp,
+exr) is opened with the `image2` demuxer and `pattern_type=none`, so a name
+containing digits or `%` is always exactly one file. The picture is decoded once
+in `open()`, alpha is composited over black, and every FFmpeg context is then
+released. The decoder serves a synthesized hold of `StillImageOptions::holdFrames`
+frames at a rational rate (default 48 at 24/1, minimum 10, which is the
+`TimelineViewport` minimum span). Frame N has `ptsTicks == N` in a `1/rate`
+time base, the count is exact (`FrameCountSource::Synthesized`) and there is no
+audio. `AudioSourceReader` refuses still paths before probing, so the waveform,
+scrub, compare and export audio paths all take their existing quiet "no audio"
+route. The hold is stored per source (`MediaSource` and `.atkproj`), and the
+preference only seeds new stills. That way saved bookmarks cannot move when
+the preference does. See [STILL_IMAGE_SOURCES.md](STILL_IMAGE_SOURCES.md).
+
 ### `src/playback/` — when to show which frame
 
 `PlaybackClock` converts elapsed monotonic time into a frame number. Frames are
@@ -501,7 +516,9 @@ v1 JSON. It validates the `ATKProject` format marker and version before replacin
 the live model, ignores unknown fields, and rejects malformed required data.
 Media below the project directory is stored relatively and resolved from the
 project location. Missing files remain as marked playlist entries so other clips
-and review metadata survive. Current frame is deliberately not persisted; source
+and review metadata survive. Still-image sources add an optional `"still"`
+object (hold frames and rational rate). It is additive within v1. A missing
+object takes the current preference, and a malformed one rejects the file. Current frame is deliberately not persisted; source
 activation starts from its review-range start. Viewer transforms reset to Fit.
 
 Source availability is explicit runtime state: `Unknown`, `Probing`, `Ready`,

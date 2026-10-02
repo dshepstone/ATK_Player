@@ -17,7 +17,8 @@
         "swscale",
         "avdevice",
         "ffmpeg",
-        "ffprobe"
+        "ffprobe",
+        "zlib"
       ]
     }
   ],
@@ -33,6 +34,9 @@
     "  avdevice           -- provides the 'lavfi' input device, which is how the\n                        deterministic test fixtures are generated. Not used by\n                        the application itself.\n  ffmpeg, ffprobe    -- command-line tools, used to generate and validate the",
     "                        deterministic test fixtures the integration tests",
     "                        decode. Not shipped with the application.",
+    "  zlib               -- inflate/deflate for PNG, APNG, EXR and deflate-TIFF",
+    "                        still images. zlib is under the permissive zlib",
+    "                        license; its zlib1.dll ships beside the FFmpeg DLLs.",
     "",
     "default-features is false on purpose: the port would otherwise also build",
     "avdevice and avfilter, which ATK Player does not use.",

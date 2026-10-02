@@ -4,6 +4,7 @@
 #include "core/commands/CommandId.h"
 #include "export/ExportSpec.h"
 #include "media/MediaMetadata.h"
+#include "media/StillImage.h"
 #include "playback/PlaybackController.h"
 #include "ui/ViewerTransform.h"
 
@@ -109,6 +110,10 @@ public:
 
 protected:
     void closeEvent(QCloseEvent* event) override;
+    /// Dropping supported local media files onto the window adds them to the
+    /// playlist, exactly like Add to Playlist; nothing is replaced or prompted.
+    void dragEnterEvent(QDragEnterEvent* event) override;
+    void dropEvent(QDropEvent* event) override;
 
 private:
     void onPlayerStateChanged(playback::PlayerState state);
@@ -228,6 +233,8 @@ private:
     quint64 m_nextProbeToken = 1;
     QUuid m_pendingRelinkId;
     QString m_pendingRelinkPath;
+    /// Hold the pending relink was validated with; the replacement gets it.
+    media::StillImageOptions m_pendingRelinkStill;
     quint64 m_pendingRelinkToken = 0;
     quint64 m_pendingRelinkProjectGeneration = 0;
     quint64 m_projectGeneration = 1;

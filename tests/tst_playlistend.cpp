@@ -5,6 +5,11 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QDragEnterEvent>
+#include <QDropEvent>
+#include <QMimeData>
+#include <QUrl>
+#include "ui/ApplicationSettings.h"
 #include <QMessageBox>
 #include <QSignalSpy>
 #include <QTemporaryDir>
@@ -68,6 +73,7 @@ private slots:
     void pausedExactSeekDoesNotAdvance();
     void naturalPlaybackStillAdvancesAndStops();
     void aboutDialogUsesAnimationToolKitCopy();
+    void droppedStillPlaysHeldExtentAndStops();
 };
 
 void TestPlaylistEnd::pausedJumpToEndIsNavigationOnly()
@@ -208,6 +214,50 @@ void TestPlaylistEnd::naturalPlaybackStillAdvancesAndStops()
     window.playbackController()->activateReviewRange(0, 2);
     QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->state(), PlayerState::Ended, 10000);
     QCOMPARE(window.project()->activeIndex(), 2);
+}
+
+void TestPlaylistEnd::droppedStillPlaysHeldExtentAndStops()
+{
+    QTemporaryDir directory;
+    const QString settingsFile = directory.filePath(QStringLiteral("settings.ini"));
+    {
+        atk::ui::ApplicationSettings settings(settingsFile);
+        settings.setStillImageHoldFrames(12);
+        settings.sync();
+    }
+    atk::ui::MainWindow window(settingsFile);
+    QVERIFY(window.acceptDrops());
+
+    const QString still = QStringLiteral(ATK_TEST_MEDIA_DIR "/atk_still_320x180.png");
+    QMimeData mime;
+    mime.setUrls({QUrl::fromLocalFile(still),
+                  QUrl::fromLocalFile(directory.filePath(QStringLiteral("notes.txt"))),
+                  QUrl(QStringLiteral("https://example.com/clip.mp4"))});
+    QDragEnterEvent enter(QPoint(10, 10), Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
+    QApplication::sendEvent(&window, &enter);
+    QVERIFY(enter.isAccepted());
+    QDropEvent drop(QPointF(10, 10), Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
+    QApplication::sendEvent(&window, &drop);
+    QVERIFY(drop.isAccepted());
+
+    // Only the supported local file was added, with the preference as its hold.
+    QCOMPARE(window.project()->entries().size(), 1);
+    const auto source = window.project()->entries().at(0).source;
+    QCOMPARE(source->stillImageOptions().holdFrames, qint64(12));
+
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->state(), PlayerState::Ready, 10000);
+    QVERIFY(window.playbackController()->metadata().isStillImage);
+    QCOMPARE(window.playbackController()->metadata().frameCount, qint64(12));
+    window.playbackController()->play();
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->state(), PlayerState::Ended, 10000);
+    QCOMPARE(window.playbackController()->currentFrame(), qint64(11));
+
+    // A drag with nothing usable is refused outright.
+    QMimeData unsupported;
+    unsupported.setUrls({QUrl::fromLocalFile(directory.filePath(QStringLiteral("notes.txt")))});
+    QDragEnterEvent refused(QPoint(10, 10), Qt::CopyAction, &unsupported, Qt::LeftButton, Qt::NoModifier);
+    QApplication::sendEvent(&window, &refused);
+    QVERIFY(!refused.isAccepted());
 }
 
 void TestPlaylistEnd::aboutDialogUsesAnimationToolKitCopy()

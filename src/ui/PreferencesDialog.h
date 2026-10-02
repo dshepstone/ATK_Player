@@ -32,6 +32,7 @@ public:
     bool reopenLastProject() const;
     bool apiEnabled() const;
     int apiPort() const;
+    int stillImageHoldFrames() const;
     void setApiRuntimeStatus(const QString& status);
     bool resetAllRequested() const { return m_resetAllRequested; }
     const QHash<QString, QString>& shortcuts() const { return m_shortcuts; }
@@ -57,6 +58,7 @@ private:
     QCheckBox* m_bookmarkSnap = nullptr;
     QCheckBox* m_apiEnabled = nullptr;
     QSpinBox* m_apiPort = nullptr;
+    QSpinBox* m_stillHoldFrames = nullptr;
     QLabel* m_apiStatus = nullptr;
     QTableWidget* m_shortcutTable = nullptr;
     QKeySequenceEdit* m_shortcutEdit = nullptr;

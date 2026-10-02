@@ -148,6 +148,10 @@ bool Project::relinkSource(const QUuid& id, std::shared_ptr<media::MediaSource> 
     const int index = indexForId(id);
     if (index < 0 || !source || replacementFrameCount <= 0) return false;
     SourceEntry& entry = m_entries[index];
+    // The hold is review state, like the bookmarks: a still relinked to a
+    // re-rendered still keeps the extent its bookmarks were made against.
+    if (entry.source && entry.source->isStillImage())
+        source->setStillImageOptions(entry.source->stillImageOptions());
     entry.source = std::move(source);
     entry.storedPath.clear();
     entry.displayName = entry.source->displayName();

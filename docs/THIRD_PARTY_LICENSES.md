@@ -21,6 +21,7 @@ The major redistributed components in ATK Player 0.2.1 are:
 - ATK Player — MIT License
 - Qt 6.9.3 — LGPL v3, dynamically linked
 - FFmpeg 9.0.1 — LGPL v2.1 or later as built for ATK Player, dynamically linked
+- zlib 1.3.2 — zlib license, dynamically linked by FFmpeg
 
 The Windows distribution also requires the Microsoft Visual C++ 2015–2022 x64 Redistributable, which is supplied separately by Microsoft.
 
@@ -198,10 +199,32 @@ For ATK Player 0.2.1 this includes:
 ATK-Player-MIT.txt
 Qt-LGPL-3.0.txt
 FFmpeg-LGPL-2.1.txt
+zlib.txt
 THIRD_PARTY_NOTICES.txt
 ```
 
 These files should remain part of future Windows installer and portable distributions unless the dependency set or licensing configuration changes.
+
+---
+
+## zlib
+
+1. **Dependency:** zlib 1.3.2 (vcpkg port `zlib` 1.3.2#2).
+2. **Project and source:** https://zlib.net/ and https://github.com/madler/zlib
+3. **Licence:** zlib license. It is permissive, compatible with FFmpeg's LGPL
+   configuration, and is neither GPL nor nonfree.
+4. **Linkage:** dynamic. FFmpeg's `avcodec` and `avformat` import it.
+5. **Redistributed runtime:** `z.dll`, beside the FFmpeg DLLs. Debug builds
+   use `zd.dll`, which is never distributed.
+6. **Notices:** `licenses/zlib.txt` and the zlib entry in
+   `THIRD_PARTY_NOTICES.txt`. The licence does not require source to be
+   distributed.
+7. **Features:** enabled through the vcpkg `ffmpeg[zlib]` feature for
+   still-image support (PNG, APNG, EXR, deflate TIFF). It does not change
+   FFmpeg's licence configuration. See
+   [STILL_IMAGE_SOURCES.md](STILL_IMAGE_SOURCES.md).
+8. **Pinning:** obtained through vcpkg at the `builtin-baseline` in
+   `vcpkg.json`.
 
 ---
 

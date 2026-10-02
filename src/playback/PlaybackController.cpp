@@ -621,7 +621,8 @@ void PlaybackController::haltPlaybackMachinery()
 // Media
 // ---------------------------------------------------------------------------
 
-void PlaybackController::openMedia(const QString& filePath)
+void PlaybackController::openMedia(const QString& filePath,
+                                   const media::StillImageOptions& still)
 {
     emit authoritativeNavigationStarted();
     cancelNavigation();
@@ -656,10 +657,11 @@ void PlaybackController::openMedia(const QString& filePath)
     emit loadingChanged(true);
 
     // Waveform analysis starts immediately and runs on its own thread, so the
-    // picture appears without waiting for it.
-    startWaveformAnalysis(filePath, true, 0, sourceGeneration);
+    // picture appears without waiting for it. A still image has no sound to
+    // analyse, so it does not even start.
+    startWaveformAnalysis(filePath, !media::isStillImagePath(filePath), 0, sourceGeneration);
 
-    emit requestOpen(filePath, sourceGeneration);
+    emit requestOpen(filePath, sourceGeneration, still);
 }
 
 void PlaybackController::closeMedia()

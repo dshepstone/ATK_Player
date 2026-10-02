@@ -87,7 +87,7 @@ $files = (Read-MsiRows "SELECT ``FileName`` FROM ``File``") | ForEach-Object {
 $requiredNames = @(
     "ATKPlayer.exe", "Qt6Core.dll", "Qt6Multimedia.dll", "qwindows.dll",
     "windowsmediaplugin.dll", "ATK-Player-MIT.txt", "Qt-LGPL-3.0.txt",
-    "FFmpeg-LGPL-2.1.txt", "THIRD_PARTY_NOTICES.txt",
+    "FFmpeg-LGPL-2.1.txt", "zlib.txt", "THIRD_PARTY_NOTICES.txt",
     "GPL-3.0.txt", "WiX-MS-RL.txt", "Qt-qtbase-NOTICES.txt",
     "Qt-qtmultimedia-NOTICES.txt", "Qt-qtsvg-NOTICES.txt", "FFmpeg-NOTICES.txt",
     "FFmpeg-9.0.1-patched-source.zip", "WiX-4.0.6-source.zip", "ATK-Player-source.zip",
@@ -96,7 +96,7 @@ $requiredNames = @(
 foreach ($name in $requiredNames) {
     if ($files -notcontains $name) { throw "MSI file table is missing $name" }
 }
-foreach ($pattern in @("avcodec-*.dll", "avformat-*.dll", "avutil-*.dll", "swresample-*.dll", "swscale-*.dll")) {
+foreach ($pattern in @("avcodec-*.dll", "avformat-*.dll", "avutil-*.dll", "swresample-*.dll", "swscale-*.dll", "z.dll")) {
     if (-not ($files | Where-Object { $_ -like $pattern })) { throw "MSI is missing $pattern" }
 }
 $badFiles = $files | Where-Object {

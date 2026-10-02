@@ -111,6 +111,18 @@ if(WIN32)
         install(FILES ${_atk_ffmpeg_runtime_dll} DESTINATION ${CMAKE_INSTALL_BINDIR})
     endforeach()
 
+    # FFmpeg's zlib (PNG/EXR/deflate-TIFF stills). vcpkg names it z.dll, or
+    # zd.dll in the debug tree.
+    file(GLOB _atk_zlib_runtime_dll
+        "${ATK_FFMPEG_RUNTIME_DIR}/z.dll" "${ATK_FFMPEG_RUNTIME_DIR}/zd.dll")
+    list(LENGTH _atk_zlib_runtime_dll _atk_zlib_runtime_count)
+    if(NOT _atk_zlib_runtime_count EQUAL 1)
+        message(FATAL_ERROR
+            "Expected exactly one zlib runtime DLL in ${ATK_FFMPEG_RUNTIME_DIR}; "
+            "found ${_atk_zlib_runtime_count}")
+    endif()
+    install(FILES ${_atk_zlib_runtime_dll} DESTINATION ${CMAKE_INSTALL_BINDIR})
+
     install(FILES
         "${PROJECT_SOURCE_DIR}/LICENSE"
         DESTINATION licenses
@@ -118,6 +130,7 @@ if(WIN32)
     install(FILES
         "${PROJECT_SOURCE_DIR}/packaging/windows/licenses/Qt-LGPL-3.0.txt"
         "${PROJECT_SOURCE_DIR}/packaging/windows/licenses/FFmpeg-LGPL-2.1.txt"
+        "${PROJECT_SOURCE_DIR}/packaging/windows/licenses/zlib.txt"
         "${PROJECT_SOURCE_DIR}/packaging/windows/THIRD_PARTY_NOTICES.txt"
         DESTINATION licenses)
 

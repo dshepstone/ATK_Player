@@ -4,8 +4,10 @@
 #include "media/ffmpeg/FFmpegUtil.h"
 
 #include <QFileInfo>
+#include <QPainter>
 
 extern "C" {
+#include <libavutil/dict.h>
 #include <libavutil/display.h>
 #include <libavutil/imgutils.h>
 #include <libavutil/opt.h>
@@ -71,7 +73,8 @@ MediaDecoder::~MediaDecoder()
 // Open / close
 // ---------------------------------------------------------------------------
 
-bool MediaDecoder::open(const QString& filePath, QString* error)
+bool MediaDecoder::open(const QString& filePath, QString* error,
+                        const StillImageOptions& still)
 {
     close();
 
@@ -87,6 +90,10 @@ bool MediaDecoder::open(const QString& filePath, QString* error)
             *error = QStringLiteral("File cannot be read (check permissions): %1").arg(filePath);
         }
         return false;
+    }
+
+    if (isStillImagePath(filePath)) {
+        return openStillImage(filePath, still, error);
     }
 
     AVFormatContext* raw = nullptr;
@@ -221,6 +228,14 @@ bool MediaDecoder::openVideoStream(QString* error)
     // on one thread does not keep up with real-time playback.
     m_videoCodec->thread_count = 0;
     m_videoCodec->pkt_timebase = stream->time_base;
+
+    if (codec->id == AV_CODEC_ID_EXR) {
+        // EXR is scene-linear. Shown as raw values it looks dark and clips, so
+        // ask the decoder to encode it for an sRGB display. This is a display
+        // transform only, not colour management.
+        av_opt_set_int(m_videoCodec.get(), "apply_trc", AVCOL_TRC_IEC61966_2_1,
+                       AV_OPT_SEARCH_CHILDREN);
+    }
 
     result = avcodec_open2(m_videoCodec.get(), codec, nullptr);
     if (result < 0) {
@@ -383,6 +398,243 @@ void MediaDecoder::readMetadata()
         << "(container reported" << reported << ", estimate" << estimated << ")";
 }
 
+// ---------------------------------------------------------------------------
+// Still images
+// ---------------------------------------------------------------------------
+
+bool MediaDecoder::openStillImage(const QString& filePath, const StillImageOptions& still,
+                                  QString* error)
+{
+    const StillImageOptions hold = still.normalized();
+    const QFileInfo info(filePath);
+
+    // image2 with pattern_type=none treats the name as exactly one file. Left to
+    // auto-probing, image2's default pattern handling reads '%d'-style text as
+    // a sequence pattern, so "shot_%03d.png" could open shot_001.png instead.
+    const AVInputFormat* image2 = av_find_input_format("image2");
+    if (image2 == nullptr) {
+        if (error) {
+            *error = QStringLiteral("This FFmpeg build cannot read still images.");
+        }
+        return false;
+    }
+
+    AVDictionary* options = nullptr;
+    av_dict_set(&options, "pattern_type", "none", 0);
+    AVFormatContext* raw = nullptr;
+    int result = avformat_open_input(&raw, filePath.toUtf8().constData(), image2, &options);
+    av_dict_free(&options);
+    if (result < 0) {
+        if (error) {
+            *error = QStringLiteral("Could not open image: %1").arg(ffmpeg::errorString(result));
+        }
+        qCWarning(log::media).noquote()
+            << ffmpeg::errorString("avformat_open_input", result) << filePath;
+        return false;
+    }
+    m_format.reset(raw);
+
+    result = avformat_find_stream_info(m_format.get(), nullptr);
+    if (result < 0) {
+        if (error) {
+            *error = QStringLiteral("Could not read image information: %1")
+                         .arg(ffmpeg::errorString(result));
+        }
+        close();
+        return false;
+    }
+
+    m_metadata = MediaMetadata{};
+    m_metadata.filePath = filePath;
+    m_metadata.fileName = info.fileName();
+    m_metadata.containerFormat = QString::fromUtf8(m_format->iformat->name);
+    if (m_format->iformat->long_name != nullptr) {
+        m_metadata.containerLongName = QString::fromUtf8(m_format->iformat->long_name);
+    }
+    m_metadata.videoStreamIndex =
+        av_find_best_stream(m_format.get(), AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
+    if (m_metadata.videoStreamIndex < 0) {
+        if (error) {
+            *error = QStringLiteral("The image contains no picture ATK Player can decode.");
+        }
+        close();
+        return false;
+    }
+    if (!openVideoStream(error)) {
+        close();
+        return false;
+    }
+
+    m_packet = makePacket();
+    m_frame = makeFrame();
+    if (!m_packet || !m_frame) {
+        if (error) {
+            *error = QStringLiteral("Out of memory while preparing the decoder.");
+        }
+        close();
+        return false;
+    }
+
+    if (!decodeStillPicture(error)) {
+        close();
+        return false;
+    }
+
+    m_metadata.resolution = m_heldImage.size();
+    if (const char* pixelName = av_get_pix_fmt_name(m_videoCodec->pix_fmt)) {
+        m_metadata.pixelFormatName = QString::fromUtf8(pixelName);
+    }
+    if (m_videoCodec->sample_aspect_ratio.num > 0 && m_videoCodec->sample_aspect_ratio.den > 0) {
+        m_metadata.pixelAspectRatio = av_q2d(m_videoCodec->sample_aspect_ratio);
+    }
+
+    // The extent is synthesized: a 1/rate time base makes ptsTicks equal the
+    // frame index, so every timestamp-based mapping (A/B, export rebasing)
+    // works on the hold exactly as it does on real video.
+    m_metadata.isStillImage = true;
+    m_metadata.frameRate = hold.frameRate;
+    m_metadata.videoTimeBase = { hold.frameRate.denominator, hold.frameRate.numerator };
+    m_metadata.videoStartTime = 0;
+    m_metadata.frameCount = hold.holdFrames;
+    m_metadata.frameCountSource = FrameCountSource::Synthesized;
+    m_metadata.durationUs = ffmpeg::frameIndexToMicroseconds(
+        hold.holdFrames, AVRational{ hold.frameRate.numerator, hold.frameRate.denominator });
+    m_metadata.hasAudio = false;
+    m_metadata.audioStreamIndex = -1;
+
+    // Nothing more will be read from the file, so no FFmpeg state outlives
+    // open(): the held QImage is all a still needs.
+    m_frame.reset();
+    m_packet.reset();
+    m_scaler.reset();
+    m_videoCodec.reset();
+    m_format.reset();
+
+    m_stillImage = true;
+    m_open = true;
+    resetStreamState();
+
+    qCInfo(log::media).noquote()
+        << "Opened still" << m_metadata.fileName
+        << "|" << m_metadata.videoCodecName
+        << QStringLiteral("%1x%2").arg(m_metadata.resolution.width()).arg(m_metadata.resolution.height())
+        << "| held" << m_metadata.frameCount << "frames at"
+        << QStringLiteral("%1/%2").arg(hold.frameRate.numerator).arg(hold.frameRate.denominator);
+    return true;
+}
+
+bool MediaDecoder::decodeStillPicture(QString* error)
+{
+    AVCodecContext* codec = m_videoCodec.get();
+    bool flushed = false;
+    int packetsRead = 0;
+
+    // Feed packets until the decoder yields its picture. An image is normally
+    // one packet, but a decoder may want the flush before it releases output.
+    while (true) {
+        const int received = avcodec_receive_frame(codec, m_frame.get());
+        if (received == 0) {
+            break;
+        }
+        if (received != AVERROR(EAGAIN) || flushed) {
+            if (error) {
+                *error = QStringLiteral("Could not decode image: %1")
+                             .arg(ffmpeg::errorString(received == AVERROR(EAGAIN)
+                                                          ? AVERROR_EOF : received));
+            }
+            return false;
+        }
+
+        const int read = av_read_frame(m_format.get(), m_packet.get());
+        if (read == AVERROR_EOF || ++packetsRead > kMaxDecodeStepsPerSeek) {
+            avcodec_send_packet(codec, nullptr);
+            flushed = true;
+            continue;
+        }
+        if (read < 0) {
+            if (error) {
+                *error = QStringLiteral("Error reading image: %1").arg(ffmpeg::errorString(read));
+            }
+            return false;
+        }
+        PacketUnrefGuard guard(m_packet.get());
+        if (m_packet->stream_index != m_metadata.videoStreamIndex) {
+            continue;
+        }
+        const int sent = avcodec_send_packet(codec, m_packet.get());
+        if (sent < 0 && sent != AVERROR(EAGAIN)) {
+            if (error) {
+                *error = QStringLiteral("Could not decode image: %1").arg(ffmpeg::errorString(sent));
+            }
+            return false;
+        }
+    }
+
+    const AVFrame* picture = m_frame.get();
+    if (picture->width <= 0 || picture->height <= 0) {
+        if (error) {
+            *error = QStringLiteral("The image has no pixels.");
+        }
+        return false;
+    }
+    const auto format = static_cast<AVPixelFormat>(picture->format);
+    const AVPixFmtDescriptor* descriptor = av_pix_fmt_desc_get(format);
+    const bool hasAlpha =
+        descriptor != nullptr && (descriptor->flags & AV_PIX_FMT_FLAG_ALPHA) != 0;
+
+    m_scaler.reset(sws_getCachedContext(
+        m_scaler.release(), picture->width, picture->height, format,
+        picture->width, picture->height, kDisplayPixelFormat,
+        SWS_BILINEAR, nullptr, nullptr, nullptr));
+    // BGRA is QImage::Format_ARGB32 byte-for-byte on little-endian, so an
+    // image with alpha keeps it meaningful until it is composited below.
+    QImage converted(picture->width, picture->height,
+                     hasAlpha ? QImage::Format_ARGB32 : QImage::Format_RGB32);
+    if (!m_scaler || converted.isNull()) {
+        if (error) {
+            *error = QStringLiteral("Out of memory converting the image.");
+        }
+        return false;
+    }
+    uint8_t* destinationData[4] = { converted.bits(), nullptr, nullptr, nullptr };
+    int destinationStride[4] = { static_cast<int>(converted.bytesPerLine()), 0, 0, 0 };
+    if (sws_scale(m_scaler.get(), picture->data, picture->linesize, 0, picture->height,
+                  destinationData, destinationStride) <= 0) {
+        if (error) {
+            *error = QStringLiteral("Pixel format conversion produced no output.");
+        }
+        return false;
+    }
+    av_frame_unref(m_frame.get());
+
+    if (hasAlpha) {
+        // Every frame the viewer, compositor and exporter handle is opaque
+        // RGB32. Compositing over black matches the canvas export pads with.
+        QImage opaque(converted.size(), QImage::Format_RGB32);
+        opaque.fill(Qt::black);
+        QPainter painter(&opaque);
+        painter.drawImage(0, 0, converted);
+        painter.end();
+        m_heldImage = std::move(opaque);
+    } else {
+        m_heldImage = std::move(converted);
+    }
+    return true;
+}
+
+VideoFrame MediaDecoder::heldFrame(int64_t index) const
+{
+    VideoFrame frame;
+    frame.image = m_heldImage;
+    frame.width = m_heldImage.width();
+    frame.height = m_heldImage.height();
+    frame.frameIndex = index;
+    frame.ptsTicks = index;
+    frame.ptsUs = ffmpeg::frameIndexToMicroseconds(
+        index, AVRational{ m_metadata.frameRate.numerator, m_metadata.frameRate.denominator });
+    return frame;
+}
+
 void MediaDecoder::close()
 {
     // Reverse acquisition order. The RAII types do the actual freeing; this
@@ -400,6 +652,8 @@ void MediaDecoder::close()
 
     m_metadata = MediaMetadata{};
     m_outputAudioFormat = AudioFormat{};
+    m_stillImage = false;
+    m_heldImage = QImage{};
     m_open = false;
     resetStreamState();
 }
@@ -804,6 +1058,14 @@ DecodeStatus MediaDecoder::nextVideoFrame(VideoFrame& out, QString* error)
         return DecodeStatus::Error;
     }
 
+    if (m_stillImage) {
+        if (m_nextVideoFrameIndex >= m_metadata.frameCount) {
+            return DecodeStatus::EndOfFile;
+        }
+        out = heldFrame(m_nextVideoFrameIndex++);
+        return DecodeStatus::Ok;
+    }
+
     int steps = 0;
     while (m_pendingVideo.empty()) {
         if (m_videoEof) {
@@ -868,6 +1130,13 @@ bool MediaDecoder::seekToFrameIndex(int64_t index, QString* error)
     }
 
     const int64_t target = std::max<int64_t>(index, 0);
+
+    if (m_stillImage) {
+        // No demuxer is involved: positioning a still is choosing an index.
+        m_nextVideoFrameIndex = std::min(target, m_metadata.frameCount);
+        return true;
+    }
+
     const AVRational rate{ m_metadata.frameRate.numerator, m_metadata.frameRate.denominator };
     const AVRational timeBase{ m_metadata.videoTimeBase.numerator,
                                m_metadata.videoTimeBase.denominator };
@@ -932,6 +1201,21 @@ bool MediaDecoder::frameAtIndex(int64_t index, VideoFrame& out, QString* error,
     }
 
     const int64_t target = std::max<int64_t>(index, 0);
+
+    if (m_stillImage) {
+        if (cancelled(isCancelled)) {
+            if (error) {
+                *error = QStringLiteral("Decode cancelled.");
+            }
+            return false;
+        }
+        // Past the end answers with the last frame, as a video source does when
+        // the file ends before the target.
+        const int64_t clamped = std::min(target, m_metadata.frameCount - 1);
+        out = heldFrame(clamped);
+        m_nextVideoFrameIndex = clamped + 1;
+        return true;
+    }
 
     // Timeline movement commonly advances several source frames between its
     // 30 Hz preview events. Keep nearby forward requests on the live decoder
@@ -1046,6 +1330,9 @@ int64_t MediaDecoder::countFramesExactly(QString* error)
 {
     if (!m_open || !m_metadata.hasVideo) {
         return -1;
+    }
+    if (m_stillImage) {
+        return m_metadata.frameCount;
     }
 
     // Only worth doing for short media; see kMaxFramesToCount.

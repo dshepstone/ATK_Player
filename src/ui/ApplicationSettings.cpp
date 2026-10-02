@@ -25,6 +25,7 @@ constexpr auto kRecentProjects = "projects/recent";
 constexpr auto kLastProject = "projects/lastPath";
 constexpr auto kApiEnabled = "api/enabled";
 constexpr auto kApiPort = "api/port";
+constexpr auto kStillHoldFrames = "media/stillImageHoldFrames";
 constexpr auto kShortcutGroup = "shortcuts";
 constexpr auto kWelcomeShownVersion = "ui/welcomeShownVersion";
 }
@@ -69,6 +70,15 @@ int ApplicationSettings::apiPort() const
     return ok && value >= 1024 && value <= 65535 ? value : defaultApiPort();
 }
 
+int ApplicationSettings::stillImageHoldFrames() const
+{
+    bool ok = false;
+    const int value = m_settings->value(QString::fromLatin1(kStillHoldFrames),
+                                        defaultStillImageHoldFrames()).toInt(&ok);
+    return ok && value >= minimumStillImageHoldFrames() && value <= maximumStillImageHoldFrames()
+        ? value : defaultStillImageHoldFrames();
+}
+
 QString ApplicationSettings::welcomeShownVersion() const { return m_settings->value(QString::fromLatin1(kWelcomeShownVersion)).toString(); }
 void ApplicationSettings::setWelcomeShownVersion(const QString& version) { m_settings->setValue(QString::fromLatin1(kWelcomeShownVersion), version); }
 
@@ -105,6 +115,11 @@ void ApplicationSettings::setApiEnabled(bool value) { m_settings->setValue(QStri
 void ApplicationSettings::setApiPort(int value)
 {
     m_settings->setValue(QString::fromLatin1(kApiPort), std::clamp(value, 1024, 65535));
+}
+void ApplicationSettings::setStillImageHoldFrames(int value)
+{
+    m_settings->setValue(QString::fromLatin1(kStillHoldFrames),
+                         std::clamp(value, minimumStillImageHoldFrames(), maximumStillImageHoldFrames()));
 }
 
 QByteArray ApplicationSettings::windowGeometry() const { return m_settings->value(QString::fromLatin1(kGeometry)).toByteArray(); }

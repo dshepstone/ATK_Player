@@ -1,6 +1,7 @@
 #include "media/AudioSourceReader.h"
 
 #include "core/Logging.h"
+#include "media/StillImage.h"
 #include "media/ffmpeg/FFmpegUtil.h"
 
 #include <QFileInfo>
@@ -45,6 +46,17 @@ bool AudioSourceReader::open(const QString& filePath, const AudioFormat& format,
     if (!QFileInfo::exists(filePath)) {
         if (error) {
             *error = QStringLiteral("File not found: %1").arg(filePath);
+        }
+        return false;
+    }
+
+    // A still image never has sound. Refusing it here, before FFmpeg probes the
+    // name, covers the waveform, scrub, compare and export audio paths at once,
+    // with the same message a silent video produces, so each of them takes its
+    // existing quiet "no audio" path.
+    if (isStillImagePath(filePath)) {
+        if (error) {
+            *error = QStringLiteral("The file has no audio stream.");
         }
         return false;
     }

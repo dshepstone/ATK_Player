@@ -8,7 +8,8 @@ namespace atk::media {
 
 PlaylistProbeWorker::PlaylistProbeWorker(QObject* parent) : QObject(parent) {}
 
-void PlaylistProbeWorker::probe(const QUuid& sourceId, const QString& path, quint64 token)
+void PlaylistProbeWorker::probe(const QUuid& sourceId, const QString& path, quint64 token,
+                                const StillImageOptions& still)
 {
     const QFileInfo info(path);
     if (!info.exists() || !info.isFile()) {
@@ -17,7 +18,7 @@ void PlaylistProbeWorker::probe(const QUuid& sourceId, const QString& path, quin
     }
     MediaDecoder decoder;
     QString error;
-    if (!decoder.open(path, &error)) {
+    if (!decoder.open(path, &error, still)) {
         emit probeFinished(sourceId, path, token, {}, error, false);
         return;
     }

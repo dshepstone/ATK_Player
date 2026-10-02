@@ -67,6 +67,23 @@ PreferencesDialog::PreferencesDialog(const ApplicationSettings& settings,
     reviewLayout->addWidget(m_audioScrub);
     reviewLayout->addWidget(m_frameStepAudio);
     reviewLayout->addWidget(m_bookmarkSnap);
+
+    auto* stillForm = new QFormLayout;
+    m_stillHoldFrames = new QSpinBox(review);
+    m_stillHoldFrames->setObjectName(QStringLiteral("PreferenceStillHoldFrames"));
+    m_stillHoldFrames->setRange(ApplicationSettings::minimumStillImageHoldFrames(),
+                                ApplicationSettings::maximumStillImageHoldFrames());
+    m_stillHoldFrames->setSuffix(tr(" frames"));
+    m_stillHoldFrames->setValue(settings.stillImageHoldFrames());
+    stillForm->addRow(tr("Still image duration"), m_stillHoldFrames);
+    reviewLayout->addLayout(stillForm);
+    auto* stillNote = new QLabel(
+        tr("Held at %1 fps. Applies to stills added from now on; existing sources "
+           "keep their duration so saved bookmarks stay valid.")
+            .arg(media::StillImageOptions::kDefaultFrameRate.numerator),
+        review);
+    stillNote->setWordWrap(true);
+    reviewLayout->addWidget(stillNote);
     reviewLayout->addStretch();
     tabs->addTab(review, tr("Review"));
 
@@ -150,6 +167,7 @@ bool PreferencesDialog::bookmarkSnapEnabled() const { return m_bookmarkSnap->isC
 bool PreferencesDialog::reopenLastProject() const { return m_reopenLast->isChecked(); }
 bool PreferencesDialog::apiEnabled() const { return m_apiEnabled->isChecked(); }
 int PreferencesDialog::apiPort() const { return m_apiPort->value(); }
+int PreferencesDialog::stillImageHoldFrames() const { return m_stillHoldFrames->value(); }
 void PreferencesDialog::setApiRuntimeStatus(const QString& status) { m_apiStatus->setText(status); }
 
 QString PreferencesDialog::conflictingCommand(const QHash<QString, QString>& shortcuts,
@@ -263,6 +281,7 @@ void PreferencesDialog::resetPreferencesDraft()
     m_bookmarkSnap->setChecked(ApplicationSettings::defaultBookmarkSnapEnabled());
     m_apiEnabled->setChecked(ApplicationSettings::defaultApiEnabled());
     m_apiPort->setValue(ApplicationSettings::defaultApiPort());
+    m_stillHoldFrames->setValue(ApplicationSettings::defaultStillImageHoldFrames());
     resetAllShortcuts();
     m_resetAllRequested = true;
 }

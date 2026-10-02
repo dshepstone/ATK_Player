@@ -374,7 +374,7 @@ $required = @(
     "ATKPlayer.exe", "Qt6Core.dll", "Qt6Gui.dll", "Qt6Widgets.dll",
     "Qt6Multimedia.dll", "Qt6Network.dll", "plugins/platforms/qwindows.dll",
     "plugins/multimedia/windowsmediaplugin.dll", "licenses/ATK-Player-MIT.txt",
-    "licenses/Qt-LGPL-3.0.txt", "licenses/FFmpeg-LGPL-2.1.txt",
+    "licenses/Qt-LGPL-3.0.txt", "licenses/FFmpeg-LGPL-2.1.txt", "licenses/zlib.txt",
     "licenses/THIRD_PARTY_NOTICES.txt", "licenses/dependencies/GPL-3.0.txt",
     "licenses/dependencies/WiX-MS-RL.txt", "licenses/dependencies/Qt-qtbase-NOTICES.txt",
     "licenses/dependencies/Qt-qtmultimedia-NOTICES.txt", "licenses/dependencies/Qt-qtsvg-NOTICES.txt",
@@ -395,7 +395,7 @@ foreach ($qtDll in Get-ChildItem $stageDir -Filter "Qt6*.dll" -File) {
         throw "Qt deployment differs from the audited module/source version: $($qtDll.Name)"
     }
 }
-$ffmpegPatterns = @("avcodec-*.dll", "avformat-*.dll", "avutil-*.dll", "swresample-*.dll", "swscale-*.dll")
+$ffmpegPatterns = @("avcodec-*.dll", "avformat-*.dll", "avutil-*.dll", "swresample-*.dll", "swscale-*.dll", "z.dll")
 foreach ($pattern in $ffmpegPatterns) {
     if (@(Get-ChildItem $stageDir -Filter $pattern -File).Count -ne 1) {
         throw "Expected exactly one staged FFmpeg runtime matching $pattern"

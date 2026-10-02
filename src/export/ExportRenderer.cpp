@@ -10,8 +10,8 @@ namespace atk::exporter {
 bool ExportRenderer::open(const ExportSpec& spec, QString* error)
 {
     m_spec = spec;
-    if (!m_a.open(spec.sourceA.path, error)) return false;
-    if (spec.comparison && !m_b.open(spec.sourceB.path, error)) return false;
+    if (!m_a.open(spec.sourceA.path, error, spec.sourceA.still)) return false;
+    if (spec.comparison && !m_b.open(spec.sourceB.path, error, spec.sourceB.still)) return false;
     media::VideoFrame first;
     if (!m_a.frameAtIndex(spec.sourceA.rangeStartFrame, first, error)) return false;
     m_rangeStartPtsTicks = first.ptsTicks;
