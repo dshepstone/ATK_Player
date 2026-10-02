@@ -1,6 +1,7 @@
 #pragma once
 
 #include "media/MediaMetadata.h"
+#include "media/StillImage.h"
 
 #include <QObject>
 #include <QUuid>
@@ -15,7 +16,10 @@ public:
     explicit PlaylistProbeWorker(QObject* parent = nullptr);
 
 public slots:
-    void probe(const QUuid& sourceId, const QString& path, quint64 token);
+    /// `still` is the source's hold when `path` is a still image: the probed
+    /// frame count of a still is the hold, so it must match playback's.
+    void probe(const QUuid& sourceId, const QString& path, quint64 token,
+               const atk::media::StillImageOptions& still = {});
 
 signals:
     void probeFinished(QUuid sourceId, QString path, quint64 token,

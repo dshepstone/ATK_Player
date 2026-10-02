@@ -105,6 +105,7 @@ MediaInformationDialog::MediaInformationDialog(QWidget* parent)
 
     addSection(tr("GENERAL"));
     addField(QStringLiteral("Source"), tr("Source:"));
+    addField(QStringLiteral("Type"), tr("Type:"));
     addField(QStringLiteral("Duration"), tr("Duration:"));
     addField(QStringLiteral("NormalSize"), tr("Normal Size:"));
     addField(QStringLiteral("CurrentSize"), tr("Current Size:"));
@@ -179,6 +180,8 @@ void MediaInformationDialog::setMediaInformation(const media::MediaMetadata& met
     const QString source = QFileInfo(sourceCandidate).fileName();
     m_mediaName->setText(source.isEmpty() ? tr("No Media") : source);
     setValue(QStringLiteral("Source"), source);
+    setValue(QStringLiteral("Type"), !metadata.hasVideo ? kUnavailable
+        : metadata.isStillImage ? tr("Still image") : tr("Video"));
     setValue(QStringLiteral("Duration"), durationText(metadata.durationUs));
     setValue(QStringLiteral("NormalSize"), resolutionText(metadata.resolution));
     setValue(QStringLiteral("CurrentSize"), kUnavailable);
@@ -207,12 +210,12 @@ QString MediaInformationDialog::copyText() const
 {
     const auto value = [this](const char* key) { return m_values.value(QString::fromLatin1(key))->text(); };
     return tr("ATK Player Media Information\n\n"
-              "Source: %1\nDuration: %2\nNormal Size: %3\nCurrent Size: %4\n\n"
-              "Video\nCodec: %5\nFrames: %6\nFrame Rate: %7\nPixel Format: %8\n\n"
-              "Audio\nCodec: %9\nChannels: %10\nSample Rate: %11")
-        .arg(value("Source"), value("Duration"), value("NormalSize"), value("CurrentSize"),
-             value("VideoCodec"), value("Frames"), value("FrameRate"), value("PixelFormat"),
-             value("AudioCodec"), value("Channels"), value("SampleRate"));
+              "Source: %1\nType: %2\nDuration: %3\nNormal Size: %4\nCurrent Size: %5\n\n"
+              "Video\nCodec: %6\nFrames: %7\nFrame Rate: %8\nPixel Format: %9\n\n"
+              "Audio\nCodec: %10\nChannels: %11\nSample Rate: %12")
+        .arg(value("Source"), value("Type"), value("Duration"), value("NormalSize"),
+             value("CurrentSize"), value("VideoCodec"), value("Frames"), value("FrameRate"),
+             value("PixelFormat"), value("AudioCodec"), value("Channels"), value("SampleRate"));
 }
 
 void MediaInformationDialog::copyInformation() const

@@ -56,6 +56,10 @@
 
 #include <QAction>
 #include <QCloseEvent>
+#include <QDragEnterEvent>
+#include <QDropEvent>
+#include <QMimeData>
+#include <QUrl>
 #include <QApplication>
 #include <QCoreApplication>
 #include <QDockWidget>
@@ -123,6 +127,57 @@ bool startsNewGroup(CommandId id)
 constexpr int64_t kPlaceholderFrameCount = 100;
 constexpr int kPlaceholderFps = 24;
 
+/// Video extensions offered by the media dialogs and accepted by drag and drop.
+/// FFmpeg decides what is actually readable; "All Files" stays available.
+const QStringList& videoExtensions()
+{
+    static const QStringList extensions{
+        QStringLiteral("mp4"), QStringLiteral("mov"), QStringLiteral("avi"),
+        QStringLiteral("mkv"), QStringLiteral("m4v"), QStringLiteral("webm"),
+        QStringLiteral("mpg"), QStringLiteral("mpeg"), QStringLiteral("wmv"),
+        QStringLiteral("flv"),
+    };
+    return extensions;
+}
+
+QString globList(const QStringList& extensions)
+{
+    QStringList globs;
+    for (const QString& extension : extensions) globs << QStringLiteral("*.") + extension;
+    return globs.join(QLatin1Char(' '));
+}
+
+/// One filter for Open Media, Add to Playlist and Relink, so the three cannot
+/// drift apart. Still-image extensions come from media::stillImageExtensions(),
+/// the same list the decoder classifies by.
+QString mediaFileFilter()
+{
+    const QString video = globList(videoExtensions());
+    const QString images = globList(media::stillImageExtensions());
+    return MainWindow::tr("Media Files (%1 %2);;Video Files (%1);;Image Files (%2);;All Files (*.*)")
+        .arg(video, images);
+}
+
+bool isSupportedMediaPath(const QString& path)
+{
+    const QString suffix = QFileInfo(path).suffix().toLower();
+    return videoExtensions().contains(suffix) || media::isStillImagePath(path);
+}
+
+/// Local, existing, supported media files carried by a drag.
+QStringList droppedMediaPaths(const QMimeData* mime)
+{
+    QStringList paths;
+    if (mime == nullptr || !mime->hasUrls()) return paths;
+    for (const QUrl& url : mime->urls()) {
+        if (!url.isLocalFile()) continue;
+        const QFileInfo info(url.toLocalFile());
+        if (info.isFile() && isSupportedMediaPath(info.filePath()))
+            paths << info.absoluteFilePath();
+    }
+    return paths;
+}
+
 } // namespace
 
 MainWindow::MainWindow(QWidget* parent)
@@ -146,6 +201,7 @@ MainWindow::MainWindow(const QString& settingsIniPath, QWidget* parent)
         m_settings = std::make_unique<ApplicationSettings>(settingsIniPath);
     setObjectName(QStringLiteral("AtkMainWindow"));
     setWindowIcon(QIcon(QStringLiteral(":/icons/ATK_Player_Icon.png")));
+    setAcceptDrops(true);
 
     buildModels();
     buildWidgets();
@@ -206,6 +262,7 @@ void MainWindow::buildModels()
                 if (index < 0) return;
                 auto replacement = std::make_shared<media::MediaSource>(path);
                 replacement->setMetadata(metadata);
+                replacement->setStillImageOptions(m_pendingRelinkStill);
                 const int64_t frameCount = metadata.effectiveFrameCount();
                 if (frameCount <= 0 || !m_project->relinkSource(id, replacement, frameCount)) return;
                 if (index == m_project->activeIndex()) {
@@ -1044,6 +1101,8 @@ void MainWindow::applyPreferences(const PreferencesDialog& dialog)
     m_settings->setFrameStepAudioEnabled(dialog.frameStepAudioEnabled());
     m_settings->setBookmarkSnapEnabled(dialog.bookmarkSnapEnabled());
     m_settings->setReopenLastProject(dialog.reopenLastProject());
+    // Applies to stills added from now on; existing sources keep their hold.
+    m_settings->setStillImageHoldFrames(dialog.stillImageHoldFrames());
     const bool apiChanged = dialog.apiEnabled() != apiWasEnabled
         || dialog.apiPort() != apiWasPort;
     m_settings->setApiEnabled(dialog.apiEnabled());
@@ -1278,12 +1337,8 @@ void MainWindow::openMediaDialog()
 {
     // FFmpeg decides what is readable, so "All Files" is offered alongside the
     // common filters rather than the extension list being the gate.
-    const QString filter = tr(
-        "Video Files (*.mp4 *.mov *.avi *.mkv *.m4v *.webm *.mpg *.mpeg *.wmv *.flv);;"
-        "All Files (*.*)");
-
     const QString path = QFileDialog::getOpenFileName(
-        this, tr("Open Media"), m_lastMediaDirectory, filter);
+        this, tr("Open Media"), m_lastMediaDirectory, mediaFileFilter());
 
     if (path.isEmpty()) {
         return;
@@ -1369,18 +1424,23 @@ void MainWindow::onMediaError(const QString& message)
 
 void MainWindow::addMediaDialog()
 {
-    const QString filter = tr("Video Files (*.mp4 *.mov *.avi *.mkv *.m4v *.webm *.mpg *.mpeg *.wmv *.flv);;All Files (*.*)");
     const QStringList paths = QFileDialog::getOpenFileNames(
-        this, tr("Add Media to Playlist"), m_lastMediaDirectory, filter);
+        this, tr("Add Media to Playlist"), m_lastMediaDirectory, mediaFileFilter());
     if (!paths.isEmpty()) { m_lastMediaDirectory = QFileInfo(paths.first()).absolutePath(); addMediaFiles(paths); }
 }
 
 void MainWindow::addMediaFiles(const QStringList& paths)
 {
     const bool wasEmpty = m_project->entries().isEmpty();
+    // The preference seeds a still's hold once, here; the source keeps it from
+    // then on, so a later preference change cannot move saved bookmarks.
+    media::StillImageOptions still;
+    still.holdFrames = m_settings->stillImageHoldFrames();
     for (const QString& path : paths) {
         if (path.isEmpty()) continue;
-        m_project->addSource(std::make_shared<media::MediaSource>(QFileInfo(path).absoluteFilePath()));
+        auto source = std::make_shared<media::MediaSource>(QFileInfo(path).absoluteFilePath());
+        if (source->isStillImage()) source->setStillImageOptions(still);
+        m_project->addSource(std::move(source));
     }
     if (wasEmpty && !m_project->entries().isEmpty()) {
         m_project->setActiveIndex(-1);
@@ -1394,8 +1454,10 @@ void MainWindow::startProbe(const QUuid& id, const QString& path)
 {
     const quint64 token = m_nextProbeToken++;
     if (!m_project->beginProbe(id, path, token)) return;
-    QMetaObject::invokeMethod(m_probeWorker, [worker = m_probeWorker, id, path, token] {
-        worker->probe(id, path, token);
+    const int index = m_project->indexForId(id);
+    const media::StillImageOptions still = m_project->entries().at(index).source->stillImageOptions();
+    QMetaObject::invokeMethod(m_probeWorker, [worker = m_probeWorker, id, path, token, still] {
+        worker->probe(id, path, token, still);
     }, Qt::QueuedConnection);
 }
 
@@ -1442,7 +1504,7 @@ void MainWindow::activatePlaylistIndex(int index, bool continuePlayback)
     m_project->setActiveIndex(index);
     m_playAfterSourceOpen = continuePlayback;
     m_restoringSourceState = true;
-    m_playback->openMedia(entry.source->filePath());
+    m_playback->openMedia(entry.source->filePath(), entry.source->stillImageOptions());
 }
 
 void MainWindow::removePlaylistIndex(int index)
@@ -1498,7 +1560,9 @@ bool MainWindow::openProjectFile(const QString& path)
     if (!cancelExportForProjectChange()) return false;
     exitComparison();
     project::Project loaded;
-    const auto result = project::ProjectSerializer::load(loaded, path);
+    media::StillImageOptions defaultStill;
+    defaultStill.holdFrames = m_settings->stillImageHoldFrames();
+    const auto result = project::ProjectSerializer::load(loaded, path, defaultStill);
     if (!result.ok) {
         if (!m_suppressProjectOpenError) QMessageBox::critical(this, tr("Open Project"), result.errorMessage);
         return false;
@@ -1581,7 +1645,7 @@ void MainWindow::relinkSelectedMedia()
     if (index < 0 || index >= m_project->entries().size()) return;
     const auto id = m_project->entries().at(index).id;
     const QString path = QFileDialog::getOpenFileName(this, tr("Relink Media"), QString(),
-        tr("Video Files (*.mp4 *.mov *.avi *.mkv *.m4v *.webm *.mpg *.mpeg *.wmv *.flv);;All Files (*.*)"));
+        mediaFileFilter());
     const QFileInfo info(path);
     if (path.isEmpty()) return;
     if (!info.exists() || !info.isFile()) { QMessageBox::critical(this, tr("Relink Media"), tr("The selected media file does not exist.")); return; }
@@ -1589,9 +1653,19 @@ void MainWindow::relinkSelectedMedia()
     m_pendingRelinkPath = info.absoluteFilePath();
     m_pendingRelinkToken = m_nextProbeToken++;
     m_pendingRelinkProjectGeneration = m_projectGeneration;
+    // Validate with the hold the replacement will get, so the validated extent
+    // is the one it actually has: a still keeps its own hold (its bookmarks
+    // were made against it); anything else takes the default for new stills.
+    const auto& relinked = m_project->entries().at(index);
+    media::StillImageOptions still;
+    if (relinked.source && relinked.source->isStillImage())
+        still = relinked.source->stillImageOptions();
+    else
+        still.holdFrames = m_settings->stillImageHoldFrames();
+    m_pendingRelinkStill = still;
     QMetaObject::invokeMethod(m_probeWorker,
-        [worker = m_probeWorker, id, path = m_pendingRelinkPath, token = m_pendingRelinkToken] {
-            worker->probe(id, path, token);
+        [worker = m_probeWorker, id, path = m_pendingRelinkPath, token = m_pendingRelinkToken, still] {
+            worker->probe(id, path, token, still);
         }, Qt::QueuedConnection);
     statusBar()->showMessage(tr("Validating replacement media..."));
 }
@@ -1622,6 +1696,7 @@ exporter::ExportSpec MainWindow::exportSnapshot(const QString& outputPath) const
         result.id = entry.id;
         result.path = entry.source ? entry.source->filePath() : entry.storedPath;
         result.metadata = entry.source ? entry.source->metadata() : media::MediaMetadata{};
+        if (entry.source) result.still = entry.source->stillImageOptions();
         result.rangeStartFrame = start;
         result.rangeEndFrame = end;
         return result;
@@ -1815,6 +1890,21 @@ void MainWindow::showWelcome()
     auto* dialog = new WelcomeDialog(this);
     dialog->setAttribute(Qt::WA_DeleteOnClose);
     dialog->open();
+}
+
+void MainWindow::dragEnterEvent(QDragEnterEvent* event)
+{
+    if (!droppedMediaPaths(event->mimeData()).isEmpty()) event->acceptProposedAction();
+    else event->ignore();
+}
+
+void MainWindow::dropEvent(QDropEvent* event)
+{
+    const QStringList paths = droppedMediaPaths(event->mimeData());
+    if (paths.isEmpty()) { event->ignore(); return; }
+    event->acceptProposedAction();
+    m_lastMediaDirectory = QFileInfo(paths.first()).absolutePath();
+    addMediaFiles(paths);
 }
 
 void MainWindow::closeEvent(QCloseEvent* event)

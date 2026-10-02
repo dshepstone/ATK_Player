@@ -27,7 +27,138 @@ private slots:
     void failedSaveAsLeavesProjectIdentityAndDirtyStateUntouched();
     void normalSavePreservesExistingProjectName();
     void savePromptOnlyForReviewWork();
+    void stillHoldRoundTripsPerSource();
+    void stillWithoutSavedHoldUsesLoadDefault();
+    void malformedStillHoldRejectsProject();
+    void relinkKeepsStillHold();
 };
+
+namespace {
+QString writeFile(const QString& path, const QByteArray& bytes)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly)) return {};
+    file.write(bytes);
+    return path;
+}
+
+QString stillProjectJson(const QString& stillObject)
+{
+    return QStringLiteral(R"({"format":"ATKProject","version":1,"name":"S","sources":[
+        {"id":"6f1c2a52-6a8f-4d4e-9b8e-0d1f0e2a3b4c","path":"still.png",
+         "review":{"bookmarks":[]}%1}]})").arg(stillObject);
+}
+} // namespace
+
+void TestProject::stillHoldRoundTripsPerSource()
+{
+    QTemporaryDir directory; QVERIFY(directory.isValid());
+    const QString still = writeFile(directory.filePath(QStringLiteral("board.png")), "png");
+    const QString video = writeFile(directory.filePath(QStringLiteral("clip.mp4")), "mp4");
+    QVERIFY(!still.isEmpty() && !video.isEmpty());
+    const QString projectPath = directory.filePath(QStringLiteral("stills.atkproj"));
+
+    project::Project original;
+    auto stillSource = std::make_shared<media::MediaSource>(still);
+    stillSource->setStillImageOptions({72, {30000, 1001}});
+    original.addSource(stillSource);
+    original.addSource(std::make_shared<media::MediaSource>(video));
+    timeline::Bookmark late; late.id = 3; late.frame = 70; late.endFrame = 70;
+    original.mutableEntries()[0].bookmarks = {late};
+    original.mutableEntries()[0].playbackRange = {10, 71, true};
+    QVERIFY(project::ProjectSerializer::save(original, projectPath).ok);
+
+    QFile saved(projectPath); QVERIFY(saved.open(QIODevice::ReadOnly));
+    const auto sources = QJsonDocument::fromJson(saved.readAll()).object()
+                             .value(QStringLiteral("sources")).toArray();
+    const QJsonObject stillJson = sources.at(0).toObject().value(QStringLiteral("still")).toObject();
+    QCOMPARE(stillJson.value(QStringLiteral("holdFrames")).toInt(), 72);
+    QCOMPARE(stillJson.value(QStringLiteral("frameRate")).toObject()
+                 .value(QStringLiteral("numerator")).toInt(), 30000);
+    QCOMPARE(stillJson.value(QStringLiteral("frameRate")).toObject()
+                 .value(QStringLiteral("denominator")).toInt(), 1001);
+    // Video sources carry no hold.
+    QVERIFY(!sources.at(1).toObject().contains(QStringLiteral("still")));
+
+    // A different default hold -- a changed preference -- must not move the
+    // saved still's extent, or bookmark 70 would fall off the end.
+    project::Project loaded;
+    QVERIFY(project::ProjectSerializer::load(loaded, projectPath, {20, {24, 1}}).ok);
+    const auto& entry = loaded.entries().at(0);
+    QCOMPARE(entry.source->stillImageOptions().holdFrames, int64_t{72});
+    QCOMPARE(entry.source->stillImageOptions().frameRate, (media::FrameRate{30000, 1001}));
+    QCOMPARE(entry.bookmarks, QVector<timeline::Bookmark>({late}));
+    QCOMPARE(entry.playbackRange, timeline::PlaybackRange({10, 71, true}));
+    QVERIFY(!loaded.isModified());
+}
+
+void TestProject::stillWithoutSavedHoldUsesLoadDefault()
+{
+    QTemporaryDir directory; QVERIFY(directory.isValid());
+    writeFile(directory.filePath(QStringLiteral("still.png")), "png");
+    const QString path = writeFile(directory.filePath(QStringLiteral("old.atkproj")),
+                                   stillProjectJson(QString()).toUtf8());
+    project::Project loaded;
+    QVERIFY(project::ProjectSerializer::load(loaded, path, {30, {24, 1}}).ok);
+    QCOMPARE(loaded.entries().at(0).source->stillImageOptions().holdFrames, int64_t{30});
+
+    // The default is normalized like any other hold.
+    project::Project clamped;
+    QVERIFY(project::ProjectSerializer::load(clamped, path, {2, {24, 1}}).ok);
+    QCOMPARE(clamped.entries().at(0).source->stillImageOptions().holdFrames,
+             media::StillImageOptions::kMinimumHoldFrames);
+}
+
+void TestProject::malformedStillHoldRejectsProject()
+{
+    QTemporaryDir directory; QVERIFY(directory.isValid());
+    writeFile(directory.filePath(QStringLiteral("still.png")), "png");
+    project::Project project;
+    project.addSource(std::make_shared<media::MediaSource>(QStringLiteral("keep.mp4")));
+    const QStringList invalid{
+        QStringLiteral(R"(,"still":{"holdFrames":5,"frameRate":{"numerator":24,"denominator":1}})"),
+        QStringLiteral(R"(,"still":{"holdFrames":48,"frameRate":{"numerator":24}})"),
+        QStringLiteral(R"(,"still":{"holdFrames":48.5,"frameRate":{"numerator":24,"denominator":1}})"),
+        QStringLiteral(R"(,"still":{"holdFrames":48,"frameRate":{"numerator":0,"denominator":1}})"),
+        QStringLiteral(R"(,"still":"48")"),
+    };
+    for (const QString& still : invalid) {
+        const QString path = writeFile(directory.filePath(QStringLiteral("bad.atkproj")),
+                                       stillProjectJson(still).toUtf8());
+        const auto result = project::ProjectSerializer::load(project, path);
+        QVERIFY2(!result.ok, qPrintable(still));
+        QVERIFY(result.errorMessage.contains(QStringLiteral("hold")));
+        QCOMPARE(project.entries().size(), 1);
+        QCOMPARE(project.entries().at(0).source->filePath(), QStringLiteral("keep.mp4"));
+    }
+}
+
+void TestProject::relinkKeepsStillHold()
+{
+    project::Project project;
+    auto still = std::make_shared<media::MediaSource>(QStringLiteral("board_v1.png"));
+    still->setStillImageOptions({72, {24, 1}});
+    project.addSource(still);
+    timeline::Bookmark late; late.id = 1; late.frame = 70; late.endFrame = 70;
+    project.mutableEntries()[0].bookmarks = {late};
+    const QUuid id = project.entries().at(0).id;
+
+    // The replacement arrives with some other hold; the source's own wins, so
+    // the bookmark the review made at frame 70 survives.
+    auto replacement = std::make_shared<media::MediaSource>(QStringLiteral("board_v2.png"));
+    replacement->setStillImageOptions({48, {24, 1}});
+    QVERIFY(project.relinkSource(id, replacement, 72));
+    QCOMPARE(project.entries().at(0).source->stillImageOptions().holdFrames, int64_t{72});
+    QCOMPARE(project.entries().at(0).bookmarks, QVector<timeline::Bookmark>({late}));
+
+    // A video relinked to a still keeps the hold it was validated with.
+    project.addSource(std::make_shared<media::MediaSource>(QStringLiteral("clip.mp4")));
+    const QUuid videoId = project.entries().at(1).id;
+    auto stillForVideo = std::make_shared<media::MediaSource>(QStringLiteral("frame.png"));
+    stillForVideo->setStillImageOptions({30, {24, 1}});
+    QVERIFY(project.relinkSource(videoId, stillForVideo, 30));
+    QCOMPARE(project.entries().at(1).source->stillImageOptions().holdFrames, int64_t{30});
+}
 
 void TestProject::saveAsPersistsDestinationNameWithoutMutatingSource()
 {

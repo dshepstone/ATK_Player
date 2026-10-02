@@ -2,6 +2,7 @@
 
 #include "media/AudioBuffer.h"
 #include "media/MediaMetadata.h"
+#include "media/StillImage.h"
 #include "media/VideoFrame.h"
 #include "media/ffmpeg/FFmpegRaii.h"
 
@@ -41,6 +42,18 @@ enum class DecodeStatus {
 /// derived from it by exact rational arithmetic (see ffmpeg/FFmpegUtil.h).
 /// Indices are never obtained by counting decoded frames, because a counter
 /// becomes wrong the moment anything seeks.
+///
+/// STILL IMAGES
+/// ------------
+/// A path with a still-image extension (StillImage.h) is opened with the image2
+/// demuxer and pattern_type=none, so the name is always exactly one file and
+/// never a sequence pattern. The picture is decoded once during open(), every
+/// FFmpeg context is then released, and the decoder serves that picture as a
+/// synthesized stream of StillImageOptions::holdFrames frames: index N has
+/// ptsTicks N in a 1/frameRate time base, the count is exact
+/// (FrameCountSource::Synthesized) and there is no audio. Every consumer opens
+/// media through this class, which is why playlist, A/B, export and relink need
+/// no image code of their own.
 class MediaDecoder {
 public:
     MediaDecoder();
@@ -50,8 +63,10 @@ public:
     MediaDecoder& operator=(const MediaDecoder&) = delete;
 
     /// Opens and probes a file. On failure the decoder is left closed and
-    /// `error` receives a user-presentable message.
-    bool open(const QString& filePath, QString* error);
+    /// `error` receives a user-presentable message. `still` describes the hold
+    /// when the path is a still image and is ignored otherwise.
+    bool open(const QString& filePath, QString* error,
+              const StillImageOptions& still = {});
 
     /// Releases every FFmpeg resource. Safe to call when already closed.
     void close();
@@ -91,7 +106,11 @@ public:
     int64_t seekOperationCount() const { return m_seekOperationCount; }
 
     /// True once the video stream has been fully drained.
-    bool atEndOfVideo() const { return m_videoEof && m_pendingVideo.empty(); }
+    bool atEndOfVideo() const
+    {
+        return m_stillImage ? m_nextVideoFrameIndex >= m_metadata.frameCount
+                            : m_videoEof && m_pendingVideo.empty();
+    }
 
     // --- Audio ------------------------------------------------------------
 
@@ -132,6 +151,17 @@ private:
     DecodeStatus drain(QString* error);
 
     bool openVideoStream(QString* error);
+
+    /// The still-image half of open(): demuxes and decodes the one picture,
+    /// fills the synthesized metadata and releases every FFmpeg context.
+    bool openStillImage(const QString& filePath, const StillImageOptions& still,
+                        QString* error);
+
+    /// Decodes the single picture of an opened still into m_heldImage.
+    bool decodeStillPicture(QString* error);
+
+    /// The held picture presented as frame `index`, which must be in range.
+    VideoFrame heldFrame(int64_t index) const;
     bool openAudioStream(QString* error);
     void readMetadata();
 
@@ -171,6 +201,11 @@ private:
     int64_t m_seekOperationCount = 0;
     /// PTS of the next audio sample to be emitted, in output-format terms.
     int64_t m_nextAudioPtsUs = 0;
+
+    /// Set for a still image. m_heldImage is the decoded picture; it is
+    /// implicitly shared, so every synthesized frame references one buffer.
+    bool m_stillImage = false;
+    QImage m_heldImage;
 
     bool m_open = false;
     bool m_demuxEof = false;   ///< av_read_frame returned EOF

@@ -39,6 +39,14 @@ Component notices and configuration: dependencies/FFmpeg-NOTICES.txt and
 dependencies/FFmpeg-BUILD-CONFIGURATION.json. Corresponding patched source and
 the complete pinned vcpkg port/build source are included in dependencies/sources.
 
+zlib 1.3.2 (vcpkg port revision 2)
+----------------------------------
+FFmpeg is built with zlib so it can decode PNG, EXR and deflate-compressed TIFF
+still images. z.dll is the unmodified vcpkg zlib runtime, dynamically linked.
+Copyright (C) 1995-2026 Jean-loup Gailly and Mark Adler.
+License: zlib license (permissive). License text: zlib.txt
+Project and source: https://zlib.net/
+
 WiX Toolset 4.0.6 (MSI only)
 ---------------------------
 

@@ -31,6 +31,17 @@ QString MediaMetadata::shortDescription() const
     if (hasVideo && !resolution.isEmpty()) {
         parts << QStringLiteral("%1x%2").arg(resolution.width()).arg(resolution.height());
     }
+    if (isStillImage) {
+        // The rate and duration describe the hold, not the file, so say so
+        // rather than presenting a picture as if it were a two-second clip.
+        parts << QStringLiteral("Still image");
+        if (frameCount > 0 && frameRate.isValid()) {
+            parts << QStringLiteral("%1 frames @ %2 fps")
+                         .arg(frameCount)
+                         .arg(QString::number(frameRate.toDouble(), 'g', 5));
+        }
+        return parts.join(QStringLiteral(" • "));
+    }
     if (frameRate.isValid()) {
         // 'g' with 5 significant digits keeps 23.976 readable without turning
         // 24 into "24.000".

@@ -27,6 +27,18 @@ QString fixture() { return mediaFile("atk_fixture_48f.mkv"); }
 QString exportFixture() { return mediaFile("atk_export_120f.mkv"); }
 QString fractionalFixture() { return mediaFile("atk_export_23976_120f.mkv"); }
 QString longFixture() { return mediaFile("atk_sync_10s.mkv"); }
+QString stillFixture() { return mediaFile("atk_still_320x180.png"); }
+
+/// An export source for a still, opened with the hold the spec will carry.
+exporter::ExportSource stillSource(const media::StillImageOptions& hold, qint64 first, qint64 last)
+{
+    media::MediaDecoder decoder; QString error;
+    if (!decoder.open(stillFixture(), &error, hold)) return {};
+    exporter::ExportSource source;
+    source.path = stillFixture(); source.metadata = decoder.metadata(); source.still = hold;
+    source.rangeStartFrame = first; source.rangeEndFrame = last;
+    return source;
+}
 
 exporter::ExportSpec specFor(const QString& source, const QString& output, qint64 first, qint64 last)
 {
@@ -149,6 +161,9 @@ private slots:
     void burnInRasterIsBoundedAndCleanPathIsIdentical();
     void stillAndComparisonBurnInsUseSourceAFrame();
     void manualPrivateMediaAcceptance();
+    void stillSourceExportsHeldFramesWithoutAudio();
+    void stillSourceImageSequenceIsLossless();
+    void stillSourceBComposesOffline();
 };
 
 void TestExport::burnInStringsActivationAndSnapshotAreDeterministic()
@@ -507,6 +522,63 @@ void TestExport::manualPrivateMediaAcceptance()
         if (layout == playback::CompareLayout::Difference)
             QVERIFY(stats.firstImage.pixelColor(stats.firstImage.width() / 2, stats.firstImage.height() / 2).value() < 8);
     }
+}
+
+void TestExport::stillSourceExportsHeldFramesWithoutAudio()
+{
+    QTemporaryDir directory; QVERIFY(directory.isValid()); QString error;
+    exporter::ExportSpec spec;
+    spec.sourceA = stillSource({30, {24, 1}}, 0, 29);
+    QVERIFY(spec.sourceA.metadata.isStillImage);
+    spec.outputPath = QDir(directory.path()).filePath(QStringLiteral("still.mp4"));
+    spec.videoEncoder = exporter::FFmpegExporter::availableH264Encoder();
+    QCOMPARE(spec.frameCount(), qint64(30));
+    QCOMPARE(spec.audioSummary(), QStringLiteral("None"));
+    QVERIFY2(runExport(spec, &error), qPrintable(error));
+
+    const OutputStats stats = inspectOutput(spec.outputPath, &error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    verifyTiming(stats, 30, 24, 1);
+    QCOMPARE(stats.audioDuration, qint64(-1)); // no audio stream at all
+    const QImage reference(stillFixture());
+    QVERIFY(imageError(stats.firstImage, reference) < 12.0);
+    QVERIFY(imageError(stats.lastImage, reference) < 12.0);
+}
+
+void TestExport::stillSourceImageSequenceIsLossless()
+{
+    QTemporaryDir directory; QVERIFY(directory.isValid()); QString error;
+    exporter::ExportSpec spec;
+    spec.kind = exporter::ExportKind::ImageSequence;
+    spec.sourceA = stillSource({48, {24000, 1001}}, 5, 9);
+    spec.outputPath = QDir(directory.path()).filePath(QStringLiteral("held"));
+    spec.imagePrefix = QStringLiteral("board");
+    QVERIFY2(runExport(spec, &error), qPrintable(error));
+    const QStringList files = QDir(spec.outputPath).entryList({QStringLiteral("*.png")}, QDir::Files, QDir::Name);
+    QCOMPARE(files.size(), 5);
+    QCOMPARE(files.first(), QStringLiteral("board_0006.png"));
+    QCOMPARE(files.last(), QStringLiteral("board_0010.png"));
+    const QImage reference = QImage(stillFixture()).convertToFormat(QImage::Format_RGB32);
+    for (const QString& file : files)
+        QCOMPARE(QImage(QDir(spec.outputPath).filePath(file)).convertToFormat(QImage::Format_RGB32), reference);
+}
+
+void TestExport::stillSourceBComposesOffline()
+{
+    QTemporaryDir directory; QVERIFY(directory.isValid()); QString error;
+    auto spec = specFor(exportFixture(), QDir(directory.path()).filePath(QStringLiteral("wipe.png")), 0, 119);
+    spec.kind = exporter::ExportKind::CurrentFrame;
+    spec.firstFrame = spec.lastFrame = 50;
+    spec.comparison = true;
+    spec.sourceB = stillSource({120, {24, 1}}, 0, 119);
+    spec.layout = playback::CompareLayout::Wipe;
+    spec.wipePosition = 0; // all Source B
+    spec.audioMode = playback::CompareAudioMode::SourceB;
+    QCOMPARE(spec.audioSummary(), QStringLiteral("None"));
+    QVERIFY2(runExport(spec, &error), qPrintable(error));
+    const QImage png(spec.outputPath); QVERIFY(!png.isNull());
+    QCOMPARE(png.size(), spec.contentSize());
+    QVERIFY(imageError(png, QImage(stillFixture())) < 4.0);
 }
 
 QTEST_MAIN(TestExport)

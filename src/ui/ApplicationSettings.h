@@ -1,5 +1,7 @@
 #pragma once
 
+#include "media/StillImage.h"
+
 #include <QByteArray>
 #include <QHash>
 #include <QString>
@@ -29,6 +31,20 @@ public:
     static constexpr int maximumRecentProjects() { return 10; }
     static constexpr bool defaultApiEnabled() { return false; }
     static constexpr int defaultApiPort() { return 45571; }
+    /// Hold given to newly added still images. Existing sources keep the hold
+    /// they were added with; see media::StillImageOptions.
+    static constexpr int defaultStillImageHoldFrames()
+    {
+        return static_cast<int>(media::StillImageOptions::kDefaultHoldFrames);
+    }
+    static constexpr int minimumStillImageHoldFrames()
+    {
+        return static_cast<int>(media::StillImageOptions::kMinimumHoldFrames);
+    }
+    static constexpr int maximumStillImageHoldFrames()
+    {
+        return static_cast<int>(media::StillImageOptions::kMaximumHoldFrames);
+    }
 
     bool restoreWindowLayout() const;
     bool audioScrubEnabled() const;
@@ -41,6 +57,7 @@ public:
     QString lastProjectPath() const;
     bool apiEnabled() const;
     int apiPort() const;
+    int stillImageHoldFrames() const;
     /// Version string the welcome dialog was last shown for. Empty until the
     /// first launch after installation has shown it.
     QString welcomeShownVersion() const;
@@ -57,6 +74,7 @@ public:
     void setLastProjectPath(const QString& path);
     void setApiEnabled(bool value);
     void setApiPort(int value);
+    void setStillImageHoldFrames(int value);
     void setWelcomeShownVersion(const QString& version);
 
     QByteArray windowGeometry() const;

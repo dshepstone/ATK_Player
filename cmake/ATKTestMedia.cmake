@@ -160,7 +160,59 @@ function(atk_add_test_media)
         VERBATIM
     )
 
-    add_custom_target(atk_test_media DEPENDS "${lossless}" "${lossy}" "${sync}" "${review}" "${compare30}" "${compare60}" "${external32}" "${export120}" "${export23976}")
+    # Still-image fixtures. One picture each, from the same testsrc2 recipe:
+    #   320x180 PNG   -- lossless, so decoded pixels can be compared exactly
+    #   64x36 PNG     -- a second size, so two pictures can be told apart
+    #   320x180 JPEG  -- the common lossy still path (mjpeg decoder)
+    #   64x36 RGBA PNG, fully transparent -- proves alpha composites over black
+    #   320x180 EXR   -- only when this FFmpeg build has the EXR encoder
+    # Names avoid '%': cmd.exe may expand it in a build command line. The
+    # pattern-name case is built by the tests inside a temporary directory.
+    set(still_png   "${ATK_TEST_MEDIA_DIR}/atk_still_320x180.png")
+    set(still_small "${ATK_TEST_MEDIA_DIR}/atk_still_64x36.png")
+    set(still_jpg   "${ATK_TEST_MEDIA_DIR}/atk_still_320x180.jpg")
+    set(still_alpha "${ATK_TEST_MEDIA_DIR}/atk_still_alpha_64x36.png")
+    set(still_exr   "${ATK_TEST_MEDIA_DIR}/atk_still_320x180.exr")
+    set(still_outputs "${still_png}" "${still_small}" "${still_jpg}" "${still_alpha}")
+    set(still_commands
+        COMMAND "${ATK_FFMPEG_EXECUTABLE}" -hide_banner -loglevel error -y
+                -f lavfi -i "testsrc2=size=320x180:rate=24" -frames:v 1 -update 1
+                -c:v png -pix_fmt rgb24 "${still_png}"
+        COMMAND "${ATK_FFMPEG_EXECUTABLE}" -hide_banner -loglevel error -y
+                -f lavfi -i "testsrc2=size=64x36:rate=24" -frames:v 1 -update 1
+                -c:v png -pix_fmt rgb24 "${still_small}"
+        COMMAND "${ATK_FFMPEG_EXECUTABLE}" -hide_banner -loglevel error -y
+                -f lavfi -i "testsrc2=size=320x180:rate=24" -frames:v 1 -update 1
+                -c:v mjpeg -pix_fmt yuvj420p -q:v 2 "${still_jpg}"
+        COMMAND "${ATK_FFMPEG_EXECUTABLE}" -hide_banner -loglevel error -y
+                -f lavfi -i "color=c=white@0.0:size=64x36:rate=24,format=rgba" -frames:v 1 -update 1
+                -c:v png -pix_fmt rgba "${still_alpha}")
+
+    # The EXR encoder exists only when FFmpeg was built with zlib. Asking the
+    # tool, rather than assuming, keeps an older dependency tree configuring.
+    set(ATK_TEST_MEDIA_HAS_EXR OFF)
+    execute_process(
+        COMMAND "${ATK_FFMPEG_EXECUTABLE}" -hide_banner -encoders
+        OUTPUT_VARIABLE _atk_ffmpeg_encoders ERROR_QUIET RESULT_VARIABLE _atk_encoders_result)
+    if(_atk_encoders_result EQUAL 0 AND _atk_ffmpeg_encoders MATCHES " V[A-Z.]+ exr ")
+        set(ATK_TEST_MEDIA_HAS_EXR ON)
+        list(APPEND still_outputs "${still_exr}")
+        list(APPEND still_commands
+            COMMAND "${ATK_FFMPEG_EXECUTABLE}" -hide_banner -loglevel error -y
+                    -f lavfi -i "testsrc2=size=320x180:rate=24" -frames:v 1 -update 1
+                    -c:v exr -pix_fmt gbrpf32le "${still_exr}")
+    endif()
+    set(ATK_TEST_MEDIA_HAS_EXR ${ATK_TEST_MEDIA_HAS_EXR} PARENT_SCOPE)
+
+    add_custom_command(
+        OUTPUT ${still_outputs}
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${ATK_TEST_MEDIA_DIR}"
+        ${still_commands}
+        COMMENT "Generating still-image test fixtures"
+        VERBATIM
+    )
+
+    add_custom_target(atk_test_media DEPENDS "${lossless}" "${lossy}" "${sync}" "${review}" "${compare30}" "${compare60}" "${external32}" "${export120}" "${export23976}" ${still_outputs})
     set_target_properties(atk_test_media PROPERTIES FOLDER "Tests")
 
     # Validate what was produced rather than trusting the recipe. If a future
@@ -171,6 +223,7 @@ function(atk_add_test_media)
             COMMAND "${CMAKE_COMMAND}"
                     -DFFPROBE=${ATK_FFPROBE_EXECUTABLE}
                     -DMEDIA_DIR=${ATK_TEST_MEDIA_DIR}
+                    -DHAS_EXR=${ATK_TEST_MEDIA_HAS_EXR}
                     -P "${ATK_TEST_MEDIA_MODULE_DIR}/ValidateTestMedia.cmake"
         )
         set_tests_properties(fixture_validation PROPERTIES FIXTURES_SETUP atk_media)

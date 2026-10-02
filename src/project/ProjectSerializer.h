@@ -1,5 +1,7 @@
 #pragma once
 
+#include "media/StillImage.h"
+
 #include <QString>
 
 #include <utility>
@@ -63,7 +65,12 @@ public:
     static SerializerResult saveAs(const Project& project, const QString& filePath);
 
     /// Replaces the contents of `project` with the file at `filePath`.
-    static SerializerResult load(Project& project, const QString& filePath);
+    ///
+    /// Still-image sources carry their hold in an optional "still" object.
+    /// `defaultStill` is used only for a still-image source saved without one;
+    /// a present but malformed object rejects the project.
+    static SerializerResult load(Project& project, const QString& filePath,
+                                 const media::StillImageOptions& defaultStill = {});
 };
 
 } // namespace atk::project

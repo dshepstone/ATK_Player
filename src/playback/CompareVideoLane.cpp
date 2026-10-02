@@ -44,7 +44,7 @@ void CompareVideoLane::open(const QUuid& id, const std::shared_ptr<media::MediaS
     const quint64 generation = m_generations->bumpSource();
     m_cache.setSourceGeneration(generation);
     emit loadingChanged(true);
-    emit requestOpen(source->filePath(), generation);
+    emit requestOpen(source->filePath(), generation, source->stillImageOptions());
 }
 void CompareVideoLane::close()
 {

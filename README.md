@@ -100,6 +100,21 @@ ATK Player includes animation-focused audio tools for timing, dialogue, and lip-
 - Persistent volume and mute controls
 - Audio synchronization after seeks and range changes
 
+### Still Images
+
+Single image files open anywhere a video does: Open Media, Add to Playlist,
+Relink, drag and drop onto the window, projects, A/B comparison and every
+export kind.
+
+- PNG, JPEG, TIFF, BMP, TGA, WebP and OpenEXR
+- Each still is held for a set number of frames at 24 fps (default 48; at least 10)
+- **Preferences → Review → Still image duration** sets the hold for newly added stills
+- A source keeps its hold in the project, so changing the preference never moves saved bookmarks
+- File names containing digits or `%` always open exactly one file, never a sequence
+- Transparent pixels are shown over black; EXR is displayed with an sRGB transfer (no colour management)
+
+Image sequences are planned separately; see [docs/STILL_IMAGE_SOURCES.md](docs/STILL_IMAGE_SOURCES.md).
+
 ### Timeline and Review Ranges
 
 The timeline provides a dedicated animation-review range that controls playback, looping, waveform display, and review operations.
@@ -254,6 +269,7 @@ Clean output without burn-ins remains the default.
 Displays information about the active media including:
 
 - Source name
+- Type (video or still image)
 - Duration
 - Resolution
 - Frame count
@@ -553,6 +569,7 @@ before making structural changes. It documents layer boundaries, threading, owne
 | [docs/BUILDING.md](docs/BUILDING.md) | Build prerequisites, presets and development setup |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Development milestones |
 | [docs/API.md](docs/API.md) | Local API protocol and commands |
+| [docs/STILL_IMAGE_SOURCES.md](docs/STILL_IMAGE_SOURCES.md) | Still-image sources design and image-sequence plan |
 | [docs/THIRD_PARTY_LICENSES.md](docs/THIRD_PARTY_LICENSES.md) | Third-party dependency and distribution information |
 | [packaging/windows/README.md](packaging/windows/README.md) | Windows installer and packaging workflow |
 

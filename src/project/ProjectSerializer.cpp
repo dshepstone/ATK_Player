@@ -11,6 +11,8 @@
 #include <QJsonObject>
 #include <QSaveFile>
 
+#include <limits>
+
 namespace atk::project {
 namespace {
 constexpr int kVersion = 1;
@@ -43,6 +45,38 @@ bool integer(const QJsonValue& value, qint64* out)
     *out = converted;
     return true;
 }
+
+/// A still image's hold is saved with the source, so bookmarks and the review
+/// range keep the extent they were made against even if the application's
+/// default hold later changes.
+QJsonObject stillJson(const media::StillImageOptions& still)
+{
+    return {{QStringLiteral("holdFrames"), static_cast<double>(still.holdFrames)},
+            {QStringLiteral("frameRate"), QJsonObject{
+                {QStringLiteral("numerator"), still.frameRate.numerator},
+                {QStringLiteral("denominator"), still.frameRate.denominator}}}};
+}
+
+bool readStill(const QJsonValue& value, media::StillImageOptions* out)
+{
+    if (!value.isObject()) return false;
+    const QJsonObject object = value.toObject();
+    const QJsonObject rate = object.value(QStringLiteral("frameRate")).toObject();
+    qint64 hold = 0, numerator = 0, denominator = 0;
+    if (!integer(object.value(QStringLiteral("holdFrames")), &hold)
+        || !integer(rate.value(QStringLiteral("numerator")), &numerator)
+        || !integer(rate.value(QStringLiteral("denominator")), &denominator)
+        || numerator <= 0 || denominator <= 0
+        || numerator > std::numeric_limits<int>::max()
+        || denominator > std::numeric_limits<int>::max())
+        return false;
+    media::StillImageOptions still;
+    still.holdFrames = hold;
+    still.frameRate = {static_cast<int>(numerator), static_cast<int>(denominator)};
+    if (!still.isValid()) return false;
+    *out = still;
+    return true;
+}
 }
 
 QString ProjectSerializer::fileExtension() { return QStringLiteral("atkproj"); }
@@ -66,11 +100,15 @@ static SerializerResult saveWithName(const Project& project, const QString& file
             {QStringLiteral("endFrame"), static_cast<double>(range.endFrame)},
             {QStringLiteral("enabled"), range.enabled}}},
             {QStringLiteral("bookmarks"), bookmarks}};
-        sources.append(QJsonObject{{QStringLiteral("id"), entry.id.toString(QUuid::WithoutBraces)},
+        QJsonObject source{{QStringLiteral("id"), entry.id.toString(QUuid::WithoutBraces)},
             {QStringLiteral("path"), storedMediaPath(entry.source->filePath(), filePath)},
             {QStringLiteral("displayName"), entry.displayName.isEmpty() ? entry.source->displayName() : entry.displayName},
             {QStringLiteral("frameOffset"), static_cast<double>(entry.frameOffset)},
-            {QStringLiteral("review"), review}});
+            {QStringLiteral("review"), review}};
+        // Additive v1 field: older readers ignore it, and video sources omit it.
+        if (entry.source->isStillImage())
+            source.insert(QStringLiteral("still"), stillJson(entry.source->stillImageOptions()));
+        sources.append(source);
     }
     const QJsonObject root{{QStringLiteral("format"), QStringLiteral("ATKProject")},
         {QStringLiteral("version"), kVersion}, {QStringLiteral("name"), projectName},
@@ -93,7 +131,8 @@ SerializerResult ProjectSerializer::saveAs(const Project& project, const QString
     return saveWithName(project, filePath, QFileInfo(filePath).completeBaseName());
 }
 
-SerializerResult ProjectSerializer::load(Project& project, const QString& filePath)
+SerializerResult ProjectSerializer::load(Project& project, const QString& filePath,
+                                         const media::StillImageOptions& defaultStill)
 {
     QFile file(filePath);
     if (!file.open(QIODevice::ReadOnly)) return SerializerResult::failure(file.errorString());
@@ -129,6 +168,13 @@ SerializerResult ProjectSerializer::load(Project& project, const QString& filePa
         entry.id = id; entry.storedPath = storedPath;
         entry.displayName = object.value(QStringLiteral("displayName")).toString();
         entry.source = std::make_shared<media::MediaSource>(resolved);
+        if (entry.source->isStillImage()) {
+            media::StillImageOptions still = defaultStill.normalized();
+            if (object.contains(QStringLiteral("still"))
+                && !readStill(object.value(QStringLiteral("still")), &still))
+                return SerializerResult::failure(QStringLiteral("A still image source has an invalid hold."));
+            entry.source->setStillImageOptions(still);
+        }
         entry.missing = !QFileInfo::exists(resolved);
         entry.availability = entry.missing ? SourceAvailability::Missing : SourceAvailability::Unknown;
         qint64 offset = 0;

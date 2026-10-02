@@ -38,6 +38,7 @@ set(ATK_FFMPEG_TEST_SOURCES
     tst_playbackinteraction.cpp
     tst_playlistprobe.cpp
     tst_export.cpp
+    tst_stillimage.cpp
 )
 
 set(ATK_UI_TEST_SOURCES
@@ -85,7 +86,8 @@ foreach(test_source IN LISTS ATK_TEST_SOURCES ATK_FFMPEG_TEST_SOURCES ATK_UI_TES
         # run time, so a test cannot silently look in the wrong place and pass
         # by skipping.
         target_compile_definitions(${test_name}
-            PRIVATE ATK_TEST_MEDIA_DIR="${ATK_TEST_MEDIA_DIR}")
+            PRIVATE ATK_TEST_MEDIA_DIR="${ATK_TEST_MEDIA_DIR}"
+                    ATK_TEST_MEDIA_HAS_EXR=$<BOOL:${ATK_TEST_MEDIA_HAS_EXR}>)
 
         if(TARGET atk_test_media)
             add_dependencies(${test_name} atk_test_media)

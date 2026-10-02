@@ -56,6 +56,9 @@ enum class FrameCountSource {
     EstimatedFromDuration,
     /// Established by actually decoding to the end.
     Counted,
+    /// Synthesized by the decoder rather than read from the file: a still
+    /// image held for a chosen number of frames. Exact by construction.
+    Synthesized,
 };
 
 /// Everything ATK Player knows about a media file after probing it.
@@ -72,6 +75,10 @@ struct MediaMetadata {
 
     // --- Video ------------------------------------------------------------
     bool hasVideo = false;
+    /// A single picture held for a synthesized extent; see StillImage.h. The
+    /// frame rate, time base and frame count then describe the hold, not the
+    /// file.
+    bool isStillImage = false;
     int videoStreamIndex = -1;
     QString videoCodecName;     ///< e.g. "h264"
     QString videoCodecLongName;
@@ -114,7 +121,8 @@ struct MediaMetadata {
     bool hasExactFrameCount() const
     {
         return frameCountSource == FrameCountSource::StreamMetadata
-            || frameCountSource == FrameCountSource::Counted;
+            || frameCountSource == FrameCountSource::Counted
+            || frameCountSource == FrameCountSource::Synthesized;
     }
 
     /// Last valid frame index, or -1 when there is no count.

@@ -90,7 +90,8 @@ public:
                  const QUuid& currentSourceId);
     /// Replaces only the media descriptor for an existing stable source.
     /// Bookmarks outside the replacement extent are discarded; the review
-    /// range is clamped. Returns false without mutation for invalid input.
+    /// range is clamped. A still-image source's hold carries over to the
+    /// replacement. Returns false without mutation for invalid input.
     bool relinkSource(const QUuid& id, std::shared_ptr<media::MediaSource> source,
                       int64_t replacementFrameCount);
     bool beginProbe(const QUuid& id, const QString& path, quint64 token);

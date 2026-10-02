@@ -79,7 +79,9 @@ public:
     static constexpr int64_t kMaxAudioBytesPerStep = 64 * 1024;
 
 public slots:
-    void openMedia(const QString& filePath, quint64 sourceGeneration);
+    /// `still` is the hold to synthesize when `filePath` is a still image.
+    void openMedia(const QString& filePath, quint64 sourceGeneration,
+                   const atk::media::StillImageOptions& still = {});
     void closeMedia();
 
     /// Decodes and emits exactly this frame. Used by stepping and seeking.

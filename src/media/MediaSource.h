@@ -1,6 +1,7 @@
 #pragma once
 
 #include "media/MediaMetadata.h"
+#include "media/StillImage.h"
 
 #include <QString>
 
@@ -35,6 +36,18 @@ public:
     /// True once metadata has been populated by a successful open.
     bool isProbed() const { return m_metadata.isValid(); }
 
+    /// How this source is held when it is a still image. Ignored for video.
+    /// Stored per source (and in .atkproj) so the extent bookmarks were made
+    /// against cannot change when the application preference does.
+    const StillImageOptions& stillImageOptions() const { return m_stillImage; }
+    void setStillImageOptions(const StillImageOptions& options)
+    {
+        m_stillImage = options.normalized();
+    }
+
+    /// True when the file is opened as a single held picture.
+    bool isStillImage() const { return isStillImagePath(m_filePath); }
+
     /// Frames added to the master frame number before reading from this source.
     /// May be negative.
     int64_t frameOffset() const { return m_frameOffset; }
@@ -43,6 +56,7 @@ public:
 private:
     QString m_filePath;
     MediaMetadata m_metadata;
+    StillImageOptions m_stillImage;
     int64_t m_frameOffset = 0;
 };
 

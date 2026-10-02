@@ -28,6 +28,7 @@
 #include <QTableWidget>
 #include <QKeySequenceEdit>
 #include <QPushButton>
+#include <QSpinBox>
 #include <QWidget>
 
 using atk::commands::CommandId;
@@ -55,6 +56,7 @@ private slots:
     void recentProjectsAndReopenPreference();
     void apiDefaultsPersistenceAndPortFailure();
     void apiProjectSaveAsRoundTripPersistsFilenameName();
+    void stillImageHoldPreference();
 };
 
 void TestSettings::apiProjectSaveAsRoundTripPersistsFilenameName()
@@ -461,6 +463,46 @@ void TestSettings::shortcutEditorClearAndResetSelected()
     QVERIFY(editor->keySequence().isEmpty());
     QTest::mouseClick(reset, Qt::LeftButton);
     QCOMPARE(dialog.shortcuts().value(QStringLiteral("view.zoomFit")), QStringLiteral("Ctrl+0"));
+}
+
+void TestSettings::stillImageHoldPreference()
+{
+    QTemporaryDir directory;
+    const QString file = directory.filePath(QStringLiteral("settings.ini"));
+    ApplicationSettings settings(file);
+    QCOMPARE(settings.stillImageHoldFrames(), 48);
+    QCOMPARE(ApplicationSettings::minimumStillImageHoldFrames(), 10);
+    settings.setStillImageHoldFrames(120);
+    settings.sync();
+    QCOMPARE(ApplicationSettings(file).stillImageHoldFrames(), 120);
+
+    // The setter clamps to the timeline's ten-frame minimum span.
+    settings.setStillImageHoldFrames(3);
+    settings.sync();
+    QCOMPARE(ApplicationSettings(file).stillImageHoldFrames(), 10);
+
+    // Hand-edited values outside the range fall back to the default.
+    for (const QString& bad : {QStringLiteral("abc"), QStringLiteral("4"), QStringLiteral("999999")}) {
+        QSettings raw(file, QSettings::IniFormat);
+        raw.setValue(QStringLiteral("media/stillImageHoldFrames"), bad);
+        raw.sync();
+        QCOMPARE(ApplicationSettings(file).stillImageHoldFrames(), 48);
+    }
+
+    // The Review tab edits a draft; the value reaches settings only on OK.
+    ApplicationSettings draftSource(file);
+    draftSource.setStillImageHoldFrames(36);
+    CommandRegistry registry;
+    PreferencesDialog dialog(draftSource, registry);
+    auto* hold = dialog.findChild<QSpinBox*>(QStringLiteral("PreferenceStillHoldFrames"));
+    QVERIFY(hold);
+    QCOMPARE(hold->value(), 36);
+    QCOMPARE(hold->minimum(), 10);
+    hold->setValue(5);
+    QCOMPARE(dialog.stillImageHoldFrames(), 10);
+    hold->setValue(72);
+    QCOMPARE(dialog.stillImageHoldFrames(), 72);
+    QCOMPARE(draftSource.stillImageHoldFrames(), 36);
 }
 
 QTEST_MAIN(TestSettings)

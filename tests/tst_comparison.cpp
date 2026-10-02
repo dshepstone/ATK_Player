@@ -64,6 +64,18 @@ QString writeIdenticalProject(QTemporaryDir& directory)
         ? projectPath : QString();
 }
 
+QString writeStillComparisonProject(QTemporaryDir& directory)
+{
+    atk::project::Project project;
+    project.addSource(std::make_shared<atk::media::MediaSource>(media("atk_fixture_48f.mkv")));
+    auto still = std::make_shared<atk::media::MediaSource>(media("atk_still_320x180.png"));
+    still->setStillImageOptions({48, {24, 1}});
+    project.addSource(still);
+    project.setActiveIndex(0);
+    const QString path = directory.filePath(QStringLiteral("still-comparison.atkproj"));
+    return atk::project::ProjectSerializer::save(project, path).ok ? path : QString();
+}
+
 QAction* command(atk::ui::MainWindow& window, const char* key)
 {
     return window.findChild<QAction*>(QString::fromLatin1(key));
@@ -94,6 +106,7 @@ private slots:
     void independentAndCompositeTransformsArePreserved();
     void comparisonSourceSelectionsRemainAuthoritativeAcrossLayouts();
     void comparisonApiSourceAStaysAuthoritativeAcrossLayoutChange();
+    void stillImageSourceBHoldsMappedFrameWithoutAudio();
 };
 
 void TestComparison::timestampMappingHasNoCumulativeDrift()
@@ -770,6 +783,43 @@ void TestComparison::comparisonApiSourceAStaysAuthoritativeAcrossLayoutChange()
     QVERIFY(!rejected.ok);
     QCOMPARE(window.compareSession()->sourceAId(), y);
     QCOMPARE(window.project()->currentSourceId(), y);
+}
+
+void TestComparison::stillImageSourceBHoldsMappedFrameWithoutAudio()
+{
+    QTemporaryDir directory;
+    atk::ui::MainWindow window(directory.filePath(QStringLiteral("settings.ini")));
+    QVERIFY(window.openProjectFile(writeStillComparisonProject(directory)));
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->state(), PlayerState::Ready, 10000);
+    command(window, "view.toggleComparison")->trigger();
+    QTRY_VERIFY(window.isComparisonActive());
+    QTRY_COMPARE(window.compareSession()->sourceBId(), window.project()->entries().at(1).id);
+    QTRY_VERIFY_WITH_TIMEOUT(window.compareVideoLane()->isReady(), 10000);
+
+    // B opened through the same MediaDecoder path, with the source's hold.
+    const auto& b = window.compareVideoLane()->metadata();
+    QVERIFY(b.isStillImage);
+    QVERIFY(!b.hasAudio);
+    QCOMPARE(b.frameCount, qint64(48));
+
+    // Matching 24/1 grids map A frame N to B frame N exactly.
+    window.playbackController()->seekFrame(24);
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->currentFrame(), qint64(24), 5000);
+    QTRY_COMPARE_WITH_TIMEOUT(window.compareVideoLane()->presentedFrameIndex(), qint64(24), 5000);
+    const QImage reference = QImage(media("atk_still_320x180.png")).convertToFormat(QImage::Format_RGB32);
+    QCOMPARE(window.compareVideoLane()->presentedFrame().image, reference);
+
+    // Selecting the still as the soundtrack is silence, not an error.
+    auto* audioMode = window.findChild<QComboBox*>(QStringLiteral("CompareAudioMode"));
+    QVERIFY(audioMode);
+    audioMode->setCurrentIndex(1);
+    QTRY_COMPARE(window.compareSession()->audioMode(), atk::playback::CompareAudioMode::SourceB);
+    QTest::qWait(300);
+    QVERIFY(!window.playbackController()->comparisonAudioAvailable());
+    QVERIFY(window.playbackController()->state() != PlayerState::Error);
+
+    window.playbackController()->stepForward();
+    QTRY_COMPARE_WITH_TIMEOUT(window.compareVideoLane()->presentedFrameIndex(), qint64(25), 5000);
 }
 
 QTEST_MAIN(TestComparison)

@@ -30,6 +30,7 @@ class TestMediaInformation : public QObject {
 private slots:
     void formatsMetadataAndCopiesSafely();
     void commandOwnsOneRefreshingDialog();
+    void stillImageIsLabelled();
 };
 
 void TestMediaInformation::formatsMetadataAndCopiesSafely()
@@ -58,6 +59,7 @@ void TestMediaInformation::formatsMetadataAndCopiesSafely()
     dialog.setMediaInformation(metadata, 160);
     QCOMPARE(value(&dialog, "Name")->text(), QStringLiteral("review.mov"));
     QCOMPARE(value(&dialog, "Source")->text(), QStringLiteral("review.mov"));
+    QCOMPARE(value(&dialog, "Type")->text(), QStringLiteral("Video"));
     QCOMPARE(value(&dialog, "Duration")->text(), QStringLiteral("00:00:06.667"));
     QCOMPARE(value(&dialog, "NormalSize")->text(), QStringLiteral("1920 × 1080"));
     QCOMPARE(value(&dialog, "CurrentSize")->text(), QStringLiteral("—"));
@@ -96,6 +98,7 @@ void TestMediaInformation::formatsMetadataAndCopiesSafely()
 
     const QString copied = dialog.copyText();
     QVERIFY(copied.contains(QStringLiteral("Source: review.mov")));
+    QVERIFY(copied.contains(QStringLiteral("Type: Video")));
     QVERIFY(copied.contains(QStringLiteral("Frames: 160")));
     QVERIFY(copied.contains(QStringLiteral("Codec: H.264 (AVC)")));
     QVERIFY(copied.contains(QStringLiteral("Codec: Opus")));
@@ -157,6 +160,27 @@ void TestMediaInformation::commandOwnsOneRefreshingDialog()
     window.playbackController()->closeMedia();
     QTRY_COMPARE(value(dialog, "Name")->text(), QStringLiteral("No Media"));
     QCOMPARE(value(dialog, "Source")->text(), QStringLiteral("—"));
+}
+
+void TestMediaInformation::stillImageIsLabelled()
+{
+    atk::ui::MainWindow window;
+    window.findChild<QAction*>(QStringLiteral("view.mediaInformation"))->trigger();
+    auto* dialog = window.findChild<atk::ui::MediaInformationDialog*>();
+    QVERIFY(dialog);
+
+    window.playbackController()->openMedia(fixture("atk_still_320x180.png"), {24, {24, 1}});
+    QTRY_VERIFY_WITH_TIMEOUT(window.playbackController()->hasMedia(), 10000);
+    QTRY_COMPARE_WITH_TIMEOUT(value(dialog, "Source")->text(),
+                              QStringLiteral("atk_still_320x180.png"), 10000);
+    QCOMPARE(value(dialog, "Type")->text(), QStringLiteral("Still image"));
+    QCOMPARE(value(dialog, "Frames")->text(), QStringLiteral("24"));
+    QCOMPARE(value(dialog, "FrameRate")->text(), QStringLiteral("24 fps"));
+    QCOMPARE(value(dialog, "Duration")->text(), QStringLiteral("00:00:01.000"));
+    QCOMPARE(value(dialog, "NormalSize")->text(), QStringLiteral("320 × 180"));
+    QCOMPARE(value(dialog, "VideoCodec")->text(), QStringLiteral("PNG"));
+    QCOMPARE(value(dialog, "AudioCodec")->text(), QStringLiteral("None"));
+    QVERIFY(dialog->copyText().contains(QStringLiteral("Type: Still image")));
 }
 
 QTEST_MAIN(TestMediaInformation)
