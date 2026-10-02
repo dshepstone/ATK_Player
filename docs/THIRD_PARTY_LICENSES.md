@@ -12,11 +12,11 @@ It is maintained alongside the source code so dependency versions, linkage choic
 
 ## Distribution Status
 
-ATK Player 0.2.1 is released as open-source software under the MIT License.
+ATK Player 0.3.0 is released as open-source software under the MIT License.
 
 Windows packaging supplies the project MIT, Qt LGPL v3 and FFmpeg LGPL v2.1 texts plus `licenses/dependencies`: GPL v3, WiX MS-RL, upstream component notices, build configuration/SBOM records, and matching Qt, patched FFmpeg, WiX and vcpkg source. These materials are installed inside the MSI and included in portable archives made from the same stage. See [SIGNPATH_READINESS_AUDIT.md](SIGNPATH_READINESS_AUDIT.md) and [SOURCE_MATERIALS.md](../packaging/windows/SOURCE_MATERIALS.md) for the verified inventory, rebuild/relink instructions and source-only fixture exclusions.
 
-The major redistributed components in ATK Player 0.2.1 are:
+The major redistributed components in ATK Player 0.3.0 are:
 
 - ATK Player — MIT License
 - Qt 6.9.3 — LGPL v3, dynamically linked
@@ -77,7 +77,7 @@ ATK Player uses FFmpeg for media decoding and processing.
 
 ATK Player dynamically links the application-required FFmpeg runtime libraries.
 
-The Windows 0.2.1 distribution includes:
+The Windows 0.3.0 distribution includes:
 
 ```text
 avcodec-63.dll
@@ -115,7 +115,7 @@ ffprobe.exe
 
 These utilities are used for development, testing, fixture generation, and validation.
 
-They are **not distributed** in the ATK Player 0.2.1 Windows MSI or portable package.
+They are **not distributed** in the ATK Player 0.3.0 Windows MSI or portable package.
 
 ### FFmpeg Licence Files
 
@@ -193,7 +193,7 @@ Copyright © 2026 David Shepstone.
 
 The Windows ATK Player distribution includes a `licenses` directory containing the applicable project and third-party licence information.
 
-For ATK Player 0.2.1 this includes:
+For ATK Player 0.3.0 this includes:
 
 ```text
 ATK-Player-MIT.txt

@@ -6,7 +6,7 @@ Qt LGPL v3 and FFmpeg LGPL v2.1 texts are installed beside it. Additional licens
 texts, component notices, build records and matching source are installed in
 licenses/dependencies. See dependencies/SOURCE_MATERIALS.md and SHA256SUMS.txt.
 
-ATK Player 0.2.1
+ATK Player 0.3.0
 ----------------
 Copyright (c) 2026 David Shepstone.
 Licensed under the MIT License.

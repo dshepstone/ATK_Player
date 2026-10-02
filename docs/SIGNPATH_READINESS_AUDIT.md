@@ -3,6 +3,36 @@
 Audit date: 2026-09-28. Branch: `signpath-readiness`, based on `d96d2d5`.
 Scope: Windows x64 distribution readiness. The original September 28 audit was local only. On September 30 the maintainer authorized publishing and merging the readiness changes and updating public release-page policy links. Signing integration and application submission remain separate steps.
 
+## 0.3.0 Addendum (2026-10-01)
+
+This audit was performed for **0.2.1**. Its sections below still describe that
+release and were **not** re-performed in full for 0.3.0. The changes that
+matter for distribution since then are:
+
+- **Version.** The root CMake version is 0.3.0. It feeds the EXE, the MSI
+  ProductVersion and the artifact names (`ATK-Player-0.3.0-Windows-x64.msi`).
+- **New runtime dependency: zlib 1.3.2** (vcpkg `zlib` 1.3.2#2, zlib license,
+  permissive, not GPL/nonfree).
+  - It is enabled through the vcpkg `ffmpeg[zlib]` feature, so FFmpeg can
+    decode PNG, EXR and deflate TIFF still images.
+  - The distribution now contains **six** FFmpeg-side DLLs: the five below
+    plus `z.dll`.
+  - Its licence ships as `licenses/zlib.txt` and in `THIRD_PARTY_NOTICES.txt`.
+    The zlib licence does not require source distribution.
+  - `build-installer.ps1` and `verify-installer.ps1` require `z.dll` and
+    `zlib.txt` in the stage and the MSI.
+- **FFmpeg configuration.** It now includes `--enable-zlib`. No other feature
+  changed. GPL, nonfree, version3, x264, x265 and fdk-aac remain excluded.
+- **Not yet covered.**
+  - `FFmpeg-BUILD-CONFIGURATION.json` records the five FFmpeg libraries only;
+    `z.dll` is not in that record.
+  - The SignPath-specific checks in sections 11–13 have not been repeated
+    for 0.3.0.
+
+Local 0.3.0 package evidence: `build-installer.ps1 -VersionSuffix ""` passed.
+That run covered configure, build, the full CTest suite (32/32), the
+dependency-material tests, the clean-PATH smoke test and MSI verification.
+
 ## Overall Status
 
 **READY WITH ACTIONS** — the identified dependency notice and corresponding-source gaps are addressed by the new packaging path. Icon ownership and GitHub MFA were confirmed by David Shepstone on September 30. Public policy links are included in the authorized publication follow-up. Foundation approval/account controls, clean-install acceptance and official package CI provenance remain outstanding. Previously published packages are not retroactively corrected.
