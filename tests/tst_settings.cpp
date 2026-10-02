@@ -28,6 +28,7 @@
 #include <QTableWidget>
 #include <QKeySequenceEdit>
 #include <QPushButton>
+#include <QComboBox>
 #include <QSpinBox>
 #include <QWidget>
 
@@ -57,6 +58,7 @@ private slots:
     void apiDefaultsPersistenceAndPortFailure();
     void apiProjectSaveAsRoundTripPersistsFilenameName();
     void stillImageHoldPreference();
+    void imageSequenceRatePreference();
 };
 
 void TestSettings::apiProjectSaveAsRoundTripPersistsFilenameName()
@@ -503,6 +505,39 @@ void TestSettings::stillImageHoldPreference()
     hold->setValue(72);
     QCOMPARE(dialog.stillImageHoldFrames(), 72);
     QCOMPARE(draftSource.stillImageHoldFrames(), 36);
+}
+
+void TestSettings::imageSequenceRatePreference()
+{
+    QTemporaryDir directory;
+    const QString file = directory.filePath(QStringLiteral("settings.ini"));
+    ApplicationSettings settings(file);
+    QCOMPARE(settings.imageSequenceFrameRate(), (atk::media::FrameRate{24, 1}));
+    settings.setImageSequenceFrameRate({24000, 1001});
+    settings.sync();
+    // Stored as an exact rational, never a rounded 23.976.
+    QCOMPARE(QSettings(file, QSettings::IniFormat).value(QStringLiteral("media/imageSequenceFrameRate")).toString(),
+             QStringLiteral("24000/1001"));
+    QCOMPARE(ApplicationSettings(file).imageSequenceFrameRate(), (atk::media::FrameRate{24000, 1001}));
+
+    for (const QString& bad : {QStringLiteral("abc"), QStringLiteral("0/1"), QStringLiteral("24")}) {
+        QSettings raw(file, QSettings::IniFormat);
+        raw.setValue(QStringLiteral("media/imageSequenceFrameRate"), bad);
+        raw.sync();
+        QCOMPARE(ApplicationSettings(file).imageSequenceFrameRate(), (atk::media::FrameRate{24, 1}));
+    }
+
+    ApplicationSettings draftSource(file);
+    draftSource.setImageSequenceFrameRate({30000, 1001});
+    CommandRegistry registry;
+    PreferencesDialog dialog(draftSource, registry);
+    auto* rate = dialog.findChild<QComboBox*>(QStringLiteral("PreferenceSequenceFrameRate"));
+    QVERIFY(rate);
+    QCOMPARE(rate->count(), 9);
+    QCOMPARE(rate->currentText(), QStringLiteral("29.97 fps"));
+    QCOMPARE(dialog.imageSequenceFrameRate(), (atk::media::FrameRate{30000, 1001}));
+    rate->setCurrentIndex(rate->findText(QStringLiteral("25 fps")));
+    QCOMPARE(dialog.imageSequenceFrameRate(), (atk::media::FrameRate{25, 1}));
 }
 
 QTEST_MAIN(TestSettings)

@@ -69,7 +69,7 @@ QString writeStillComparisonProject(QTemporaryDir& directory)
     atk::project::Project project;
     project.addSource(std::make_shared<atk::media::MediaSource>(media("atk_fixture_48f.mkv")));
     auto still = std::make_shared<atk::media::MediaSource>(media("atk_still_320x180.png"));
-    still->setStillImageOptions({48, {24, 1}});
+    still->setImageOptions({48, {24, 1}});
     project.addSource(still);
     project.setActiveIndex(0);
     const QString path = directory.filePath(QStringLiteral("still-comparison.atkproj"));

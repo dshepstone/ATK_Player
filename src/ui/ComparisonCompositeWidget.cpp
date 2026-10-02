@@ -28,6 +28,7 @@ void ComparisonCompositeWidget::zoomIn() { m_transform.zoomAt(ViewerTransform::k
 void ComparisonCompositeWidget::zoomOut() { m_transform.zoomAt(1.0 / ViewerTransform::kWheelStepFactor, rect().center()); emit zoomChanged(m_transform.zoomRatio() * 100.0, m_transform.isFit()); update(); }
 void ComparisonCompositeWidget::restoreTransform(const ViewerTransform& value) { m_transform = value; m_transform.setDevicePixelRatio(devicePixelRatioF()); m_transform.setViewportSize(size()); update(); }
 void ComparisonCompositeWidget::setVideoOnlyPresentation(bool value) { m_videoOnlyPresentation = value; update(); }
+void ComparisonCompositeWidget::setFlipHorizontal(bool flipped) { if (m_flipHorizontal == flipped) return; m_flipHorizontal = flipped; update(); }
 
 QImage ComparisonCompositeWidget::compositeImages(const QImage& a, const QImage& b,
                                                    playback::CompareLayout mode, int amount)
@@ -57,10 +58,19 @@ void ComparisonCompositeWidget::paintEvent(QPaintEvent*)
     painter.fillRect(rect(), m_videoOnlyPresentation ? Qt::black : theme::viewerBackground());
     if (m_composite.isNull()) return;
     painter.setRenderHint(QPainter::SmoothPixmapTransform, m_transform.zoomRatio() <= 1.0);
-    painter.drawImage(m_transform.imageRect(), m_composite);
+    const QRectF image = m_transform.imageRect();
+    if (m_flipHorizontal) {
+        painter.save();
+        painter.translate(image.left() + image.right(), 0.0);
+        painter.scale(-1.0, 1.0);
+    }
+    painter.drawImage(image, m_composite);
+    if (m_flipHorizontal) painter.restore();
     if (m_mode == playback::CompareLayout::Wipe) {
-        const QRectF image = m_transform.imageRect();
-        const qreal x = image.left() + image.width() * m_wipePosition / 100.0;
+        // The split sits at the same composite column the compositor used,
+        // which is mirrored on screen when the picture is.
+        const qreal offset = image.width() * m_wipePosition / 100.0;
+        const qreal x = m_flipHorizontal ? image.right() - offset : image.left() + offset;
         painter.setPen(QPen(QColor(255, 255, 255, 170), 1));
         painter.drawLine(QPointF(x, image.top()), QPointF(x, image.bottom()));
     }
@@ -72,6 +82,6 @@ void ComparisonCompositeWidget::mousePressEvent(QMouseEvent* event) { emit activ
 void ComparisonCompositeWidget::mouseMoveEvent(QMouseEvent* event) { if (m_middlePanning) { m_transform.panBy(event->position() - m_lastPanPosition); m_lastPanPosition = event->position(); update(); event->accept(); } else if (m_draggingWipe) { updateWipeFromPosition(event->position().x()); event->accept(); } }
 void ComparisonCompositeWidget::mouseReleaseEvent(QMouseEvent* event) { if (event->button() == Qt::MiddleButton && m_middlePanning) { m_middlePanning = false; unsetCursor(); event->accept(); } if (event->button() == Qt::LeftButton && m_draggingWipe) { m_draggingWipe = false; event->accept(); } }
 void ComparisonCompositeWidget::mouseDoubleClickEvent(QMouseEvent* event) { if (event->button() == Qt::LeftButton) { fitImage(); event->accept(); } }
-void ComparisonCompositeWidget::updateWipeFromPosition(qreal x) { const QRectF image = m_transform.imageRect(); if (image.width() <= 0) return; const int value = std::clamp(qRound((x - image.left()) * 100.0 / image.width()), 0, 100); setWipePosition(value); emit wipePositionChanged(value); }
+void ComparisonCompositeWidget::updateWipeFromPosition(qreal x) { const QRectF image = m_transform.imageRect(); if (image.width() <= 0) return; const qreal offset = m_flipHorizontal ? image.right() - x : x - image.left(); const int value = std::clamp(qRound(offset * 100.0 / image.width()), 0, 100); setWipePosition(value); emit wipePositionChanged(value); }
 
 } // namespace atk::ui

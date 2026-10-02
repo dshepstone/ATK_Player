@@ -81,7 +81,7 @@ public:
 public slots:
     /// `still` is the hold to synthesize when `filePath` is a still image.
     void openMedia(const QString& filePath, quint64 sourceGeneration,
-                   const atk::media::StillImageOptions& still = {});
+                   const atk::media::ImageSourceOptions& still = {});
     void closeMedia();
 
     /// Decodes and emits exactly this frame. Used by stepping and seeking.

@@ -4,7 +4,7 @@
 #include "core/commands/CommandId.h"
 #include "export/ExportSpec.h"
 #include "media/MediaMetadata.h"
-#include "media/StillImage.h"
+#include "media/ImageSource.h"
 #include "playback/PlaybackController.h"
 #include "ui/ViewerTransform.h"
 
@@ -96,6 +96,15 @@ public:
     void showWelcomeIfFirstRun();
     void showWelcome();
     bool isVideoFullScreen() const;
+    /// Mirrors every viewer (single, A/B panes and composite) at paint time.
+    /// Session-only presentation state: reset when a source opens, never
+    /// saved, never applied to exports.
+    void setFlipHorizontal(bool flipped);
+    bool isFlippedHorizontally() const { return m_flipHorizontal; }
+    /// Re-times an image sequence or still: frame indices (and therefore
+    /// bookmarks and the review range) are unchanged, only the rate. Reopens
+    /// the source if it is playing or is comparison Source B.
+    bool setSourceFrameRate(int playlistIndex, const media::FrameRate& rate);
     void enterVideoFullScreen();
     void exitVideoFullScreen();
     bool isComparisonActive() const;
@@ -135,7 +144,14 @@ private:
     void restoreApplicationLayout();
     void saveApplicationLayout();
     void addMediaDialog();
-    void addMediaFiles(const QStringList& paths);
+    /// Adds media to the playlist. With `interactive`, a numbered image whose
+    /// neighbours exist asks whether to open the whole sequence; the API
+    /// passes false and always gets single files, so automation never blocks.
+    void addMediaFiles(const QStringList& paths, bool interactive = true);
+    enum class ImageInterpretation { Sequence, SingleStill, Skip };
+    ImageInterpretation askImageInterpretation(const media::ImageSequence& sequence,
+                                               const QString& path);
+    void changeSourceFrameRate(int playlistIndex);
     void newProject();
     void openProjectDialog();
     bool saveProject();
@@ -233,8 +249,9 @@ private:
     quint64 m_nextProbeToken = 1;
     QUuid m_pendingRelinkId;
     QString m_pendingRelinkPath;
+    bool m_flipHorizontal = false;
     /// Hold the pending relink was validated with; the replacement gets it.
-    media::StillImageOptions m_pendingRelinkStill;
+    media::ImageSourceOptions m_pendingRelinkStill;
     quint64 m_pendingRelinkToken = 0;
     quint64 m_pendingRelinkProjectGeneration = 0;
     quint64 m_projectGeneration = 1;

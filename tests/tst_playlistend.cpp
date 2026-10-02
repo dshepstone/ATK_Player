@@ -6,8 +6,12 @@
 #include <QAction>
 #include <QApplication>
 #include <QDragEnterEvent>
+#include <QDir>
+#include "ui/ViewerWidget.h"
 #include <QDropEvent>
+#include <QImage>
 #include <QMimeData>
+#include <QPushButton>
 #include <QUrl>
 #include "ui/ApplicationSettings.h"
 #include <QMessageBox>
@@ -74,6 +78,8 @@ private slots:
     void naturalPlaybackStillAdvancesAndStops();
     void aboutDialogUsesAnimationToolKitCopy();
     void droppedStillPlaysHeldExtentAndStops();
+    void droppedSequenceFramesOpenOneSequenceAtPreferenceRate();
+    void flipCommandMirrorsAllViewersAndResetsOnOpen();
 };
 
 void TestPlaylistEnd::pausedJumpToEndIsNavigationOnly()
@@ -243,7 +249,7 @@ void TestPlaylistEnd::droppedStillPlaysHeldExtentAndStops()
     // Only the supported local file was added, with the preference as its hold.
     QCOMPARE(window.project()->entries().size(), 1);
     const auto source = window.project()->entries().at(0).source;
-    QCOMPARE(source->stillImageOptions().holdFrames, qint64(12));
+    QCOMPARE(source->imageOptions().holdFrames, qint64(12));
 
     QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->state(), PlayerState::Ready, 10000);
     QVERIFY(window.playbackController()->metadata().isStillImage);
@@ -258,6 +264,118 @@ void TestPlaylistEnd::droppedStillPlaysHeldExtentAndStops()
     QDragEnterEvent refused(QPoint(10, 10), Qt::CopyAction, &unsupported, Qt::LeftButton, Qt::NoModifier);
     QApplication::sendEvent(&window, &refused);
     QVERIFY(!refused.isAccepted());
+}
+
+void TestPlaylistEnd::droppedSequenceFramesOpenOneSequenceAtPreferenceRate()
+{
+    QTemporaryDir directory;
+    const QString settingsFile = directory.filePath(QStringLiteral("settings.ini"));
+    {
+        atk::ui::ApplicationSettings settings(settingsFile);
+        settings.setImageSequenceFrameRate({25, 1});
+        settings.sync();
+    }
+    QStringList frames;
+    for (int number = 1001; number <= 1012; ++number) {
+        QImage image(64, 36, QImage::Format_RGB32);
+        image.fill(QColor(number % 256, 0, 0));
+        const QString path = QDir(directory.path()).filePath(QStringLiteral("shot.%1.png").arg(number));
+        QVERIFY(image.save(path, "PNG"));
+        frames << path;
+    }
+    atk::ui::MainWindow window(settingsFile);
+
+    // Every frame is dropped at once; the prompt appears once and the answer
+    // covers the whole sequence.
+    int prompts = 0;
+    QTimer answer;
+    answer.setInterval(20);
+    QObject::connect(&answer, &QTimer::timeout, &window, [&prompts] {
+        if (auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+            box && box->objectName() == QStringLiteral("ImageSequencePrompt")) {
+            ++prompts;
+            box->findChild<QPushButton*>(QStringLiteral("ImageSequencePromptSequence"))->click();
+        }
+    });
+    answer.start();
+    QMimeData mime;
+    QList<QUrl> urls;
+    for (const QString& frame : frames) urls << QUrl::fromLocalFile(frame);
+    mime.setUrls(urls);
+    // Qt delivers a drop only to a widget that accepted the drag's entry.
+    QDragEnterEvent enter(QPoint(10, 10), Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
+    QApplication::sendEvent(&window, &enter);
+    QVERIFY(enter.isAccepted());
+    QDropEvent drop(QPointF(10, 10), Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
+    QApplication::sendEvent(&window, &drop);
+    answer.stop();
+    QCOMPARE(prompts, 1);
+
+    QCOMPARE(window.project()->entries().size(), 1);
+    const auto source = window.project()->entries().at(0).source;
+    QVERIFY(source->isImageSequence());
+    QCOMPARE(source->displayName(), QStringLiteral("shot.[1001-1012].png"));
+    QCOMPARE(source->imageOptions().frameRate, (atk::media::FrameRate{25, 1}));
+
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->state(), PlayerState::Ready, 10000);
+    QVERIFY(window.playbackController()->metadata().isImageSequence);
+    QCOMPARE(window.playbackController()->metadata().frameCount, qint64(12));
+    window.playbackController()->seekFrame(5);
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->currentFrame(), qint64(5), 5000);
+
+    // Re-timing keeps frame indices (and so bookmarks) and reopens the source.
+    QVERIFY(window.setSourceFrameRate(0, {24000, 1001}));
+    QVERIFY(window.project()->isModified());
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->metadata().frameRate,
+                              (atk::media::FrameRate{24000, 1001}), 10000);
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->state(), PlayerState::Ready, 10000);
+    QCOMPARE(window.playbackController()->metadata().frameCount, qint64(12));
+    window.playbackController()->play();
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->state(), PlayerState::Ended, 10000);
+    QCOMPARE(window.playbackController()->currentFrame(), qint64(11));
+
+    // Choosing "Single Image" adds just that file as a still.
+    answer.disconnect();
+    QObject::connect(&answer, &QTimer::timeout, &window, [] {
+        if (auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget()))
+            box->findChild<QPushButton*>(QStringLiteral("ImageSequencePromptStill"))->click();
+    });
+    answer.start();
+    QMimeData one;
+    one.setUrls({QUrl::fromLocalFile(frames.at(3))});
+    QDragEnterEvent enterOne(QPoint(10, 10), Qt::CopyAction, &one, Qt::LeftButton, Qt::NoModifier);
+    QApplication::sendEvent(&window, &enterOne);
+    QDropEvent single(QPointF(10, 10), Qt::CopyAction, &one, Qt::LeftButton, Qt::NoModifier);
+    QApplication::sendEvent(&window, &single);
+    answer.stop();
+    QCOMPARE(window.project()->entries().size(), 2);
+    QVERIFY(window.project()->entries().at(1).source->isStillImage());
+}
+
+void TestPlaylistEnd::flipCommandMirrorsAllViewersAndResetsOnOpen()
+{
+    QTemporaryDir directory;
+    atk::ui::MainWindow window(directory.filePath(QStringLiteral("settings.ini")));
+    QVERIFY(window.openProjectFile(writeProject(directory, 2)));
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->state(), PlayerState::Ready, 10000);
+
+    QAction* flip = command(window, "view.flipHorizontal");
+    QVERIFY(flip && flip->isCheckable());
+    flip->trigger();
+    QVERIFY(window.isFlippedHorizontally());
+    QVERIFY(flip->isChecked());
+    const auto viewers = window.findChildren<atk::ui::ViewerWidget*>();
+    QVERIFY(!viewers.isEmpty());
+    for (auto* viewer : viewers) QVERIFY(viewer->isFlippedHorizontally());
+    QCOMPARE(window.playbackController()->currentFrame(), qint64(0)); // no seek, no reopen
+    QVERIFY(!window.project()->isModified());                        // never saved
+
+    // A newly opened source starts unflipped.
+    QVERIFY(window.isFlippedHorizontally());
+    window.playbackController()->openMedia(fixturePath());
+    QTRY_VERIFY_WITH_TIMEOUT(!window.isFlippedHorizontally(), 10000);
+    QVERIFY(!flip->isChecked());
+    for (auto* viewer : viewers) QVERIFY(!viewer->isFlippedHorizontally());
 }
 
 void TestPlaylistEnd::aboutDialogUsesAnimationToolKitCopy()

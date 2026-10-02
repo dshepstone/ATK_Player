@@ -15,6 +15,10 @@ MediaSource::MediaSource(QString filePath)
 
 QString MediaSource::displayName() const
 {
+    if (isImageSequence()) {
+        return sequenceDisplayName(m_filePath, m_imageOptions.sequenceFirst,
+                                   m_imageOptions.sequenceLast);
+    }
     return QFileInfo(m_filePath).fileName();
 }
 

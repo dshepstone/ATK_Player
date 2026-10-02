@@ -31,6 +31,9 @@ private slots:
     void stillWithoutSavedHoldUsesLoadDefault();
     void malformedStillHoldRejectsProject();
     void relinkKeepsStillHold();
+    void sequenceRoundTripsAsOnePath();
+    void malformedSequenceRejectsProject();
+    void relinkSequenceKeepsRate();
 };
 
 namespace {
@@ -60,7 +63,7 @@ void TestProject::stillHoldRoundTripsPerSource()
 
     project::Project original;
     auto stillSource = std::make_shared<media::MediaSource>(still);
-    stillSource->setStillImageOptions({72, {30000, 1001}});
+    stillSource->setImageOptions({72, {30000, 1001}});
     original.addSource(stillSource);
     original.addSource(std::make_shared<media::MediaSource>(video));
     timeline::Bookmark late; late.id = 3; late.frame = 70; late.endFrame = 70;
@@ -85,8 +88,8 @@ void TestProject::stillHoldRoundTripsPerSource()
     project::Project loaded;
     QVERIFY(project::ProjectSerializer::load(loaded, projectPath, {20, {24, 1}}).ok);
     const auto& entry = loaded.entries().at(0);
-    QCOMPARE(entry.source->stillImageOptions().holdFrames, int64_t{72});
-    QCOMPARE(entry.source->stillImageOptions().frameRate, (media::FrameRate{30000, 1001}));
+    QCOMPARE(entry.source->imageOptions().holdFrames, int64_t{72});
+    QCOMPARE(entry.source->imageOptions().frameRate, (media::FrameRate{30000, 1001}));
     QCOMPARE(entry.bookmarks, QVector<timeline::Bookmark>({late}));
     QCOMPARE(entry.playbackRange, timeline::PlaybackRange({10, 71, true}));
     QVERIFY(!loaded.isModified());
@@ -100,13 +103,13 @@ void TestProject::stillWithoutSavedHoldUsesLoadDefault()
                                    stillProjectJson(QString()).toUtf8());
     project::Project loaded;
     QVERIFY(project::ProjectSerializer::load(loaded, path, {30, {24, 1}}).ok);
-    QCOMPARE(loaded.entries().at(0).source->stillImageOptions().holdFrames, int64_t{30});
+    QCOMPARE(loaded.entries().at(0).source->imageOptions().holdFrames, int64_t{30});
 
     // The default is normalized like any other hold.
     project::Project clamped;
     QVERIFY(project::ProjectSerializer::load(clamped, path, {2, {24, 1}}).ok);
-    QCOMPARE(clamped.entries().at(0).source->stillImageOptions().holdFrames,
-             media::StillImageOptions::kMinimumHoldFrames);
+    QCOMPARE(clamped.entries().at(0).source->imageOptions().holdFrames,
+             media::ImageSourceOptions::kMinimumHoldFrames);
 }
 
 void TestProject::malformedStillHoldRejectsProject()
@@ -133,11 +136,99 @@ void TestProject::malformedStillHoldRejectsProject()
     }
 }
 
+void TestProject::sequenceRoundTripsAsOnePath()
+{
+    QTemporaryDir directory; QVERIFY(directory.isValid());
+    QDir root(directory.path()); QVERIFY(root.mkpath(QStringLiteral("renders")));
+    for (int frame = 1001; frame <= 1003; ++frame)
+        QVERIFY(!writeFile(root.filePath(QStringLiteral("renders/shot.%1.png").arg(frame)), "png").isEmpty());
+    const QString pattern = root.filePath(QStringLiteral("renders/shot.%04d.png"));
+    const QString projectPath = root.filePath(QStringLiteral("sequence.atkproj"));
+
+    project::Project original;
+    auto source = std::make_shared<media::MediaSource>(pattern);
+    media::ImageSourceOptions options;
+    options.frameRate = {24000, 1001};
+    options.sequenceFirst = 1001;
+    options.sequenceLast = 1003;
+    source->setImageOptions(options);
+    original.addSource(source);
+    QCOMPARE(original.entries().at(0).displayName, QStringLiteral("shot.[1001-1003].png"));
+    QVERIFY(project::ProjectSerializer::save(original, projectPath).ok);
+
+    QFile saved(projectPath); QVERIFY(saved.open(QIODevice::ReadOnly));
+    const QJsonObject json = QJsonDocument::fromJson(saved.readAll()).object()
+                                 .value(QStringLiteral("sources")).toArray().at(0).toObject();
+    // One relative path for the whole sequence, plus its range and own rate.
+    QCOMPARE(json.value(QStringLiteral("path")).toString(), QStringLiteral("renders/shot.%04d.png"));
+    QVERIFY(!json.contains(QStringLiteral("still")));
+    const QJsonObject sequence = json.value(QStringLiteral("sequence")).toObject();
+    QCOMPARE(sequence.value(QStringLiteral("firstFrame")).toInt(), 1001);
+    QCOMPARE(sequence.value(QStringLiteral("lastFrame")).toInt(), 1003);
+    QCOMPARE(sequence.value(QStringLiteral("frameRate")).toObject()
+                 .value(QStringLiteral("numerator")).toInt(), 24000);
+
+    project::Project loaded;
+    QVERIFY(project::ProjectSerializer::load(loaded, projectPath, {48, {30, 1}}).ok);
+    const auto& entry = loaded.entries().at(0);
+    QVERIFY(entry.source->isImageSequence());
+    QCOMPARE(entry.source->imageOptions(), options.normalized());
+    QCOMPARE(entry.source->filePath(), QDir::cleanPath(pattern));
+    QVERIFY(!entry.missing);
+
+    // The missing-media check understands patterns: no frames, missing.
+    for (int frame = 1001; frame <= 1003; ++frame)
+        QVERIFY(QFile::remove(root.filePath(QStringLiteral("renders/shot.%1.png").arg(frame))));
+    project::Project gone;
+    QVERIFY(project::ProjectSerializer::load(gone, projectPath).ok);
+    QVERIFY(gone.entries().at(0).missing);
+}
+
+void TestProject::malformedSequenceRejectsProject()
+{
+    QTemporaryDir directory; QVERIFY(directory.isValid());
+    const QStringList invalid{
+        QStringLiteral(R"({"format":"ATKProject","version":1,"sources":[{"id":"6f1c2a52-6a8f-4d4e-9b8e-0d1f0e2a3b4c","path":"s.%04d.png","sequence":{"firstFrame":9,"lastFrame":3,"frameRate":{"numerator":24,"denominator":1}}}]})"),
+        QStringLiteral(R"({"format":"ATKProject","version":1,"sources":[{"id":"6f1c2a52-6a8f-4d4e-9b8e-0d1f0e2a3b4c","path":"s.%04d.png","sequence":{"firstFrame":1,"lastFrame":3}}]})"),
+        QStringLiteral(R"({"format":"ATKProject","version":1,"sources":[{"id":"6f1c2a52-6a8f-4d4e-9b8e-0d1f0e2a3b4c","path":"clip.%04d.mov","sequence":{"firstFrame":1,"lastFrame":3,"frameRate":{"numerator":24,"denominator":1}}}]})"),
+    };
+    for (const QString& json : invalid) {
+        project::Project project;
+        const QString path = writeFile(directory.filePath(QStringLiteral("bad.atkproj")), json.toUtf8());
+        const auto result = project::ProjectSerializer::load(project, path);
+        QVERIFY2(!result.ok, qPrintable(json));
+        QVERIFY(result.errorMessage.contains(QStringLiteral("sequence")));
+    }
+}
+
+void TestProject::relinkSequenceKeepsRate()
+{
+    project::Project project;
+    media::ImageSourceOptions options;
+    options.frameRate = {25, 1};
+    options.sequenceFirst = 1;
+    options.sequenceLast = 50;
+    auto sequence = std::make_shared<media::MediaSource>(QStringLiteral("v1/shot.%04d.exr"));
+    sequence->setImageOptions(options);
+    project.addSource(sequence);
+    const QUuid id = project.entries().at(0).id;
+
+    media::ImageSourceOptions rerender;
+    rerender.sequenceFirst = 1;
+    rerender.sequenceLast = 60;
+    auto replacement = std::make_shared<media::MediaSource>(QStringLiteral("v2/shot.%04d.exr"));
+    replacement->setImageOptions(rerender);
+    QVERIFY(project.relinkSource(id, replacement, 60));
+    const auto& relinked = project.entries().at(0).source->imageOptions();
+    QCOMPARE(relinked.frameRate, (media::FrameRate{25, 1}));
+    QCOMPARE(relinked.sequenceLast, int64_t{60});
+}
+
 void TestProject::relinkKeepsStillHold()
 {
     project::Project project;
     auto still = std::make_shared<media::MediaSource>(QStringLiteral("board_v1.png"));
-    still->setStillImageOptions({72, {24, 1}});
+    still->setImageOptions({72, {24, 1}});
     project.addSource(still);
     timeline::Bookmark late; late.id = 1; late.frame = 70; late.endFrame = 70;
     project.mutableEntries()[0].bookmarks = {late};
@@ -146,18 +237,18 @@ void TestProject::relinkKeepsStillHold()
     // The replacement arrives with some other hold; the source's own wins, so
     // the bookmark the review made at frame 70 survives.
     auto replacement = std::make_shared<media::MediaSource>(QStringLiteral("board_v2.png"));
-    replacement->setStillImageOptions({48, {24, 1}});
+    replacement->setImageOptions({48, {24, 1}});
     QVERIFY(project.relinkSource(id, replacement, 72));
-    QCOMPARE(project.entries().at(0).source->stillImageOptions().holdFrames, int64_t{72});
+    QCOMPARE(project.entries().at(0).source->imageOptions().holdFrames, int64_t{72});
     QCOMPARE(project.entries().at(0).bookmarks, QVector<timeline::Bookmark>({late}));
 
     // A video relinked to a still keeps the hold it was validated with.
     project.addSource(std::make_shared<media::MediaSource>(QStringLiteral("clip.mp4")));
     const QUuid videoId = project.entries().at(1).id;
     auto stillForVideo = std::make_shared<media::MediaSource>(QStringLiteral("frame.png"));
-    stillForVideo->setStillImageOptions({30, {24, 1}});
+    stillForVideo->setImageOptions({30, {24, 1}});
     QVERIFY(project.relinkSource(videoId, stillForVideo, 30));
-    QCOMPARE(project.entries().at(1).source->stillImageOptions().holdFrames, int64_t{30});
+    QCOMPARE(project.entries().at(1).source->imageOptions().holdFrames, int64_t{30});
 }
 
 void TestProject::saveAsPersistsDestinationNameWithoutMutatingSource()

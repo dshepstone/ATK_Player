@@ -58,6 +58,9 @@
 #include <QCloseEvent>
 #include <QDragEnterEvent>
 #include <QDropEvent>
+#include <QHash>
+#include <QInputDialog>
+#include <QPushButton>
 #include <QMimeData>
 #include <QUrl>
 #include <QApplication>
@@ -193,6 +196,14 @@ QString safeImagePrefix(QString value)
     return value.isEmpty() ? QStringLiteral("frames") : value;
 }
 
+/// Name exports after the source; a sequence pattern loses its frame token
+/// ("shot.%04d.exr" -> "shot") rather than leaking it into file names.
+QString exportBaseName(const exporter::ExportSource& source)
+{
+    return source.still.isSequence() ? media::sequenceBaseName(source.path)
+                                     : QFileInfo(source.path).completeBaseName();
+}
+
 MainWindow::MainWindow(const QString& settingsIniPath, QWidget* parent)
     : QMainWindow(parent)
 {
@@ -262,7 +273,7 @@ void MainWindow::buildModels()
                 if (index < 0) return;
                 auto replacement = std::make_shared<media::MediaSource>(path);
                 replacement->setMetadata(metadata);
-                replacement->setStillImageOptions(m_pendingRelinkStill);
+                replacement->setImageOptions(m_pendingRelinkStill);
                 const int64_t frameCount = metadata.effectiveFrameCount();
                 if (frameCount <= 0 || !m_project->relinkSource(id, replacement, frameCount)) return;
                 if (index == m_project->activeIndex()) {
@@ -512,6 +523,7 @@ void MainWindow::connectSignals()
     connect(m_sources, &SourcesPanel::removeRequested, this, &MainWindow::removePlaylistIndex);
     connect(m_sources, &SourcesPanel::moveRequested, this, &MainWindow::movePlaylistIndex);
     connect(m_sources, &SourcesPanel::relinkRequested, this, [this](int) { relinkSelectedMedia(); });
+    connect(m_sources, &SourcesPanel::frameRateRequested, this, &MainWindow::changeSourceFrameRate);
     connect(m_sources, &SourcesPanel::sourceActivated, this,
             [this](int index) { activatePlaylistIndex(index); });
 
@@ -875,6 +887,9 @@ void MainWindow::onCommand(CommandId id, bool checked)
             && m_compare->layout() != playback::CompareLayout::Stacked) m_compareComposite->zoomOut();
         else activeViewer()->zoomOut();
         return;
+    case CommandId::FlipHorizontal:
+        setFlipHorizontal(checked);
+        return;
     case CommandId::MediaInformation:
         openMediaInformation();
         return;
@@ -1103,6 +1118,7 @@ void MainWindow::applyPreferences(const PreferencesDialog& dialog)
     m_settings->setReopenLastProject(dialog.reopenLastProject());
     // Applies to stills added from now on; existing sources keep their hold.
     m_settings->setStillImageHoldFrames(dialog.stillImageHoldFrames());
+    m_settings->setImageSequenceFrameRate(dialog.imageSequenceFrameRate());
     const bool apiChanged = dialog.apiEnabled() != apiWasEnabled
         || dialog.apiPort() != apiWasPort;
     m_settings->setApiEnabled(dialog.apiEnabled());
@@ -1362,8 +1378,23 @@ void MainWindow::openMediaFile(const QString& filePath)
     addMediaFiles({filePath});
 }
 
+void MainWindow::setFlipHorizontal(bool flipped)
+{
+    m_flipHorizontal = flipped;
+    m_viewer->setFlipHorizontal(flipped);
+    if (m_viewerB) m_viewerB->setFlipHorizontal(flipped);
+    if (m_compareComposite) m_compareComposite->setFlipHorizontal(flipped);
+    if (QAction* action = m_commands->action(CommandId::FlipHorizontal)) {
+        const QSignalBlocker blocker(action);
+        action->setChecked(flipped);
+    }
+}
+
 void MainWindow::onMediaOpened(const media::MediaMetadata& metadata)
 {
+    // Like zoom and pan, a mirror belongs to the picture being looked at; a
+    // newly opened source starts unflipped so it is never misread.
+    setFlipHorizontal(false);
     m_viewer->resetNavigationToFit();
     m_viewer->setSourceAspectRatio(
         metadata.resolution.height() > 0
@@ -1429,17 +1460,45 @@ void MainWindow::addMediaDialog()
     if (!paths.isEmpty()) { m_lastMediaDirectory = QFileInfo(paths.first()).absolutePath(); addMediaFiles(paths); }
 }
 
-void MainWindow::addMediaFiles(const QStringList& paths)
+void MainWindow::addMediaFiles(const QStringList& paths, bool interactive)
 {
     const bool wasEmpty = m_project->entries().isEmpty();
-    // The preference seeds a still's hold once, here; the source keeps it from
-    // then on, so a later preference change cannot move saved bookmarks.
-    media::StillImageOptions still;
+    // Preferences seed an image source's hold and rate once, here; the source
+    // keeps them from then on, so a later preference change cannot move or
+    // re-time saved bookmarks.
+    media::ImageSourceOptions still;
     still.holdFrames = m_settings->stillImageHoldFrames();
+    still.frameRate = m_settings->imageSequenceFrameRate();
+    // One decision per sequence: selecting or dropping all 96 frames of a
+    // render asks once, not 96 times.
+    QHash<QString, ImageInterpretation> sequenceDecisions;
     for (const QString& path : paths) {
         if (path.isEmpty()) continue;
-        auto source = std::make_shared<media::MediaSource>(QFileInfo(path).absoluteFilePath());
-        if (source->isStillImage()) source->setStillImageOptions(still);
+        const QString absolute = QFileInfo(path).absoluteFilePath();
+        if (interactive && media::isStillImagePath(absolute)) {
+            if (const auto sequence = media::detectImageSequence(absolute)) {
+                const auto known = sequenceDecisions.constFind(sequence->pattern);
+                if (known != sequenceDecisions.cend()) {
+                    if (*known == ImageInterpretation::Sequence || *known == ImageInterpretation::Skip)
+                        continue; // already added, or declined
+                } else {
+                    const ImageInterpretation choice = askImageInterpretation(*sequence, absolute);
+                    sequenceDecisions.insert(sequence->pattern, choice);
+                    if (choice == ImageInterpretation::Skip) continue;
+                    if (choice == ImageInterpretation::Sequence) {
+                        media::ImageSourceOptions options = still;
+                        options.sequenceFirst = sequence->first;
+                        options.sequenceLast = sequence->last;
+                        auto source = std::make_shared<media::MediaSource>(sequence->pattern);
+                        source->setImageOptions(options);
+                        m_project->addSource(std::move(source));
+                        continue;
+                    }
+                }
+            }
+        }
+        auto source = std::make_shared<media::MediaSource>(absolute);
+        if (source->isStillImage()) source->setImageOptions(still);
         m_project->addSource(std::move(source));
     }
     if (wasEmpty && !m_project->entries().isEmpty()) {
@@ -1450,12 +1509,87 @@ void MainWindow::addMediaFiles(const QStringList& paths)
     updateWindowTitle();
 }
 
+MainWindow::ImageInterpretation MainWindow::askImageInterpretation(
+    const media::ImageSequence& sequence, const QString& path)
+{
+    // Asking, rather than guessing, because a numbered file is just as often a
+    // single reference still as one frame of a render.
+    QMessageBox box(this);
+    box.setObjectName(QStringLiteral("ImageSequencePrompt"));
+    box.setWindowTitle(tr("Image Sequence"));
+    box.setIcon(QMessageBox::Question);
+    QString text = tr("%1 is part of a numbered image sequence:\n%2 — %3 frames.")
+                       .arg(QFileInfo(path).fileName(),
+                            media::sequenceDisplayName(sequence.pattern, sequence.first, sequence.last),
+                            QString::number(sequence.length()));
+    if (sequence.missingCount() > 0)
+        text += QLatin1Char('\n') + tr("%n frame(s) missing; they will hold the previous frame.",
+                                       nullptr, static_cast<int>(sequence.missingCount()));
+    box.setText(text);
+    box.setInformativeText(tr("Open the whole sequence at %1, or just this image?")
+                               .arg(media::frameRateLabel(m_settings->imageSequenceFrameRate())));
+    QPushButton* asSequence = box.addButton(tr("Image Sequence"), QMessageBox::AcceptRole);
+    asSequence->setObjectName(QStringLiteral("ImageSequencePromptSequence"));
+    QPushButton* asStill = box.addButton(tr("Single Image"), QMessageBox::ActionRole);
+    asStill->setObjectName(QStringLiteral("ImageSequencePromptStill"));
+    QPushButton* skip = box.addButton(QMessageBox::Cancel);
+    skip->setObjectName(QStringLiteral("ImageSequencePromptSkip"));
+    box.setDefaultButton(asSequence);
+    box.exec();
+    if (box.clickedButton() == asSequence) return ImageInterpretation::Sequence;
+    if (box.clickedButton() == asStill) return ImageInterpretation::SingleStill;
+    return ImageInterpretation::Skip;
+}
+
+bool MainWindow::setSourceFrameRate(int index, const media::FrameRate& rate)
+{
+    if (index < 0 || index >= m_project->entries().size() || !rate.isValid()) return false;
+    auto& entry = m_project->mutableEntries()[index];
+    if (!entry.source || !(entry.source->isImageSequence() || entry.source->isStillImage())) return false;
+    media::ImageSourceOptions options = entry.source->imageOptions();
+    if (options.frameRate == rate) return true;
+    const bool active = index == m_project->activeIndex();
+    if (active) saveActiveReviewState();
+    options.frameRate = rate;
+    entry.source->setImageOptions(options);
+    m_project->setModified(true);
+    startProbe(entry.id, entry.source->filePath());
+    // Frame indices are unchanged, so bookmarks and the range stay put; the
+    // reopen re-derives their media times from the new rate.
+    if (active) {
+        m_project->setActiveIndex(-1);
+        activatePlaylistIndex(index, false);
+    } else if (isComparisonActive() && entry.id == m_compare->sourceBId()) {
+        openComparisonSourceB();
+    }
+    return true;
+}
+
+void MainWindow::changeSourceFrameRate(int index)
+{
+    if (index < 0 || index >= m_project->entries().size()) return;
+    const auto& source = m_project->entries().at(index).source;
+    if (!source || !(source->isImageSequence() || source->isStillImage())) return;
+    QStringList labels;
+    for (const media::FrameRate& rate : media::imageFrameRatePresets())
+        labels << media::frameRateLabel(rate);
+    const int current = static_cast<int>(
+        media::imageFrameRatePresets().indexOf(source->imageOptions().frameRate));
+    bool ok = false;
+    const QString chosen = QInputDialog::getItem(
+        this, tr("Frame Rate"), tr("Playback rate for %1:").arg(source->displayName()),
+        labels, current >= 0 ? current : 1, false, &ok);
+    if (!ok) return;
+    const int chosenIndex = static_cast<int>(labels.indexOf(chosen));
+    if (chosenIndex >= 0) setSourceFrameRate(index, media::imageFrameRatePresets().at(chosenIndex));
+}
+
 void MainWindow::startProbe(const QUuid& id, const QString& path)
 {
     const quint64 token = m_nextProbeToken++;
     if (!m_project->beginProbe(id, path, token)) return;
     const int index = m_project->indexForId(id);
-    const media::StillImageOptions still = m_project->entries().at(index).source->stillImageOptions();
+    const media::ImageSourceOptions still = m_project->entries().at(index).source->imageOptions();
     QMetaObject::invokeMethod(m_probeWorker, [worker = m_probeWorker, id, path, token, still] {
         worker->probe(id, path, token, still);
     }, Qt::QueuedConnection);
@@ -1504,7 +1638,7 @@ void MainWindow::activatePlaylistIndex(int index, bool continuePlayback)
     m_project->setActiveIndex(index);
     m_playAfterSourceOpen = continuePlayback;
     m_restoringSourceState = true;
-    m_playback->openMedia(entry.source->filePath(), entry.source->stillImageOptions());
+    m_playback->openMedia(entry.source->filePath(), entry.source->imageOptions());
 }
 
 void MainWindow::removePlaylistIndex(int index)
@@ -1560,7 +1694,7 @@ bool MainWindow::openProjectFile(const QString& path)
     if (!cancelExportForProjectChange()) return false;
     exitComparison();
     project::Project loaded;
-    media::StillImageOptions defaultStill;
+    media::ImageSourceOptions defaultStill;
     defaultStill.holdFrames = m_settings->stillImageHoldFrames();
     const auto result = project::ProjectSerializer::load(loaded, path, defaultStill);
     if (!result.ok) {
@@ -1656,12 +1790,24 @@ void MainWindow::relinkSelectedMedia()
     // Validate with the hold the replacement will get, so the validated extent
     // is the one it actually has: a still keeps its own hold (its bookmarks
     // were made against it); anything else takes the default for new stills.
+    // A sequence relinked to a frame of another sequence becomes that whole
+    // sequence at its own rate.
     const auto& relinked = m_project->entries().at(index);
-    media::StillImageOptions still;
-    if (relinked.source && relinked.source->isStillImage())
-        still = relinked.source->stillImageOptions();
-    else
+    media::ImageSourceOptions still;
+    if (relinked.source && relinked.source->isStillImage()) {
+        still = relinked.source->imageOptions();
+    } else {
         still.holdFrames = m_settings->stillImageHoldFrames();
+        still.frameRate = m_settings->imageSequenceFrameRate();
+    }
+    if (relinked.source && relinked.source->isImageSequence()) {
+        if (const auto sequence = media::detectImageSequence(m_pendingRelinkPath)) {
+            still.frameRate = relinked.source->imageOptions().frameRate;
+            still.sequenceFirst = sequence->first;
+            still.sequenceLast = sequence->last;
+            m_pendingRelinkPath = sequence->pattern;
+        }
+    }
     m_pendingRelinkStill = still;
     QMetaObject::invokeMethod(m_probeWorker,
         [worker = m_probeWorker, id, path = m_pendingRelinkPath, token = m_pendingRelinkToken, still] {
@@ -1696,7 +1842,7 @@ exporter::ExportSpec MainWindow::exportSnapshot(const QString& outputPath) const
         result.id = entry.id;
         result.path = entry.source ? entry.source->filePath() : entry.storedPath;
         result.metadata = entry.source ? entry.source->metadata() : media::MediaMetadata{};
-        if (entry.source) result.still = entry.source->stillImageOptions();
+        if (entry.source) result.still = entry.source->imageOptions();
         result.rangeStartFrame = start;
         result.rangeEndFrame = end;
         return result;
@@ -1734,8 +1880,8 @@ exporter::ExportSpec MainWindow::exportSnapshot(const QString& outputPath) const
         const QFileInfo aFile(spec.sourceA.path);
         const QString directory = m_project->filePath().isEmpty()
             ? aFile.absolutePath() : QFileInfo(m_project->filePath()).absolutePath();
-        QString name = aFile.completeBaseName();
-        if (spec.comparison) name += QStringLiteral("_vs_") + QFileInfo(spec.sourceB.path).completeBaseName();
+        QString name = exportBaseName(spec.sourceA);
+        if (spec.comparison) name += QStringLiteral("_vs_") + exportBaseName(spec.sourceB);
         spec.outputPath = QDir(directory).filePath(name + QStringLiteral("_review.mp4"));
     }
     return spec;
@@ -1770,7 +1916,7 @@ void MainWindow::exportCurrentFrame()
     spec.kind = exporter::ExportKind::CurrentFrame;
     spec.firstFrame = m_timeline->currentFrame();
     spec.lastFrame = m_timeline->currentFrame();
-    const QString base = safeImagePrefix(QFileInfo(spec.sourceA.path).completeBaseName());
+    const QString base = safeImagePrefix(exportBaseName(spec.sourceA));
     const int digits = std::max(4, static_cast<int>(QString::number(std::max<qint64>(1,
         spec.sourceA.metadata.effectiveFrameCount())).size()));
     const QString suggested = QDir(QFileInfo(spec.outputPath).absolutePath()).filePath(
@@ -1796,7 +1942,7 @@ void MainWindow::exportImageSequence()
     if (exportInProgress() || !m_playback->hasMedia()) return;
     exporter::ExportSpec spec = exportSnapshot();
     spec.kind = exporter::ExportKind::ImageSequence;
-    spec.imagePrefix = safeImagePrefix(QFileInfo(spec.sourceA.path).completeBaseName());
+    spec.imagePrefix = safeImagePrefix(exportBaseName(spec.sourceA));
     const QString parent = QFileDialog::getExistingDirectory(
         this, tr("Choose Parent Folder for Image Sequence"), QFileInfo(spec.outputPath).absolutePath());
     if (parent.isEmpty()) return;
@@ -2449,7 +2595,7 @@ api::ApiResponse MainWindow::handleApiApplicationCommand(
         m_project->setName(QStringLiteral("Untitled"));
         m_project->setFilePath({});
         m_restoringSourceState = false;
-        addMediaFiles({path});
+        addMediaFiles({path}, false);
         return api::ApiResponse::success({
             {QStringLiteral("accepted"), true}, {QStringLiteral("path"), path}});
     }
@@ -2511,7 +2657,7 @@ api::ApiResponse MainWindow::handleApiApplicationCommand(
                 return fail(QStringLiteral("every media path must be an absolute existing local file"));
             validated.append(info.absoluteFilePath());
         }
-        addMediaFiles(validated);
+        addMediaFiles(validated, false);
         return api::ApiResponse::success({{QStringLiteral("added"), validated.size()}});
     }
 
@@ -2730,7 +2876,7 @@ api::ApiResponse MainWindow::handleApiApplicationCommand(
         QString burnInError;
         if (!readBurnIns(&spec.burnIns, &burnInError)) return fail(burnInError);
         spec.imagePrefix = safeImagePrefix(params.value(QStringLiteral("prefix")).toString(
-            QFileInfo(spec.sourceA.path).completeBaseName()));
+            exportBaseName(spec.sourceA)));
         const bool hasStart = params.contains(QStringLiteral("startFrame"));
         const bool hasEnd = params.contains(QStringLiteral("endFrame"));
         if (hasStart != hasEnd) return fail(QStringLiteral("startFrame and endFrame must be specified together"));

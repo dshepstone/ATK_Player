@@ -2,7 +2,7 @@
 #include "media/DecodeGeneration.h"
 #include "media/FrameCache.h"
 #include "media/MediaMetadata.h"
-#include "media/StillImage.h"
+#include "media/ImageSource.h"
 #include <QObject>
 #include <QUuid>
 #include <memory>
@@ -35,7 +35,7 @@ public:
     qint64 cacheBudgetBytes() const { return m_cache.budgetBytes(); }
 signals:
     void requestOpen(const QString& path, quint64 sourceGeneration,
-                     const atk::media::StillImageOptions& still);
+                     const atk::media::ImageSourceOptions& still);
     void requestClose();
     void requestFrame(qint64 frameIndex, quint64 requestGeneration);
     void loadingChanged(bool loading);

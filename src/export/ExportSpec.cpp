@@ -52,8 +52,8 @@ QString ExportSpec::audioSummary() const
 
 QString ExportSpec::validate() const
 {
-    if (!QFileInfo::exists(sourceA.path)) return QCoreApplication::translate("ExportSpec", "Source A is unavailable.");
-    if (comparison && !QFileInfo::exists(sourceB.path)) return QCoreApplication::translate("ExportSpec", "Source B is unavailable.");
+    if (!media::imageSourceExists(sourceA.path, sourceA.still)) return QCoreApplication::translate("ExportSpec", "Source A is unavailable.");
+    if (comparison && !media::imageSourceExists(sourceB.path, sourceB.still)) return QCoreApplication::translate("ExportSpec", "Source B is unavailable.");
     if (comparison && audioMode == playback::CompareAudioMode::External
         && !externalAudioPath.isEmpty() && !QFileInfo::exists(externalAudioPath))
         return QCoreApplication::translate("ExportSpec", "External Audio is unavailable.");

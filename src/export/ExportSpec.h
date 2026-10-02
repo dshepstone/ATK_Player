@@ -1,7 +1,7 @@
 #pragma once
 
 #include "media/MediaMetadata.h"
-#include "media/StillImage.h"
+#include "media/ImageSource.h"
 #include "playback/CompareSession.h"
 #include <QString>
 #include <QUuid>
@@ -35,7 +35,7 @@ struct ExportSource {
     media::MediaMetadata metadata;
     /// The source's hold when it is a still image, so the export decoder
     /// synthesizes exactly the extent the review was made against.
-    media::StillImageOptions still;
+    media::ImageSourceOptions still;
     qint64 rangeStartFrame = 0;
     qint64 rangeEndFrame = 0;
 };

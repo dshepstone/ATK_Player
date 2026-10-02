@@ -180,8 +180,16 @@ void MediaInformationDialog::setMediaInformation(const media::MediaMetadata& met
     const QString source = QFileInfo(sourceCandidate).fileName();
     m_mediaName->setText(source.isEmpty() ? tr("No Media") : source);
     setValue(QStringLiteral("Source"), source);
-    setValue(QStringLiteral("Type"), !metadata.hasVideo ? kUnavailable
-        : metadata.isStillImage ? tr("Still image") : tr("Video"));
+    QString type = tr("Video");
+    if (metadata.isImageSequence) {
+        type = metadata.sequenceMissingFrames > 0
+            ? tr("Image sequence (%n missing)", nullptr,
+                 static_cast<int>(metadata.sequenceMissingFrames))
+            : tr("Image sequence");
+    } else if (metadata.isStillImage) {
+        type = tr("Still image");
+    }
+    setValue(QStringLiteral("Type"), metadata.hasVideo ? type : kUnavailable);
     setValue(QStringLiteral("Duration"), durationText(metadata.durationUs));
     setValue(QStringLiteral("NormalSize"), resolutionText(metadata.resolution));
     setValue(QStringLiteral("CurrentSize"), kUnavailable);

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "media/MediaMetadata.h"
-#include "media/StillImage.h"
+#include "media/ImageSource.h"
 
 #include <QString>
 
@@ -26,7 +26,8 @@ public:
 
     const QString& filePath() const { return m_filePath; }
 
-    /// File name without directory, for the sources list.
+    /// File name without directory, for the sources list; a sequence reads
+    /// "shot.[1001-1096].exr".
     QString displayName() const;
 
     /// What probing found. Empty until the decoder fills it in.
@@ -36,17 +37,24 @@ public:
     /// True once metadata has been populated by a successful open.
     bool isProbed() const { return m_metadata.isValid(); }
 
-    /// How this source is held when it is a still image. Ignored for video.
-    /// Stored per source (and in .atkproj) so the extent bookmarks were made
-    /// against cannot change when the application preference does.
-    const StillImageOptions& stillImageOptions() const { return m_stillImage; }
-    void setStillImageOptions(const StillImageOptions& options)
+    /// How this source is presented when it is a still image (the hold) or an
+    /// image sequence (the frame range); the rate applies to both. Ignored for
+    /// video. Stored per source (and in .atkproj) so the extent and timing
+    /// bookmarks were made against cannot change when a preference does.
+    const ImageSourceOptions& imageOptions() const { return m_imageOptions; }
+    void setImageOptions(const ImageSourceOptions& options)
     {
-        m_stillImage = options.normalized();
+        m_imageOptions = options.normalized();
     }
 
     /// True when the file is opened as a single held picture.
-    bool isStillImage() const { return isStillImagePath(m_filePath); }
+    bool isStillImage() const { return isStillImagePath(m_filePath) && !isImageSequence(); }
+
+    /// True when filePath() is a numbered-sequence pattern ("shot.%04d.exr").
+    bool isImageSequence() const { return m_imageOptions.isSequence(); }
+
+    /// Whether the media is on disk; see imageSourceExists().
+    bool exists() const { return imageSourceExists(m_filePath, m_imageOptions); }
 
     /// Frames added to the master frame number before reading from this source.
     /// May be negative.
@@ -56,7 +64,7 @@ public:
 private:
     QString m_filePath;
     MediaMetadata m_metadata;
-    StillImageOptions m_stillImage;
+    ImageSourceOptions m_imageOptions;
     int64_t m_frameOffset = 0;
 };
 

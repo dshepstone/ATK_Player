@@ -1,6 +1,6 @@
 #pragma once
 
-#include "media/StillImage.h"
+#include "media/ImageSource.h"
 
 #include <QString>
 
@@ -70,7 +70,7 @@ public:
     /// `defaultStill` is used only for a still-image source saved without one;
     /// a present but malformed object rejects the project.
     static SerializerResult load(Project& project, const QString& filePath,
-                                 const media::StillImageOptions& defaultStill = {});
+                                 const media::ImageSourceOptions& defaultStill = {});
 };
 
 } // namespace atk::project

@@ -26,6 +26,10 @@ public:
     void restoreTransform(const ViewerTransform& transform);
     const ViewerTransform& transform() const { return m_transform; }
     void setVideoOnlyPresentation(bool enabled);
+    /// Mirrors the composite at paint time; the wipe line and its drag follow
+    /// the mirrored picture. See ViewerWidget::setFlipHorizontal.
+    void setFlipHorizontal(bool flipped);
+    bool isFlippedHorizontally() const { return m_flipHorizontal; }
 
     static QImage compositeImages(const QImage& a, const QImage& b,
                                   playback::CompareLayout mode, int amount);
@@ -56,6 +60,7 @@ private:
     int m_wipePosition = 50;
     int m_blendAmount = 50;
     bool m_videoOnlyPresentation = false;
+    bool m_flipHorizontal = false;
     bool m_draggingWipe = false;
     bool m_middlePanning = false;
     QPointF m_lastPanPosition;

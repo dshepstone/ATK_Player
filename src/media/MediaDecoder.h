@@ -2,7 +2,7 @@
 
 #include "media/AudioBuffer.h"
 #include "media/MediaMetadata.h"
-#include "media/StillImage.h"
+#include "media/ImageSource.h"
 #include "media/VideoFrame.h"
 #include "media/ffmpeg/FFmpegRaii.h"
 
@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <deque>
 #include <functional>
+#include <vector>
 
 namespace atk::media {
 
@@ -45,15 +46,24 @@ enum class DecodeStatus {
 ///
 /// STILL IMAGES
 /// ------------
-/// A path with a still-image extension (StillImage.h) is opened with the image2
+/// A path with a still-image extension (ImageSource.h) is opened with the image2
 /// demuxer and pattern_type=none, so the name is always exactly one file and
 /// never a sequence pattern. The picture is decoded once during open(), every
 /// FFmpeg context is then released, and the decoder serves that picture as a
-/// synthesized stream of StillImageOptions::holdFrames frames: index N has
+/// synthesized stream of ImageSourceOptions::holdFrames frames: index N has
 /// ptsTicks N in a 1/frameRate time base, the count is exact
 /// (FrameCountSource::Synthesized) and there is no audio. Every consumer opens
 /// media through this class, which is why playlist, A/B, export and relink need
 /// no image code of their own.
+///
+/// IMAGE SEQUENCES
+/// ---------------
+/// When ImageSourceOptions describes a sequence, the path is a printf-style
+/// pattern ("shot.%04d.exr") and frame N is file sequenceFirst + N. Each frame
+/// is opened and decoded as its own single image (again pattern_type=none), so
+/// seeking and stepping are exact by construction and no demuxer state is held
+/// between frames. A number missing from disk holds the nearest earlier frame,
+/// keeping indices aligned with the DCC scene.
 class MediaDecoder {
 public:
     MediaDecoder();
@@ -66,7 +76,7 @@ public:
     /// `error` receives a user-presentable message. `still` describes the hold
     /// when the path is a still image and is ignored otherwise.
     bool open(const QString& filePath, QString* error,
-              const StillImageOptions& still = {});
+              const ImageSourceOptions& still = {});
 
     /// Releases every FFmpeg resource. Safe to call when already closed.
     void close();
@@ -108,8 +118,8 @@ public:
     /// True once the video stream has been fully drained.
     bool atEndOfVideo() const
     {
-        return m_stillImage ? m_nextVideoFrameIndex >= m_metadata.frameCount
-                            : m_videoEof && m_pendingVideo.empty();
+        return isImageSource() ? m_nextVideoFrameIndex >= m_metadata.frameCount
+                               : m_videoEof && m_pendingVideo.empty();
     }
 
     // --- Audio ------------------------------------------------------------
@@ -152,16 +162,34 @@ private:
 
     bool openVideoStream(QString* error);
 
-    /// The still-image half of open(): demuxes and decodes the one picture,
-    /// fills the synthesized metadata and releases every FFmpeg context.
-    bool openStillImage(const QString& filePath, const StillImageOptions& still,
+    enum class ImageMode { None, Still, Sequence };
+    bool isImageSource() const { return m_imageMode != ImageMode::None; }
+
+    /// What a decoded image contributes to the synthesized metadata.
+    struct DecodedImageInfo {
+        QString containerName;
+        QString containerLongName;
+        QString codecName;
+        QString codecLongName;
+        QString pixelFormatName;
+        double pixelAspectRatio = 1.0;
+        QSize size;
+    };
+    void fillImageMetadata(const QString& filePath, const DecodedImageInfo& info,
+                           const ImageSourceOptions& options, int64_t frameCount);
+
+    /// The still-image half of open(): decodes the one picture and holds it.
+    bool openStillImage(const QString& filePath, const ImageSourceOptions& still,
                         QString* error);
 
-    /// Decodes the single picture of an opened still into m_heldImage.
-    bool decodeStillPicture(QString* error);
+    /// The sequence half of open(): lists the frames present and decodes the
+    /// first readable one for the metadata.
+    bool openImageSequence(const QString& pattern, const ImageSourceOptions& options,
+                           QString* error);
 
-    /// The held picture presented as frame `index`, which must be in range.
-    VideoFrame heldFrame(int64_t index) const;
+    /// Image-source frame `index` (in range), decoding a sequence frame when
+    /// it is not the one already held.
+    bool imageFrame(int64_t index, VideoFrame& out, QString* error);
     bool openAudioStream(QString* error);
     void readMetadata();
 
@@ -202,10 +230,17 @@ private:
     /// PTS of the next audio sample to be emitted, in output-format terms.
     int64_t m_nextAudioPtsUs = 0;
 
-    /// Set for a still image. m_heldImage is the decoded picture; it is
-    /// implicitly shared, so every synthesized frame references one buffer.
-    bool m_stillImage = false;
+    /// Image sources keep no FFmpeg state between calls. m_heldImage is the
+    /// last decoded picture -- the whole content of a still -- and is
+    /// implicitly shared, so held frames reference one buffer.
+    ImageMode m_imageMode = ImageMode::None;
     QImage m_heldImage;
+    /// Sequence: source frame number m_heldImage came from, the pattern, the
+    /// number of index 0, and the numbers present on disk (ascending).
+    int64_t m_heldSourceFrame = -1;
+    QString m_sequencePattern;
+    int64_t m_sequenceFirst = 0;
+    std::vector<int64_t> m_sequencePresent;
 
     bool m_open = false;
     bool m_demuxEof = false;   ///< av_read_frame returned EOF

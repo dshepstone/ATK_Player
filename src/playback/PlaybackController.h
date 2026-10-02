@@ -6,7 +6,7 @@
 #include "media/PlaybackQueue.h"
 #include "media/WaveformData.h"
 #include "media/MediaMetadata.h"
-#include "media/StillImage.h"
+#include "media/ImageSource.h"
 #include "media/VideoFrame.h"
 
 #include <QObject>
@@ -87,7 +87,7 @@ public:
 
     /// Opens a file asynchronously. State becomes Loading, then Ready or Error.
     /// `still` is the hold to use when `filePath` is a still image.
-    void openMedia(const QString& filePath, const media::StillImageOptions& still = {});
+    void openMedia(const QString& filePath, const media::ImageSourceOptions& still = {});
 
     /// Unloads the current media and returns to the placeholder empty state.
     void closeMedia();
@@ -243,7 +243,7 @@ signals:
     // Requests to the decode thread. Connected to DecoderWorker slots as queued
     // connections, so nothing on the UI thread ever touches an FFmpeg context.
     void requestOpen(const QString& filePath, quint64 sourceGeneration,
-                     const atk::media::StillImageOptions& still);
+                     const atk::media::ImageSourceOptions& still);
     void requestClose();
     void requestFrame(qint64 frameIndex, quint64 requestGeneration);
     void requestStartPlayback(qint64 fromFrameIndex, quint64 requestGeneration);

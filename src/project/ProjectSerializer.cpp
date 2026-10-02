@@ -49,7 +49,7 @@ bool integer(const QJsonValue& value, qint64* out)
 /// A still image's hold is saved with the source, so bookmarks and the review
 /// range keep the extent they were made against even if the application's
 /// default hold later changes.
-QJsonObject stillJson(const media::StillImageOptions& still)
+QJsonObject stillJson(const media::ImageSourceOptions& still)
 {
     return {{QStringLiteral("holdFrames"), static_cast<double>(still.holdFrames)},
             {QStringLiteral("frameRate"), QJsonObject{
@@ -57,7 +57,54 @@ QJsonObject stillJson(const media::StillImageOptions& still)
                 {QStringLiteral("denominator"), still.frameRate.denominator}}}};
 }
 
-bool readStill(const QJsonValue& value, media::StillImageOptions* out)
+QJsonObject rateJson(const media::FrameRate& rate)
+{
+    return {{QStringLiteral("numerator"), rate.numerator},
+            {QStringLiteral("denominator"), rate.denominator}};
+}
+
+bool readRate(const QJsonValue& value, media::FrameRate* out)
+{
+    const QJsonObject rate = value.toObject();
+    qint64 numerator = 0, denominator = 0;
+    if (!integer(rate.value(QStringLiteral("numerator")), &numerator)
+        || !integer(rate.value(QStringLiteral("denominator")), &denominator)
+        || numerator <= 0 || denominator <= 0
+        || numerator > std::numeric_limits<int>::max()
+        || denominator > std::numeric_limits<int>::max())
+        return false;
+    *out = {static_cast<int>(numerator), static_cast<int>(denominator)};
+    return true;
+}
+
+/// An image sequence is stored as one path -- the printf-style pattern -- plus
+/// its inclusive source frame range and its own rate, so the extent and
+/// timing bookmarks were made against survive a preference change.
+QJsonObject sequenceJson(const media::ImageSourceOptions& sequence)
+{
+    return {{QStringLiteral("firstFrame"), static_cast<double>(sequence.sequenceFirst)},
+            {QStringLiteral("lastFrame"), static_cast<double>(sequence.sequenceLast)},
+            {QStringLiteral("frameRate"), rateJson(sequence.frameRate)}};
+}
+
+bool readSequence(const QJsonValue& value, media::ImageSourceOptions* out)
+{
+    if (!value.isObject()) return false;
+    const QJsonObject object = value.toObject();
+    media::ImageSourceOptions sequence;
+    qint64 first = 0, last = 0;
+    if (!integer(object.value(QStringLiteral("firstFrame")), &first)
+        || !integer(object.value(QStringLiteral("lastFrame")), &last)
+        || !readRate(object.value(QStringLiteral("frameRate")), &sequence.frameRate))
+        return false;
+    sequence.sequenceFirst = first;
+    sequence.sequenceLast = last;
+    if (!sequence.isValid()) return false;
+    *out = sequence;
+    return true;
+}
+
+bool readStill(const QJsonValue& value, media::ImageSourceOptions* out)
 {
     if (!value.isObject()) return false;
     const QJsonObject object = value.toObject();
@@ -70,7 +117,7 @@ bool readStill(const QJsonValue& value, media::StillImageOptions* out)
         || numerator > std::numeric_limits<int>::max()
         || denominator > std::numeric_limits<int>::max())
         return false;
-    media::StillImageOptions still;
+    media::ImageSourceOptions still;
     still.holdFrames = hold;
     still.frameRate = {static_cast<int>(numerator), static_cast<int>(denominator)};
     if (!still.isValid()) return false;
@@ -105,9 +152,11 @@ static SerializerResult saveWithName(const Project& project, const QString& file
             {QStringLiteral("displayName"), entry.displayName.isEmpty() ? entry.source->displayName() : entry.displayName},
             {QStringLiteral("frameOffset"), static_cast<double>(entry.frameOffset)},
             {QStringLiteral("review"), review}};
-        // Additive v1 field: older readers ignore it, and video sources omit it.
-        if (entry.source->isStillImage())
-            source.insert(QStringLiteral("still"), stillJson(entry.source->stillImageOptions()));
+        // Additive v1 fields: older readers ignore them, and video sources omit them.
+        if (entry.source->isImageSequence())
+            source.insert(QStringLiteral("sequence"), sequenceJson(entry.source->imageOptions()));
+        else if (entry.source->isStillImage())
+            source.insert(QStringLiteral("still"), stillJson(entry.source->imageOptions()));
         sources.append(source);
     }
     const QJsonObject root{{QStringLiteral("format"), QStringLiteral("ATKProject")},
@@ -132,7 +181,7 @@ SerializerResult ProjectSerializer::saveAs(const Project& project, const QString
 }
 
 SerializerResult ProjectSerializer::load(Project& project, const QString& filePath,
-                                         const media::StillImageOptions& defaultStill)
+                                         const media::ImageSourceOptions& defaultStill)
 {
     QFile file(filePath);
     if (!file.open(QIODevice::ReadOnly)) return SerializerResult::failure(file.errorString());
@@ -168,14 +217,20 @@ SerializerResult ProjectSerializer::load(Project& project, const QString& filePa
         entry.id = id; entry.storedPath = storedPath;
         entry.displayName = object.value(QStringLiteral("displayName")).toString();
         entry.source = std::make_shared<media::MediaSource>(resolved);
-        if (entry.source->isStillImage()) {
-            media::StillImageOptions still = defaultStill.normalized();
+        if (object.contains(QStringLiteral("sequence"))) {
+            media::ImageSourceOptions sequence;
+            if (!media::isStillImagePath(resolved)
+                || !readSequence(object.value(QStringLiteral("sequence")), &sequence))
+                return SerializerResult::failure(QStringLiteral("An image sequence source has an invalid frame range or rate."));
+            entry.source->setImageOptions(sequence);
+        } else if (entry.source->isStillImage()) {
+            media::ImageSourceOptions still = defaultStill.normalized();
             if (object.contains(QStringLiteral("still"))
                 && !readStill(object.value(QStringLiteral("still")), &still))
                 return SerializerResult::failure(QStringLiteral("A still image source has an invalid hold."));
-            entry.source->setStillImageOptions(still);
+            entry.source->setImageOptions(still);
         }
-        entry.missing = !QFileInfo::exists(resolved);
+        entry.missing = !entry.source->exists();
         entry.availability = entry.missing ? SourceAvailability::Missing : SourceAvailability::Unknown;
         qint64 offset = 0;
         if (integer(object.value(QStringLiteral("frameOffset")), &offset)) entry.frameOffset = offset;

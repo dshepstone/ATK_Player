@@ -1,7 +1,7 @@
 #pragma once
 
 #include "media/MediaMetadata.h"
-#include "media/StillImage.h"
+#include "media/ImageSource.h"
 
 #include <QObject>
 #include <QUuid>
@@ -19,7 +19,7 @@ public slots:
     /// `still` is the source's hold when `path` is a still image: the probed
     /// frame count of a still is the hold, so it must match playback's.
     void probe(const QUuid& sourceId, const QString& path, quint64 token,
-               const atk::media::StillImageOptions& still = {});
+               const atk::media::ImageSourceOptions& still = {});
 
 signals:
     void probeFinished(QUuid sourceId, QString path, quint64 token,

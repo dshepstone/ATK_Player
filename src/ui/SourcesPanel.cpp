@@ -93,11 +93,19 @@ SourcesPanel::SourcesPanel(QWidget* parent)
         QMenu menu(this);
         QAction* activate = menu.addAction(tr("Activate"));
         QAction* relink = menu.addAction(tr("Relink Media..."));
+        // Only image sources have a rate of their own; a video's comes from the file.
+        QAction* frameRate = nullptr;
+        if (m_project != nullptr && selectedIndex() < m_project->entries().size()) {
+            const auto& source = m_project->entries().at(selectedIndex()).source;
+            if (source && (source->isImageSequence() || source->isStillImage()))
+                frameRate = menu.addAction(tr("Frame Rate..."));
+        }
         menu.addSeparator();
         QAction* remove = menu.addAction(tr("Remove"));
         QAction* selected = menu.exec(m_list->viewport()->mapToGlobal(position));
         if (selected == activate) emit sourceActivated(selectedIndex());
         else if (selected == relink) emit relinkRequested(selectedIndex());
+        else if (selected != nullptr && selected == frameRate) emit frameRateRequested(selectedIndex());
         else if (selected == remove) emit removeRequested(selectedIndex());
     });
 

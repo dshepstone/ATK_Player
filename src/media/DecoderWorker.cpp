@@ -33,7 +33,7 @@ DecoderWorker::DecoderWorker(std::shared_ptr<audio::AudioRingBuffer> audioBuffer
     Q_ASSERT(m_generations != nullptr);
     // openMedia() receives the hold through queued connections from both the
     // playback controller and the comparison lane.
-    qRegisterMetaType<StillImageOptions>("atk::media::StillImageOptions");
+    qRegisterMetaType<ImageSourceOptions>("atk::media::ImageSourceOptions");
 }
 
 DecoderWorker::~DecoderWorker()
@@ -72,7 +72,7 @@ void DecoderWorker::shutdown()
 // ---------------------------------------------------------------------------
 
 void DecoderWorker::openMedia(const QString& filePath, quint64 sourceGeneration,
-                              const StillImageOptions& still)
+                              const ImageSourceOptions& still)
 {
     if (m_shuttingDown) {
         return;

@@ -10,8 +10,9 @@ Branch: `feature/image-sources`.
 Add to Playlist, Relink, drag and drop, `.atkproj`, A/B comparison and every
 export kind.
 
-**Not in scope:** URLs and online video, and image sequences. Sequences are
-planned as phase 2 below, and nothing in phase 1 opens a numbered pattern.
+**Not in scope:** URLs and online video. Image sequences are phase 2, below.
+Phase 1 never opens a numbered pattern by itself: a sequence is only ever
+opened when the user explicitly chooses one.
 
 ## Prerequisite: FFmpeg zlib
 
@@ -49,7 +50,7 @@ below), because a still's extent is not a property of the file.
 
 ### Classification
 
-`media/StillImage.h` classifies by file extension, case-insensitively, against
+`media/ImageSource.h` classifies by file extension, case-insensitively, against
 one list. The decoder, the file dialogs, drag and drop and the project
 serializer all use that list, so they cannot disagree about what is a still.
 Classifying by extension is deliberate:
@@ -108,7 +109,7 @@ not colour management, and OCIO is out of scope.
 ### Hold options and where they live
 
 ```
-struct StillImageOptions { int64_t holdFrames; FrameRate frameRate; };
+struct ImageSourceOptions { int64_t holdFrames; FrameRate frameRate; };
 ```
 
 - **Minimum 10 frames**, which is `TimelineViewport`'s minimum span. Shorter
@@ -119,7 +120,7 @@ struct StillImageOptions { int64_t holdFrames; FrameRate frameRate; };
   `ApplicationSettings::stillImageHoldFrames()` is edited in Preferences →
   Review. Changing it never rewrites existing sources.
 - **The hold is stored per source.** `MediaSource` carries its
-  `StillImageOptions`. `.atkproj` writes an optional `"still"` object for
+  `ImageSourceOptions`. `.atkproj` writes an optional `"still"` object for
   still-image sources:
 
   ```json
@@ -145,12 +146,12 @@ The options reach each opener as a value:
 
 | Caller | Source of options |
 |---|---|
-| `PlaybackController::openMedia(path, options)` → `DecoderWorker::openMedia` | `entry.source->stillImageOptions()` |
+| `PlaybackController::openMedia(path, options)` → `DecoderWorker::openMedia` | `entry.source->imageOptions()` |
 | `PlaylistProbeWorker::probe(..., options)` | same; relink passes the relinked entry's |
-| `CompareVideoLane::open(id, source, …)` | `source->stillImageOptions()` |
+| `CompareVideoLane::open(id, source, …)` | `source->imageOptions()` |
 | `ExportSource::still` → `ExportRenderer` | snapshotted with the rest of `ExportSpec` |
 
-Every parameter defaults to `StillImageOptions{}`, so video-only callers and
+Every parameter defaults to `ImageSourceOptions{}`, so video-only callers and
 existing tests are unchanged.
 
 ### Audio paths
@@ -231,36 +232,82 @@ New cases:
 Debug and Release are both configured, built and fully tested before the
 branch is reported complete.
 
-## Phase 2: image sequences (documented, not built)
+## Phase 2: image sequences (built on `feature/sequences-and-flip`)
 
-The open question is how a sequence is **one path** in `.atkproj` and in the
-missing-media check.
-
-**Proposal.** Store a sequence as a printf-style pattern plus an explicit
-frame range, never as the first file alone:
+A sequence is **one source with one path**: a printf-style pattern plus an
+explicit inclusive range and its own rate. It is never stored as the first
+file alone.
 
 ```json
 "path": "renders/shot010/shot010.%04d.exr",
-"sequence": { "first": 1001, "last": 1096, "frameRate": { "numerator": 24, "denominator": 1 } }
+"sequence": { "firstFrame": 1001, "lastFrame": 1096,
+              "frameRate": { "numerator": 24, "denominator": 1 } }
 ```
 
-- **Identity and relative storage** apply to the directory and pattern exactly
-  as they do to a file path today.
-- **Missing-media check.** `QFileInfo::exists(path)` is wrong for a pattern.
-  Availability becomes a small `MediaLocator` abstraction:
-  - A file exists, or for a sequence, the directory exists and a sample of the
-    expected frames (first, last and a stride) is present.
-  - Gaps are a distinct state: *Partial*, listing the missing frames, rather
-    than *Missing*. A render in progress is normal in animation review.
-- **Opening** uses `image2` with `pattern_type=sequence`, `start_number` and
-  the stored rate. The phase-1 still path stays `pattern_type=none`, so a
-  single file can never be mistaken for a sequence.
-- **Frame mapping.** Index 0 maps to `first`, and UI labels may optionally show
-  source frame numbers (1001…). Missing frames hold the previous frame and are
-  marked, never skipped, so indices stay aligned with the DCC scene.
-- **Detection UX.** Opening `shot010.1001.exr` should offer "open as sequence
-  1001–1096" rather than silently picking a mode.
-- **Relink** of a sequence relinks the pattern and revalidates the range.
-- Still undecided: whether the rate is per sequence (as proposed) or taken
-  from the still-hold preference, and how in-progress renders refresh while a
-  sequence is open.
+### Opening
+
+- **Detection** (`media::detectImageSequence`). The frame number is the *last*
+  run of digits before the extension, so `shot010_v2.1001.exr` is numbered by
+  1001. Neighbours must share the prefix, the suffix and the extension.
+  - A leading zero means fixed width (`%04d`). Otherwise the width that matches
+    more files wins, and unpadded runs (`1..120`) use `%d`.
+  - A lone numbered file is not a sequence.
+- **Prompt.** When Open Media, Add to Playlist or drag and drop meets a
+  numbered image with neighbours, ATK asks: *Image Sequence*, *Single Image*
+  or *Cancel*. It shows the range, the frame count, any missing frames and
+  the rate it will use.
+  - A batch asks once per sequence, so dropping all 96 frames gives one
+    prompt and one source.
+  - The local API never prompts and always adds single files, so automation
+    cannot block.
+- **Rate.** Preferences → Review → *Image sequence and still rate* (presets
+  23.976, 24, 25, 29.97, 30, 48, 50, 59.94 and 60; default 24) seeds new
+  sources.
+  - Each source keeps its own rate, stored with the source.
+  - Sources panel → right-click → *Frame Rate…* re-times a sequence or still.
+    Frame indices, and therefore bookmarks and the review range, are
+    unchanged; only media times move. A playing source or comparison Source B
+    reopens.
+
+### Decoding
+
+`MediaDecoder` opens each sequence frame as its own single image, with the same
+`image2` / `pattern_type=none` helper that stills use. It does not use image2's
+own sequence demuxer. As a result:
+
+- Seeking and stepping are exact by construction: frame N is file
+  `first + N`, with `ptsTicks == N` in a `1/rate` time base.
+- No demuxer state is held between frames.
+- A missing number is handled per frame, not as an early end of stream. It
+  holds the nearest earlier frame that exists; a leading gap holds the first
+  frame. A frame that becomes unreadable after opening holds the last good
+  picture.
+- The present frame numbers are listed once at open (one directory listing),
+  so playback does not stat the filesystem per frame.
+
+### Availability, relink, export, audio
+
+- `media::imageSourceExists(path, options)` replaces `QFileInfo::exists` for
+  sources. A sequence is available when at least one frame in its range is on
+  disk. The probe, project load and export validation all use it.
+- **Relink** to any frame of another sequence relinks to that whole sequence,
+  with its detected range and the original rate.
+- **Exports** are named from the pattern without its token
+  (`shot.%04d.exr` → `shot`).
+- **Audio** readers refuse the pattern like any image, so every audio path
+  stays quiet.
+
+### Display
+
+- The sources panel and title show `shot.[1001-1096].exr`.
+- Media Information shows *Image sequence* and the missing-frame count.
+
+### Not yet done
+
+- Missing frames are counted (description and Media Information) but not
+  marked per frame on the timeline. Availability has no *Partial* state.
+- Timeline labels show 1-based indices, not the source numbers (1001…).
+- The range is fixed when the sequence is opened. A render that is still
+  writing frames needs a relink to pick up new ones.
+- Very large EXR sequences decode one frame per file open. That is fine for
+  review-sized frames; heavy 4K EXR playback may not reach real time.

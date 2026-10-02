@@ -43,6 +43,8 @@ signals:
     void removeRequested(int playlistIndex);
     void moveRequested(int fromIndex, int toIndex);
     void relinkRequested(int playlistIndex);
+    /// Change the playback rate of an image sequence or still.
+    void frameRateRequested(int playlistIndex);
 
 private:
     void refresh();
