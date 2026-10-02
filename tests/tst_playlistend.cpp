@@ -9,6 +9,7 @@
 #include <QDir>
 #include "ui/ViewerWidget.h"
 #include <QDropEvent>
+#include <QFile>
 #include <QImage>
 #include <QMimeData>
 #include <QPushButton>
@@ -80,6 +81,7 @@ private slots:
     void droppedStillPlaysHeldExtentAndStops();
     void droppedSequenceFramesOpenOneSequenceAtPreferenceRate();
     void flipCommandMirrorsAllViewersAndResetsOnOpen();
+    void legacyStillProjectUsesPreferenceRate();
 };
 
 void TestPlaylistEnd::pausedJumpToEndIsNavigationOnly()
@@ -350,6 +352,34 @@ void TestPlaylistEnd::droppedSequenceFramesOpenOneSequenceAtPreferenceRate()
     answer.stop();
     QCOMPARE(window.project()->entries().size(), 2);
     QVERIFY(window.project()->entries().at(1).source->isStillImage());
+}
+
+void TestPlaylistEnd::legacyStillProjectUsesPreferenceRate()
+{
+    // A v1 project saved before a still carried its own "still" object takes
+    // both the hold and the rate from the current preferences.
+    QTemporaryDir directory;
+    const QString settingsFile = directory.filePath(QStringLiteral("settings.ini"));
+    {
+        atk::ui::ApplicationSettings settings(settingsFile);
+        settings.setStillImageHoldFrames(30);
+        settings.setImageSequenceFrameRate({25, 1});
+        settings.sync();
+    }
+    QFile project(directory.filePath(QStringLiteral("legacy.atkproj")));
+    QVERIFY(project.open(QIODevice::WriteOnly));
+    project.write(QStringLiteral(R"({"format":"ATKProject","version":1,"name":"Legacy","sources":[)"
+        R"({"id":"6f1c2a52-6a8f-4d4e-9b8e-0d1f0e2a3b4c","path":"%1"}]})")
+        .arg(QStringLiteral(ATK_TEST_MEDIA_DIR "/atk_still_320x180.png")).toUtf8());
+    project.close();
+
+    atk::ui::MainWindow window(settingsFile);
+    QVERIFY(window.openProjectFile(project.fileName()));
+    const auto options = window.project()->entries().at(0).source->imageOptions();
+    QCOMPARE(options.holdFrames, qint64(30));
+    QCOMPARE(options.frameRate, (atk::media::FrameRate{25, 1}));
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->metadata().frameRate,
+                              (atk::media::FrameRate{25, 1}), 10000);
 }
 
 void TestPlaylistEnd::flipCommandMirrorsAllViewersAndResetsOnOpen()

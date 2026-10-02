@@ -74,6 +74,16 @@ void ComparisonCompositeWidget::paintEvent(QPaintEvent*)
         painter.setPen(QPen(QColor(255, 255, 255, 170), 1));
         painter.drawLine(QPointF(x, image.top()), QPointF(x, image.bottom()));
     }
+    if (!m_videoOnlyPresentation && m_flipHorizontal) {
+        // Same indicator as ViewerWidget: a mirrored comparison must never be
+        // mistaken for the real one.
+        painter.setPen(theme::textSecondary());
+        QFont font = painter.font();
+        font.setBold(true);
+        painter.setFont(font);
+        painter.drawText(rect().adjusted(10, 8, -10, -8), Qt::AlignTop | Qt::AlignRight,
+                         tr("FLIPPED H"));
+    }
 }
 
 void ComparisonCompositeWidget::resizeEvent(QResizeEvent* event) { QWidget::resizeEvent(event); syncTransform(); }

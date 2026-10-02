@@ -1696,6 +1696,7 @@ bool MainWindow::openProjectFile(const QString& path)
     project::Project loaded;
     media::ImageSourceOptions defaultStill;
     defaultStill.holdFrames = m_settings->stillImageHoldFrames();
+    defaultStill.frameRate = m_settings->imageSequenceFrameRate();
     const auto result = project::ProjectSerializer::load(loaded, path, defaultStill);
     if (!result.ok) {
         if (!m_suppressProjectOpenError) QMessageBox::critical(this, tr("Open Project"), result.errorMessage);

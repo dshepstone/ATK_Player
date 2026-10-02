@@ -111,10 +111,12 @@ if(WIN32)
         install(FILES ${_atk_ffmpeg_runtime_dll} DESTINATION ${CMAKE_INSTALL_BINDIR})
     endforeach()
 
-    # FFmpeg's zlib (PNG/EXR/deflate-TIFF stills). vcpkg names it z.dll, or
-    # zd.dll in the debug tree.
+    # FFmpeg's zlib (PNG/EXR/deflate-TIFF stills). The pinned vcpkg zlib
+    # (1.3.2) names it z.dll, or zd.dll in the debug tree; older ports used
+    # zlib1.dll / zlibd1.dll, so either naming is accepted.
     file(GLOB _atk_zlib_runtime_dll
-        "${ATK_FFMPEG_RUNTIME_DIR}/z.dll" "${ATK_FFMPEG_RUNTIME_DIR}/zd.dll")
+        "${ATK_FFMPEG_RUNTIME_DIR}/z.dll" "${ATK_FFMPEG_RUNTIME_DIR}/zd.dll"
+        "${ATK_FFMPEG_RUNTIME_DIR}/zlib1.dll" "${ATK_FFMPEG_RUNTIME_DIR}/zlibd1.dll")
     list(LENGTH _atk_zlib_runtime_dll _atk_zlib_runtime_count)
     if(NOT _atk_zlib_runtime_count EQUAL 1)
         message(FATAL_ERROR

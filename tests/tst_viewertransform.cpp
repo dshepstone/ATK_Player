@@ -296,6 +296,19 @@ void TestViewerTransform::flipMirrorsCompositeAndWipeDrag()
     QTest::mouseRelease(&composite, Qt::LeftButton, {}, QPoint(100, 100));
     QCOMPARE(composite.wipePosition(), 75);
     QCOMPARE(wipe.size(), 1);
+
+    // The composite shows the same FLIPPED H indicator as the dual viewers.
+    // A uniform picture makes the badge the only difference flipping makes.
+    VideoFrame grey = frame(400, 200); grey.image.fill(QColor(90, 90, 90));
+    composite.setFrameA(grey);
+    composite.setFrameB(grey);
+    composite.setFlipHorizontal(false);
+    const QImage plain = composite.grab().toImage();
+    composite.setFlipHorizontal(true);
+    const QImage flipped = composite.grab().toImage();
+    const qreal ratio = plain.devicePixelRatio();
+    const QRect badge(qRound(250 * ratio), 0, qRound(150 * ratio), qRound(30 * ratio));
+    QVERIFY(plain.copy(badge) != flipped.copy(badge));
 }
 
 void TestViewerTransform::flipCommandIsCheckableWithHShortcut()
