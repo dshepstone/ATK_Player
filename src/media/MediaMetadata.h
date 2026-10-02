@@ -75,10 +75,18 @@ struct MediaMetadata {
 
     // --- Video ------------------------------------------------------------
     bool hasVideo = false;
-    /// A single picture held for a synthesized extent; see StillImage.h. The
+    /// A single picture held for a synthesized extent; see ImageSource.h. The
     /// frame rate, time base and frame count then describe the hold, not the
     /// file.
     bool isStillImage = false;
+    /// A numbered image sequence; filePath is then its pattern and fileName
+    /// its display name ("shot.[1001-1096].exr").
+    bool isImageSequence = false;
+    /// Source frame number shown at index 0 (e.g. 1001). Sequences only.
+    int64_t sequenceFirstFrame = 0;
+    /// Numbers in the range with no file on disk; those frames hold the
+    /// nearest earlier picture.
+    int64_t sequenceMissingFrames = 0;
     int videoStreamIndex = -1;
     QString videoCodecName;     ///< e.g. "h264"
     QString videoCodecLongName;

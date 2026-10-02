@@ -70,6 +70,7 @@ enum class CommandId {
     ZoomOut,
     ZoomFit,
     ZoomActualSize,
+    FlipHorizontal,
     MediaInformation,
     ToggleFullScreen,
     ToggleVideoFullScreen,

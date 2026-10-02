@@ -2,7 +2,7 @@
 #include "media/MediaDecoder.h"
 #include "media/MediaSource.h"
 #include "media/PlaylistProbeWorker.h"
-#include "media/StillImage.h"
+#include "media/ImageSource.h"
 #include "media/ffmpeg/FFmpegUtil.h"
 
 #include <QDir>
@@ -22,7 +22,7 @@ using atk::media::FrameCountSource;
 using atk::media::FrameRate;
 using atk::media::MediaDecoder;
 using atk::media::MediaMetadata;
-using atk::media::StillImageOptions;
+using atk::media::ImageSourceOptions;
 using atk::media::VideoFrame;
 
 namespace {
@@ -38,6 +38,25 @@ QString smallPng() { return fixture("atk_still_64x36.png"); }
 QString stillJpg() { return fixture("atk_still_320x180.jpg"); }
 QString alphaPng() { return fixture("atk_still_alpha_64x36.png"); }
 QString stillExr() { return fixture("atk_still_320x180.exr"); }
+
+/// Writes a numbered PNG sequence whose red channel encodes the frame number,
+/// so a decoded frame proves which file it came from. Qt writes the PNGs;
+/// FFmpeg reads them back, so the two are independent.
+QStringList writeSequence(const QString& directory, const QString& prefix,
+                          const QList<int>& numbers, int padding, const QString& suffix = QStringLiteral(".png"))
+{
+    QStringList written;
+    for (const int number : numbers) {
+        QImage image(64, 36, QImage::Format_RGB32);
+        image.fill(QColor(number % 256, 40, 200));
+        const QString path = QDir(directory).filePath(
+            prefix + QString::number(number).rightJustified(padding, QLatin1Char('0')) + suffix);
+        if (image.save(path, "PNG")) written << path;
+    }
+    return written;
+}
+
+int redAt(const VideoFrame& frame) { return qRed(frame.image.pixel(10, 10)); }
 
 int64_t microsecondsAt(int64_t index, FrameRate rate)
 {
@@ -79,6 +98,18 @@ private slots:
     void repeatedOpenCloseIsClean();
     void rejectsCorruptImage();
     void cancellationIsHonoured();
+
+    // Image sequences
+    void detectsPaddedSequenceWithGap();
+    void detectsUnpaddedSequenceAndLastDigitRun();
+    void loneNumberedImageIsNotASequence();
+    void sequenceNamesAndFramePaths();
+    void sequenceOptionsValidateRange();
+    void decodesSequenceFramesInOrder();
+    void missingSequenceFrameHoldsPrevious();
+    void sequenceSteppingAndClampingAreExact();
+    void sequenceWithNoFramesFailsToOpen();
+    void probeAndAudioHandleSequences();
 
     // Other consumers
     void probeReportsTheRequestedHold();
@@ -123,22 +154,22 @@ void TestStillImage::classifiesByExtension()
 
 void TestStillImage::optionsNormalizeToTheViewportMinimum()
 {
-    StillImageOptions options;
-    QCOMPARE(options.holdFrames, StillImageOptions::kDefaultHoldFrames);
+    ImageSourceOptions options;
+    QCOMPARE(options.holdFrames, ImageSourceOptions::kDefaultHoldFrames);
     QCOMPARE(options.frameRate, (FrameRate{ 24, 1 }));
     QVERIFY(options.isValid());
 
     options.holdFrames = 3;
     QVERIFY(!options.isValid());
-    QCOMPARE(options.normalized().holdFrames, StillImageOptions::kMinimumHoldFrames);
-    QCOMPARE(StillImageOptions::kMinimumHoldFrames, int64_t{ 10 });
+    QCOMPARE(options.normalized().holdFrames, ImageSourceOptions::kMinimumHoldFrames);
+    QCOMPARE(ImageSourceOptions::kMinimumHoldFrames, int64_t{ 10 });
 
-    options.holdFrames = StillImageOptions::kMaximumHoldFrames + 1;
-    QCOMPARE(options.normalized().holdFrames, StillImageOptions::kMaximumHoldFrames);
+    options.holdFrames = ImageSourceOptions::kMaximumHoldFrames + 1;
+    QCOMPARE(options.normalized().holdFrames, ImageSourceOptions::kMaximumHoldFrames);
 
     options.holdFrames = 20;
     options.frameRate = { 0, 1 };
-    QCOMPARE(options.normalized().frameRate, StillImageOptions::kDefaultFrameRate);
+    QCOMPARE(options.normalized().frameRate, ImageSourceOptions::kDefaultFrameRate);
     QCOMPARE(options.normalized().holdFrames, int64_t{ 20 });
 }
 
@@ -146,10 +177,10 @@ void TestStillImage::mediaSourceNormalizesItsHold()
 {
     atk::media::MediaSource source(stillPng());
     QVERIFY(source.isStillImage());
-    QCOMPARE(source.stillImageOptions(), StillImageOptions{});
-    source.setStillImageOptions({ 2, { 30000, 1001 } });
-    QCOMPARE(source.stillImageOptions().holdFrames, StillImageOptions::kMinimumHoldFrames);
-    QCOMPARE(source.stillImageOptions().frameRate, (FrameRate{ 30000, 1001 }));
+    QCOMPARE(source.imageOptions(), ImageSourceOptions{});
+    source.setImageOptions({ 2, { 30000, 1001 } });
+    QCOMPARE(source.imageOptions().holdFrames, ImageSourceOptions::kMinimumHoldFrames);
+    QCOMPARE(source.imageOptions().frameRate, (FrameRate{ 30000, 1001 }));
     QVERIFY(!atk::media::MediaSource(QStringLiteral("clip.mov")).isStillImage());
 }
 
@@ -172,11 +203,11 @@ void TestStillImage::opensWithSynthesizedExtent()
     QCOMPARE(m.videoTimeBase.numerator, 1);
     QCOMPARE(m.videoTimeBase.denominator, 24);
     QCOMPARE(m.videoStartTime, int64_t{ 0 });
-    QCOMPARE(m.frameCount, StillImageOptions::kDefaultHoldFrames);
+    QCOMPARE(m.frameCount, ImageSourceOptions::kDefaultHoldFrames);
     QCOMPARE(m.frameCountSource, FrameCountSource::Synthesized);
     QVERIFY(m.hasExactFrameCount());
     QCOMPARE(m.durationUs, int64_t{ 2'000'000 });
-    QCOMPARE(decoder.countFramesExactly(&error), StillImageOptions::kDefaultHoldFrames);
+    QCOMPARE(decoder.countFramesExactly(&error), ImageSourceOptions::kDefaultHoldFrames);
     QVERIFY(m.shortDescription().contains(QStringLiteral("Still image")));
     QVERIFY(m.shortDescription().contains(QStringLiteral("48 frames @ 24 fps")));
 }
@@ -185,7 +216,7 @@ void TestStillImage::servesEveryHeldFrameThenEndOfFile()
 {
     MediaDecoder decoder;
     QString error;
-    const StillImageOptions hold{ 12, { 24, 1 } };
+    const ImageSourceOptions hold{ 12, { 24, 1 } };
     QVERIFY2(decoder.open(stillPng(), &error, hold), qPrintable(error));
 
     VideoFrame first;
@@ -238,7 +269,7 @@ void TestStillImage::frameAtIndexIsExactAndClamps()
     // Past the end answers with the last held frame, like a video that ends
     // before the requested target.
     QVERIFY(decoder.frameAtIndex(1000, frame, &error));
-    QCOMPARE(frame.frameIndex, StillImageOptions::kDefaultHoldFrames - 1);
+    QCOMPARE(frame.frameIndex, ImageSourceOptions::kDefaultHoldFrames - 1);
     QCOMPARE(decoder.seekOperationCount(), int64_t{ 0 });
 }
 
@@ -282,7 +313,7 @@ void TestStillImage::holdsAtRationalRate()
 {
     MediaDecoder decoder;
     QString error;
-    const StillImageOptions hold{ 100, { 24000, 1001 } };
+    const ImageSourceOptions hold{ 100, { 24000, 1001 } };
     QVERIFY2(decoder.open(stillPng(), &error, hold), qPrintable(error));
 
     const MediaMetadata& m = decoder.metadata();
@@ -307,7 +338,7 @@ void TestStillImage::holdBelowMinimumIsRaised()
     MediaDecoder decoder;
     QString error;
     QVERIFY2(decoder.open(stillPng(), &error, { 1, { 24, 1 } }), qPrintable(error));
-    QCOMPARE(decoder.metadata().frameCount, StillImageOptions::kMinimumHoldFrames);
+    QCOMPARE(decoder.metadata().frameCount, ImageSourceOptions::kMinimumHoldFrames);
 }
 
 void TestStillImage::patternLikeNameIsOneFile()
@@ -327,7 +358,7 @@ void TestStillImage::patternLikeNameIsOneFile()
     QString error;
     QVERIFY2(decoder.open(patternName, &error), qPrintable(error));
     QCOMPARE(decoder.metadata().resolution, QSize(320, 180));
-    QCOMPARE(decoder.metadata().frameCount, StillImageOptions::kDefaultHoldFrames);
+    QCOMPARE(decoder.metadata().frameCount, ImageSourceOptions::kDefaultHoldFrames);
 
     QVERIFY2(decoder.open(percentName, &error), qPrintable(error));
     QCOMPARE(decoder.metadata().resolution, QSize(320, 180));
@@ -462,7 +493,7 @@ void TestStillImage::probeReportsTheRequestedHold()
     atk::media::PlaylistProbeWorker worker;
     QSignalSpy finished(&worker, &atk::media::PlaylistProbeWorker::probeFinished);
     const QUuid id = QUuid::createUuid();
-    worker.probe(id, stillPng(), 4, StillImageOptions{ 72, { 25, 1 } });
+    worker.probe(id, stillPng(), 4, ImageSourceOptions{ 72, { 25, 1 } });
     QCOMPARE(finished.size(), 1);
     const auto arguments = finished.takeFirst();
     QCOMPARE(arguments.at(0).value<QUuid>(), id);
@@ -484,6 +515,258 @@ void TestStillImage::audioReaderRefusesStillQuietly()
     QVERIFY(!reader.open(stillPng(), AudioFormat{ 48000, 2, 2 }, &error));
     QCOMPARE(error, QStringLiteral("The file has no audio stream."));
     QVERIFY(!reader.isOpen());
+}
+
+void TestStillImage::detectsPaddedSequenceWithGap()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QList<int> numbers;
+    for (int n = 1001; n <= 1012; ++n) if (n != 1005) numbers << n;
+    const QStringList files = writeSequence(dir.path(), QStringLiteral("shot010_v2."), numbers, 4);
+    QCOMPARE(files.size(), 11);
+    // Unrelated neighbours must not join the sequence.
+    writeSequence(dir.path(), QStringLiteral("other."), {1001, 1002}, 4);
+    writeSequence(dir.path(), QStringLiteral("shot010_v2."), {1003}, 4, QStringLiteral(".jpg"));
+
+    const auto sequence = atk::media::detectImageSequence(files.at(3));
+    QVERIFY(sequence.has_value());
+    QCOMPARE(sequence->pattern, QDir(dir.path()).filePath(QStringLiteral("shot010_v2.%04d.png")));
+    QCOMPARE(sequence->first, int64_t{ 1001 });
+    QCOMPARE(sequence->last, int64_t{ 1012 });
+    QCOMPARE(sequence->length(), int64_t{ 12 });
+    QCOMPARE(sequence->presentCount, int64_t{ 11 });
+    QCOMPARE(sequence->missingCount(), int64_t{ 1 });
+}
+
+void TestStillImage::detectsUnpaddedSequenceAndLastDigitRun()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QStringList files = writeSequence(dir.path(), QStringLiteral("take3_frame"),
+                                            {1, 2, 3, 9, 10, 11}, 0);
+    const auto sequence = atk::media::detectImageSequence(files.at(4));
+    QVERIFY(sequence.has_value());
+    QCOMPARE(QFileInfo(sequence->pattern).fileName(), QStringLiteral("take3_frame%d.png"));
+    QCOMPARE(sequence->first, int64_t{ 1 });
+    QCOMPARE(sequence->last, int64_t{ 11 });
+    QCOMPARE(sequence->missingCount(), int64_t{ 5 });
+
+    // Zero-padded names with a leading zero use the fixed-width token.
+    QTemporaryDir padded;
+    const QStringList zeros = writeSequence(padded.path(), QStringLiteral("f_"), {7, 8, 9}, 3);
+    const auto zeroSequence = atk::media::detectImageSequence(zeros.first());
+    QVERIFY(zeroSequence.has_value());
+    QCOMPARE(QFileInfo(zeroSequence->pattern).fileName(), QStringLiteral("f_%03d.png"));
+    QCOMPARE(atk::media::sequenceFramePath(zeroSequence->pattern, 8),
+             QDir(padded.path()).filePath(QStringLiteral("f_008.png")));
+}
+
+void TestStillImage::loneNumberedImageIsNotASequence()
+{
+    QTemporaryDir dir;
+    const QStringList single = writeSequence(dir.path(), QStringLiteral("ref_"), {42}, 4);
+    QVERIFY(!atk::media::detectImageSequence(single.first()).has_value());
+    QVERIFY(!atk::media::detectImageSequence(stillPng()).has_value());
+    QVERIFY(!atk::media::detectImageSequence(QStringLiteral("C:/no/such/shot.0001.png")).has_value());
+    QVERIFY(!atk::media::detectImageSequence(fixture("atk_fixture_48f.mkv")).has_value());
+}
+
+void TestStillImage::sequenceNamesAndFramePaths()
+{
+    const QString pattern = QStringLiteral("C:/renders/shot.%04d.exr");
+    QCOMPARE(atk::media::sequenceFramePath(pattern, 1001), QStringLiteral("C:/renders/shot.1001.exr"));
+    QCOMPARE(atk::media::sequenceFramePath(pattern, 7), QStringLiteral("C:/renders/shot.0007.exr"));
+    QCOMPARE(atk::media::sequenceFramePath(pattern, 12345), QStringLiteral("C:/renders/shot.12345.exr"));
+    QCOMPARE(atk::media::sequenceDisplayName(pattern, 1001, 1096), QStringLiteral("shot.[1001-1096].exr"));
+    QCOMPARE(atk::media::sequenceBaseName(pattern), QStringLiteral("shot"));
+    QCOMPARE(atk::media::sequenceFramePath(QStringLiteral("C:/x/still.png"), 1), QString());
+    QVERIFY(atk::media::isStillImagePath(pattern));
+    QCOMPARE(atk::media::frameRateLabel({ 24000, 1001 }), QStringLiteral("23.976 fps"));
+    QCOMPARE(atk::media::frameRateLabel({ 30000, 1001 }), QStringLiteral("29.97 fps"));
+    QCOMPARE(atk::media::imageFrameRatePresets().size(), 9);
+
+    atk::media::MediaSource source(pattern);
+    ImageSourceOptions options;
+    options.sequenceFirst = 1001;
+    options.sequenceLast = 1096;
+    source.setImageOptions(options);
+    QVERIFY(source.isImageSequence());
+    QVERIFY(!source.isStillImage());
+    QCOMPARE(source.displayName(), QStringLiteral("shot.[1001-1096].exr"));
+}
+
+void TestStillImage::sequenceOptionsValidateRange()
+{
+    ImageSourceOptions options;
+    QVERIFY(!options.isSequence());
+    options.sequenceFirst = 10;
+    options.sequenceLast = 4;
+    QVERIFY(!options.isValid());
+    QVERIFY(!options.normalized().isSequence());   // malformed range drops to a still
+    options.sequenceLast = 10;                       // a single numbered frame is allowed
+    QVERIFY(options.isValid());
+    QCOMPARE(options.sequenceLength(), int64_t{ 1 });
+    options.sequenceLast = 10 + ImageSourceOptions::kMaximumSequenceFrames;
+    QVERIFY(!options.isValid());
+}
+
+void TestStillImage::decodesSequenceFramesInOrder()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QList<int> numbers;
+    for (int n = 101; n <= 112; ++n) numbers << n;
+    writeSequence(dir.path(), QStringLiteral("anim."), numbers, 4);
+    const auto sequence = atk::media::detectImageSequence(QDir(dir.path()).filePath(QStringLiteral("anim.0101.png")));
+    QVERIFY(sequence.has_value());
+
+    ImageSourceOptions options;
+    options.frameRate = { 25, 1 };
+    options.sequenceFirst = sequence->first;
+    options.sequenceLast = sequence->last;
+    MediaDecoder decoder;
+    QString error;
+    QVERIFY2(decoder.open(sequence->pattern, &error, options), qPrintable(error));
+
+    const MediaMetadata& m = decoder.metadata();
+    QVERIFY(m.isImageSequence);
+    QVERIFY(!m.isStillImage);
+    QVERIFY(!m.hasAudio);
+    QCOMPARE(m.fileName, QStringLiteral("anim.[0101-0112].png"));
+    QCOMPARE(m.filePath, sequence->pattern);
+    QCOMPARE(m.sequenceFirstFrame, int64_t{ 101 });
+    QCOMPARE(m.sequenceMissingFrames, int64_t{ 0 });
+    QCOMPARE(m.frameCount, int64_t{ 12 });
+    QCOMPARE(m.frameCountSource, FrameCountSource::Synthesized);
+    QCOMPARE(m.frameRate, (FrameRate{ 25, 1 }));
+    QCOMPARE(m.durationUs, int64_t{ 480'000 });
+    QCOMPARE(m.resolution, QSize(64, 36));
+    QCOMPARE(m.videoCodecName, QStringLiteral("png"));
+    QVERIFY(m.shortDescription().contains(QStringLiteral("Image sequence")));
+
+    for (int64_t index = 0; index < 12; ++index) {
+        VideoFrame frame;
+        QCOMPARE(decoder.nextVideoFrame(frame, &error), DecodeStatus::Ok);
+        QCOMPARE(frame.frameIndex, index);
+        QCOMPARE(frame.ptsTicks, index);
+        QCOMPARE(frame.ptsUs, microsecondsAt(index, { 25, 1 }));
+        QCOMPARE(redAt(frame), static_cast<int>(101 + index));
+    }
+    VideoFrame past;
+    QCOMPARE(decoder.nextVideoFrame(past, &error), DecodeStatus::EndOfFile);
+    QVERIFY(decoder.atEndOfVideo());
+}
+
+void TestStillImage::missingSequenceFrameHoldsPrevious()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    // 1 and 2 missing at the start, 5 and 6 in the middle.
+    writeSequence(dir.path(), QStringLiteral("gap_"), {3, 4, 7, 8}, 2);
+    ImageSourceOptions options;
+    options.sequenceFirst = 1;
+    options.sequenceLast = 8;
+    MediaDecoder decoder;
+    QString error;
+    const QString pattern = QDir(dir.path()).filePath(QStringLiteral("gap_%02d.png"));
+    QVERIFY2(decoder.open(pattern, &error, options), qPrintable(error));
+    QCOMPARE(decoder.metadata().sequenceMissingFrames, int64_t{ 4 });
+    QVERIFY(decoder.metadata().shortDescription().contains(QStringLiteral("4 missing")));
+
+    const QList<int> expected{ 3, 3, 3, 4, 4, 4, 7, 8 }; // leading gap shows the first frame
+    for (int index = 0; index < expected.size(); ++index) {
+        VideoFrame frame;
+        QVERIFY(decoder.frameAtIndex(index, frame, &error));
+        QCOMPARE(frame.frameIndex, int64_t{ index });
+        QCOMPARE(redAt(frame), expected.at(index));
+    }
+
+    // A frame deleted after open holds the last good picture.
+    QVERIFY(QFile::remove(QDir(dir.path()).filePath(QStringLiteral("gap_08.png"))));
+    VideoFrame frame;
+    QVERIFY(decoder.frameAtIndex(6, frame, &error));
+    QCOMPARE(redAt(frame), 7);
+    QVERIFY(decoder.frameAtIndex(7, frame, &error));
+    QCOMPARE(redAt(frame), 7);
+}
+
+void TestStillImage::sequenceSteppingAndClampingAreExact()
+{
+    QTemporaryDir dir;
+    QList<int> numbers;
+    for (int n = 1; n <= 20; ++n) numbers << n;
+    writeSequence(dir.path(), QStringLiteral("s."), numbers, 3);
+    ImageSourceOptions options;
+    options.frameRate = { 24000, 1001 };
+    options.sequenceFirst = 1;
+    options.sequenceLast = 20;
+    MediaDecoder decoder;
+    QString error;
+    QVERIFY2(decoder.open(QDir(dir.path()).filePath(QStringLiteral("s.%03d.png")), &error, options),
+             qPrintable(error));
+    VideoFrame frame;
+    for (int index = 15; index >= 10; --index) {
+        QVERIFY(decoder.frameAtIndex(index, frame, &error));
+        QCOMPARE(redAt(frame), index + 1);
+        QCOMPARE(frame.ptsUs, microsecondsAt(index, { 24000, 1001 }));
+    }
+    QVERIFY(decoder.frameAtIndex(500, frame, &error));
+    QCOMPARE(frame.frameIndex, int64_t{ 19 });
+    QCOMPARE(redAt(frame), 20);
+    QVERIFY(decoder.seekToFrameIndex(5, &error));
+    QCOMPARE(decoder.nextVideoFrame(frame, &error), DecodeStatus::Ok);
+    QCOMPARE(redAt(frame), 6);
+    QCOMPARE(decoder.seekOperationCount(), int64_t{ 0 });
+    QCOMPARE(decoder.countFramesExactly(&error), int64_t{ 20 });
+}
+
+void TestStillImage::sequenceWithNoFramesFailsToOpen()
+{
+    QTemporaryDir dir;
+    ImageSourceOptions options;
+    options.sequenceFirst = 1;
+    options.sequenceLast = 5;
+    MediaDecoder decoder;
+    QString error;
+    const QString pattern = QDir(dir.path()).filePath(QStringLiteral("none.%04d.png"));
+    QVERIFY(!decoder.open(pattern, &error, options));
+    QVERIFY(error.contains(QStringLiteral("No frames")));
+    QVERIFY(!decoder.isOpen());
+    QVERIFY(!atk::media::imageSourceExists(pattern, options));
+}
+
+void TestStillImage::probeAndAudioHandleSequences()
+{
+    QTemporaryDir dir;
+    writeSequence(dir.path(), QStringLiteral("p."), {10, 11, 12}, 4);
+    const QString pattern = QDir(dir.path()).filePath(QStringLiteral("p.%04d.png"));
+    ImageSourceOptions options;
+    options.sequenceFirst = 10;
+    options.sequenceLast = 12;
+    QVERIFY(atk::media::imageSourceExists(pattern, options));
+
+    atk::media::PlaylistProbeWorker worker;
+    QSignalSpy finished(&worker, &atk::media::PlaylistProbeWorker::probeFinished);
+    worker.probe(QUuid::createUuid(), pattern, 1, options);
+    QCOMPARE(finished.size(), 1);
+    const auto arguments = finished.takeFirst();
+    QVERIFY2(arguments.at(4).toString().isEmpty(), qPrintable(arguments.at(4).toString()));
+    QVERIFY(!arguments.at(5).toBool());
+    const auto metadata = arguments.at(3).value<MediaMetadata>();
+    QVERIFY(metadata.isImageSequence);
+    QCOMPARE(metadata.frameCount, int64_t{ 3 });
+
+    // Missing on disk is reported as missing, not as a decode error.
+    options.sequenceFirst = 50;
+    options.sequenceLast = 60;
+    worker.probe(QUuid::createUuid(), pattern, 2, options);
+    QCOMPARE(finished.size(), 1);
+    QVERIFY(finished.takeFirst().at(5).toBool());
+
+    AudioSourceReader reader;
+    QString error;
+    QVERIFY(!reader.open(pattern, AudioFormat{ 48000, 2, 2 }, &error));
 }
 
 QTEST_GUILESS_MAIN(TestStillImage)

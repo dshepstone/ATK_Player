@@ -303,11 +303,11 @@ requested presentation frame, which is what makes backward stepping land on the
 right picture instead of on the keyframe FFmpeg happened to reach.
 
 **Still images go through the same entry point.** A path with a still-image
-extension (`media/StillImage.h`: png, jpg, jpeg, tif, tiff, bmp, tga, webp,
+extension (`media/ImageSource.h`: png, jpg, jpeg, tif, tiff, bmp, tga, webp,
 exr) is opened with the `image2` demuxer and `pattern_type=none`, so a name
 containing digits or `%` is always exactly one file. The picture is decoded once
 in `open()`, alpha is composited over black, and every FFmpeg context is then
-released. The decoder serves a synthesized hold of `StillImageOptions::holdFrames`
+released. The decoder serves a synthesized hold of `ImageSourceOptions::holdFrames`
 frames at a rational rate (default 48 at 24/1, minimum 10, which is the
 `TimelineViewport` minimum span). Frame N has `ptsTicks == N` in a `1/rate`
 time base, the count is exact (`FrameCountSource::Synthesized`) and there is no
@@ -315,7 +315,11 @@ audio. `AudioSourceReader` refuses still paths before probing, so the waveform,
 scrub, compare and export audio paths all take their existing quiet "no audio"
 route. The hold is stored per source (`MediaSource` and `.atkproj`), and the
 preference only seeds new stills. That way saved bookmarks cannot move when
-the preference does. See [STILL_IMAGE_SOURCES.md](STILL_IMAGE_SOURCES.md).
+the preference does. Image sequences are one source whose path is a pattern
+(`shot.%04d.exr`) with an inclusive range and their own rate, all held in
+`ImageSourceOptions`. Each frame is decoded through the same single-image
+path, and missing numbers hold the nearest earlier frame. See
+[STILL_IMAGE_SOURCES.md](STILL_IMAGE_SOURCES.md).
 
 ### `src/playback/` — when to show which frame
 
@@ -366,6 +370,14 @@ allows. Double-clicking the viewer invokes Viewer Fit. `Ctrl+0` and `Ctrl+1`
 remain the registry-backed Viewer Fit and Viewer 100% commands; `F` remains
 exclusively Timeline Fit Entire Clip. Painting uses smooth minification through
 100% and pixel-oriented sampling above 100%.
+
+Flip Horizontal (`view.flipHorizontal`, `H`) is a paint-time mirror about
+the picture's own centre line in `ViewerWidget` and
+`ComparisonCompositeWidget`. It is deliberately *not* part of
+`ViewerTransform`: zoom and pan geometry stay identical, and navigation
+snapshot/restore cannot change it. `MainWindow` applies it to every viewer at
+once and resets it when a source opens. The Wipe line and its drag mapping
+follow the mirror, and exports are never flipped.
 
 Video Full Screen temporarily reparents this same `ViewerWidget` into a
 frameless `VideoFullscreenWindow`; it does not create another controller,

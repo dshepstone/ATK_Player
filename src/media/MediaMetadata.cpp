@@ -31,6 +31,18 @@ QString MediaMetadata::shortDescription() const
     if (hasVideo && !resolution.isEmpty()) {
         parts << QStringLiteral("%1x%2").arg(resolution.width()).arg(resolution.height());
     }
+    if (isImageSequence) {
+        parts << QStringLiteral("Image sequence");
+        if (frameCount > 0 && frameRate.isValid()) {
+            parts << QStringLiteral("%1 frames @ %2 fps")
+                         .arg(frameCount)
+                         .arg(QString::number(frameRate.toDouble(), 'g', 5));
+        }
+        if (sequenceMissingFrames > 0) {
+            parts << QStringLiteral("%1 missing").arg(sequenceMissingFrames);
+        }
+        return parts.join(QStringLiteral(" • "));
+    }
     if (isStillImage) {
         // The rate and duration describe the hold, not the file, so say so
         // rather than presenting a picture as if it were a two-second clip.

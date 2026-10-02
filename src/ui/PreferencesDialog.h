@@ -1,9 +1,12 @@
 #pragma once
 
+#include "media/MediaMetadata.h"
+
 #include <QDialog>
 #include <QHash>
 
 class QCheckBox;
+class QComboBox;
 class QKeySequence;
 class QKeySequenceEdit;
 class QPushButton;
@@ -33,6 +36,7 @@ public:
     bool apiEnabled() const;
     int apiPort() const;
     int stillImageHoldFrames() const;
+    media::FrameRate imageSequenceFrameRate() const;
     void setApiRuntimeStatus(const QString& status);
     bool resetAllRequested() const { return m_resetAllRequested; }
     const QHash<QString, QString>& shortcuts() const { return m_shortcuts; }
@@ -59,6 +63,7 @@ private:
     QCheckBox* m_apiEnabled = nullptr;
     QSpinBox* m_apiPort = nullptr;
     QSpinBox* m_stillHoldFrames = nullptr;
+    QComboBox* m_sequenceFrameRate = nullptr;
     QLabel* m_apiStatus = nullptr;
     QTableWidget* m_shortcutTable = nullptr;
     QKeySequenceEdit* m_shortcutEdit = nullptr;

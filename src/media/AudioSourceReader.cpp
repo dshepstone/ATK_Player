@@ -1,7 +1,7 @@
 #include "media/AudioSourceReader.h"
 
 #include "core/Logging.h"
-#include "media/StillImage.h"
+#include "media/ImageSource.h"
 #include "media/ffmpeg/FFmpegUtil.h"
 
 #include <QFileInfo>

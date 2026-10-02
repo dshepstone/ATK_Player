@@ -9,10 +9,9 @@ namespace atk::media {
 PlaylistProbeWorker::PlaylistProbeWorker(QObject* parent) : QObject(parent) {}
 
 void PlaylistProbeWorker::probe(const QUuid& sourceId, const QString& path, quint64 token,
-                                const StillImageOptions& still)
+                                const ImageSourceOptions& still)
 {
-    const QFileInfo info(path);
-    if (!info.exists() || !info.isFile()) {
+    if (!imageSourceExists(path, still)) {
         emit probeFinished(sourceId, path, token, {}, QStringLiteral("Media file is missing."), true);
         return;
     }

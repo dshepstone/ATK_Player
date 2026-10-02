@@ -30,7 +30,7 @@ QString longFixture() { return mediaFile("atk_sync_10s.mkv"); }
 QString stillFixture() { return mediaFile("atk_still_320x180.png"); }
 
 /// An export source for a still, opened with the hold the spec will carry.
-exporter::ExportSource stillSource(const media::StillImageOptions& hold, qint64 first, qint64 last)
+exporter::ExportSource stillSource(const media::ImageSourceOptions& hold, qint64 first, qint64 last)
 {
     media::MediaDecoder decoder; QString error;
     if (!decoder.open(stillFixture(), &error, hold)) return {};

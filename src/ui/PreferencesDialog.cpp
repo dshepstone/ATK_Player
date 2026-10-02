@@ -6,6 +6,7 @@
 
 #include <QAction>
 #include <QCheckBox>
+#include <QComboBox>
 #include <QCoreApplication>
 #include <QDialogButtonBox>
 #include <QFormLayout>
@@ -76,11 +77,20 @@ PreferencesDialog::PreferencesDialog(const ApplicationSettings& settings,
     m_stillHoldFrames->setSuffix(tr(" frames"));
     m_stillHoldFrames->setValue(settings.stillImageHoldFrames());
     stillForm->addRow(tr("Still image duration"), m_stillHoldFrames);
+    m_sequenceFrameRate = new QComboBox(review);
+    m_sequenceFrameRate->setObjectName(QStringLiteral("PreferenceSequenceFrameRate"));
+    for (const media::FrameRate& rate : media::imageFrameRatePresets())
+        m_sequenceFrameRate->addItem(media::frameRateLabel(rate));
+    const auto selectRate = [this](const media::FrameRate& rate) {
+        const int index = static_cast<int>(media::imageFrameRatePresets().indexOf(rate));
+        m_sequenceFrameRate->setCurrentIndex(index >= 0 ? index : 1);
+    };
+    selectRate(settings.imageSequenceFrameRate());
+    stillForm->addRow(tr("Image sequence and still rate"), m_sequenceFrameRate);
     reviewLayout->addLayout(stillForm);
     auto* stillNote = new QLabel(
-        tr("Held at %1 fps. Applies to stills added from now on; existing sources "
-           "keep their duration so saved bookmarks stay valid.")
-            .arg(media::StillImageOptions::kDefaultFrameRate.numerator),
+        tr("Apply to images added from now on. Existing sources keep their own duration "
+           "and rate (Sources panel → Frame Rate...), so saved bookmarks stay valid."),
         review);
     stillNote->setWordWrap(true);
     reviewLayout->addWidget(stillNote);
@@ -168,6 +178,13 @@ bool PreferencesDialog::reopenLastProject() const { return m_reopenLast->isCheck
 bool PreferencesDialog::apiEnabled() const { return m_apiEnabled->isChecked(); }
 int PreferencesDialog::apiPort() const { return m_apiPort->value(); }
 int PreferencesDialog::stillImageHoldFrames() const { return m_stillHoldFrames->value(); }
+media::FrameRate PreferencesDialog::imageSequenceFrameRate() const
+{
+    const int index = m_sequenceFrameRate->currentIndex();
+    const auto& presets = media::imageFrameRatePresets();
+    return index >= 0 && index < presets.size() ? presets.at(index)
+                                                : media::ImageSourceOptions::kDefaultFrameRate;
+}
 void PreferencesDialog::setApiRuntimeStatus(const QString& status) { m_apiStatus->setText(status); }
 
 QString PreferencesDialog::conflictingCommand(const QHash<QString, QString>& shortcuts,
@@ -282,6 +299,8 @@ void PreferencesDialog::resetPreferencesDraft()
     m_apiEnabled->setChecked(ApplicationSettings::defaultApiEnabled());
     m_apiPort->setValue(ApplicationSettings::defaultApiPort());
     m_stillHoldFrames->setValue(ApplicationSettings::defaultStillImageHoldFrames());
+    m_sequenceFrameRate->setCurrentIndex(static_cast<int>(
+        media::imageFrameRatePresets().indexOf(media::ImageSourceOptions::kDefaultFrameRate)));
     resetAllShortcuts();
     m_resetAllRequested = true;
 }

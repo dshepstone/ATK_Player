@@ -19,7 +19,7 @@ set(ATK_CORE_SOURCES
 
     media/MediaMetadata.cpp
     media/MediaSource.cpp
-    media/StillImage.cpp
+    media/ImageSource.cpp
     media/FrameCache.cpp
     media/PlaybackQueue.cpp
     media/AudioSourceReader.cpp
@@ -68,7 +68,7 @@ set(ATK_CORE_HEADERS
 
     media/MediaMetadata.h
     media/MediaSource.h
-    media/StillImage.h
+    media/ImageSource.h
     media/VideoFrame.h
     media/AudioBuffer.h
     media/MediaLibraryInfo.h

@@ -622,7 +622,7 @@ void PlaybackController::haltPlaybackMachinery()
 // ---------------------------------------------------------------------------
 
 void PlaybackController::openMedia(const QString& filePath,
-                                   const media::StillImageOptions& still)
+                                   const media::ImageSourceOptions& still)
 {
     emit authoritativeNavigationStarted();
     cancelNavigation();

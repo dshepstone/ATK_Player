@@ -26,6 +26,7 @@ constexpr auto kLastProject = "projects/lastPath";
 constexpr auto kApiEnabled = "api/enabled";
 constexpr auto kApiPort = "api/port";
 constexpr auto kStillHoldFrames = "media/stillImageHoldFrames";
+constexpr auto kSequenceFrameRate = "media/imageSequenceFrameRate";
 constexpr auto kShortcutGroup = "shortcuts";
 constexpr auto kWelcomeShownVersion = "ui/welcomeShownVersion";
 }
@@ -79,6 +80,20 @@ int ApplicationSettings::stillImageHoldFrames() const
         ? value : defaultStillImageHoldFrames();
 }
 
+media::FrameRate ApplicationSettings::imageSequenceFrameRate() const
+{
+    // Stored as an exact rational ("24000/1001"), never a rounded decimal.
+    const QStringList parts = m_settings->value(QString::fromLatin1(kSequenceFrameRate))
+                                  .toString().split(QLatin1Char('/'));
+    if (parts.size() == 2) {
+        bool numeratorOk = false, denominatorOk = false;
+        const media::FrameRate rate{ parts[0].trimmed().toInt(&numeratorOk),
+                                     parts[1].trimmed().toInt(&denominatorOk) };
+        if (numeratorOk && denominatorOk && rate.isValid() && rate.toDouble() <= 1000.0) return rate;
+    }
+    return media::ImageSourceOptions::kDefaultFrameRate;
+}
+
 QString ApplicationSettings::welcomeShownVersion() const { return m_settings->value(QString::fromLatin1(kWelcomeShownVersion)).toString(); }
 void ApplicationSettings::setWelcomeShownVersion(const QString& version) { m_settings->setValue(QString::fromLatin1(kWelcomeShownVersion), version); }
 
@@ -115,6 +130,12 @@ void ApplicationSettings::setApiEnabled(bool value) { m_settings->setValue(QStri
 void ApplicationSettings::setApiPort(int value)
 {
     m_settings->setValue(QString::fromLatin1(kApiPort), std::clamp(value, 1024, 65535));
+}
+void ApplicationSettings::setImageSequenceFrameRate(const media::FrameRate& rate)
+{
+    if (!rate.isValid()) return;
+    m_settings->setValue(QString::fromLatin1(kSequenceFrameRate),
+                         QStringLiteral("%1/%2").arg(rate.numerator).arg(rate.denominator));
 }
 void ApplicationSettings::setStillImageHoldFrames(int value)
 {

@@ -73,6 +73,13 @@ public:
     void setVideoOnlyPresentation(bool enabled);
     bool videoOnlyPresentation() const { return m_videoOnlyPresentation; }
 
+    /// Mirrors the picture left-to-right at paint time. Presentation only, like
+    /// zoom and pan: it never touches decoding, timing or the frame itself, and
+    /// it is deliberately not part of ViewerTransform, so snapshot/restore of
+    /// navigation (Video Full Screen) cannot change it.
+    void setFlipHorizontal(bool flipped);
+    bool isFlippedHorizontally() const { return m_flipHorizontal; }
+
     /// Headline shown when there is nothing to display.
     void setPlaceholderText(const QString& text);
 
@@ -112,6 +119,7 @@ private:
     double m_sourceAspectRatio = 0.0;
     ViewerTransform m_transform;
     bool m_videoOnlyPresentation = false;
+    bool m_flipHorizontal = false;
     bool m_middlePanning = false;
     QPointF m_lastPanPosition;
     QString m_placeholderText;

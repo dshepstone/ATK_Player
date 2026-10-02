@@ -113,7 +113,19 @@ export kind.
 - File names containing digits or `%` always open exactly one file, never a sequence
 - Transparent pixels are shown over black; EXR is displayed with an sRGB transfer (no colour management)
 
-Image sequences are planned separately; see [docs/STILL_IMAGE_SOURCES.md](docs/STILL_IMAGE_SOURCES.md).
+### Image Sequences
+
+- Open any numbered frame (`shot.1001.exr`) and choose **Image Sequence** to load the whole run as one source
+- Plays at the rate set in **Preferences → Review** (23.976–60 fps; default 24)
+- Each sequence keeps its own rate; right-click it in the Sources panel → **Frame Rate…** to change it
+- Missing frames hold the previous frame and are counted in Media Information
+- Saved in projects as one path (`shot.%04d.exr`) plus its frame range
+
+See [docs/STILL_IMAGE_SOURCES.md](docs/STILL_IMAGE_SOURCES.md) for the design.
+
+### Flip Horizontal
+
+**View → Flip Horizontal** (`H`) mirrors the picture in the viewer, for video and images alike, including both A/B panes and the composite modes. It is a viewing aid only: it is reset when a source opens, is not saved, and never affects exports. A **FLIPPED H** badge shows while it is on.
 
 ### Timeline and Review Ranges
 

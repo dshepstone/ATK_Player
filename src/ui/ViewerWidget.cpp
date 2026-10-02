@@ -132,6 +132,13 @@ void ViewerWidget::resetNavigationToFit()
     update();
 }
 
+void ViewerWidget::setFlipHorizontal(bool flipped)
+{
+    if (m_flipHorizontal == flipped) return;
+    m_flipHorizontal = flipped;
+    update();
+}
+
 void ViewerWidget::restoreTransform(const ViewerTransform& transform)
 {
     m_transform = transform;
@@ -220,7 +227,18 @@ void ViewerWidget::paintEvent(QPaintEvent* event)
             // nearest-like sampling exposes source pixels for frame inspection.
             painter.setRenderHint(QPainter::SmoothPixmapTransform,
                                   m_transform.zoomRatio() <= 1.0);
-            painter.drawImage(m_transform.imageRect(), m_frame.image);
+            const QRectF target = m_transform.imageRect();
+            if (m_flipHorizontal) {
+                // Mirror about the picture's own centre line, so the image
+                // occupies exactly the rect zoom and pan computed.
+                painter.save();
+                painter.translate(target.left() + target.right(), 0.0);
+                painter.scale(-1.0, 1.0);
+            }
+            painter.drawImage(target, m_frame.image);
+            if (m_flipHorizontal) {
+                painter.restore();
+            }
         }
         break;
 
@@ -243,6 +261,15 @@ void ViewerWidget::paintEvent(QPaintEvent* event)
         font.setBold(true);
         painter.setFont(font);
         painter.drawText(rect().adjusted(10, 8, -10, -8), Qt::AlignTop | Qt::AlignLeft, m_cornerLabel);
+    }
+    if (!m_videoOnlyPresentation && m_flipHorizontal && m_state == State::Loaded) {
+        // A mirrored picture must never be mistaken for the real one.
+        painter.setPen(theme::textSecondary());
+        QFont font = painter.font();
+        font.setBold(true);
+        painter.setFont(font);
+        painter.drawText(rect().adjusted(10, 8, -10, -8), Qt::AlignTop | Qt::AlignRight,
+                         tr("FLIPPED H"));
     }
     if (m_frame.isValid()) {
         qCDebug(log::ui) << "Viewer painted frame" << m_frame.frameIndex

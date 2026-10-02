@@ -1,6 +1,6 @@
 #pragma once
 
-#include "media/StillImage.h"
+#include "media/ImageSource.h"
 
 #include <QByteArray>
 #include <QHash>
@@ -32,18 +32,18 @@ public:
     static constexpr bool defaultApiEnabled() { return false; }
     static constexpr int defaultApiPort() { return 45571; }
     /// Hold given to newly added still images. Existing sources keep the hold
-    /// they were added with; see media::StillImageOptions.
+    /// they were added with; see media::ImageSourceOptions.
     static constexpr int defaultStillImageHoldFrames()
     {
-        return static_cast<int>(media::StillImageOptions::kDefaultHoldFrames);
+        return static_cast<int>(media::ImageSourceOptions::kDefaultHoldFrames);
     }
     static constexpr int minimumStillImageHoldFrames()
     {
-        return static_cast<int>(media::StillImageOptions::kMinimumHoldFrames);
+        return static_cast<int>(media::ImageSourceOptions::kMinimumHoldFrames);
     }
     static constexpr int maximumStillImageHoldFrames()
     {
-        return static_cast<int>(media::StillImageOptions::kMaximumHoldFrames);
+        return static_cast<int>(media::ImageSourceOptions::kMaximumHoldFrames);
     }
 
     bool restoreWindowLayout() const;
@@ -58,6 +58,9 @@ public:
     bool apiEnabled() const;
     int apiPort() const;
     int stillImageHoldFrames() const;
+    /// Rate given to newly opened image sequences (and new stills). Existing
+    /// sources keep their own rate. Default 24/1.
+    media::FrameRate imageSequenceFrameRate() const;
     /// Version string the welcome dialog was last shown for. Empty until the
     /// first launch after installation has shown it.
     QString welcomeShownVersion() const;
@@ -75,6 +78,7 @@ public:
     void setApiEnabled(bool value);
     void setApiPort(int value);
     void setStillImageHoldFrames(int value);
+    void setImageSequenceFrameRate(const media::FrameRate& rate);
     void setWelcomeShownVersion(const QString& version);
 
     QByteArray windowGeometry() const;

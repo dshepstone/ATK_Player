@@ -1,6 +1,7 @@
 #include "core/commands/CommandDefinitions.h"
 #include "media/VideoFrame.h"
 #include "timeline/TimelineModel.h"
+#include "ui/ComparisonCompositeWidget.h"
 #include "ui/ViewerTransform.h"
 #include "ui/ViewerWidget.h"
 
@@ -28,6 +29,24 @@ VideoFrame frame(int width, int height, int64_t index = 0)
     return result;
 }
 
+/// Left half red, right half blue, so a mirror is unambiguous.
+VideoFrame halves(int width, int height, QColor left = Qt::red, QColor right = Qt::blue)
+{
+    VideoFrame result = frame(width, height);
+    result.image.fill(right);
+    for (int y = 0; y < height; ++y)
+        for (int x = 0; x < width / 2; ++x) result.image.setPixelColor(x, y, left);
+    return result;
+}
+
+/// Colour of the widget's rendered output at logical point (x, y).
+QColor renderedAt(QWidget& widget, int x, int y)
+{
+    const QImage image = widget.grab().toImage();
+    const qreal ratio = image.devicePixelRatio();
+    return image.pixelColor(qRound(x * ratio), qRound(y * ratio));
+}
+
 void closeTo(qreal actual, qreal expected, qreal tolerance = 0.001)
 {
     QVERIFY2(std::abs(actual - expected) <= tolerance,
@@ -52,6 +71,9 @@ private slots:
     void transformPersistsThroughFrameChange();
     void viewerNavigationDoesNotTouchTimeline();
     void timelineFRemainsIndependent();
+    void flipMirrorsPictureWithoutTouchingNavigation();
+    void flipMirrorsCompositeAndWipeDrag();
+    void flipCommandIsCheckableWithHShortcut();
 };
 
 void TestViewerTransform::fitScaleAndCentre()
@@ -218,6 +240,84 @@ void TestViewerTransform::timelineFRemainsIndependent()
     QVERIFY(timelineFit && viewerFit);
     QCOMPARE(QString::fromLatin1(timelineFit->defaultShortcut), QStringLiteral("F"));
     QCOMPARE(QString::fromLatin1(viewerFit->defaultShortcut), QStringLiteral("Ctrl+0"));
+}
+
+void TestViewerTransform::flipMirrorsPictureWithoutTouchingNavigation()
+{
+    ViewerWidget viewer;
+    viewer.resize(400, 200);
+    viewer.setFrame(halves(400, 200));
+    const QRectF before = viewer.transform().imageRect();
+    QCOMPARE(renderedAt(viewer, 50, 150), QColor(Qt::red));
+    QCOMPARE(renderedAt(viewer, 350, 150), QColor(Qt::blue));
+
+    viewer.setFlipHorizontal(true);
+    QVERIFY(viewer.isFlippedHorizontally());
+    QCOMPARE(renderedAt(viewer, 50, 150), QColor(Qt::blue));
+    QCOMPARE(renderedAt(viewer, 350, 150), QColor(Qt::red));
+    // Presentation only: zoom/pan geometry is identical.
+    QCOMPARE(viewer.transform().imageRect(), before);
+
+    // Navigation snapshot/restore (Video Full Screen) does not carry or clear it.
+    viewer.zoomIn();
+    const ViewerTransform zoomed = viewer.transform();
+    viewer.fitImage();
+    viewer.restoreTransform(zoomed);
+    QVERIFY(viewer.isFlippedHorizontally());
+
+    // A flipped, zoomed picture still mirrors about its own centre.
+    viewer.fitImage();
+    viewer.setFlipHorizontal(false);
+    QCOMPARE(renderedAt(viewer, 50, 150), QColor(Qt::red));
+}
+
+void TestViewerTransform::flipMirrorsCompositeAndWipeDrag()
+{
+    atk::ui::ComparisonCompositeWidget composite;
+    composite.resize(400, 200);
+    composite.setMode(atk::playback::CompareLayout::Wipe);
+    composite.setWipePosition(25);
+    VideoFrame a = frame(400, 200); a.image.fill(Qt::red);
+    VideoFrame b = frame(400, 200); b.image.fill(Qt::blue);
+    composite.setFrameA(a);
+    composite.setFrameB(b);
+    // Unflipped: the left quarter is A.
+    QCOMPARE(renderedAt(composite, 40, 150), QColor(Qt::red));
+    QCOMPARE(renderedAt(composite, 360, 150), QColor(Qt::blue));
+
+    composite.setFlipHorizontal(true);
+    QCOMPARE(renderedAt(composite, 40, 150), QColor(Qt::blue));
+    QCOMPARE(renderedAt(composite, 360, 150), QColor(Qt::red));
+
+    // Dragging maps through the mirror: 100 px from the left edge on screen is
+    // 75% across the composite.
+    QSignalSpy wipe(&composite, &atk::ui::ComparisonCompositeWidget::wipePositionChanged);
+    QTest::mousePress(&composite, Qt::LeftButton, {}, QPoint(100, 100));
+    QTest::mouseRelease(&composite, Qt::LeftButton, {}, QPoint(100, 100));
+    QCOMPARE(composite.wipePosition(), 75);
+    QCOMPARE(wipe.size(), 1);
+
+    // The composite shows the same FLIPPED H indicator as the dual viewers.
+    // A uniform picture makes the badge the only difference flipping makes.
+    VideoFrame grey = frame(400, 200); grey.image.fill(QColor(90, 90, 90));
+    composite.setFrameA(grey);
+    composite.setFrameB(grey);
+    composite.setFlipHorizontal(false);
+    const QImage plain = composite.grab().toImage();
+    composite.setFlipHorizontal(true);
+    const QImage flipped = composite.grab().toImage();
+    const qreal ratio = plain.devicePixelRatio();
+    const QRect badge(qRound(250 * ratio), 0, qRound(150 * ratio), qRound(30 * ratio));
+    QVERIFY(plain.copy(badge) != flipped.copy(badge));
+}
+
+void TestViewerTransform::flipCommandIsCheckableWithHShortcut()
+{
+    const auto* flip = atk::commands::find(CommandId::FlipHorizontal);
+    QVERIFY(flip);
+    QCOMPARE(QString::fromLatin1(flip->key), QStringLiteral("view.flipHorizontal"));
+    QVERIFY(flip->checkable);
+    QCOMPARE(QKeySequence(QString::fromLatin1(flip->defaultShortcut)), QKeySequence(QStringLiteral("H")));
 }
 
 QTEST_MAIN(TestViewerTransform)
