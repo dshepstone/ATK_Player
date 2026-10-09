@@ -75,15 +75,20 @@ Rules that follow from AGENTS.md:
 ## 4. Data model
 
 ```cpp
-enum class AnnotationTool { Pen, Marker, Eraser, Line, Arrow, Rectangle, Ellipse, Text };
+enum class AnnotationTool { Pencil, Pen, Brush, Marker, Eraser, Line, Arrow, Rectangle, Ellipse, Text };
+
+struct StrokePoint { float x, y;      // normalised image space, 0..1
+                     float pressure;  // 0..1, 1.0 for mouse
+                     float tiltX, tiltY; /* optional, degrees */ };
 
 struct AnnotationItem {           // one undoable unit
     quint64 id;
     AnnotationTool kind;
-    QVector<QPointF> points;      // normalised; 2 points for shapes
+    QVector<StrokePoint> points;  // shapes: 2 points
     QColor color;                 // actual RGBA — annotations are not themed
-    qreal width;                  // fraction of image height (resolution independent)
+    qreal size;                   // brush diameter as fraction of image height
     qreal opacity;
+    quint32 textureSeed;          // deterministic pencil grain (same pixels in export)
     QString text;                 // Text only
 };
 struct FrameAnnotation { int64_t frame; int64_t mediaTimeUs; QVector<AnnotationItem> items; };
@@ -121,22 +126,74 @@ Each phase leaves the app building, tested and shippable.
 - Relink / reorder / source removal keep annotations attached by source UUID.
 - Tests extend `tst_project.cpp`.
 
-### Phase C — Viewer overlay and tools
-- `AnnotationOverlay` (transparent child of the viewer's display area): maps
-  widget↔normalised image coords through `ViewerTransform`; handles pen/shape
-  input with tablet pressure (`QTabletEvent`) optional-but-planned for width.
-- **Annotate mode toggle** (e.g. `D`): while on, left-drag draws; middle-drag pan
-  and wheel zoom still work; transport keys (Space, ←/→) keep working so the
+### Phase C — Drawing engine, tablet input and tools
+The quality bar is "feels like a real drawing app", so this is split into three
+parts. Pressure and brush feel are the headline requirements.
+
+**C1 — Brush engine (`AnnotationRenderer`, atk_core, headless-testable)**
+
+| Tool | Look | Pressure drives |
+|---|---|---|
+| Pencil | Thin, slightly grainy, builds up with repeated passes | width + opacity |
+| Pen (ink) | Smooth, crisp, variable-width line | width (tapered start/end) |
+| Brush | Soft round, painterly | width + opacity (soft falloff) |
+| Marker | Constant width, flat translucent, no build-up within a stroke | opacity only (optional) |
+| Eraser | Removes whole strokes (v1); pixel erase later | – |
+
+- Rendering: Pen = filled ribbon polygon from a smoothed centreline with per-point
+  radius (no visible joins, round caps). Pencil / Brush = dabs stamped at
+  ≤ 25 % of brush diameter spacing along the spline, so fast strokes stay
+  continuous; pencil grain from a tileable noise texture keyed by `textureSeed`,
+  so viewer and export render identical pixels.
+- Smoothing: Catmull-Rom through decimated raw points plus an optional
+  **stabiliser** (lag-follow, 0–100 %) for clean lines on mouse.
+- Pressure → size/opacity through a **response curve** (preference: soft / linear /
+  firm, plus a small custom curve), with minimum size so a light touch still marks.
+- Size is stored relative to image height so a 6 px stroke at 1080p looks the same
+  in a 4K export. Adjustable range roughly 1–200 px (viewer pixels at 100 %).
+- Mouse fallback: constant pressure, or optional velocity-based taper for Pen.
+
+**C2 — Tablet input (`AnnotationOverlay`, atk_ui)**
+- Handle `QTabletEvent` (Qt 6 `tabletEvent`): `pressure()`, `xTilt()/yTilt()`,
+  `pointerType()` (Pen / **Eraser end of the stylus** switches to Eraser
+  automatically), `button` for barrel buttons (e.g. hold = eraser or colour
+  picker), proximity enter/leave for the brush-size cursor. **Accept** tablet
+  events so Qt does not also synthesise mouse events (prevents double points).
+- Works for Wacom Intuos/Cintiq and other Windows Ink devices via Qt 6's
+  Windows Ink backend. Note for docs/Troubleshooting: Wacom driver "Use Windows
+  Ink" should stay enabled; Qt 6 does not use WinTab by default. High-DPI and
+  Cintiq screen mapping come from Qt's device-pixel coordinates (use the same
+  widget→image mapping as the mouse path).
+- Sample at full tablet rate: no repaint per event (coalesce paint to ~60 Hz,
+  keep every sample in the stroke); draw only the **dirty rect** of the newest
+  segment while a stroke is in progress for low latency. Stroke is committed to
+  the store (one undo step) on release.
+- Ignore touch/palm while the pen is in proximity; touch gestures stay free for
+  pan/zoom.
+- Cursor: circular brush outline showing real size at current zoom; hidden
+  while drawing.
+
+**C3 — Tools UI and review workflow**
+- **Annotate mode toggle** (e.g. `D`): left-drag/pen draws; middle-drag pan and
+  wheel zoom still work; transport keys (Space, ←/→) keep working so the
   reviewer can step frame to frame while drawing.
-- `AnnotationToolbar`: tool buttons, colour (reuse a fixed review palette +
-  custom), width slider, opacity, Undo/Redo (Ctrl+Z / Ctrl+Shift+Z), Clear Frame.
-- Drawn frames get a distinct marker on the timeline (small tick under the
-  bookmark strip); next/previous annotated frame commands.
-- Optional per-frame **ghosting** (show previous annotated frame at low opacity)
-  — defer unless requested.
-- Commands registered in `CommandRegistry`; shortcuts configurable in Preferences.
-- Tests: `tst_annotationinteraction.cpp` (synthesised mouse events → store
-  contents, coordinate round-trip under zoom/pan/flip).
+- `AnnotationToolbar` (docked or floating): tool buttons, colour swatches +
+  picker + eyedropper, **size slider and `[` / `]` hotkeys**, opacity slider,
+  pressure toggle, stabiliser slider, undo/redo (Ctrl+Z / Ctrl+Shift+Z),
+  clear frame. Per-tool remembered size/colour.
+- Annotated frames get a distinct marker on the timeline; next/previous annotated
+  frame commands. Optional low-opacity onion skin of the previous annotated frame.
+- Commands in `CommandRegistry`; shortcuts configurable in Preferences; new
+  Preferences page "Drawing" (pressure curve, default tool sizes, stabiliser,
+  eraser behaviour).
+- Tests: `tst_annotationinteraction.cpp` with **synthesised `QTabletEvent`s**
+  (pressure ramp → monotonically increasing stroke width; stylus eraser switches
+  tool; no duplicate mouse-synthesised points); coordinate round-trip under
+  zoom/pan/flip; renderer pixel tests for each brush.
+- **Human acceptance on real hardware is required** (Wacom Intuos and Cintiq on
+  Windows 11): pressure feel, latency, tilt, eraser end, barrel buttons, Cintiq
+  screen mapping at high DPI. CI cannot prove this and I will not claim it
+  from unit tests alone.
 
 ### Phase D — Frame notes UI
 - Extend `BookmarkPanel` / new `NotesPanel`: "Add note at current frame" creates a
@@ -166,9 +223,11 @@ FFmpeg feature is needed, so the LGPL-only build is unaffected.
   2. *Hold N frames/seconds after the authored frame*: the drawing persists over
      the following frames (stops early at the next annotated frame or range end).
      Video keeps playing; duration unchanged.
-  3. *Freeze on annotated frame for N seconds* (like SyncSketch's "Video with
-     Sketches"): playback pauses on the annotated frame while the drawing and note
-     are shown, then continues. Duration grows by N per annotated frame.
+  3. *Freeze on annotated frame for N seconds* — **the default, modelled on
+     SyncSketch's "Video with Sketches"**: playback runs normally, pauses on each
+     annotated frame while its drawing and note are displayed for a configurable
+     duration (default ~2 s, per-export setting), then resumes. Duration grows by
+     N per annotated frame. Frames without annotations show clean video.
 - **Freeze-mode correctness requirements** (the risky part):
   - Insert repeated frames with **new, strictly monotonic CFR timestamps**
     (`pts` advances per output frame; no duplicated pts), so the exact
@@ -234,16 +293,14 @@ FFmpeg feature is needed, so the LGPL-only build is unaffected.
 
 ## 6. Decisions I need from you
 
-1. **Milestone placement**: approve adding M9 (or slot it before M7)?
+1. ~~Milestone placement~~ — **decided: new annotation/notes feature (M9).**
 2. **Notes vs. annotations**: OK that a frame note *is* a `Bookmark` (extended with
    status/author) rather than a separate type? (Recommended.)
 3. **Qt PDF dependency**: `QPdfWriter` needs nothing new. Reading a PDF back in
    tests would need `Qt6::Pdf`; I propose test-only structural checks instead.
 4. **Export flip behaviour**: unflipped by default OK?
-5. **Video export default timing**: hold the drawing for N seconds while video keeps
-   playing, or freeze on the annotated frame (adds duration, needs audio gap
-   padding)? I recommend freeze as the default for review videos, with
-   "authored frame only" also available.
+5. ~~Video export default~~ — **decided: freeze, like SyncSketch.**
+6. Pressure-curve default and whether the stylus barrel button should map to eraser or colour picker (proposal: eraser; configurable).
 
 ## 7. Risks
 
@@ -252,6 +309,7 @@ FFmpeg feature is needed, so the LGPL-only build is unaffected.
 | Overlay/viewer coordinate drift under zoom, pan, flip, non-square pixels | Single mapping function through `ViewerTransform`; round-trip tests at several zoom/flip combos. |
 | Frame index mismatch between viewer, A/B offset and export | Always key by source-local zero-based frame (+ `mediaTimeUs`); export uses the same index the status bar shows; tests with 23.976 fixtures. |
 | Large PDFs / many frames | Stream rows to `QPdfWriter` one at a time; JPEG embed; downscale to print resolution (≈150–200 dpi at thumbnail size). |
+| Tablet behaviour differs by driver / Windows Ink setting | Document driver setting; log device name, pointer type and pressure range at stroke start (`atk.annotation` category); hardware acceptance checklist. |
 | Project schema break | v2 reader accepts v1; v1 readers get the existing "newer version" message. |
 | Verification gap | Per AGENTS.md: configure, build and run the full suite on Windows Debug and Release before claiming each phase done. |
 
