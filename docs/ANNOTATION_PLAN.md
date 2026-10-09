@@ -1,6 +1,9 @@
 # Annotation and Review-Notes PDF — Coding Plan
 
-Status: **proposal, not started.** "Drawn annotations over frames" is currently
+Status: **Phases A and B implemented** (data model, undo store, project persistence; see
+`src/annotation/`, `tests/tst_annotationstore.cpp`, `tests/tst_annotationproject.cpp`).
+Phases C–G not started. Milestone approved by the project owner as a new
+annotation/notes feature. "Drawn annotations over frames" is currently
 under *Not scheduled* in `ROADMAP.md`; per AGENTS.md this plan does not authorise
 work until it is accepted as a milestone (suggested name: **M9 — Annotation and
 Review Notes**, which can land before or after M7/M8 because it has no OS-specific
@@ -98,9 +101,11 @@ struct FrameAnnotation { int64_t frame; int64_t mediaTimeUs; QVector<AnnotationI
   undoable). Pixel erase is out of scope.
 - Smoothing: Catmull-Rom / quadratic midpoint smoothing at paint time; store raw
   points decimated by a distance threshold so projects stay small.
-- Persistence: new per-source `"annotations"` array in `.atkproj`. **Bump
-  `kVersion` 1 → 2**; the reader accepts v1 (no annotations) and refuses newer, as
-  today. Round-trip + v1-compat tests required. No pixels are stored, only vectors.
+- Persistence: new per-source `review.annotations` array in `.atkproj`, written
+  only when non-empty. **Implemented as an additive v1 field (no version bump)**,
+  the same way still/sequence options were added: older builds ignore it, newer
+  builds read old files unchanged. Malformed data rejects the project rather than
+  silently dropping drawings. No pixels are stored, only vectors.
 - Scoped to **stills and sequences too** (they are sources with frame indices).
   A/B compare: annotations belong to the *active pane's source*; compositor modes
   (wipe/difference) get overlay disabled in v1.

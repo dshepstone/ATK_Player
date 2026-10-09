@@ -40,6 +40,9 @@ set(ATK_CORE_SOURCES
     playback/PlaybackController.cpp
     playback/ComparisonCompositor.cpp
 
+    annotation/AnnotationTypes.cpp
+    annotation/AnnotationStore.cpp
+
     timeline/Bookmark.cpp
     timeline/Timecode.cpp
     timeline/TimelineModel.cpp
@@ -93,6 +96,9 @@ set(ATK_CORE_HEADERS
     playback/PlaybackClock.h
     playback/PlaybackController.h
     playback/ComparisonCompositor.h
+
+    annotation/AnnotationTypes.h
+    annotation/AnnotationStore.h
 
     timeline/Bookmark.h
     timeline/PlaybackRange.h

@@ -45,7 +45,9 @@ bool Project::needsSavePrompt() const
     if (!m_filePath.isEmpty()) return true;
     if (m_entries.size() > 1) return true;
     return std::any_of(m_entries.cbegin(), m_entries.cend(),
-                       [](const SourceEntry& entry) { return !entry.bookmarks.isEmpty(); });
+                       [](const SourceEntry& entry) {
+                           return !entry.bookmarks.isEmpty() || !entry.annotations.isEmpty();
+                       });
 }
 
 bool Project::isValidIndex(int index) const
@@ -142,6 +144,16 @@ void Project::replace(QString name, QString filePath, QVector<SourceEntry> entri
     setModified(false);
 }
 
+bool Project::setAnnotations(const QUuid& id, annotation::SourceAnnotations annotations)
+{
+    const int index = indexForId(id);
+    if (index < 0) return false;
+    m_entries[index].annotations = std::move(annotations);
+    emit annotationsChanged(id);
+    setModified(true);
+    return true;
+}
+
 bool Project::relinkSource(const QUuid& id, std::shared_ptr<media::MediaSource> source,
                            int64_t replacementFrameCount)
 {
@@ -175,6 +187,7 @@ bool Project::relinkSource(const QUuid& id, std::shared_ptr<media::MediaSource> 
         retained.append(std::move(bookmark));
     }
     entry.bookmarks = std::move(retained);
+    entry.annotations.trimTo(last);
     if (entry.playbackRange.enabled) {
         entry.playbackRange.startFrame = std::min(entry.playbackRange.startFrame, last);
         entry.playbackRange.endFrame = std::clamp(entry.playbackRange.endFrame,

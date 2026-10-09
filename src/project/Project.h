@@ -1,5 +1,6 @@
 #pragma once
 
+#include "annotation/AnnotationTypes.h"
 #include "media/MediaSource.h"
 #include "timeline/Bookmark.h"
 #include "timeline/PlaybackRange.h"
@@ -29,6 +30,10 @@ struct SourceEntry {
     quint64 probeToken = 0;
     timeline::PlaybackRange playbackRange;
     QVector<timeline::Bookmark> bookmarks;
+    /// Drawn annotations, keyed by zero-based source frame. Review state like
+    /// the bookmarks: saved with the project, trimmed when a relink shortens
+    /// the media.
+    annotation::SourceAnnotations annotations;
     /// Frames added to the master frame number for this source. Used by A/B
     /// comparison to line up takes with different handles.
     int64_t frameOffset = 0;
@@ -94,6 +99,10 @@ public:
     /// replacement. Returns false without mutation for invalid input.
     bool relinkSource(const QUuid& id, std::shared_ptr<media::MediaSource> source,
                       int64_t replacementFrameCount);
+    /// Replaces one source's annotations (the editor writes its result back
+    /// here), marks the project modified and emits annotationsChanged. Returns
+    /// false for an unknown id; no change is made then.
+    bool setAnnotations(const QUuid& id, annotation::SourceAnnotations annotations);
     bool beginProbe(const QUuid& id, const QString& path, quint64 token);
     bool applyProbeResult(const QUuid& id, const QString& path, quint64 token,
                           const media::MediaMetadata& metadata, const QString& error,
@@ -109,6 +118,7 @@ signals:
     void nameChanged(const QString& name);
     void modifiedChanged(bool modified);
     void entriesChanged();
+    void annotationsChanged(const QUuid& sourceId);
     void activeIndexChanged(int index);
     void compareAssignmentChanged();
 

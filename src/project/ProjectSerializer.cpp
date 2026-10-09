@@ -1,4 +1,5 @@
 #include "project/ProjectSerializer.h"
+#include "annotation/AnnotationTypes.h"
 #include "media/MediaSource.h"
 #include "project/Project.h"
 
@@ -10,6 +11,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSaveFile>
+#include <QSet>
 
 #include <limits>
 
@@ -124,6 +126,124 @@ bool readStill(const QJsonValue& value, media::ImageSourceOptions* out)
     *out = still;
     return true;
 }
+
+QJsonObject annotationItemJson(const annotation::AnnotationItem& item)
+{
+    QJsonArray points;
+    for (const annotation::StrokePoint& p : item.points) {
+        QJsonArray point{static_cast<double>(p.x), static_cast<double>(p.y),
+                         static_cast<double>(p.pressure)};
+        // Tilt is rare; keep ordinary mouse strokes compact.
+        if (p.tiltX != 0.0f || p.tiltY != 0.0f) {
+            point.append(static_cast<double>(p.tiltX));
+            point.append(static_cast<double>(p.tiltY));
+        }
+        points.append(point);
+    }
+    QJsonObject object{{QStringLiteral("id"), QString::number(item.id)},
+                       {QStringLiteral("tool"), annotation::toolName(item.tool)},
+                       {QStringLiteral("color"), item.color.name(QColor::HexArgb)},
+                       {QStringLiteral("size"), item.size},
+                       {QStringLiteral("opacity"), item.opacity},
+                       {QStringLiteral("seed"), static_cast<double>(item.textureSeed)},
+                       {QStringLiteral("points"), points}};
+    if (!item.text.isEmpty()) object.insert(QStringLiteral("text"), item.text);
+    return object;
+}
+
+QJsonArray annotationsJson(const annotation::SourceAnnotations& annotations)
+{
+    QJsonArray frames;
+    for (const annotation::FrameAnnotation& frame : annotations.frames()) {
+        QJsonArray items;
+        for (const annotation::AnnotationItem& item : frame.items) items.append(annotationItemJson(item));
+        frames.append(QJsonObject{{QStringLiteral("frame"), static_cast<double>(frame.frame)},
+                                  {QStringLiteral("mediaTimeUs"), static_cast<double>(frame.mediaTimeUs)},
+                                  {QStringLiteral("items"), items}});
+    }
+    return frames;
+}
+
+bool readAnnotationItem(const QJsonValue& value, annotation::AnnotationItem* out)
+{
+    if (!value.isObject()) return false;
+    const QJsonObject object = value.toObject();
+    annotation::AnnotationItem item;
+    bool idOk = false;
+    item.id = object.value(QStringLiteral("id")).toString().toULongLong(&idOk);
+    if (!idOk || item.id == 0) return false;
+    if (!annotation::toolFromName(object.value(QStringLiteral("tool")).toString(), &item.tool))
+        return false;
+    item.color = QColor(object.value(QStringLiteral("color")).toString());
+    if (!object.value(QStringLiteral("size")).isDouble()
+        || !object.value(QStringLiteral("opacity")).isDouble())
+        return false;
+    item.size = object.value(QStringLiteral("size")).toDouble();
+    item.opacity = object.value(QStringLiteral("opacity")).toDouble();
+    qint64 seed = 0;
+    if (!integer(object.value(QStringLiteral("seed")), &seed) || seed < 0
+        || seed > std::numeric_limits<quint32>::max())
+        return false;
+    item.textureSeed = static_cast<quint32>(seed);
+    item.text = object.value(QStringLiteral("text")).toString();
+    if (!object.value(QStringLiteral("points")).isArray()) return false;
+    const QJsonArray points = object.value(QStringLiteral("points")).toArray();
+    if (points.size() > annotation::AnnotationLimits::kMaxPointsPerItem) return false;
+    item.points.reserve(int(points.size()));
+    for (const QJsonValue& pointValue : points) {
+        const QJsonArray p = pointValue.toArray();
+        if (p.size() != 3 && p.size() != 5) return false;
+        for (const QJsonValue& number : p)
+            if (!number.isDouble()) return false;
+        annotation::StrokePoint point;
+        point.x = static_cast<float>(p.at(0).toDouble());
+        point.y = static_cast<float>(p.at(1).toDouble());
+        point.pressure = static_cast<float>(p.at(2).toDouble());
+        if (p.size() == 5) {
+            point.tiltX = static_cast<float>(p.at(3).toDouble());
+            point.tiltY = static_cast<float>(p.at(4).toDouble());
+        }
+        item.points.append(point);
+    }
+    if (!annotation::isValidItem(item)) return false;
+    *out = std::move(item);
+    return true;
+}
+
+/// Annotations are additive review state, like bookmarks. Malformed data
+/// rejects the project rather than silently dropping someone's drawings.
+bool readAnnotations(const QJsonValue& value, annotation::SourceAnnotations* out)
+{
+    if (value.isUndefined() || value.isNull()) return true; // no annotations
+    if (!value.isArray()) return false;
+    const QJsonArray frames = value.toArray();
+    if (frames.size() > annotation::AnnotationLimits::kMaxAnnotatedFrames) return false;
+    annotation::SourceAnnotations result;
+    QSet<quint64> ids;
+    for (const QJsonValue& frameValue : frames) {
+        if (!frameValue.isObject()) return false;
+        const QJsonObject object = frameValue.toObject();
+        annotation::FrameAnnotation frame;
+        qint64 index = 0, mediaTime = 0;
+        if (!integer(object.value(QStringLiteral("frame")), &index) || index < 0) return false;
+        integer(object.value(QStringLiteral("mediaTimeUs")), &mediaTime);
+        if (result.hasFrame(index) || !object.value(QStringLiteral("items")).isArray()) return false;
+        const QJsonArray items = object.value(QStringLiteral("items")).toArray();
+        if (items.isEmpty() || items.size() > annotation::AnnotationLimits::kMaxItemsPerFrame)
+            return false;
+        frame.frame = index;
+        frame.mediaTimeUs = mediaTime;
+        for (const QJsonValue& itemValue : items) {
+            annotation::AnnotationItem item;
+            if (!readAnnotationItem(itemValue, &item) || ids.contains(item.id)) return false;
+            ids.insert(item.id);
+            frame.items.append(std::move(item));
+        }
+        result.setFrame(std::move(frame));
+    }
+    *out = std::move(result);
+    return true;
+}
 }
 
 QString ProjectSerializer::fileExtension() { return QStringLiteral("atkproj"); }
@@ -147,6 +267,10 @@ static SerializerResult saveWithName(const Project& project, const QString& file
             {QStringLiteral("endFrame"), static_cast<double>(range.endFrame)},
             {QStringLiteral("enabled"), range.enabled}}},
             {QStringLiteral("bookmarks"), bookmarks}};
+        // Additive v1 field, omitted when empty: older readers ignore it, so no
+        // version bump is needed and projects without drawings are unchanged.
+        if (!entry.annotations.isEmpty())
+            review.insert(QStringLiteral("annotations"), annotationsJson(entry.annotations));
         QJsonObject source{{QStringLiteral("id"), entry.id.toString(QUuid::WithoutBraces)},
             {QStringLiteral("path"), storedMediaPath(entry.source->filePath(), filePath)},
             {QStringLiteral("displayName"), entry.displayName.isEmpty() ? entry.source->displayName() : entry.displayName},
@@ -255,6 +379,8 @@ SerializerResult ProjectSerializer::load(Project& project, const QString& filePa
             bookmark.colorIndex = b.value(QStringLiteral("colorIndex")).toInt(timeline::Bookmark::kNoColor);
             entry.bookmarks.append(bookmark);
         }
+        if (!readAnnotations(review.value(QStringLiteral("annotations")), &entry.annotations))
+            return SerializerResult::failure(QStringLiteral("A source has invalid annotation data."));
         entries.append(std::move(entry));
     }
     project.replace(root.value(QStringLiteral("name")).toString(QStringLiteral("Untitled")),
