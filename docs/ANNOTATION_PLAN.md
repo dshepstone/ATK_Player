@@ -216,19 +216,27 @@ FFmpeg feature is needed, so the LGPL-only build is unaffected.
   using the **source frame index** that frame was decoded from, then draws the
   note caption through the existing bookmark/note burn-in code. Same code path
   as the viewer, so what you see is what you export.
-- **Timing modes** (the "proper frames" requirement):
-  1. *On authored frame only* (default): the drawing and its note appear on
-     exactly the frame they were made on. Frame-accurate; very short at 24 fps,
-     so it is best paired with mode 2 or 3.
-  2. *Hold N frames/seconds after the authored frame*: the drawing persists over
-     the following frames (stops early at the next annotated frame or range end).
-     Video keeps playing; duration unchanged.
-  3. *Freeze on annotated frame for N seconds* — **the default, modelled on
-     SyncSketch's "Video with Sketches"**: playback runs normally, pauses on each
-     annotated frame while its drawing and note are displayed for a configurable
-     duration (default ~2 s, per-export setting), then resumes. Duration grows by
-     N per annotated frame. Frames without annotations show clean video.
-- **Freeze-mode correctness requirements** (the risky part):
+- **Timing modes** (the "proper frames" requirement). **Default = play-through,
+  matching how SyncSketch exports behave for this user's workflow:** the video
+  runs at its normal rate and length, the drawing and note appear on exactly the
+  frame they were made on, and the reviewer steps frame by frame to that frame
+  for detail. Nothing pauses and the duration never changes.
+  1. *Play-through, authored frame only* (**default**): frame-accurate, same
+     frame count and duration as the source range, audio untouched (no gap
+     handling needed). A/V sync is trivially preserved.
+  2. *Hold N frames/seconds after the authored frame* (optional): drawing
+     persists over the following frames, stopping early at the next annotated
+     frame or range end. Duration unchanged.
+  3. *Freeze on annotated frame for N seconds* (optional, off by default): pauses
+     on each annotated frame, then resumes; duration grows by N per annotated
+     frame. Kept for users who want a presentation-style review video.
+  Because mode 1 is one video frame long, a **frame-marker** option is on by
+  default: a small marker (and the note text, if "show note caption" is on) is
+  shown for the authored frame only, plus an optional subtle cue a few frames
+  before the annotated frame so it is findable while stepping, and an optional
+  sidecar notes list (CSV/JSON, or the Review Notes PDF) giving the frame numbers
+  to step to.
+- **Freeze-mode correctness requirements** (only for optional mode 3; the risky part):
   - Insert repeated frames with **new, strictly monotonic CFR timestamps**
     (`pts` advances per output frame; no duplicated pts), so the exact
     frame-count/duration verification the exporter already has still holds.
@@ -247,6 +255,7 @@ FFmpeg feature is needed, so the LGPL-only build is unaffected.
 - Tests (`tst_export.cpp`, FFmpeg lavfi fixtures like the existing export tests):
   - annotated pixels present on frame N and absent on N-1 / N+1 in mode 1;
   - hold mode ends at the next annotation;
+  - play-through mode: frame count/duration identical to the source range, audio byte-identical;
   - freeze mode: decoded frame count = source frames + N·freezes, strictly
     increasing pts, audio duration == video duration (±1 audio frame);
   - rational rates 24000/1001 and 30000/1001, active-range with offset start;
@@ -299,7 +308,7 @@ FFmpeg feature is needed, so the LGPL-only build is unaffected.
 3. **Qt PDF dependency**: `QPdfWriter` needs nothing new. Reading a PDF back in
    tests would need `Qt6::Pdf`; I propose test-only structural checks instead.
 4. **Export flip behaviour**: unflipped by default OK?
-5. ~~Video export default~~ — **decided: freeze, like SyncSketch.**
+5. ~~Video export default~~ — **decided: play-through at the source rate, annotation on its authored frame only (freeze/hold optional).**
 6. Pressure-curve default and whether the stylus barrel button should map to eraser or colour picker (proposal: eraser; configurable).
 
 ## 7. Risks
