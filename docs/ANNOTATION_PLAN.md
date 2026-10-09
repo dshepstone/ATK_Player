@@ -11,7 +11,8 @@ code).
 1. Draw on top of video / animation / image-sequence frames during review
    (freehand pen, shapes, arrow, text), per frame, with undo/redo.
 2. Attach frame notes (text) to frames, alongside the drawings.
-3. Export a **Review Notes PDF**: one row per annotated frame — the frame with
+3. Export an **annotated MP4** with each drawing and note shown on its proper frame.
+4. Export a **Review Notes PDF**: one row per annotated frame — the frame with
    its drawings burned in on the left; frame number, timecode, status and note
    text on the right; header with project/clip names and a footer with page
    numbers (layout modelled on the supplied SyncSketch sample PDF).
@@ -146,12 +147,51 @@ Each phase leaves the app building, tested and shippable.
   "Reviewer name" setting.
 - Clicking a note seeks exactly (existing bookmark navigation).
 
-### Phase E — Burn-in export of annotated frames
-- Extend `ExportSpec`/`ExportBurnIns` with `includeAnnotations`; run
-  `AnnotationRenderer` in `ExportBurnInRenderer::apply()` by source-A frame index.
-  Gives annotated single-frame PNG, PNG sequence and MP4 (annotation drawn for the
-  frames it was authored on; hold-for-N-frames option deferred).
-- Tests in `tst_export.cpp`: exact pixels on a known fixture frame.
+### Phase E — Annotated MP4 ("Video with Notes") and burn-in export
+Builds on the existing H.264/AAC MP4 export (`ExportJob` + `FFmpegExporter`,
+exact CFR timing, active-range, off-UI-thread, cancellable). No new codec or
+FFmpeg feature is needed, so the LGPL-only build is unaffected.
+
+- Extend `ExportSpec` with `ExportAnnotations`: `include` flag, an immutable
+  snapshot of the per-frame annotations and notes (copied at job start so later
+  edits cannot race the worker), timing mode, hold length, caption options.
+- Per output frame, `ExportBurnInRenderer::apply()` calls `AnnotationRenderer`
+  using the **source frame index** that frame was decoded from, then draws the
+  note caption through the existing bookmark/note burn-in code. Same code path
+  as the viewer, so what you see is what you export.
+- **Timing modes** (the "proper frames" requirement):
+  1. *On authored frame only* (default): the drawing and its note appear on
+     exactly the frame they were made on. Frame-accurate; very short at 24 fps,
+     so it is best paired with mode 2 or 3.
+  2. *Hold N frames/seconds after the authored frame*: the drawing persists over
+     the following frames (stops early at the next annotated frame or range end).
+     Video keeps playing; duration unchanged.
+  3. *Freeze on annotated frame for N seconds* (like SyncSketch's "Video with
+     Sketches"): playback pauses on the annotated frame while the drawing and note
+     are shown, then continues. Duration grows by N per annotated frame.
+- **Freeze-mode correctness requirements** (the risky part):
+  - Insert repeated frames with **new, strictly monotonic CFR timestamps**
+    (`pts` advances per output frame; no duplicated pts), so the exact
+    frame-count/duration verification the exporter already has still holds.
+  - Audio: pad with silence for the freeze duration (or optionally keep audio
+    looping off) so A/V stay in sync after every freeze. The audio writer needs a
+    "gap insertion" step keyed to output time; unit-test sync drift after 20
+    freezes at 23.976 and 29.97.
+  - Output frame ↔ source frame mapping lives in one pure, testable function
+    (`outputFrameToSourceFrame`) so the progress bar, frame count, and encoder agree.
+- Options in the export dialog: timing mode, hold length, show note caption
+  (bottom bar, wrapped, auto-size), include timecode/frame number (existing
+  burn-ins), caption position, **write a sidecar CSV/JSON of notes** (optional).
+- Scope in v1: single-source export. A/B layouts annotate the Source A frames
+  only; wipe/difference composites show no annotations.
+- Single-frame PNG and PNG sequence get "include annotations" through the same flag.
+- Tests (`tst_export.cpp`, FFmpeg lavfi fixtures like the existing export tests):
+  - annotated pixels present on frame N and absent on N-1 / N+1 in mode 1;
+  - hold mode ends at the next annotation;
+  - freeze mode: decoded frame count = source frames + N·freezes, strictly
+    increasing pts, audio duration == video duration (±1 audio frame);
+  - rational rates 24000/1001 and 30000/1001, active-range with offset start;
+  - cancel mid-export leaves no partial file (atomic temp replace, as today).
 
 ### Phase F — Review Notes PDF (the headline deliverable)
 - `ReviewNotesSpec`: source, list of `(frame, mediaTimeUs, notes[], status)`,
@@ -218,8 +258,8 @@ Each phase leaves the app building, tested and shippable.
 1. Phase A+B (model, persistence) — no user-visible change.
 2. Phase C (overlay + tools) — usable drawing.
 3. Phase D (notes UI).
-4. Phase E (burn-in export).
+4. Phase E (annotated MP4 + burn-in export).
 5. Phase F (PDF) — headline feature.
 6. Phase G (polish, docs).
 
-Estimated size: A+B ≈ 1.5k LOC with tests, C ≈ 2k, D ≈ 0.8k, E ≈ 0.4k, F ≈ 1.5k, G ≈ 0.5k.
+Estimated size: A+B ≈ 1.5k LOC with tests, C ≈ 2k, D ≈ 0.8k, E ≈ 1.2k, F ≈ 1.5k, G ≈ 0.5k.
