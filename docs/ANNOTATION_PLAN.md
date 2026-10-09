@@ -240,8 +240,10 @@ FFmpeg feature is needed, so the LGPL-only build is unaffected.
 3. **Qt PDF dependency**: `QPdfWriter` needs nothing new. Reading a PDF back in
    tests would need `Qt6::Pdf`; I propose test-only structural checks instead.
 4. **Export flip behaviour**: unflipped by default OK?
-5. **Per-frame hold in video export** (how many frames an annotation displays) —
-   v1 shows it only on its authored frame; want a hold option in Phase E?
+5. **Video export default timing**: hold the drawing for N seconds while video keeps
+   playing, or freeze on the annotated frame (adds duration, needs audio gap
+   padding)? I recommend freeze as the default for review videos, with
+   "authored frame only" also available.
 
 ## 7. Risks
 
