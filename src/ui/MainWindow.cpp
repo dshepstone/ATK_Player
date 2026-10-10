@@ -2275,9 +2275,11 @@ void MainWindow::openExportedFile(const QString& path)
     // to it weakly, so nothing outlives the last retry.
     *attempt = [this, path, weak = std::weak_ptr<std::function<void(int)>>(attempt)](int tries) {
         QFile probe(path);
-        const bool free = probe.open(QIODevice::ReadOnly) && probe.size() > 0
-            && !platform::PlatformInfo::isFileOpenElsewhere(path);
+        const bool readable = probe.open(QIODevice::ReadOnly) && probe.size() > 0;
+        // Close our own handle first: on Windows the exclusivity check would
+        // otherwise see it and report the file as busy forever.
         probe.close();
+        const bool free = readable && !platform::PlatformInfo::isFileOpenElsewhere(path);
         if (!free && tries < kMaxAttempts) {
             if (tries == 0)
                 statusBar()->showMessage(tr("Saved %1; opening it once it is free (a sync app may be uploading it)…")

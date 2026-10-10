@@ -100,12 +100,21 @@ project::SerializerResult loadWithAnnotations(const Fixture& fx, const QJsonValu
     return project::ProjectSerializer::load(loaded, fx.projectPath);
 }
 
+/// A points array holding one point. Built by append: MSVC reads
+/// QJsonArray{QJsonArray{...}} as a copy, not as a nested array.
+QJsonArray onePoint(const QJsonArray& point)
+{
+    QJsonArray points;
+    points.append(point);
+    return points;
+}
+
 QJsonObject validItemJson()
 {
     return {{QStringLiteral("id"), QStringLiteral("1")}, {QStringLiteral("tool"), QStringLiteral("pen")},
             {QStringLiteral("color"), QStringLiteral("#ffff0000")}, {QStringLiteral("size"), 0.01},
             {QStringLiteral("opacity"), 1.0}, {QStringLiteral("seed"), 0},
-            {QStringLiteral("points"), QJsonArray{QJsonArray{0.1, 0.2, 0.5}}}};
+            {QStringLiteral("points"), onePoint(QJsonArray{0.1, 0.2, 0.5})}};
 }
 
 QJsonArray oneFrame(const QJsonObject& item, qint64 frame = 5)
@@ -193,13 +202,13 @@ void TestAnnotationProject::rejectsMalformedAnnotationData_data()
     QJsonObject badColour = validItemJson();
     badColour[QStringLiteral("color")] = QStringLiteral("not-a-colour");
     QJsonObject offImage = validItemJson();
-    offImage[QStringLiteral("points")] = QJsonArray{QJsonArray{1.5, 0.2, 0.5}};
+    offImage[QStringLiteral("points")] = onePoint(QJsonArray{1.5, 0.2, 0.5});
     QJsonObject badPressure = validItemJson();
-    badPressure[QStringLiteral("points")] = QJsonArray{QJsonArray{0.1, 0.2, -0.5}};
+    badPressure[QStringLiteral("points")] = onePoint(QJsonArray{0.1, 0.2, -0.5});
     QJsonObject shortPoint = validItemJson();
-    shortPoint[QStringLiteral("points")] = QJsonArray{QJsonArray{0.1, 0.2}};
+    shortPoint[QStringLiteral("points")] = onePoint(QJsonArray{0.1, 0.2});
     QJsonObject stringPoint = validItemJson();
-    stringPoint[QStringLiteral("points")] = QJsonArray{QJsonArray{QStringLiteral("a"), 0.2, 0.5}};
+    stringPoint[QStringLiteral("points")] = onePoint(QJsonArray{QStringLiteral("a"), 0.2, 0.5});
     QJsonObject noPoints = validItemJson();
     noPoints[QStringLiteral("points")] = QJsonArray{};
     QJsonObject zeroId = validItemJson();
@@ -509,7 +518,8 @@ void TestAnnotationProject::nullAnnotationsAndHugeIdsAreRejected()
     item.insert(QStringLiteral("id"), QString::number(std::numeric_limits<quint64>::max()));
     QVERIFY(!loadWithAnnotations(fx, oneFrame(item)).ok);
     item.insert(QStringLiteral("id"), QStringLiteral("9007199254740992")); // 2^53: the largest allowed
-    QVERIFY(loadWithAnnotations(fx, oneFrame(item)).ok);
+    const auto largest = loadWithAnnotations(fx, oneFrame(item));
+    QVERIFY2(largest.ok, qPrintable(largest.errorMessage));
 }
 
 QTEST_MAIN(TestAnnotationProject)
