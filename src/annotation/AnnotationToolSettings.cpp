@@ -22,6 +22,7 @@ AnnotationItem AnnotationToolSettings::makeItem(qreal imageHeight) const
     item.size = itemSize(imageHeight);
     item.opacity = std::clamp(opacity, 0.05, 1.0);
     item.textureSeed = QRandomGenerator::global()->generate();
+    if (tool == AnnotationTool::Stamp) item.brushId = brushTipId;
     return item;
 }
 

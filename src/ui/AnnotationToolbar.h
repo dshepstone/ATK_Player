@@ -1,6 +1,7 @@
 #pragma once
 
 #include "annotation/AnnotationToolSettings.h"
+#include "annotation/BrushLibrary.h"
 
 #include <QHash>
 #include <QToolBar>
@@ -34,14 +35,20 @@ public:
     /// Preset swatches offered in the colour menu.
     static QList<QColor> presetColors();
 
+    /// Rebuilds the Brushes menu from the imported sets.
+    void setBrushSets(const QVector<annotation::BrushSet>& sets);
+
 signals:
     void settingsChanged(const atk::annotation::AnnotationToolSettings& settings);
+    void importBrushesRequested();
+    void removeBrushSetRequested(const QString& setName);
 
 private:
     void addToolAction(annotation::AnnotationTool tool, const QString& label, const QString& tip);
     void apply(const annotation::AnnotationToolSettings& settings, bool notify);
     void refreshColorButton();
     void chooseCustomColor();
+    void refreshBrushButton();
 
     annotation::AnnotationToolSettings m_settings;
     QActionGroup* m_toolGroup = nullptr;
@@ -54,6 +61,8 @@ private:
     QComboBox* m_curveCombo = nullptr;
     QSpinBox* m_stabilizerSpin = nullptr;
     QComboBox* m_eraserModeCombo = nullptr;
+    QToolButton* m_brushButton = nullptr;
+    QVector<annotation::BrushSet> m_brushSets;
     bool m_updating = false;
 };
 

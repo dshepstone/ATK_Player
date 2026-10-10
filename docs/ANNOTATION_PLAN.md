@@ -54,6 +54,31 @@ OS-specific code. `ROADMAP.md` still lists "Drawn annotations over frames" under
     a pkg-config `FindFFMPEG.cmake`, and `-fpermissive` (because `int64_t` and
     `qint64` differ on Linux). Do not commit any of that.
 
+### Photoshop brush sets (as built)
+
+- **Import:** `annotation::readAbr` reads `.abr` versions 1/2 (Photoshop ≤ 6) and 6/7/10
+  (Photoshop 7 to current). It handles raw and PackBits tips at 8 and 16 bits, and
+  brushes whose tip is stored inverted.
+  - From the `desc` presets it takes the name, spacing, angle and diameter, matched to
+    tips by sample UUID.
+  - Computed round brushes (settings only, no image) are skipped and counted.
+  - Dynamics, textures, dual brushes and similar have no equivalent and are ignored.
+  - Every length is bounds-checked. Truncated and fuzzed inputs are tested.
+- **Library:** `BrushLibrary` keeps imported sets as PNG plus JSON folders under the
+  user's app-data `brushes/` folder. `BrushTipRegistry` gives the renderer process-wide,
+  thread-safe access to tips.
+- **Drawing:** the **Custom** tool (`AnnotationTool::Stamp`, item `brushId`) stamps the
+  tip along the smoothed path at the tip's spacing. Dab size and opacity follow
+  pressure. The tip colour is the stroke colour, and the tip angle is applied. If a tip
+  is missing, the stroke falls back to the round Brush.
+- **Portability:** every tip used by a drawing is embedded in the `.atkproj` as
+  `brushTips`, an additive field with base64 PNG. Projects therefore render the same on
+  machines without the set. A damaged embedded tip is skipped, not fatal.
+- **UI:** the toolbar's **Brushes** menu lists the sets with tip previews, plus
+  **Import Photoshop Brushes (.abr)…** and **Remove Brush Set**.
+- **Verification gap:** no real Photoshop `.abr` was available in the build container.
+  Tests use generated files in each layout, so real sets from the owner must confirm.
+
 ### Phase C notes (as built)
 
 - Freehand strokes are rendered per item into a layer, one segment at a time with

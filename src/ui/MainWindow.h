@@ -28,7 +28,7 @@ class QSplitter;
 class QProgressDialog;
 class QJsonObject;
 
-namespace atk::annotation { class AnnotationStore; }
+namespace atk::annotation { class AnnotationStore; class BrushLibrary; }
 namespace atk::api { class ApiServer; }
 namespace atk::api { struct ApiResponse; }
 namespace atk::playback { class CompareSession; class CompareVideoLane; enum class CompareLayout; enum class CompareAudioMode; }
@@ -205,6 +205,8 @@ private:
     void refreshViewerAnnotations();
     void applyAnnotationTool(const annotation::AnnotationToolSettings& settings);
     void seekAnnotatedFrame(int direction);
+    void importBrushSet();
+    void removeBrushSet(const QString& name);
     void updateAnnotationActions();
 
 
@@ -220,6 +222,10 @@ private:
     std::unique_ptr<api::ApiServer> m_apiServer;
     std::unique_ptr<exporter::ExportJob> m_exportJob;
     std::unique_ptr<annotation::AnnotationStore> m_annotations;
+    /// Imported brush sets. Kept beside the settings file when one is given
+    /// (tests), otherwise in the per-user application data folder.
+    std::unique_ptr<annotation::BrushLibrary> m_brushLibrary;
+    QString m_settingsIniPath;
     /// Source the annotation store is bound to; edits are written back to it.
     QUuid m_annotationSourceId;
     /// The frame on screen in viewer A, and its picture height in pixels.

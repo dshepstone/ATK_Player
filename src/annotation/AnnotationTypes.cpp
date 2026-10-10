@@ -15,7 +15,7 @@ constexpr ToolNameEntry kToolNames[] = {
     {AnnotationTool::Eraser, "eraser"},       {AnnotationTool::Line, "line"},
     {AnnotationTool::Arrow, "arrow"},         {AnnotationTool::Rectangle, "rectangle"},
     {AnnotationTool::Ellipse, "ellipse"},     {AnnotationTool::Text, "text"},
-    {AnnotationTool::Select, "select"},
+    {AnnotationTool::Select, "select"},       {AnnotationTool::Stamp, "stamp"},
 };
 
 bool unit(float value) { return std::isfinite(value) && value >= 0.0f && value <= 1.0f; }
@@ -47,7 +47,7 @@ bool isStoredTool(AnnotationTool tool)
 bool isFreehandTool(AnnotationTool tool)
 {
     return tool == AnnotationTool::Pencil || tool == AnnotationTool::Pen
-        || tool == AnnotationTool::Brush || tool == AnnotationTool::Marker;
+        || tool == AnnotationTool::Brush || tool == AnnotationTool::Marker || tool == AnnotationTool::Stamp;
 }
 
 bool isShapeTool(AnnotationTool tool)
@@ -64,6 +64,7 @@ bool isValidItem(const AnnotationItem& item)
         return false;
     if (!std::isfinite(item.opacity) || item.opacity < 0.0 || item.opacity > 1.0) return false;
     if (item.text.size() > AnnotationLimits::kMaxTextLength) return false;
+    if (item.brushId.size() > 200 || (!item.brushId.isEmpty() && item.tool != AnnotationTool::Stamp)) return false;
 
     const int count = int(item.points.size());
     if (count > AnnotationLimits::kMaxPointsPerItem) return false;

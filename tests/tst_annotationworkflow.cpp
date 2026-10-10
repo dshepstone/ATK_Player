@@ -1,5 +1,6 @@
 #include "annotation/AnnotationRenderer.h"
 #include "annotation/AnnotationTypes.h"
+#include "annotation/BrushLibrary.h"
 #include "media/MediaSource.h"
 #include "project/Project.h"
 #include "project/ProjectSerializer.h"
@@ -69,6 +70,7 @@ private slots:
     void drawUndoRedoNavigateAndPersist();
     void brushSizeKeysStepTheToolbar();
     void typeEditMoveAndDeleteText();
+    void importedBrushesAppearInTheToolbar();
 };
 
 void TestAnnotationWorkflow::drawModeNeedsMedia()
@@ -248,6 +250,38 @@ void TestAnnotationWorkflow::typeEditMoveAndDeleteText()
     QVERIFY(frameItems().isEmpty());
     command(window, "draw.undo")->trigger();
     QCOMPARE(frameItems().size(), 1);
+}
+
+void TestAnnotationWorkflow::importedBrushesAppearInTheToolbar()
+{
+    QTemporaryDir directory;
+    // A library that a previous session imported, beside this test's settings.
+    atk::annotation::BrushSet set;
+    set.name = QStringLiteral("Inks");
+    atk::annotation::BrushTip tip;
+    tip.id = QStringLiteral("abr-workflow-tip");
+    tip.name = QStringLiteral("Wet Ink");
+    tip.mask = QImage(16, 16, QImage::Format_Grayscale8);
+    tip.mask.fill(255);
+    set.tips = {tip};
+    atk::annotation::BrushLibrary library(directory.filePath(QStringLiteral("brushes")));
+    QVERIFY(library.addSet(set));
+
+    atk::ui::MainWindow window(directory.filePath(QStringLiteral("settings.ini")));
+    auto* toolbar = window.findChild<atk::ui::AnnotationToolbar*>();
+    auto* viewer = window.findChild<atk::ui::ViewerWidget*>();
+    QAction* pick = nullptr;
+    for (QAction* action : toolbar->findChildren<QAction*>())
+        if (action->text() == QStringLiteral("Wet Ink")) pick = action;
+    QVERIFY2(pick, "the imported brush is listed in the Brushes menu");
+    pick->trigger();
+    QCOMPARE(viewer->annotationTool().tool, atk::annotation::AnnotationTool::Stamp);
+    QCOMPARE(viewer->annotationTool().brushTipId, tip.id);
+    QVERIFY(atk::annotation::BrushTipRegistry::instance().contains(tip.id));
+
+    // The choice is remembered.
+    atk::ui::MainWindow next(directory.filePath(QStringLiteral("settings.ini")));
+    QCOMPARE(next.findChild<atk::ui::ViewerWidget*>()->annotationTool().brushTipId, tip.id);
 }
 
 QTEST_MAIN(TestAnnotationWorkflow)

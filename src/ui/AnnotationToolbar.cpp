@@ -65,6 +65,14 @@ AnnotationToolbar::AnnotationToolbar(QWidget* parent) : QToolBar(tr("Drawing"), 
     addToolAction(AnnotationTool::Pen, tr("Pen"), tr("Pen: smooth ink, pressure sets width"));
     addToolAction(AnnotationTool::Brush, tr("Brush"), tr("Brush: soft edge, pressure sets width and opacity"));
     addToolAction(AnnotationTool::Marker, tr("Marker"), tr("Marker: flat, even, translucent"));
+    addToolAction(AnnotationTool::Stamp, tr("Custom"),
+                  tr("Custom brush: paints with an imported brush tip (for example from a Photoshop .abr set)"));
+    m_brushButton = new QToolButton(this);
+    m_brushButton->setPopupMode(QToolButton::InstantPopup);
+    m_brushButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    m_brushButton->setToolTip(tr("Choose an imported brush, or import Photoshop brushes (.abr)"));
+    m_brushButton->setMenu(new QMenu(m_brushButton));
+    addWidget(m_brushButton);
     addToolAction(AnnotationTool::Eraser, tr("Eraser"), tr("Eraser (the pen's eraser end works too)"));
     m_eraserModeCombo = new QComboBox(this);
     m_eraserModeCombo->addItem(tr("Erase area"), int(annotation::EraserMode::Area));
@@ -178,7 +186,63 @@ AnnotationToolbar::AnnotationToolbar(QWidget* parent) : QToolBar(tr("Drawing"), 
         apply(next, true);
     });
 
+    setBrushSets({});
     apply(m_settings, false);
+}
+
+void AnnotationToolbar::setBrushSets(const QVector<annotation::BrushSet>& sets)
+{
+    m_brushSets = sets;
+    QMenu* menu = m_brushButton->menu();
+    menu->clear();
+    for (const annotation::BrushSet& set : sets) {
+        QMenu* sub = menu->addMenu(QStringLiteral("%1 (%2)").arg(set.name).arg(set.tips.size()));
+        for (const annotation::BrushTip& tip : set.tips) {
+            // Preview: the tip in dark ink on white, as it would print.
+            QImage preview = tip.mask.scaled(32, 32, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+            preview.invertPixels();
+            QAction* action = sub->addAction(QIcon(QPixmap::fromImage(preview)),
+                                             tip.name.isEmpty() ? tr("Brush") : tip.name);
+            action->setCheckable(true);
+            action->setChecked(tip.id == m_settings.brushTipId);
+            const QString id = tip.id;
+            connect(action, &QAction::triggered, this, [this, id] {
+                auto next = m_settings;
+                next.brushTipId = id;
+                next.tool = AnnotationTool::Stamp;
+                apply(next, true);
+            });
+        }
+    }
+    if (!sets.isEmpty()) menu->addSeparator();
+    connect(menu->addAction(tr("Import Photoshop Brushes (.abr)...")), &QAction::triggered, this,
+            &AnnotationToolbar::importBrushesRequested);
+    if (!sets.isEmpty()) {
+        QMenu* remove = menu->addMenu(tr("Remove Brush Set"));
+        for (const annotation::BrushSet& set : sets) {
+            const QString name = set.name;
+            connect(remove->addAction(name), &QAction::triggered, this,
+                    [this, name] { emit removeBrushSetRequested(name); });
+        }
+    }
+    refreshBrushButton();
+}
+
+void AnnotationToolbar::refreshBrushButton()
+{
+    if (!m_brushButton) return;
+    for (const annotation::BrushSet& set : m_brushSets) {
+        for (const annotation::BrushTip& tip : set.tips) {
+            if (tip.id != m_settings.brushTipId) continue;
+            QImage preview = tip.mask.scaled(20, 20, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+            preview.invertPixels();
+            m_brushButton->setIcon(QIcon(QPixmap::fromImage(preview)));
+            m_brushButton->setText(tip.name.left(18));
+            return;
+        }
+    }
+    m_brushButton->setIcon({});
+    m_brushButton->setText(m_brushSets.isEmpty() ? tr("Brushes") : tr("Choose brush"));
 }
 
 QList<QColor> AnnotationToolbar::presetColors()
@@ -230,6 +294,7 @@ void AnnotationToolbar::apply(const annotation::AnnotationToolSettings& settings
     m_curveCombo->setEnabled(m_settings.usePressure);
     m_stabilizerSpin->setValue(qRound(m_settings.stabilizer * 100.0));
     refreshColorButton();
+    refreshBrushButton();
     m_updating = false;
     if (notify) emit settingsChanged(m_settings);
 }

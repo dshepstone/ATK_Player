@@ -11,8 +11,9 @@
 
 namespace atk::annotation {
 
-/// What an item is. Pencil, Pen, Brush and Marker are freehand strokes that
-/// differ only in how the renderer shapes them; Line..Ellipse are two-point
+/// What an item is. Pencil, Pen, Brush, Marker and Stamp are freehand strokes
+/// that differ only in how the renderer shapes them (Stamp repeats an imported
+/// brush tip, such as one from a Photoshop brush set, along the stroke); Line..Ellipse are two-point
 /// shapes; Text is an anchor point (point text) or a box (paragraph text that
 /// wraps to the box width) plus text. Eraser and Select never appear in stored
 /// data -- they act on items rather than being one -- but the tool enum is
@@ -29,6 +30,7 @@ enum class AnnotationTool {
     Ellipse,
     Text,
     Select,
+    Stamp,
 };
 
 /// Stable names used by the project file. Never reorder or rename: they are
@@ -70,6 +72,8 @@ struct AnnotationItem {
     /// Seeds the pencil grain so the viewer and an export draw identical pixels.
     quint32 textureSeed = 0;
     QString text;
+    /// Stamp only: id of the BrushTip to repeat along the stroke.
+    QString brushId;
 
     friend bool operator==(const AnnotationItem&, const AnnotationItem&) = default;
 };

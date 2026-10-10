@@ -1,4 +1,5 @@
 #include "annotation/AnnotationTypes.h"
+#include "annotation/BrushTip.h"
 #include "media/MediaSource.h"
 #include "project/Project.h"
 #include "project/ProjectSerializer.h"
@@ -127,6 +128,7 @@ private slots:
     void annotationsAloneTriggerSavePrompt();
     void annotationsFollowSourceIdentityAcrossReorder();
     void relinkTrimsAnnotationsBeyondNewExtent();
+    void usedBrushTipsTravelWithTheProject();
 };
 
 void TestAnnotationProject::roundTripPreservesEveryField()
@@ -342,6 +344,66 @@ void TestAnnotationProject::relinkTrimsAnnotationsBeyondNewExtent()
     QCOMPARE(project.entries()[0].annotations.annotatedFrames(), QVector<int64_t>({0}));
     QVERIFY(project.relinkSource(id, std::make_shared<media::MediaSource>(fx.mediaPath), 500));
     QCOMPARE(project.entries()[0].annotations.annotatedFrames(), QVector<int64_t>({0}));
+}
+
+void TestAnnotationProject::usedBrushTipsTravelWithTheProject()
+{
+    annotation::BrushTip tip;
+    tip.id = QStringLiteral("abr-embedded-test");
+    tip.name = QStringLiteral("Charcoal");
+    tip.spacing = 0.4;
+    tip.angle = 15;
+    tip.mask = QImage(9, 7, QImage::Format_Grayscale8);
+    for (int y = 0; y < 7; ++y)
+        for (int x = 0; x < 9; ++x) tip.mask.scanLine(y)[x] = uchar((x * 31 + y * 17) % 256);
+    annotation::BrushTipRegistry::instance().add(tip);
+
+    Fixture fx;
+    project::Project original;
+    original.addSource(std::make_shared<media::MediaSource>(fx.mediaPath));
+    annotation::SourceAnnotations set;
+    annotation::FrameAnnotation frame;
+    frame.frame = 4;
+    annotation::AnnotationItem stamp = makeItem(1, annotation::AnnotationTool::Pen, 0.2f);
+    stamp.tool = annotation::AnnotationTool::Stamp;
+    stamp.brushId = tip.id;
+    frame.items = {stamp};
+    set.setFrame(frame);
+    QVERIFY(original.setAnnotations(original.entries()[0].id, set));
+    QVERIFY(project::ProjectSerializer::save(original, fx.projectPath).ok);
+
+    const QJsonObject root = readProject(fx.projectPath);
+    const QJsonArray tips = root.value(QStringLiteral("brushTips")).toArray();
+    QCOMPARE(tips.size(), 1);
+    QCOMPARE(tips[0].toObject().value(QStringLiteral("id")).toString(), tip.id);
+
+    // A machine without the brush set: the project brings the tip with it.
+    annotation::BrushTipRegistry::instance().clear();
+    project::Project loaded;
+    const auto result = project::ProjectSerializer::load(loaded, fx.projectPath);
+    QVERIFY2(result.ok, qPrintable(result.errorMessage));
+    QCOMPARE(loaded.entries()[0].annotations, set); // brushId kept on the item
+    const annotation::BrushTip restored = annotation::BrushTipRegistry::instance().find(tip.id);
+    QVERIFY(restored.isValid());
+    QCOMPARE(restored.name, tip.name);
+    QCOMPARE(restored.spacing, tip.spacing);
+    QCOMPARE(restored.mask.convertToFormat(QImage::Format_Grayscale8), tip.mask);
+
+    // A damaged embedded tip is skipped, not fatal.
+    QJsonObject damaged = root;
+    QJsonArray badTips;
+    badTips.append(QJsonObject{{QStringLiteral("id"), QStringLiteral("broken")}, {QStringLiteral("png"), QStringLiteral("!!!")}});
+    damaged.insert(QStringLiteral("brushTips"), badTips);
+    writeProject(fx.projectPath, damaged);
+    project::Project again;
+    QVERIFY(project::ProjectSerializer::load(again, fx.projectPath).ok);
+    QVERIFY(!annotation::BrushTipRegistry::instance().contains(QStringLiteral("broken")));
+
+    // Projects without custom brushes do not gain the key.
+    project::Project plain;
+    plain.addSource(std::make_shared<media::MediaSource>(fx.mediaPath));
+    QVERIFY(project::ProjectSerializer::save(plain, fx.projectPath).ok);
+    QVERIFY(!readProject(fx.projectPath).contains(QStringLiteral("brushTips")));
 }
 
 QTEST_MAIN(TestAnnotationProject)

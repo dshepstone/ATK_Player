@@ -1,5 +1,7 @@
 #include "annotation/AnnotationRenderer.h"
 
+#include "annotation/BrushTip.h"
+
 #include <QFont>
 #include <QFontMetricsF>
 #include <QPainter>
@@ -35,6 +37,7 @@ BrushShape brushShape(AnnotationTool tool)
     case AnnotationTool::Pen: return {0.12, 1.00, false, false, false};
     case AnnotationTool::Brush: return {0.25, 0.25, false, true, false};
     case AnnotationTool::Marker: return {1.00, 1.00, true, false, false};
+    case AnnotationTool::Stamp: return {0.25, 0.35, false, false, false};
     default: return {};
     }
 }
@@ -80,8 +83,24 @@ QRectF textRect(const QRectF& rect, const AnnotationItem& item)
     return AnnotationRenderer::layoutText(rect, item).bounds;
 }
 
+void paintStamp(QPainter& painter, const QRectF& rect, const AnnotationItem& item, const BrushTip& tip);
+
 void paintFreehand(QPainter& painter, const QRectF& rect, const AnnotationItem& item)
 {
+    if (item.tool == AnnotationTool::Stamp) {
+        const BrushTip tip = BrushTipRegistry::instance().find(item.brushId);
+        if (tip.isValid()) {
+            paintStamp(painter, rect, item, tip);
+            return;
+        }
+        // The tip is not available (a set removed and no copy in the
+        // project): draw a soft round brush rather than nothing.
+        AnnotationItem fallback = item;
+        fallback.tool = AnnotationTool::Brush;
+        fallback.brushId.clear();
+        paintFreehand(painter, rect, fallback);
+        return;
+    }
     const BrushShape shape = brushShape(item.tool);
     const QVector<AnnotationRenderer::PathSample> path = AnnotationRenderer::smoothedPath(rect, item);
     if (path.isEmpty()) return;
@@ -169,6 +188,88 @@ void paintFreehand(QPainter& painter, const QRectF& rect, const AnnotationItem& 
         }
     }
 
+    painter.save();
+    painter.setOpacity(painter.opacity() * item.opacity);
+    painter.drawImage(QRectF(clipped), layer);
+    painter.restore();
+}
+
+/// Repeats a brush tip along the stroke, like a Photoshop sampled brush:
+/// dab size and opacity follow pressure, dabs are spaced by the tip's spacing
+/// and build up within the stroke, and the whole stroke takes the item opacity.
+void paintStamp(QPainter& painter, const QRectF& rect, const AnnotationItem& item, const BrushTip& tip)
+{
+    const QVector<AnnotationRenderer::PathSample> path = AnnotationRenderer::smoothedPath(rect, item);
+    if (path.isEmpty()) return;
+    QRectF bounds = AnnotationRenderer::itemBounds(rect, item).adjusted(-2, -2, 2, 2);
+    qreal dpr = 1.0;
+    if (QPaintDevice* device = painter.device()) {
+        dpr = std::max<qreal>(1.0, device->devicePixelRatioF());
+        bool invertible = false;
+        const QTransform inverse = painter.combinedTransform().inverted(&invertible);
+        if (invertible) bounds = bounds.intersected(inverse.mapRect(QRectF(0, 0, device->width(), device->height())).adjusted(-2, -2, 2, 2));
+    }
+    const QRect clipped = bounds.toAlignedRect();
+    if (clipped.isEmpty()) return;
+    const QSize layerSize(std::max(1, qCeil(clipped.width() * dpr)), std::max(1, qCeil(clipped.height() * dpr)));
+    if (qint64(layerSize.width()) * layerSize.height() > 64LL * 1024 * 1024) return;
+
+    // Tint the tip once, at no more resolution than the largest dab needs.
+    const qreal maxDiameter = 2.0 * AnnotationRenderer::inkRadius(rect, item, 1.0);
+    const int side = std::clamp(qCeil(maxDiameter * dpr), 2, 1024);
+    const QImage scaledMask = tip.mask.scaled(side, side, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    QImage dab(scaledMask.size(), QImage::Format_ARGB32_Premultiplied);
+    const QColor c = item.color;
+    for (int y = 0; y < dab.height(); ++y) {
+        const uchar* m = scaledMask.constScanLine(y);
+        auto* out = reinterpret_cast<QRgb*>(dab.scanLine(y));
+        for (int x = 0; x < dab.width(); ++x) {
+            const int a = m[x] * c.alpha() / 255;
+            out[x] = qRgba(c.red() * a / 255, c.green() * a / 255, c.blue() * a / 255, a);
+        }
+    }
+    const qreal aspect = qreal(scaledMask.width()) / std::max(1, scaledMask.height());
+
+    QImage layer(layerSize, QImage::Format_ARGB32_Premultiplied);
+    layer.setDevicePixelRatio(dpr);
+    layer.fill(Qt::transparent);
+    {
+        QPainter lp(&layer);
+        lp.setRenderHint(QPainter::SmoothPixmapTransform, true);
+        lp.translate(-clipped.topLeft());
+        auto stampAt = [&](const QPointF& at, qreal pressure) {
+            const qreal diameter = 2.0 * AnnotationRenderer::inkRadius(rect, item, pressure);
+            const QSizeF size = aspect >= 1.0 ? QSizeF(diameter, diameter / aspect) : QSizeF(diameter * aspect, diameter);
+            lp.save();
+            lp.translate(at);
+            if (!qFuzzyIsNull(tip.angle)) lp.rotate(-tip.angle);
+            lp.setOpacity(mix(0.35, 1.0, std::clamp(pressure, 0.0, 1.0)));
+            lp.drawImage(QRectF(QPointF(-size.width() / 2.0, -size.height() / 2.0), size), dab);
+            lp.restore();
+        };
+        // Walk the path, placing a dab every `spacing` diameters.
+        stampAt(path[0].position, path[0].pressure);
+        qreal carried = 0.0;
+        for (int i = 1; i < path.size(); ++i) {
+            const QPointF a = path[i - 1].position;
+            const QPointF b = path[i].position;
+            const qreal length = std::hypot(b.x() - a.x(), b.y() - a.y());
+            qreal travelled = 0.0;
+            for (;;) {
+                const qreal t = travelled / std::max(length, 1e-9);
+                const qreal pressure = mix(path[i - 1].pressure, path[i].pressure, std::clamp(t, 0.0, 1.0));
+                const qreal step = std::max(0.5, tip.spacing * 2.0 * AnnotationRenderer::inkRadius(rect, item, pressure));
+                if (travelled + (step - carried) > length) {
+                    carried += length - travelled;
+                    break;
+                }
+                travelled += step - carried;
+                carried = 0.0;
+                const qreal u = travelled / std::max(length, 1e-9);
+                stampAt(a + (b - a) * u, mix(path[i - 1].pressure, path[i].pressure, u));
+            }
+        }
+    }
     painter.save();
     painter.setOpacity(painter.opacity() * item.opacity);
     painter.drawImage(QRectF(clipped), layer);
@@ -335,6 +436,7 @@ QRectF AnnotationRenderer::itemBounds(const QRectF& imageRect, const AnnotationI
     qreal pad = baseRadius(imageRect, item);
     if (item.tool == AnnotationTool::Arrow)
         pad = std::max(pad * 8.0 + 2.0, imageRect.height() * 0.02 + pad);
+    if (item.tool == AnnotationTool::Stamp) pad *= 1.42; // a rotated square tip
     return QRectF(QPointF(minX, minY), QPointF(maxX, maxY)).adjusted(-pad - 1, -pad - 1, pad + 1, pad + 1);
 }
 

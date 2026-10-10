@@ -1,5 +1,6 @@
 #include "project/ProjectSerializer.h"
 #include "annotation/AnnotationTypes.h"
+#include "annotation/BrushTip.h"
 #include "media/MediaSource.h"
 #include "project/Project.h"
 
@@ -13,6 +14,7 @@
 #include <QSaveFile>
 #include <QSet>
 
+#include <algorithm>
 #include <limits>
 
 namespace atk::project {
@@ -148,6 +150,7 @@ QJsonObject annotationItemJson(const annotation::AnnotationItem& item)
                        {QStringLiteral("seed"), static_cast<double>(item.textureSeed)},
                        {QStringLiteral("points"), points}};
     if (!item.text.isEmpty()) object.insert(QStringLiteral("text"), item.text);
+    if (!item.brushId.isEmpty()) object.insert(QStringLiteral("brush"), item.brushId);
     return object;
 }
 
@@ -186,6 +189,7 @@ bool readAnnotationItem(const QJsonValue& value, annotation::AnnotationItem* out
         return false;
     item.textureSeed = static_cast<quint32>(seed);
     item.text = object.value(QStringLiteral("text")).toString();
+    item.brushId = object.value(QStringLiteral("brush")).toString();
     if (!object.value(QStringLiteral("points")).isArray()) return false;
     const QJsonArray points = object.value(QStringLiteral("points")).toArray();
     if (points.size() > annotation::AnnotationLimits::kMaxPointsPerItem) return false;
@@ -283,10 +287,31 @@ static SerializerResult saveWithName(const Project& project, const QString& file
             source.insert(QStringLiteral("still"), stillJson(entry.source->imageOptions()));
         sources.append(source);
     }
-    const QJsonObject root{{QStringLiteral("format"), QStringLiteral("ATKProject")},
+    QJsonObject root{{QStringLiteral("format"), QStringLiteral("ATKProject")},
         {QStringLiteral("version"), kVersion}, {QStringLiteral("name"), projectName},
         {QStringLiteral("currentSourceId"), project.currentSourceId().toString(QUuid::WithoutBraces)},
         {QStringLiteral("sources"), sources}};
+    // Imported brush tips used by any drawing travel with the project, so it
+    // renders the same on a machine that never imported the brush set.
+    QSet<QString> usedTips;
+    for (const SourceEntry& entry : project.entries())
+        for (const annotation::FrameAnnotation& frame : entry.annotations.frames())
+            for (const annotation::AnnotationItem& item : frame.items)
+                if (!item.brushId.isEmpty()) usedTips.insert(item.brushId);
+    if (!usedTips.isEmpty()) {
+        QJsonArray tips;
+        QStringList ids(usedTips.cbegin(), usedTips.cend());
+        ids.sort();
+        for (const QString& id : ids) {
+            const annotation::BrushTip tip = annotation::BrushTipRegistry::instance().find(id);
+            if (!tip.isValid()) continue; // already missing; drawings fall back to a round brush
+            tips.append(QJsonObject{{QStringLiteral("id"), tip.id}, {QStringLiteral("name"), tip.name},
+                                    {QStringLiteral("spacing"), tip.spacing}, {QStringLiteral("angle"), tip.angle},
+                                    {QStringLiteral("diameter"), tip.diameter},
+                                    {QStringLiteral("png"), QString::fromLatin1(tip.maskPng().toBase64())}});
+        }
+        root.insert(QStringLiteral("brushTips"), tips); // additive v1 field
+    }
     QSaveFile file(filePath);
     if (!file.open(QIODevice::WriteOnly)) return SerializerResult::failure(file.errorString());
     if (file.write(QJsonDocument(root).toJson(QJsonDocument::Indented)) < 0 || !file.commit())
@@ -325,6 +350,22 @@ SerializerResult ProjectSerializer::load(Project& project, const QString& filePa
             : QStringLiteral("This project version is not supported."));
     if (!root.value(QStringLiteral("sources")).isArray())
         return SerializerResult::failure(QStringLiteral("The project source list is invalid."));
+
+    // Embedded brush tips. A bad tip is skipped (its strokes fall back to a
+    // round brush) rather than rejecting the whole project.
+    QVector<annotation::BrushTip> embeddedTips;
+    for (const QJsonValue& value : root.value(QStringLiteral("brushTips")).toArray()) {
+        const QJsonObject t = value.toObject();
+        annotation::BrushTip tip;
+        tip.id = t.value(QStringLiteral("id")).toString().left(200);
+        tip.name = t.value(QStringLiteral("name")).toString().left(200);
+        tip.spacing = std::clamp(t.value(QStringLiteral("spacing")).toDouble(0.25), 0.01, 10.0);
+        tip.angle = t.value(QStringLiteral("angle")).toDouble(0.0);
+        tip.diameter = t.value(QStringLiteral("diameter")).toInt(0);
+        const QByteArray png = QByteArray::fromBase64(t.value(QStringLiteral("png")).toString().toLatin1());
+        if (png.size() <= 32 * 1024 * 1024) tip.mask = annotation::BrushTip::maskFromPng(png);
+        if (tip.isValid()) embeddedTips.append(tip);
+    }
 
     QVector<SourceEntry> entries;
     const QDir base(QFileInfo(filePath).absolutePath());
@@ -382,6 +423,11 @@ SerializerResult ProjectSerializer::load(Project& project, const QString& filePa
         if (!readAnnotations(review.value(QStringLiteral("annotations")), &entry.annotations))
             return SerializerResult::failure(QStringLiteral("A source has invalid annotation data."));
         entries.append(std::move(entry));
+    }
+    for (const annotation::BrushTip& tip : embeddedTips) {
+        // A tip already registered (from the library) wins; ids are content-derived or UUIDs.
+        if (!annotation::BrushTipRegistry::instance().contains(tip.id))
+            annotation::BrushTipRegistry::instance().add(tip);
     }
     project.replace(root.value(QStringLiteral("name")).toString(QStringLiteral("Untitled")),
                     QFileInfo(filePath).absoluteFilePath(), std::move(entries),

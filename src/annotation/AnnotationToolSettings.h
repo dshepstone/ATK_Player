@@ -30,6 +30,8 @@ struct AnnotationToolSettings {
     /// flipping the stylus) does not leave a pen-sized eraser.
     qreal eraserSizePixels = 24.0;
     EraserMode eraserMode = EraserMode::Area;
+    /// Imported brush tip used by the Stamp ("Custom") tool.
+    QString brushTipId;
 
     /// Size the size controls and [ ] keys act on: the eraser's while the
     /// Eraser tool is selected, the brush's otherwise.

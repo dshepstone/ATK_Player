@@ -1,6 +1,8 @@
 #include "ui/MainWindow.h"
 
+#include "annotation/AbrReader.h"
 #include "annotation/AnnotationStore.h"
+#include "annotation/BrushLibrary.h"
 #include "api/ApiServer.h"
 #include "playback/CompareSession.h"
 #include "playback/CompareVideoLane.h"
@@ -71,7 +73,9 @@
 #include <QDialogButtonBox>
 #include <QMenu>
 #include <QMenuBar>
+#include <QFile>
 #include <QMessageBox>
+#include <QStandardPaths>
 #include <QProgressDialog>
 #include <QRegularExpression>
 #include <QScreen>
@@ -214,6 +218,7 @@ MainWindow::MainWindow(const QString& settingsIniPath, QWidget* parent)
     ensureResourcesInitialized();
     if (!settingsIniPath.isEmpty())
         m_settings = std::make_unique<ApplicationSettings>(settingsIniPath);
+    m_settingsIniPath = settingsIniPath;
     setObjectName(QStringLiteral("AtkMainWindow"));
     setWindowIcon(QIcon(QStringLiteral(":/icons/ATK_Player_Icon.png")));
     setAcceptDrops(true);
@@ -258,6 +263,12 @@ void MainWindow::buildModels()
     m_playback->setMuted(m_settings->muted());
     m_project  = std::make_unique<project::Project>();
     m_annotations = std::make_unique<annotation::AnnotationStore>();
+    const QString brushDirectory = !m_settingsIniPath.isEmpty()
+        ? QFileInfo(m_settingsIniPath).absoluteDir().filePath(QStringLiteral("brushes"))
+        : QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)).filePath(QStringLiteral("brushes"));
+    m_brushLibrary = std::make_unique<annotation::BrushLibrary>(brushDirectory);
+    m_brushLibrary->load();
+    m_brushLibrary->registerAll();
     m_probeThread = new QThread(this);
     m_probeWorker = new media::PlaylistProbeWorker;
     m_probeWorker->moveToThread(m_probeThread);
@@ -423,6 +434,7 @@ void MainWindow::buildWidgets()
     // --- Drawing toolbar --------------------------------------------------
     // Shown only while Draw on Frame is on.
     m_annotationToolbar = new AnnotationToolbar(this);
+    m_annotationToolbar->setBrushSets(m_brushLibrary->sets());
     m_annotationToolbar->setSettings(m_settings->annotationTool());
     addToolBar(Qt::TopToolBarArea, m_annotationToolbar);
     m_annotationToolbar->hide();
@@ -583,6 +595,8 @@ void MainWindow::connectSignals()
     connect(m_viewer, &ViewerWidget::annotationItemDeleteRequested, this,
             [this](qint64 frameIndex, quint64 id) { m_annotations->removeItem(frameIndex, id); });
     connect(m_annotationToolbar, &AnnotationToolbar::settingsChanged, this, &MainWindow::applyAnnotationTool);
+    connect(m_annotationToolbar, &AnnotationToolbar::importBrushesRequested, this, &MainWindow::importBrushSet);
+    connect(m_annotationToolbar, &AnnotationToolbar::removeBrushSetRequested, this, &MainWindow::removeBrushSet);
     connect(m_annotations.get(), &annotation::AnnotationStore::annotationsEdited, this, [this] {
         if (!m_annotationSourceId.isNull())
             m_project->setAnnotations(m_annotationSourceId, m_annotations->annotations());
@@ -3134,6 +3148,56 @@ void MainWindow::seekAnnotatedFrame(int direction)
         target = it != frames.cbegin() ? *(it - 1) : frames.constLast();
     }
     m_playback->seekFrame(target);
+}
+
+void MainWindow::importBrushSet()
+{
+    const QString path = QFileDialog::getOpenFileName(this, tr("Import Photoshop Brushes"), m_lastMediaDirectory,
+                                                      tr("Photoshop Brushes (*.abr);;All Files (*)"));
+    if (path.isEmpty()) return;
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly) || file.size() > 512LL * 1024 * 1024) {
+        QMessageBox::warning(this, tr("Import Brushes"), tr("Could not read %1.").arg(QDir::toNativeSeparators(path)));
+        return;
+    }
+    const QString setName = QFileInfo(path).completeBaseName();
+    const annotation::AbrReadResult result = annotation::readAbr(file.readAll(), setName);
+    if (!result.ok()) {
+        QMessageBox::warning(this, tr("Import Brushes"), result.error);
+        return;
+    }
+    annotation::BrushSet set;
+    set.name = setName;
+    set.tips = result.tips;
+    QString error;
+    if (!m_brushLibrary->addSet(set, &error)) {
+        QMessageBox::warning(this, tr("Import Brushes"), tr("The brushes could not be saved: %1").arg(error));
+        return;
+    }
+    m_brushLibrary->registerAll();
+    m_annotationToolbar->setBrushSets(m_brushLibrary->sets());
+    // Ready to paint with the first imported brush.
+    auto settings = m_annotationToolbar->settings();
+    settings.tool = annotation::AnnotationTool::Stamp;
+    settings.brushTipId = set.tips.constFirst().id;
+    m_annotationToolbar->setSettings(settings);
+    applyAnnotationTool(settings);
+    QString message = tr("Imported %n brush(es) from %1.", nullptr, int(set.tips.size())).arg(setName);
+    if (result.skippedComputed > 0)
+        message += QLatin1Char(' ') + tr("%n round brush(es) defined only by settings were skipped.", nullptr,
+                                          result.skippedComputed);
+    statusBar()->showMessage(message, 6000);
+}
+
+void MainWindow::removeBrushSet(const QString& name)
+{
+    if (QMessageBox::question(this, tr("Remove Brush Set"),
+                              tr("Remove the brush set \"%1\"? Drawings already made with it keep their look "
+                                 "in projects that were saved with it.").arg(name))
+        != QMessageBox::Yes)
+        return;
+    m_brushLibrary->removeSet(name);
+    m_annotationToolbar->setBrushSets(m_brushLibrary->sets());
 }
 
 void MainWindow::updateAnnotationActions()

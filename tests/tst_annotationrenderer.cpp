@@ -1,4 +1,5 @@
 #include "annotation/AnnotationRenderer.h"
+#include "annotation/BrushTip.h"
 #include "annotation/StrokeBuilder.h"
 
 #include <QImage>
@@ -61,6 +62,9 @@ private slots:
     void invalidItemsAndEmptyFramesPaintNothing();
     void flippedPainterMirrorsAnnotation();
     void singlePointStrokeDrawsADot();
+    void stampRepeatsTheTipAtItsSpacing();
+    void stampFollowsPressureAndColour();
+    void stampWithoutItsTipFallsBackToARoundBrush();
 
     void pressureCurveShapesAndFloors();
     void builderClampsDecimatesAndFinishes();
@@ -308,6 +312,85 @@ void TestAnnotationRenderer::singlePointStrokeDrawsADot()
     QVERIFY(qAlpha(image.pixel(50, 50)) > 200);
     // Soft brush: the rim is fainter than the core.
     QVERIFY(qAlpha(image.pixel(54, 50)) < qAlpha(image.pixel(50, 50)));
+}
+
+namespace {
+/// A hollow square tip: easy to recognise and to tell apart from a round brush.
+BrushTip squareRingTip(const QString& id, qreal spacing)
+{
+    BrushTip tip;
+    tip.id = id;
+    tip.spacing = spacing;
+    tip.mask = QImage(32, 32, QImage::Format_Grayscale8);
+    tip.mask.fill(0);
+    // Written through scanLine: setPixel() on a greyscale image takes a QRgb.
+    for (int y = 0; y < 32; ++y)
+        for (int x = 0; x < 32; ++x)
+            if (x < 4 || x > 27 || y < 4 || y > 27) tip.mask.scanLine(y)[x] = 255;
+    return tip;
+}
+
+AnnotationItem stampStroke(const QString& tipId, float pressure)
+{
+    AnnotationItem item;
+    item.tool = AnnotationTool::Stamp;
+    item.brushId = tipId;
+    item.color = QColor(0, 0, 255);
+    item.size = 0.2; // 40 px dabs on a 200 px tall image
+    item.points = {{0.1f, 0.5f, pressure, 0, 0}, {0.9f, 0.5f, pressure, 0, 0}};
+    return item;
+}
+} // namespace
+
+void TestAnnotationRenderer::stampRepeatsTheTipAtItsSpacing()
+{
+    BrushTipRegistry::instance().add(squareRingTip(QStringLiteral("ring-wide"), 2.0)); // gaps between dabs
+    QImage image = blank(800, 200);
+    AnnotationRenderer::renderOnto(image, frameWith(stampStroke(QStringLiteral("ring-wide"), 1.0f)));
+    // First dab centred at x = 80 (10%): its ring edge is ink, its centre is not.
+    QVERIFY(qAlpha(image.pixel(80 - 19, 100)) > 150);
+    QCOMPARE(qAlpha(image.pixel(80, 100)), 0);
+    // Spacing 2.0 x 40 px: the next dab is centred 80 px further on, with clear paper between.
+    QVERIFY(qAlpha(image.pixel(160 - 19, 100)) > 150);
+    QCOMPARE(qAlpha(image.pixel(120, 100)), 0);
+    QCOMPARE(qAlpha(image.pixel(120, 30)), 0); // nothing outside the dabs
+
+    // Tight spacing fills the line in.
+    BrushTipRegistry::instance().add(squareRingTip(QStringLiteral("ring-tight"), 0.05));
+    QImage tight = blank(800, 200);
+    AnnotationRenderer::renderOnto(tight, frameWith(stampStroke(QStringLiteral("ring-tight"), 1.0f)));
+    for (int x = 120; x < 640; x += 20) QVERIFY(qAlpha(tight.pixel(x, 100 - 19)) > 150);
+}
+
+void TestAnnotationRenderer::stampFollowsPressureAndColour()
+{
+    BrushTipRegistry::instance().add(squareRingTip(QStringLiteral("ring-p"), 2.0));
+    QImage heavy = blank(800, 200), light = blank(800, 200);
+    AnnotationRenderer::renderOnto(heavy, frameWith(stampStroke(QStringLiteral("ring-p"), 1.0f)));
+    AnnotationRenderer::renderOnto(light, frameWith(stampStroke(QStringLiteral("ring-p"), 0.1f)));
+    auto inkRows = [](const QImage& img, int x) {
+        int rows = 0;
+        for (int y = 0; y < img.height(); ++y) rows += qAlpha(img.pixel(x, y)) > 40;
+        return rows;
+    };
+    // A light dab is smaller (its ring is nearer the centre) and fainter.
+    QVERIFY(inkRows(heavy, 80 - 18) > inkRows(light, 80 - 18) + 10 || inkRows(light, 80 - 18) == 0);
+    int heavyMax = 0, lightMax = 0;
+    for (int x = 0; x < 800; ++x) {
+        heavyMax = std::max(heavyMax, qAlpha(heavy.pixel(x, 100)));
+        lightMax = std::max(lightMax, qAlpha(light.pixel(x, 100)));
+    }
+    QVERIFY(lightMax < heavyMax);
+    // Ink takes the stroke colour.
+    const QColor c = QColor::fromRgba(heavy.pixel(80 - 19, 100));
+    QVERIFY(c.blue() > 200 && c.red() < 30 && c.green() < 30);
+}
+
+void TestAnnotationRenderer::stampWithoutItsTipFallsBackToARoundBrush()
+{
+    QImage image = blank(800, 200);
+    AnnotationRenderer::renderOnto(image, frameWith(stampStroke(QStringLiteral("not-registered"), 1.0f)));
+    QVERIFY(qAlpha(image.pixel(400, 100)) > 150); // a solid round stroke along the path
 }
 
 void TestAnnotationRenderer::pressureCurveShapesAndFloors()

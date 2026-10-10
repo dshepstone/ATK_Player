@@ -38,6 +38,7 @@ constexpr auto kDrawCurve = "draw/pressureCurve";
 constexpr auto kDrawStabilizer = "draw/stabilizer";
 constexpr auto kDrawEraserSize = "draw/eraserSizePixels";
 constexpr auto kDrawEraserMode = "draw/eraserMode";
+constexpr auto kDrawBrushTip = "draw/brushTip";
 
 QString curveName(annotation::PressureCurve curve)
 {
@@ -232,6 +233,7 @@ annotation::AnnotationToolSettings ApplicationSettings::annotationTool() const
         result.eraserSizePixels = eraserSize;
     if (m_settings->value(QString::fromLatin1(kDrawEraserMode)).toString() == QStringLiteral("stroke"))
         result.eraserMode = annotation::EraserMode::WholeStroke;
+    result.brushTipId = m_settings->value(QString::fromLatin1(kDrawBrushTip)).toString().left(200);
     return result;
 }
 
@@ -248,6 +250,7 @@ void ApplicationSettings::setAnnotationTool(const annotation::AnnotationToolSett
     m_settings->setValue(QString::fromLatin1(kDrawEraserMode),
                          settings.eraserMode == annotation::EraserMode::WholeStroke ? QStringLiteral("stroke")
                                                                                     : QStringLiteral("area"));
+    m_settings->setValue(QString::fromLatin1(kDrawBrushTip), settings.brushTipId);
 }
 
 } // namespace atk::ui
