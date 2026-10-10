@@ -25,6 +25,20 @@ AnnotationItem AnnotationToolSettings::makeItem(qreal imageHeight) const
     return item;
 }
 
+void AnnotationToolSettings::setActiveSizePixels(qreal pixels)
+{
+    const qreal clamped = std::clamp(pixels, kMinSizePixels, kMaxSizePixels);
+    if (tool == AnnotationTool::Eraser) eraserSizePixels = clamped;
+    else sizePixels = clamped;
+}
+
+qreal AnnotationToolSettings::eraserRadius(float pressure) const
+{
+    const qreal size = std::clamp(eraserSizePixels, kMinSizePixels, kMaxSizePixels);
+    const qreal p = usePressure && std::isfinite(pressure) ? std::clamp<qreal>(pressure, 0.0, 1.0) : 1.0;
+    return 0.5 * size * (0.3 + 0.7 * p);
+}
+
 qreal stepBrushSize(qreal sizePixels, int direction)
 {
     const qreal current = std::clamp(sizePixels, AnnotationToolSettings::kMinSizePixels,

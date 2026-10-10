@@ -36,6 +36,8 @@ constexpr auto kDrawOpacity = "draw/opacity";
 constexpr auto kDrawPressure = "draw/usePressure";
 constexpr auto kDrawCurve = "draw/pressureCurve";
 constexpr auto kDrawStabilizer = "draw/stabilizer";
+constexpr auto kDrawEraserSize = "draw/eraserSizePixels";
+constexpr auto kDrawEraserMode = "draw/eraserMode";
 
 QString curveName(annotation::PressureCurve curve)
 {
@@ -224,6 +226,12 @@ annotation::AnnotationToolSettings ApplicationSettings::annotationTool() const
     else if (curve == QStringLiteral("firm")) result.pressureCurve = annotation::PressureCurve::Firm;
     const double stabilizer = m_settings->value(QString::fromLatin1(kDrawStabilizer)).toDouble(&ok);
     if (ok && stabilizer >= 0.0 && stabilizer <= 0.95) result.stabilizer = stabilizer;
+    const double eraserSize = m_settings->value(QString::fromLatin1(kDrawEraserSize)).toDouble(&ok);
+    if (ok && eraserSize >= annotation::AnnotationToolSettings::kMinSizePixels
+        && eraserSize <= annotation::AnnotationToolSettings::kMaxSizePixels)
+        result.eraserSizePixels = eraserSize;
+    if (m_settings->value(QString::fromLatin1(kDrawEraserMode)).toString() == QStringLiteral("stroke"))
+        result.eraserMode = annotation::EraserMode::WholeStroke;
     return result;
 }
 
@@ -236,6 +244,10 @@ void ApplicationSettings::setAnnotationTool(const annotation::AnnotationToolSett
     m_settings->setValue(QString::fromLatin1(kDrawPressure), settings.usePressure);
     m_settings->setValue(QString::fromLatin1(kDrawCurve), curveName(settings.pressureCurve));
     m_settings->setValue(QString::fromLatin1(kDrawStabilizer), settings.stabilizer);
+    m_settings->setValue(QString::fromLatin1(kDrawEraserSize), settings.eraserSizePixels);
+    m_settings->setValue(QString::fromLatin1(kDrawEraserMode),
+                         settings.eraserMode == annotation::EraserMode::WholeStroke ? QStringLiteral("stroke")
+                                                                                    : QStringLiteral("area"));
 }
 
 } // namespace atk::ui

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "annotation/AnnotationEraser.h"
 #include "annotation/AnnotationTypes.h"
 #include "annotation/StrokeBuilder.h"
 
@@ -25,6 +26,19 @@ struct AnnotationToolSettings {
     bool usePressure = true;
     PressureCurve pressureCurve = PressureCurve::Linear;
     qreal stabilizer = 0.0; // 0..1
+    /// The eraser keeps its own size, so switching between pen and eraser (or
+    /// flipping the stylus) does not leave a pen-sized eraser.
+    qreal eraserSizePixels = 24.0;
+    EraserMode eraserMode = EraserMode::Area;
+
+    /// Size the size controls and [ ] keys act on: the eraser's while the
+    /// Eraser tool is selected, the brush's otherwise.
+    qreal activeSizePixels() const { return tool == AnnotationTool::Eraser ? eraserSizePixels : sizePixels; }
+    void setActiveSizePixels(qreal pixels);
+
+    /// Eraser radius in image pixels for a pen `pressure` (mouse = 1.0). Light
+    /// pressure gives a smaller eraser, as on paper.
+    qreal eraserRadius(float pressure) const;
 
     /// Item size for a picture `imageHeight` source pixels tall, clamped to the
     /// stored limits.

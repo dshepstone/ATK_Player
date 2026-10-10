@@ -58,7 +58,7 @@ void ViewerWidget::clear()
 {
     m_frame = media::VideoFrame{};
     m_state = State::Empty;
-    m_stroke.reset();
+    cancelStroke();
     update();
 }
 
@@ -340,6 +340,7 @@ void ViewerWidget::mouseMoveEvent(QMouseEvent* event)
         return;
     }
     if (m_annotateMode) {
+        if (!(m_stroke && m_stroke->fromTablet)) m_hoverIsEraser = false;
         setHoverPosition(event->position());
         if (m_stroke && !m_stroke->fromTablet)
             continueStroke(event->position(), 1.0f, 0.0f, 0.0f);
@@ -408,6 +409,10 @@ void ViewerWidget::tabletEvent(QTabletEvent* event)
     case QEvent::TabletMove:
         // Accepting hover moves too keeps Qt from synthesising mouse moves,
         // and lets the brush cursor follow the pen in proximity.
+        if (m_hoverIsEraser != eraserPointer) {
+            m_hoverIsEraser = eraserPointer;
+            update();
+        }
         setHoverPosition(position);
         if (m_stroke && m_stroke->fromTablet)
             continueStroke(position, float(event->pressure()), float(event->xTilt()),
@@ -457,7 +462,7 @@ void ViewerWidget::setAnnotateMode(bool enabled)
     if (!enabled) {
         // Leaving the mode abandons an unfinished stroke rather than committing
         // something the reviewer did not finish.
-        m_stroke.reset();
+        cancelStroke();
         m_hoverPosition.reset();
     }
     setMouseTracking(enabled);
@@ -535,7 +540,8 @@ bool ViewerWidget::beginStroke(const QPointF& position, float pressure, float ti
         stroke.eraser = true;
         stroke.lastWidgetPosition = position;
         m_stroke = stroke;
-        eraseAt(position);
+        emit annotationEraseStarted(stroke.frameIndex);
+        eraseAlong(position, position, pressure);
         update();
         return true;
     }
@@ -570,7 +576,7 @@ void ViewerWidget::continueStroke(const QPointF& position, float pressure, float
 {
     if (!m_stroke) return;
     if (m_stroke->eraser) {
-        eraseAlong(m_stroke->lastWidgetPosition, position);
+        eraseAlong(m_stroke->lastWidgetPosition, position, pressure);
         m_stroke->lastWidgetPosition = position;
         update();
         return;
@@ -601,34 +607,44 @@ void ViewerWidget::finishStroke()
         }
         if (annotation::isValidItem(stroke.item))
             emit annotationItemDrawn(stroke.frameIndex, stroke.item);
+    } else {
+        emit annotationEraseFinished();
     }
     update();
 }
 
-void ViewerWidget::eraseAt(const QPointF& position)
+void ViewerWidget::cancelStroke()
 {
-    eraseAlong(position, position);
+    if (!m_stroke) return;
+    const bool eraser = m_stroke->eraser;
+    m_stroke.reset();
+    // Erasing already applied stays applied; only the undo group is closed.
+    if (eraser) emit annotationEraseFinished();
 }
 
-void ViewerWidget::eraseAlong(const QPointF& from, const QPointF& to)
+void ViewerWidget::eraseAlong(const QPointF& from, const QPointF& to, float pressure)
 {
     const qint64 frameIndex = m_stroke ? m_stroke->frameIndex : m_frame.frameIndex;
     if (m_annotationFrame.isEmpty() || m_annotationFrame.frame != frameIndex) return;
-    const QRectF target = m_transform.imageRect();
-    const qreal tolerance = std::max<qreal>(3.0, 0.5 * m_tool.sizePixels * widgetPixelsPerSourcePixel());
-    // Pointer samples can be far apart on a fast drag; test the path between
-    // them at intervals no wider than the eraser, so it cannot jump a line.
-    const qreal distance = std::hypot(to.x() - from.x(), to.y() - from.y());
-    const int steps = std::clamp(int(std::ceil(distance / tolerance)), 1, 512);
-    QVector<quint64> hits;
-    for (int s = 0; s <= steps; ++s) {
-        QPointF p = from + (to - from) * (qreal(s) / steps);
-        if (m_flipHorizontal) p.setX(target.left() + target.right() - p.x());
-        for (const annotation::AnnotationItem& item : m_annotationFrame.items)
-            if (!hits.contains(item.id) && annotation::AnnotationRenderer::hitTest(target, item, p, tolerance))
-                hits.append(item.id);
+    const QSizeF imageSize = displaySourceSize();
+    if (imageSize.isEmpty()) return;
+    // Radius in image pixels; at least about one screen pixel at any zoom.
+    const qreal radius = std::max(m_tool.eraserRadius(pressure), 0.75 / widgetPixelsPerSourcePixel());
+    const QPointF a = widgetToNormalized(from);
+    const QPointF b = widgetToNormalized(to);
+    // Pointer samples can be far apart on a fast drag: place discs along the
+    // path at half-radius spacing so the swept band has no gaps.
+    const qreal distance = std::hypot((b.x() - a.x()) * imageSize.width(), (b.y() - a.y()) * imageSize.height());
+    const int steps = std::clamp(int(std::ceil(distance / (0.5 * radius))), 1, 2048);
+    // The start point was covered by the previous call (or the press).
+    QVector<QPointF> centers;
+    if (from == to) {
+        centers = {a};
+    } else {
+        centers.reserve(steps);
+        for (int s = 1; s <= steps; ++s) centers.append(a + (b - a) * (qreal(s) / steps));
     }
-    if (!hits.isEmpty()) emit annotationEraseRequested(frameIndex, hits);
+    emit annotationEraseRequested(frameIndex, centers, radius, imageSize);
 }
 
 void ViewerWidget::updateAnnotateCursor()
@@ -691,8 +707,10 @@ void ViewerWidget::paintBrushCursor(QPainter& painter)
 {
     using annotation::AnnotationTool;
     if (!m_annotateMode || !m_hoverPosition || m_middlePanning) return;
-    if (!annotation::isFreehandTool(m_tool.tool) && m_tool.tool != AnnotationTool::Eraser) return;
-    const qreal radius = std::max<qreal>(1.5, 0.5 * m_tool.sizePixels * widgetPixelsPerSourcePixel());
+    const bool erasing = m_hoverIsEraser || m_tool.tool == AnnotationTool::Eraser || (m_stroke && m_stroke->eraser);
+    if (!annotation::isFreehandTool(m_tool.tool) && !erasing) return;
+    const qreal imagePixels = erasing ? m_tool.eraserRadius(1.0f) : 0.5 * m_tool.sizePixels;
+    const qreal radius = std::max<qreal>(1.5, imagePixels * widgetPixelsPerSourcePixel());
     painter.save();
     painter.setRenderHint(QPainter::Antialiasing, true);
     painter.setBrush(Qt::NoBrush);

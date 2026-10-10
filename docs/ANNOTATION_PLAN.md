@@ -60,8 +60,18 @@ OS-specific code. `ROADMAP.md` still lists "Drawn annotations over frames" under
   synthesise mouse events. The stylus eraser end erases. Barrel buttons are ignored,
   which lets them fall through to mouse handling (middle-drag pan). Hover moves drive
   the brush-size cursor.
-- The eraser sweeps the path between pointer samples, so a fast drag cannot jump a
-  thin line.
+- **Eraser:** two modes, with its own size (`eraserSizePixels`). Pen pressure scales it.
+  - **Area (default):** `eraseDisc` removes only the ink under the eraser. A freehand
+    stroke is resampled along its rendered path, and a sample goes when its *ink*
+    reaches the disc, so no visible ink is left inside the eraser. The stroke is split
+    into the remaining pieces, which keep pressure and pencil grain. Shapes and text
+    are removed whole.
+  - **Erase stroke:** removes anything it touches.
+  - Discs are placed along the path between pointer samples, so a fast drag cannot
+    jump a line.
+  - `AnnotationStore::beginEditGroup` / `endEditGroup` make one swipe a single undo step.
+- Owner acceptance on a Wacom Cintiq (2026-10-10): pressure works and the stylus eraser
+  end works. Their request for a precise (area) eraser led to the eraser above.
 - Entering Draw on Frame pauses playback, and a stroke always lands on the frame it
   started on. Draw mode is unavailable during A/B comparison and when no clip is open.
 - New drawings store the displayed frame's decoded `ptsUs` as `mediaTimeUs`. The frame

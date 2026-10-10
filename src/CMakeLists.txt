@@ -42,6 +42,7 @@ set(ATK_CORE_SOURCES
 
     annotation/AnnotationTypes.cpp
     annotation/AnnotationStore.cpp
+    annotation/AnnotationEraser.cpp
     annotation/AnnotationRenderer.cpp
     annotation/AnnotationToolSettings.cpp
     annotation/StrokeBuilder.cpp
@@ -102,6 +103,7 @@ set(ATK_CORE_HEADERS
 
     annotation/AnnotationTypes.h
     annotation/AnnotationStore.h
+    annotation/AnnotationEraser.h
     annotation/AnnotationRenderer.h
     annotation/AnnotationToolSettings.h
     annotation/StrokeBuilder.h

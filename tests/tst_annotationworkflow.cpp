@@ -126,15 +126,17 @@ void TestAnnotationWorkflow::drawUndoRedoNavigateAndPersist()
         QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->currentFrame(), qint64(30), 5000);
         QTRY_COMPARE(viewer->annotationFrame().items.size(), 1);
 
-        // The eraser removes it (undoable like any edit).
+        // The eraser cuts the line where it crosses (area mode, the default);
+        // the whole swipe is one undo step.
         auto tool = toolbar->settings();
         tool.tool = atk::annotation::AnnotationTool::Eraser;
         toolbar->setSettings(tool);
         viewer->setAnnotationTool(tool);
         drawStroke(viewer, {0.45, 0.2}, {0.45, 0.8});
-        QVERIFY(window.project()->entries().at(0).annotations.isEmpty());
+        QCOMPARE(window.project()->entries().at(0).annotations.frame(30).items.size(), 2);
+        QCOMPARE(viewer->annotationFrame().items.size(), 2);
         command(window, "draw.undo")->trigger();
-        QCOMPARE(window.project()->entries().at(0).annotations.annotatedFrames(), QVector<int64_t>({30}));
+        QCOMPARE(window.project()->entries().at(0).annotations.frame(30).items.size(), 1);
 
         savedPath = directory.filePath(QStringLiteral("saved.atkproj"));
         QVERIFY(atk::project::ProjectSerializer::save(*window.project(), savedPath).ok);

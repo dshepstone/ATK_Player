@@ -40,6 +40,10 @@ public:
     /// tool shaping. Exposed for the brush-size cursor and tests.
     static qreal baseRadius(const QRectF& imageRect, const AnnotationItem& item);
 
+    /// Radius of a freehand item's ink at `pressure`, as drawn (tool shaping
+    /// included). Shared with the area eraser so it cuts exactly what is visible.
+    static qreal inkRadius(const QRectF& imageRect, const AnnotationItem& item, qreal pressure);
+
     /// Painter-space bounds of an item including its stroke width.
     static QRectF itemBounds(const QRectF& imageRect, const AnnotationItem& item);
 

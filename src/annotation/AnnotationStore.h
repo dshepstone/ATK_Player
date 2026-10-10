@@ -1,5 +1,6 @@
 #pragma once
 
+#include "annotation/AnnotationEraser.h"
 #include "annotation/AnnotationTypes.h"
 
 #include <QObject>
@@ -53,6 +54,20 @@ public:
     /// or 0.
     quint64 removeLastItemAmong(int64_t frame, const QVector<quint64>& ids);
 
+    /// Erases discs of `radius` image pixels centred on each of `centers`
+    /// (normalised) from `frame`. Area mode splits freehand strokes and leaves
+    /// the pieces outside the discs; whole-stroke mode removes what it touches.
+    /// All changes form one edit. Returns true if anything changed.
+    bool eraseDiscs(int64_t frame, const QVector<QPointF>& centers, qreal radius,
+                    const QSizeF& imageSize, EraserMode mode);
+
+    /// Groups the edits made until endEditGroup() into a single undo step, so
+    /// one eraser swipe is undone with one Undo. Groups do not nest beyond a
+    /// counter; an empty group records nothing.
+    void beginEditGroup();
+    void endEditGroup();
+    bool inEditGroup() const { return m_groupDepth > 0; }
+
     /// Removes every item on one frame. Returns false if it had none.
     bool clearFrame(int64_t frame);
     /// Removes everything for the source. Returns false if already empty.
@@ -91,6 +106,8 @@ private:
     QVector<Edit> m_undo;
     QVector<Edit> m_redo;
     quint64 m_nextId = 1;
+    int m_groupDepth = 0;
+    Edit m_group; // changes merged by frame while a group is open
 };
 
 } // namespace atk::annotation

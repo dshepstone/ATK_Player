@@ -61,7 +61,19 @@ AnnotationToolbar::AnnotationToolbar(QWidget* parent) : QToolBar(tr("Drawing"), 
     addToolAction(AnnotationTool::Pen, tr("Pen"), tr("Pen: smooth ink, pressure sets width"));
     addToolAction(AnnotationTool::Brush, tr("Brush"), tr("Brush: soft edge, pressure sets width and opacity"));
     addToolAction(AnnotationTool::Marker, tr("Marker"), tr("Marker: flat, even, translucent"));
-    addToolAction(AnnotationTool::Eraser, tr("Eraser"), tr("Eraser: removes whole strokes (the pen's eraser end works too)"));
+    addToolAction(AnnotationTool::Eraser, tr("Eraser"), tr("Eraser (the pen's eraser end works too)"));
+    m_eraserModeCombo = new QComboBox(this);
+    m_eraserModeCombo->addItem(tr("Erase area"), int(annotation::EraserMode::Area));
+    m_eraserModeCombo->addItem(tr("Erase stroke"), int(annotation::EraserMode::WholeStroke));
+    m_eraserModeCombo->setToolTip(tr("Erase area removes only the ink under the eraser; "
+                                     "Erase stroke removes every stroke it touches"));
+    addWidget(m_eraserModeCombo);
+    connect(m_eraserModeCombo, &QComboBox::currentIndexChanged, this, [this](int index) {
+        if (m_updating || index < 0) return;
+        auto next = m_settings;
+        next.eraserMode = annotation::EraserMode(m_eraserModeCombo->itemData(index).toInt());
+        apply(next, true);
+    });
     addSeparator();
     addToolAction(AnnotationTool::Line, tr("Line"), tr("Straight line"));
     addToolAction(AnnotationTool::Arrow, tr("Arrow"), tr("Arrow"));
@@ -99,16 +111,17 @@ AnnotationToolbar::AnnotationToolbar(QWidget* parent) : QToolBar(tr("Drawing"), 
     m_sizeSpin->setSuffix(tr(" px"));
     m_sizeSpin->setToolTip(tr("Brush size in source-image pixels"));
     addWidget(m_sizeSpin);
+    // The size controls edit the eraser's size while the Eraser is selected.
     connect(m_sizeSlider, &QSlider::valueChanged, this, [this](int value) {
         if (m_updating) return;
         auto next = m_settings;
-        next.sizePixels = pixelsFromSlider(value);
+        next.setActiveSizePixels(pixelsFromSlider(value));
         apply(next, true);
     });
     connect(m_sizeSpin, &QSpinBox::valueChanged, this, [this](int value) {
         if (m_updating) return;
         auto next = m_settings;
-        next.sizePixels = value;
+        next.setActiveSizePixels(value);
         apply(next, true);
     });
 
@@ -194,10 +207,18 @@ void AnnotationToolbar::apply(const annotation::AnnotationToolSettings& settings
     m_settings = settings;
     m_settings.sizePixels = std::clamp(m_settings.sizePixels, annotation::AnnotationToolSettings::kMinSizePixels,
                                        annotation::AnnotationToolSettings::kMaxSizePixels);
+    m_settings.eraserSizePixels = std::clamp(m_settings.eraserSizePixels,
+                                             annotation::AnnotationToolSettings::kMinSizePixels,
+                                             annotation::AnnotationToolSettings::kMaxSizePixels);
     m_updating = true;
     if (QAction* action = m_toolActions.value(int(m_settings.tool))) action->setChecked(true);
-    m_sizeSlider->setValue(sliderFromPixels(m_settings.sizePixels));
-    m_sizeSpin->setValue(qRound(m_settings.sizePixels));
+    m_sizeSlider->setValue(sliderFromPixels(m_settings.activeSizePixels()));
+    m_sizeSpin->setValue(qRound(m_settings.activeSizePixels()));
+    const QString sizeTip = m_settings.tool == AnnotationTool::Eraser ? tr("Eraser size ([ and ] to change)")
+                                                                      : tr("Brush size ([ and ] to change)");
+    m_sizeSlider->setToolTip(sizeTip);
+    m_sizeSpin->setToolTip(sizeTip);
+    m_eraserModeCombo->setCurrentIndex(m_eraserModeCombo->findData(int(m_settings.eraserMode)));
     m_opacitySpin->setValue(qRound(m_settings.opacity * 100.0));
     m_pressureCheck->setChecked(m_settings.usePressure);
     m_curveCombo->setCurrentIndex(m_curveCombo->findData(int(m_settings.pressureCurve)));

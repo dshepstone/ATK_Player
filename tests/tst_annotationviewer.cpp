@@ -1,3 +1,4 @@
+#include "annotation/AnnotationStore.h"
 #include "annotation/AnnotationTypes.h"
 #include "media/VideoFrame.h"
 #include "ui/ViewerWidget.h"
@@ -61,6 +62,40 @@ struct Fixture {
     }
     QPoint at(qreal nx, qreal ny) const { return viewer.normalizedToWidget({nx, ny}).toPoint(); }
 };
+/// Plays MainWindow's part for erase tests: applies the viewer's erase
+/// requests to a store and shows the result, so the real geometry runs.
+struct EraseOwner {
+    annotation::AnnotationStore store;
+    ViewerWidget& viewer;
+    annotation::EraserMode mode = annotation::EraserMode::Area;
+    explicit EraseOwner(ViewerWidget& v) : viewer(v)
+    {
+        QObject::connect(&viewer, &ViewerWidget::annotationEraseStarted, &store,
+                         [this](qint64) { store.beginEditGroup(); });
+        QObject::connect(&viewer, &ViewerWidget::annotationEraseFinished, &store,
+                         [this] { store.endEditGroup(); });
+        QObject::connect(&viewer, &ViewerWidget::annotationEraseRequested, &store,
+                         [this](qint64 frame, const QVector<QPointF>& centers, qreal radius, const QSizeF& size) {
+                             store.eraseDiscs(frame, centers, radius, size, mode);
+                         });
+        QObject::connect(&store, &annotation::AnnotationStore::frameChanged, &viewer,
+                         [this](qint64 frame) { viewer.setAnnotationFrame(store.frame(frame)); });
+    }
+    void add(qint64 frame, const AnnotationItem& item)
+    {
+        store.addItem(frame, 0, item);
+        store.clearHistory();
+    }
+};
+
+AnnotationItem horizontalLine()
+{
+    AnnotationItem line;
+    line.tool = AnnotationTool::Pen;
+    line.size = 0.02; // 2 px of a 100 px tall image
+    line.points = {{0.1f, 0.5f, 1, 0, 0}, {0.9f, 0.5f, 1, 0, 0}};
+    return line;
+}
 } // namespace
 
 class TestAnnotationViewer : public QObject {
@@ -74,6 +109,8 @@ private slots:
     void stylusEraserEndErasesInsteadOfDrawing();
     void barrelButtonsFallThroughToMouseHandling();
     void fastEraserDragCannotJumpALine();
+    void wholeStrokeModeRemovesTouchedStrokes();
+    void eraserHasItsOwnSize();
     void flippedViewStoresUnflippedCoordinates();
     void zoomedViewMapsToTheSameImagePoint();
     void shapeNeedsADrag();
@@ -175,28 +212,67 @@ void TestAnnotationViewer::tabletPressureIsRecordedAndEventsAreAccepted()
 void TestAnnotationViewer::stylusEraserEndErasesInsteadOfDrawing()
 {
     Fixture f;
-    f.viewer.setAnnotateMode(true);
-    annotation::FrameAnnotation existing;
-    existing.frame = 12;
-    AnnotationItem line;
-    line.id = 77;
-    line.tool = AnnotationTool::Pen;
-    line.size = 0.05;
-    line.points = {{0.2f, 0.5f, 1, 0, 0}, {0.8f, 0.5f, 1, 0, 0}};
-    existing.items = {line};
-    f.viewer.setAnnotationFrame(existing);
+    f.viewer.setAnnotateMode(true); // the Pen tool is selected...
+    EraseOwner owner(f.viewer);
+    owner.add(12, horizontalLine());
 
-    auto eraser = makeStylus(QPointingDevice::PointerType::Eraser);
+    auto eraser = makeStylus(QPointingDevice::PointerType::Eraser); // ...but the pen is flipped
     QSignalSpy drawn(&f.viewer, &ViewerWidget::annotationItemDrawn);
-    QSignalSpy erased(&f.viewer, &ViewerWidget::annotationEraseRequested);
-    QVERIFY(sendTablet(&f.viewer, eraser.get(), QEvent::TabletPress, f.at(0.1, 0.2), 1.0)); // misses
-    QCOMPARE(erased.count(), 0);
-    QVERIFY(sendTablet(&f.viewer, eraser.get(), QEvent::TabletMove, f.at(0.5, 0.5), 1.0));  // crosses the line
-    QVERIFY(sendTablet(&f.viewer, eraser.get(), QEvent::TabletRelease, f.at(0.5, 0.5), 0.0));
-    QVERIFY(erased.count() >= 1);
-    QCOMPARE(erased.at(0).at(0).toLongLong(), qint64(12));
-    QCOMPARE(erased.at(0).at(1).value<QVector<quint64>>(), QVector<quint64>({77}));
+    QSignalSpy started(&f.viewer, &ViewerWidget::annotationEraseStarted);
+    QSignalSpy finished(&f.viewer, &ViewerWidget::annotationEraseFinished);
+    QVERIFY(sendTablet(&f.viewer, eraser.get(), QEvent::TabletPress, f.at(0.5, 0.3), 1.0));
+    QVERIFY(sendTablet(&f.viewer, eraser.get(), QEvent::TabletMove, f.at(0.5, 0.7), 1.0)); // across the line
+    QVERIFY(sendTablet(&f.viewer, eraser.get(), QEvent::TabletRelease, f.at(0.5, 0.7), 0.0));
     QCOMPARE(drawn.count(), 0);
+    QCOMPARE(started.count(), 1);
+    QCOMPARE(finished.count(), 1);
+
+    // Area erase: the line is cut in two around x = 0.5, not deleted.
+    const auto items = owner.store.frame(12).items;
+    QCOMPARE(items.size(), 2);
+    float leftMax = 0, rightMin = 1;
+    for (const auto& p : items[0].points) leftMax = std::max(leftMax, p.x);
+    for (const auto& p : items[1].points) rightMin = std::min(rightMin, p.x);
+    QVERIFY2(leftMax < 0.5f && rightMin > 0.5f, qPrintable(QStringLiteral("%1 %2").arg(leftMax).arg(rightMin)));
+    QVERIFY(leftMax > 0.35f && rightMin < 0.65f); // only a small gap was removed
+
+    // The whole swipe is one undo step.
+    QVERIFY(owner.store.undo());
+    QCOMPARE(owner.store.frame(12).items.size(), 1);
+    QVERIFY(!owner.store.canUndo());
+}
+
+void TestAnnotationViewer::wholeStrokeModeRemovesTouchedStrokes()
+{
+    Fixture f;
+    annotation::AnnotationToolSettings tool;
+    tool.tool = AnnotationTool::Eraser;
+    tool.eraserMode = annotation::EraserMode::WholeStroke;
+    f.viewer.setAnnotationTool(tool);
+    f.viewer.setAnnotateMode(true);
+    EraseOwner owner(f.viewer);
+    owner.mode = annotation::EraserMode::WholeStroke;
+    owner.add(12, horizontalLine());
+    QTest::mousePress(&f.viewer, Qt::LeftButton, {}, f.at(0.5, 0.5));
+    QTest::mouseRelease(&f.viewer, Qt::LeftButton, {}, f.at(0.5, 0.5));
+    QVERIFY(owner.store.frame(12).isEmpty());
+}
+
+void TestAnnotationViewer::eraserHasItsOwnSize()
+{
+    annotation::AnnotationToolSettings tool;
+    tool.sizePixels = 4;
+    tool.eraserSizePixels = 40;
+    QCOMPARE(tool.activeSizePixels(), 4.0);
+    tool.tool = AnnotationTool::Eraser;
+    QCOMPARE(tool.activeSizePixels(), 40.0);
+    tool.setActiveSizePixels(60);
+    QCOMPARE(tool.eraserSizePixels, 60.0);
+    QCOMPARE(tool.sizePixels, 4.0);
+    QCOMPARE(tool.eraserRadius(1.0f), 30.0);
+    QVERIFY(tool.eraserRadius(0.1f) < tool.eraserRadius(1.0f)); // light touch, smaller eraser
+    tool.usePressure = false;
+    QCOMPARE(tool.eraserRadius(0.1f), 30.0);
 }
 
 void TestAnnotationViewer::fastEraserDragCannotJumpALine()
@@ -204,27 +280,18 @@ void TestAnnotationViewer::fastEraserDragCannotJumpALine()
     Fixture f;
     annotation::AnnotationToolSettings tool;
     tool.tool = AnnotationTool::Eraser;
-    tool.sizePixels = 2; // a small eraser
+    tool.eraserSizePixels = 2; // a small eraser
     f.viewer.setAnnotationTool(tool);
     f.viewer.setAnnotateMode(true);
-    annotation::FrameAnnotation existing;
-    existing.frame = 12;
-    AnnotationItem line;
-    line.id = 5;
-    line.tool = AnnotationTool::Pen;
-    line.size = 0.01;
-    line.points = {{0.1f, 0.5f, 1, 0, 0}, {0.9f, 0.5f, 1, 0, 0}};
-    existing.items = {line};
-    f.viewer.setAnnotationFrame(existing);
-    QSignalSpy erased(&f.viewer, &ViewerWidget::annotationEraseRequested);
+    EraseOwner owner(f.viewer);
+    owner.add(12, horizontalLine());
     // One big jump from above the line to below it, with no sample on it.
     QTest::mousePress(&f.viewer, Qt::LeftButton, {}, f.at(0.5, 0.1));
     QMouseEvent move(QEvent::MouseMove, f.at(0.5, 0.9), f.viewer.mapToGlobal(f.at(0.5, 0.9)), Qt::NoButton,
                      Qt::LeftButton, Qt::NoModifier);
     QApplication::sendEvent(&f.viewer, &move);
     QTest::mouseRelease(&f.viewer, Qt::LeftButton, {}, f.at(0.5, 0.9));
-    QCOMPARE(erased.count(), 1);
-    QCOMPARE(erased.at(0).at(1).value<QVector<quint64>>(), QVector<quint64>({5}));
+    QCOMPARE(owner.store.frame(12).items.size(), 2);
 }
 
 void TestAnnotationViewer::barrelButtonsFallThroughToMouseHandling()

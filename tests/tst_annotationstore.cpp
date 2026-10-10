@@ -1,6 +1,9 @@
+#include "annotation/AnnotationEraser.h"
+#include "annotation/AnnotationRenderer.h"
 #include "annotation/AnnotationStore.h"
 #include "annotation/AnnotationTypes.h"
 
+#include <QSet>
 #include <QSignalSpy>
 #include <QTest>
 
@@ -35,6 +38,9 @@ private slots:
     void limitsAreEnforced();
     void trimDropsFramesBeyondEnd();
     void signalsFireOncePerEdit();
+    void eraseDiscCutsOnlyWhatItCovers();
+    void eraseDiscModesAndShapes();
+    void storeEraseAssignsIdsAndGroupsUndo();
 };
 
 void TestAnnotationStore::toolNamesRoundTripAndRejectUnknown()
@@ -289,6 +295,123 @@ void TestAnnotationStore::signalsFireOncePerEdit()
     store.clearAll();
     QCOMPARE(edited.count(), 1); // one edit, though two frames changed
     QCOMPARE(frames.count(), 2);
+}
+
+namespace {
+AnnotationItem line(float y = 0.5f)
+{
+    AnnotationItem item;
+    item.tool = AnnotationTool::Pen;
+    item.size = 0.01; // 10 px of 1000
+    for (int i = 0; i <= 40; ++i) item.points.append({0.1f + 0.02f * i, y, 0.5f + 0.01f * i, 0, 0});
+    return item;
+}
+const QSizeF kImage(1000, 1000);
+} // namespace
+
+void TestAnnotationStore::eraseDiscCutsOnlyWhatItCovers()
+{
+    const AnnotationItem item = line();
+    // A miss changes nothing.
+    QVERIFY(!eraseDisc(item, kImage, {0.5, 0.2}, 20, EraserMode::Area).changed);
+
+    // A cut in the middle leaves two pieces, and no remaining ink inside the disc.
+    const EraseResult cut = eraseDisc(item, kImage, {0.5, 0.5}, 30, EraserMode::Area);
+    QVERIFY(cut.changed);
+    QCOMPARE(cut.pieces.size(), 2);
+    const QRectF rect(QPointF(0, 0), kImage);
+    for (const AnnotationItem& piece : cut.pieces) {
+        QVERIFY(isValidItem(piece));
+        QCOMPARE(piece.id, quint64(0));
+        QCOMPARE(piece.tool, item.tool);
+        for (const StrokePoint& p : piece.points) {
+            const qreal d = std::hypot(p.x * 1000.0 - 500.0, p.y * 1000.0 - 500.0);
+            QVERIFY(d - AnnotationRenderer::inkRadius(rect, piece, p.pressure) > 30.0 - 1e-6);
+        }
+    }
+    // Pressure along the remaining pieces is preserved (it increases left to right).
+    QVERIFY(cut.pieces[0].points.constFirst().pressure < cut.pieces[1].points.constLast().pressure);
+    // The gap is small: the pieces still reach close to the disc.
+    QVERIFY(cut.pieces[0].points.constLast().x > 0.45f);
+    QVERIFY(cut.pieces[1].points.constFirst().x < 0.55f);
+
+    // At an end, one piece remains; covering everything leaves none.
+    QCOMPARE(eraseDisc(item, kImage, {0.1, 0.5}, 30, EraserMode::Area).pieces.size(), 1);
+    const EraseResult all = eraseDisc(item, kImage, {0.5, 0.5}, 600, EraserMode::Area);
+    QVERIFY(all.changed);
+    QVERIFY(all.pieces.isEmpty());
+
+    // The disc reaches the ink's edge, not just its centreline. At x = 0.5 the
+    // pen's ink radius is about 3.7 px, so a 3 px disc 6 px above the centreline
+    // touches the ink (but would miss the centreline itself).
+    QVERIFY(eraseDisc(item, kImage, {0.5, 0.5 - 0.006}, 3, EraserMode::Area).changed);
+    QVERIFY(!eraseDisc(item, kImage, {0.5, 0.5 - 0.008}, 3, EraserMode::Area).changed);
+
+    // A stroke stored as just two far-apart points is still cut between them.
+    AnnotationItem sparse = item;
+    sparse.points = {item.points.constFirst(), item.points.constLast()};
+    const EraseResult sparseCut = eraseDisc(sparse, kImage, {0.5, 0.5}, 10, EraserMode::Area);
+    QVERIFY(sparseCut.changed);
+    QCOMPARE(sparseCut.pieces.size(), 2);
+}
+
+void TestAnnotationStore::eraseDiscModesAndShapes()
+{
+    const EraseResult whole = eraseDisc(line(), kImage, {0.5, 0.5}, 5, EraserMode::WholeStroke);
+    QVERIFY(whole.changed);
+    QVERIFY(whole.pieces.isEmpty());
+
+    AnnotationItem rect;
+    rect.tool = AnnotationTool::Rectangle;
+    rect.size = 0.004;
+    rect.points = {{0.2f, 0.2f, 1, 0, 0}, {0.8f, 0.8f, 1, 0, 0}};
+    QVERIFY(!eraseDisc(rect, kImage, {0.5, 0.5}, 20, EraserMode::Area).changed); // hollow centre
+    const EraseResult edge = eraseDisc(rect, kImage, {0.2, 0.5}, 20, EraserMode::Area);
+    QVERIFY(edge.changed);
+    QVERIFY(edge.pieces.isEmpty()); // shapes go whole
+}
+
+void TestAnnotationStore::storeEraseAssignsIdsAndGroupsUndo()
+{
+    AnnotationStore store;
+    store.addItem(3, 0, line(0.5f));
+    store.addItem(3, 0, line(0.7f));
+    const SourceAnnotations original = store.annotations();
+    store.clearHistory();
+
+    QVERIFY(!store.eraseDiscs(3, {{0.5, 0.1}}, 10, kImage, EraserMode::Area)); // miss
+    QVERIFY(!store.eraseDiscs(9, {{0.5, 0.5}}, 10, kImage, EraserMode::Area)); // no such frame
+
+    store.beginEditGroup();
+    QVERIFY(store.eraseDiscs(3, {{0.5, 0.5}}, 15, kImage, EraserMode::Area)); // cut line 1
+    QVERIFY(store.eraseDiscs(3, {{0.3, 0.7}, {0.31, 0.7}}, 15, kImage, EraserMode::Area)); // cut line 2
+    QVERIFY(!store.canUndo()); // nothing recorded until the swipe ends
+    store.endEditGroup();
+    QCOMPARE(store.frame(3).items.size(), 4);
+    QSet<quint64> ids;
+    for (const auto& item : store.frame(3).items) {
+        QVERIFY(item.id > 2);
+        ids.insert(item.id);
+    }
+    QCOMPARE(ids.size(), 4);
+
+    QVERIFY(store.undo()); // the whole swipe at once
+    QCOMPARE(store.annotations(), original);
+    QVERIFY(!store.canUndo());
+    QVERIFY(store.redo());
+    QCOMPARE(store.frame(3).items.size(), 4);
+
+    // An empty group records nothing; undo closes an open group first.
+    store.clearHistory();
+    store.beginEditGroup();
+    store.endEditGroup();
+    QVERIFY(!store.canUndo());
+    store.beginEditGroup();
+    store.eraseDiscs(3, {{0.5, 0.5}}, 600, kImage, EraserMode::Area);
+    QVERIFY(store.frame(3).isEmpty());
+    QVERIFY(store.undo());
+    QVERIFY(!store.inEditGroup());
+    QCOMPARE(store.frame(3).items.size(), 4);
 }
 
 QTEST_APPLESS_MAIN(TestAnnotationStore)

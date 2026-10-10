@@ -140,8 +140,14 @@ signals:
     /// A stroke, shape or text anchor was completed on `frameIndex` (the
     /// zero-based index of the frame displayed when the stroke started).
     void annotationItemDrawn(qint64 frameIndex, const atk::annotation::AnnotationItem& item);
-    /// The eraser touched these items on `frameIndex`.
-    void annotationEraseRequested(qint64 frameIndex, const QVector<quint64>& itemIds);
+    /// An eraser swipe begins / ends on `frameIndex`; the owner groups the
+    /// erase requests in between into one undo step.
+    void annotationEraseStarted(qint64 frameIndex);
+    void annotationEraseFinished();
+    /// Erase discs of `radius` image pixels at `centers` (normalised) on
+    /// `frameIndex`. `imageSize` is the picture's size in image pixels.
+    void annotationEraseRequested(qint64 frameIndex, const QVector<QPointF>& centers, qreal radius,
+                                  const QSizeF& imageSize);
     /// The text tool was clicked at `normalized`; the owner asks for the text.
     void annotationTextRequested(qint64 frameIndex, const QPointF& normalized);
 
@@ -174,13 +180,13 @@ private:
         QPointF pressWidgetPosition;
         QPointF lastWidgetPosition; // eraser: previous sample, to sweep the gap
     };
+    void cancelStroke();
     bool canAnnotate() const;
     bool beginStroke(const QPointF& position, float pressure, float tiltX, float tiltY,
                      bool eraserPointer, bool fromTablet);
     void continueStroke(const QPointF& position, float pressure, float tiltX, float tiltY);
     void finishStroke();
-    void eraseAt(const QPointF& position);
-    void eraseAlong(const QPointF& from, const QPointF& to);
+    void eraseAlong(const QPointF& from, const QPointF& to, float pressure);
     qreal widgetPixelsPerSourcePixel() const;
     qreal sourceImageHeight() const;
     void updateAnnotateCursor();
@@ -207,6 +213,7 @@ private:
     annotation::AnnotationToolSettings m_tool;
     std::optional<ActiveStroke> m_stroke;
     std::optional<QPointF> m_hoverPosition;
+    bool m_hoverIsEraser = false; // stylus flipped to its eraser end
     // Committed annotations rendered once per change of data or geometry, so
     // drawing a new stroke does not re-render every earlier one per event.
     QImage m_annotationCache;

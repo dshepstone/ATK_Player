@@ -567,9 +567,15 @@ void MainWindow::connectSignals()
                 if (m_annotations->addItem(frameIndex, annotationMediaTimeUs(frameIndex), item) == 0)
                     statusBar()->showMessage(tr("This drawing could not be added (frame limit reached)."), 4000);
             });
+    // One eraser swipe is one undo step.
+    connect(m_viewer, &ViewerWidget::annotationEraseStarted, this,
+            [this](qint64) { m_annotations->beginEditGroup(); });
+    connect(m_viewer, &ViewerWidget::annotationEraseFinished, this,
+            [this] { m_annotations->endEditGroup(); });
     connect(m_viewer, &ViewerWidget::annotationEraseRequested, this,
-            [this](qint64 frameIndex, const QVector<quint64>& ids) {
-                for (quint64 id : ids) m_annotations->removeItem(frameIndex, id);
+            [this](qint64 frameIndex, const QVector<QPointF>& centers, qreal radius, const QSizeF& imageSize) {
+                m_annotations->eraseDiscs(frameIndex, centers, radius, imageSize,
+                                          m_annotationToolbar->settings().eraserMode);
             });
     connect(m_viewer, &ViewerWidget::annotationTextRequested, this, &MainWindow::addAnnotationText);
     connect(m_annotationToolbar, &AnnotationToolbar::settingsChanged, this, &MainWindow::applyAnnotationTool);
@@ -942,11 +948,13 @@ void MainWindow::onCommand(CommandId id, bool checked)
     case CommandId::IncreaseBrushSize:
     case CommandId::DecreaseBrushSize: {
         auto settings = m_annotationToolbar->settings();
-        settings.sizePixels = annotation::stepBrushSize(settings.sizePixels,
-                                                        id == CommandId::IncreaseBrushSize ? 1 : -1);
+        settings.setActiveSizePixels(annotation::stepBrushSize(settings.activeSizePixels(),
+                                                               id == CommandId::IncreaseBrushSize ? 1 : -1));
         m_annotationToolbar->setSettings(settings);
         applyAnnotationTool(settings);
-        statusBar()->showMessage(tr("Brush size %1 px").arg(settings.sizePixels), 1500);
+        statusBar()->showMessage(settings.tool == annotation::AnnotationTool::Eraser
+                                     ? tr("Eraser size %1 px").arg(settings.eraserSizePixels)
+                                     : tr("Brush size %1 px").arg(settings.sizePixels), 1500);
         return;
     }
     case CommandId::ToggleAnnotationsVisible:

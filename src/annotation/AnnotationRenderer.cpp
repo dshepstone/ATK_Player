@@ -95,8 +95,6 @@ void paintFreehand(QPainter& painter, const QRectF& rect, const AnnotationItem& 
     const BrushShape shape = brushShape(item.tool);
     const QVector<AnnotationRenderer::PathSample> path = AnnotationRenderer::smoothedPath(rect, item);
     if (path.isEmpty()) return;
-    const qreal radius = AnnotationRenderer::baseRadius(rect, item);
-
     // Layer covering the stroke, in device pixels so strokes stay crisp on
     // high-DPI displays.
     QRectF bounds = AnnotationRenderer::itemBounds(rect, item).adjusted(-2, -2, 2, 2);
@@ -128,9 +126,7 @@ void paintFreehand(QPainter& painter, const QRectF& rect, const AnnotationItem& 
         lp.setPen(Qt::NoPen);
         lp.setCompositionMode(QPainter::CompositionMode_Source);
 
-        auto radiusAt = [&](qreal p) {
-            return shape.constantWidth ? radius : radius * mix(shape.minWidth, 1.0, p);
-        };
+        auto radiusAt = [&](qreal p) { return AnnotationRenderer::inkRadius(rect, item, p); };
         auto alphaAt = [&](qreal p) { return mix(shape.minOpacity, 1.0, p); };
 
         // Soft brush: concentric passes, outer faint to inner full, so the
@@ -167,12 +163,16 @@ void paintFreehand(QPainter& painter, const QRectF& rect, const AnnotationItem& 
     if (shape.grainy) {
         // Paper grain: knock alpha back per pixel, deterministic per seed.
         constexpr float kStrength = 0.55f;
+        const int grainX = qRound(clipped.left() * dpr);
+        const int grainY = qRound(clipped.top() * dpr);
         for (int y = 0; y < layer.height(); ++y) {
             auto* line = reinterpret_cast<QRgb*>(layer.scanLine(y));
             for (int x = 0; x < layer.width(); ++x) {
                 const QRgb px = line[x];
                 if (qAlpha(px) == 0) continue;
-                const float keep = 1.0f - kStrength * AnnotationRenderer::grain(x, y, item.textureSeed);
+                // Keyed to device position, not layer position, so a stroke
+                // split by the eraser keeps exactly the grain it had.
+                const float keep = 1.0f - kStrength * AnnotationRenderer::grain(x + grainX, y + grainY, item.textureSeed);
                 line[x] = qRgba(int(qRed(px) * keep), int(qGreen(px) * keep), int(qBlue(px) * keep),
                                 int(qAlpha(px) * keep));
             }
@@ -244,6 +244,13 @@ void paintText(QPainter& painter, const QRectF& rect, const AnnotationItem& item
 }
 
 } // namespace
+
+qreal AnnotationRenderer::inkRadius(const QRectF& imageRect, const AnnotationItem& item, qreal pressure)
+{
+    const BrushShape shape = brushShape(item.tool);
+    const qreal radius = baseRadius(imageRect, item);
+    return shape.constantWidth ? radius : radius * mix(shape.minWidth, 1.0, std::clamp(pressure, 0.0, 1.0));
+}
 
 qreal AnnotationRenderer::baseRadius(const QRectF& imageRect, const AnnotationItem& item)
 {

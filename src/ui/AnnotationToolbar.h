@@ -53,6 +53,7 @@ private:
     QCheckBox* m_pressureCheck = nullptr;
     QComboBox* m_curveCombo = nullptr;
     QSpinBox* m_stabilizerSpin = nullptr;
+    QComboBox* m_eraserModeCombo = nullptr;
     bool m_updating = false;
 };
 
