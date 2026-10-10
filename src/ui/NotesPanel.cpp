@@ -1,83 +1,246 @@
 #include "ui/NotesPanel.h"
 
-#include <QCheckBox>
+#include "ui/Theme.h"
+
+#include <QComboBox>
+#include <QDateTime>
+#include <QFrame>
 #include <QHBoxLayout>
 #include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QLocale>
 #include <QMenu>
+#include <QPainter>
+#include <QPainterPath>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QScrollBar>
+#include <QStackedWidget>
+#include <QStyle>
+#include <QStyledItemDelegate>
 #include <QVBoxLayout>
 
 #include <algorithm>
 
 namespace atk::ui {
 namespace {
+
 constexpr int kFrameRole = Qt::UserRole + 1;
 constexpr int kNoteRole = Qt::UserRole + 2;
+constexpr int kAuthorRole = Qt::UserRole + 3;
+constexpr int kWhenRole = Qt::UserRole + 4;
+constexpr int kFlagsRole = Qt::UserRole + 5;
+
+enum CardFlag { HasDrawing = 1, Resolved = 2, OnCurrentFrame = 4 };
+
+/// "Frame 0016": one-based and padded, as SyncSketch labels frames.
+QString frameLabel(qint64 zeroBasedFrame)
+{
+    return NotesPanel::tr("Frame %1").arg(zeroBasedFrame + 1, 4, 10, QLatin1Char('0'));
 }
+
+QFont smallerFont(QFont font)
+{
+    if (font.pixelSize() > 0) font.setPixelSize(std::max(9, font.pixelSize() - 1));
+    else font.setPointSizeF(std::max(7.0, font.pointSizeF() * 0.9));
+    return font;
+}
+
+/// Paints each note as a card: author and time, the note, then a frame chip
+/// with drawing and resolved markers. The item's text is the note itself, so
+/// lookups and accessibility see plain text.
+class NoteCardDelegate final : public QStyledItemDelegate {
+public:
+    explicit NoteCardDelegate(QListWidget* view) : QStyledItemDelegate(view), m_view(view) {}
+
+    QSize sizeHint(const QStyleOptionViewItem& option, const QModelIndex& index) const override
+    {
+        const int width = std::max(120, m_view->viewport()->width() - 2);
+        return {width, measure(option.font, index, width).total};
+    }
+
+    void paint(QPainter* p, const QStyleOptionViewItem& option, const QModelIndex& index) const override
+    {
+        const int flags = index.data(kFlagsRole).toInt();
+        const QRect card = option.rect.adjusted(kOuterX, kOuterY, -kOuterX, -kOuterY);
+        const Metrics m = measure(option.font, index, option.rect.width());
+        p->save();
+        p->setRenderHint(QPainter::Antialiasing, true);
+        if (flags & Resolved) p->setOpacity(0.55);
+
+        QColor background = theme::panelBackground();
+        if (option.state & QStyle::State_Selected) background = theme::controlPressed();
+        else if (option.state & QStyle::State_MouseOver) background = theme::controlBackground();
+        QPainterPath path;
+        path.addRoundedRect(QRectF(card), 6, 6);
+        p->fillPath(path, background);
+        if (flags & OnCurrentFrame) {
+            // The notes on the frame on screen get an accent edge.
+            p->setClipPath(path);
+            p->fillRect(QRect(card.left(), card.top(), 3, card.height()), theme::accent());
+            p->setClipping(false);
+        }
+
+        const QRect inner = card.adjusted(kPadX, kPadY, -kPadX, -kPadY);
+        QFont bold = option.font;
+        bold.setBold(true);
+        const QFont small = smallerFont(option.font);
+        const QString author = index.data(kAuthorRole).toString();
+        const QString when = index.data(kWhenRole).toString();
+        int y = inner.top();
+        p->setFont(small);
+        p->setPen(theme::textSecondary());
+        const int whenWidth = QFontMetrics(small).horizontalAdvance(when);
+        p->drawText(QRect(inner.right() - whenWidth, y, whenWidth, m.header), Qt::AlignRight | Qt::AlignVCenter, when);
+        p->setFont(bold);
+        p->setPen(theme::textPrimary());
+        p->drawText(QRect(inner.left(), y, inner.width() - whenWidth - 8, m.header), Qt::AlignLeft | Qt::AlignVCenter,
+                    QFontMetrics(bold).elidedText(author, Qt::ElideRight, inner.width() - whenWidth - 8));
+        y += m.header + kGap;
+
+        p->setFont(option.font);
+        p->drawText(QRect(inner.left(), y, inner.width(), m.body), Qt::TextWordWrap | Qt::AlignLeft | Qt::AlignTop,
+                    index.data(Qt::DisplayRole).toString());
+        y += m.body + kGap + 2;
+
+        // Frame chip, then markers.
+        p->setFont(small);
+        const QFontMetrics sm(small);
+        const QString chip = frameLabel(index.data(kFrameRole).toLongLong());
+        const QRect chipRect(inner.left(), y, sm.horizontalAdvance(chip) + 12, m.chip);
+        QColor chipFill = theme::accent();
+        chipFill.setAlpha(40);
+        p->setPen(Qt::NoPen);
+        p->setBrush(chipFill);
+        p->drawRoundedRect(chipRect, 4, 4);
+        p->setPen(theme::accent());
+        p->drawText(chipRect, Qt::AlignCenter, chip);
+        int x = chipRect.right() + 8;
+        auto marker = [&](const QString& text, const QColor& color) {
+            p->setPen(color);
+            const int w = sm.horizontalAdvance(text);
+            p->drawText(QRect(x, y, w, m.chip), Qt::AlignVCenter | Qt::AlignLeft, text);
+            x += w + 10;
+        };
+        if (flags & HasDrawing) marker(NotesPanel::tr("✎ Drawing"), theme::textSecondary());
+        if (flags & Resolved) marker(NotesPanel::tr("✓ Resolved"), QColor(0x5F, 0xB9, 0x7A));
+        p->restore();
+    }
+
+private:
+    static constexpr int kOuterX = 6, kOuterY = 3, kPadX = 10, kPadY = 8, kGap = 4;
+
+    struct Metrics {
+        int header = 0, body = 0, chip = 0, total = 0;
+    };
+
+    Metrics measure(const QFont& font, const QModelIndex& index, int rowWidth) const
+    {
+        Metrics m;
+        QFont bold = font;
+        bold.setBold(true);
+        const int textWidth = std::max(40, rowWidth - 2 * kOuterX - 2 * kPadX);
+        m.header = QFontMetrics(bold).height();
+        m.body = QFontMetrics(font)
+                     .boundingRect(QRect(0, 0, textWidth, 100000), Qt::TextWordWrap | Qt::AlignLeft,
+                                   index.data(Qt::DisplayRole).toString())
+                     .height();
+        m.chip = QFontMetrics(smallerFont(font)).height() + 4;
+        m.total = 2 * kOuterY + 2 * kPadY + m.header + kGap + m.body + kGap + 2 + m.chip;
+        return m;
+    }
+
+    QListWidget* m_view;
+};
+
+QString panelStyleSheet()
+{
+    const auto c = [](const QColor& color) { return color.name(QColor::HexRgb); };
+    return QStringLiteral(R"CSS(
+#NotesHeader, #NotesFooter { background-color: %1; }
+#NotesHeader { border-bottom: 1px solid %2; }
+#NotesFooter { border-top: 1px solid %2; }
+#NotesHeader QLabel, #NotesFooter QLabel { background: transparent; }
+QLabel#NotesCount {
+    background-color: %3; color: %4; border-radius: 8px; padding: 1px 7px; font-size: 11px;
+}
+QComboBox#NotesFilter { background: transparent; border: none; font-size: 13px; padding: 2px 4px; }
+QComboBox#NotesFilter:hover { background-color: %3; border-radius: 4px; }
+QListWidget#NotesList { background-color: %5; border: none; }
+QWidget#NotesEmptyPage { background-color: %5; }
+QLabel#NotesEmptyHint { color: %4; font-size: 13px; background: transparent; }
+QFrame#NotesComposerCard { background-color: %5; border: 1px solid %6; border-radius: 6px; }
+QFrame#NotesComposerCard[active="true"] { border: 1px solid %7; }
+QFrame#NotesComposerCard QWidget { background: transparent; }
+QPlainTextEdit#NotesComposer { border: none; padding: 0; font-size: 13px; }
+QLabel#NotesFrameChip { color: %7; font-weight: 600; }
+QPushButton#NotesSubmit { padding: 4px 14px; border-radius: 4px; }
+QPushButton#NotesSubmit:enabled { background-color: %7; color: #ffffff; border: none; }
+QLineEdit#NotesReviewer { background: transparent; border: none; border-bottom: 1px solid %6; padding: 1px 2px; }
+QLabel#NotesReviewerLabel { color: %4; }
+)CSS")
+        .arg(c(theme::panelBackground()), c(theme::panelBorder()), c(theme::controlBackground()),
+             c(theme::textSecondary()), c(theme::windowBackground()), c(theme::controlHover()), c(theme::accent()));
+}
+
+} // namespace
 
 NotesPanel::NotesPanel(QWidget* parent) : QWidget(parent)
 {
     setObjectName(QStringLiteral("NotesPanel"));
-    auto* layout = new QVBoxLayout(this);
-    layout->setContentsMargins(10, 8, 10, 8);
-    layout->setSpacing(6);
+    setStyleSheet(panelStyleSheet());
+    auto* root = new QVBoxLayout(this);
+    root->setContentsMargins(0, 0, 0, 0);
+    root->setSpacing(0);
 
-    auto* title = new QLabel(tr("NOTES"), this);
-    title->setObjectName(QStringLiteral("PanelTitle"));
-    layout->addWidget(title);
+    // Header: which notes, and how many.
+    auto* header = new QWidget(this);
+    header->setObjectName(QStringLiteral("NotesHeader"));
+    auto* headerRow = new QHBoxLayout(header);
+    headerRow->setContentsMargins(8, 6, 10, 6);
+    m_filter = new QComboBox(header);
+    m_filter->setObjectName(QStringLiteral("NotesFilter"));
+    m_filter->addItem(tr("All Notes"), int(Filter::All));
+    m_filter->addItem(tr("This Frame"), int(Filter::ThisFrame));
+    m_filter->addItem(tr("Open"), int(Filter::Open));
+    m_filter->addItem(tr("Resolved"), int(Filter::Resolved));
+    m_filter->setToolTip(tr("Show all notes, only this frame's, or only open or resolved notes"));
+    m_count = new QLabel(QStringLiteral("0"), header);
+    m_count->setObjectName(QStringLiteral("NotesCount"));
+    m_count->setToolTip(tr("Notes on this clip"));
+    headerRow->addWidget(m_filter);
+    headerRow->addWidget(m_count);
+    headerRow->addStretch(1);
+    root->addWidget(header);
+    connect(m_filter, &QComboBox::currentIndexChanged, this, &NotesPanel::rebuildList);
 
-    auto* nameRow = new QHBoxLayout;
-    nameRow->addWidget(new QLabel(tr("Reviewer"), this));
-    m_reviewer = new QLineEdit(this);
-    m_reviewer->setPlaceholderText(tr("Your name"));
-    m_reviewer->setMaxLength(200);
-    nameRow->addWidget(m_reviewer, 1);
-    layout->addLayout(nameRow);
-    connect(m_reviewer, &QLineEdit::editingFinished, this,
-            [this] { emit reviewerNameChanged(m_reviewer->text().trimmed()); });
-
-    m_frameLabel = new QLabel(this);
-    m_frameLabel->setObjectName(QStringLiteral("NotesFrameLabel"));
-    layout->addWidget(m_frameLabel);
-
-    m_composer = new QPlainTextEdit(this);
-    m_composer->setObjectName(QStringLiteral("NotesComposer"));
-    m_composer->setTabChangesFocus(true);
-    m_composer->setFixedHeight(84);
-    m_composer->installEventFilter(this);
-    layout->addWidget(m_composer);
-
-    auto* buttons = new QHBoxLayout;
-    m_cancel = new QPushButton(tr("Cancel"), this);
-    m_cancel->hide();
-    m_submit = new QPushButton(tr("Add Note"), this);
-    m_submit->setToolTip(tr("Add the note to the frame on screen (Ctrl+Enter)"));
-    m_submit->setDefault(false);
-    buttons->addStretch(1);
-    buttons->addWidget(m_cancel);
-    buttons->addWidget(m_submit);
-    layout->addLayout(buttons);
-    connect(m_submit, &QPushButton::clicked, this, &NotesPanel::submit);
-    connect(m_cancel, &QPushButton::clicked, this, &NotesPanel::cancelEdit);
-    connect(m_composer, &QPlainTextEdit::textChanged, this, &NotesPanel::refreshComposer);
-
-    m_showResolved = new QCheckBox(tr("Show resolved"), this);
-    m_showResolved->setChecked(true);
-    layout->addWidget(m_showResolved);
-    connect(m_showResolved, &QCheckBox::toggled, this, &NotesPanel::rebuildList);
-
-    m_list = new QListWidget(this);
+    // The notes, or a hint when there are none to show.
+    m_stack = new QStackedWidget(this);
+    m_list = new QListWidget(m_stack);
     m_list->setObjectName(QStringLiteral("NotesList"));
-    m_list->setWordWrap(true);
-    m_list->setSpacing(2);
+    m_list->setItemDelegate(new NoteCardDelegate(m_list));
+    m_list->setResizeMode(QListView::Adjust);
+    m_list->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+    m_list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_list->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_list->setMouseTracking(true);
     m_list->setContextMenuPolicy(Qt::CustomContextMenu);
     m_list->installEventFilter(this);
-    layout->addWidget(m_list, 1);
+    m_stack->addWidget(m_list);
+    auto* emptyPage = new QWidget(m_stack);
+    emptyPage->setObjectName(QStringLiteral("NotesEmptyPage"));
+    auto* emptyLayout = new QVBoxLayout(emptyPage);
+    m_emptyHint = new QLabel(emptyPage);
+    m_emptyHint->setObjectName(QStringLiteral("NotesEmptyHint"));
+    m_emptyHint->setAlignment(Qt::AlignHCenter | Qt::AlignTop);
+    m_emptyHint->setWordWrap(true);
+    emptyLayout->setContentsMargins(16, 28, 16, 16);
+    emptyLayout->addWidget(m_emptyHint);
+    emptyLayout->addStretch(1);
+    m_stack->addWidget(emptyPage);
+    root->addWidget(m_stack, 1);
     connect(m_list, &QListWidget::itemClicked, this, [this](QListWidgetItem* item) {
         if (const NoteRow* row = rowFor(item)) emit noteActivated(row->frame);
     });
@@ -89,25 +252,72 @@ NotesPanel::NotesPanel(QWidget* parent) : QWidget(parent)
     });
     connect(m_list, &QListWidget::customContextMenuRequested, this, &NotesPanel::showContextMenu);
 
-    m_emptyHint = new QLabel(tr("No notes yet. Draw on a frame (D) and write what to change here."), this);
-    m_emptyHint->setWordWrap(true);
-    m_emptyHint->setObjectName(QStringLiteral("NotesEmptyHint"));
-    layout->addWidget(m_emptyHint);
+    // Footer: the composer for the frame on screen, who is writing, and export.
+    auto* footer = new QWidget(this);
+    footer->setObjectName(QStringLiteral("NotesFooter"));
+    auto* footerLayout = new QVBoxLayout(footer);
+    footerLayout->setContentsMargins(10, 10, 10, 10);
+    footerLayout->setSpacing(8);
 
-    // One click to hand the review on, like SyncSketch's export menu.
+    m_composerCard = new QFrame(footer);
+    m_composerCard->setObjectName(QStringLiteral("NotesComposerCard"));
+    auto* cardLayout = new QVBoxLayout(m_composerCard);
+    cardLayout->setContentsMargins(8, 6, 8, 6);
+    cardLayout->setSpacing(4);
+    m_composer = new QPlainTextEdit(m_composerCard);
+    m_composer->setObjectName(QStringLiteral("NotesComposer"));
+    m_composer->setTabChangesFocus(true);
+    m_composer->setFrameShape(QFrame::NoFrame);
+    m_composer->setFixedHeight(68);
+    m_composer->installEventFilter(this);
+    cardLayout->addWidget(m_composer);
+    auto* cardRow = new QHBoxLayout;
+    m_frameChip = new QLabel(m_composerCard);
+    m_frameChip->setObjectName(QStringLiteral("NotesFrameChip"));
+    m_cancel = new QPushButton(tr("Cancel"), m_composerCard);
+    m_cancel->setObjectName(QStringLiteral("NotesCancel"));
+    m_cancel->hide();
+    m_submit = new QPushButton(tr("Submit"), m_composerCard);
+    m_submit->setObjectName(QStringLiteral("NotesSubmit"));
+    m_submit->setToolTip(tr("Add the note to the frame on screen (Enter; Shift+Enter for a new line)"));
+    cardRow->addWidget(m_frameChip);
+    cardRow->addStretch(1);
+    cardRow->addWidget(m_cancel);
+    cardRow->addWidget(m_submit);
+    cardLayout->addLayout(cardRow);
+    footerLayout->addWidget(m_composerCard);
+    connect(m_submit, &QPushButton::clicked, this, &NotesPanel::submit);
+    connect(m_cancel, &QPushButton::clicked, this, &NotesPanel::cancelEdit);
+    connect(m_composer, &QPlainTextEdit::textChanged, this, &NotesPanel::refreshComposer);
+
+    auto* nameRow = new QHBoxLayout;
+    auto* nameLabel = new QLabel(tr("Posting as"), footer);
+    nameLabel->setObjectName(QStringLiteral("NotesReviewerLabel"));
+    m_reviewer = new QLineEdit(footer);
+    m_reviewer->setObjectName(QStringLiteral("NotesReviewer"));
+    m_reviewer->setPlaceholderText(tr("Your name"));
+    m_reviewer->setMaxLength(200);
+    nameRow->addWidget(nameLabel);
+    nameRow->addWidget(m_reviewer, 1);
+    footerLayout->addLayout(nameRow);
+    connect(m_reviewer, &QLineEdit::editingFinished, this,
+            [this] { emit reviewerNameChanged(m_reviewer->text().trimmed()); });
+
     auto* exportRow = new QHBoxLayout;
-    m_exportPdf = new QPushButton(tr("Export PDF…"), this);
+    m_exportPdf = new QPushButton(tr("Export PDF…"), footer);
     m_exportPdf->setObjectName(QStringLiteral("NotesExportPdf"));
     m_exportPdf->setToolTip(tr("Save a Review Notes PDF: each drawn or noted frame with its notes"));
-    m_exportVideo = new QPushButton(tr("Export Video…"), this);
+    m_exportVideo = new QPushButton(tr("Export Video…"), footer);
     m_exportVideo->setObjectName(QStringLiteral("NotesExportVideo"));
     m_exportVideo->setToolTip(tr("Save an MP4 with the drawings and notes burned in on their frames"));
     exportRow->addWidget(m_exportPdf, 1);
     exportRow->addWidget(m_exportVideo, 1);
-    layout->addLayout(exportRow);
+    footerLayout->addLayout(exportRow);
     connect(m_exportPdf, &QPushButton::clicked, this, &NotesPanel::exportPdfRequested);
     connect(m_exportVideo, &QPushButton::clicked, this, &NotesPanel::exportVideoRequested);
+    root->addWidget(footer);
 
+    setMinimumWidth(240);
     setCurrentFrame(-1, QString(), false);
     rebuildList();
 }
@@ -115,20 +325,40 @@ NotesPanel::NotesPanel(QWidget* parent) : QWidget(parent)
 void NotesPanel::setReviewerName(const QString& name) { m_reviewer->setText(name); }
 QString NotesPanel::reviewerName() const { return m_reviewer->text().trimmed(); }
 
+void NotesPanel::setFilter(Filter filter)
+{
+    const int index = m_filter->findData(int(filter));
+    if (index >= 0) m_filter->setCurrentIndex(index);
+}
+
+NotesPanel::Filter NotesPanel::filter() const { return Filter(m_filter->currentData().toInt()); }
+
 void NotesPanel::setCurrentFrame(qint64 frame, const QString& timecode, bool available)
 {
-    const bool changed = frame != m_currentFrame || available != m_available;
+    const bool frameChanged = frame != m_currentFrame;
+    const bool changed = frameChanged || (available && frame >= 0) != m_available;
+    if (frameChanged) {
+        if (m_editNoteId != 0) {
+            // Leaving the frame of the note being edited ends the edit.
+            if (frame != m_editFrame) cancelEdit();
+        } else if (m_currentFrame >= 0) {
+            // Keep an unsent draft with its frame.
+            const QString draft = m_composer->toPlainText();
+            if (draft.trimmed().isEmpty()) m_drafts.remove(m_currentFrame);
+            else m_drafts.insert(m_currentFrame, draft);
+        }
+    }
     m_currentFrame = frame;
     m_currentTimecode = timecode;
     m_available = available && frame >= 0;
-    if (m_available)
-        m_frameLabel->setText(tr("Frame %1  ·  %2").arg(frame + 1).arg(timecode));
-    else
-        m_frameLabel->setText(tr("Open a clip to add notes"));
+    if (frameChanged && m_editNoteId == 0) {
+        m_composer->setPlainText(m_drafts.value(frame));
+        m_composer->moveCursor(QTextCursor::End);
+    }
     m_exportPdf->setEnabled(m_available);
     m_exportVideo->setEnabled(m_available);
     refreshComposer();
-    if (changed) rebuildList(); // highlight the notes on this frame
+    if (changed) rebuildList(); // highlight this frame's notes, or filter to them
 }
 
 void NotesPanel::setNotes(const QVector<NoteRow>& rows)
@@ -148,12 +378,24 @@ void NotesPanel::refreshComposer()
 {
     const bool editing = m_editNoteId != 0;
     m_composer->setEnabled(m_available || editing);
-    m_composer->setPlaceholderText(m_available
-        ? tr("Write a note for frame %1...  (Ctrl+Enter to add)").arg(m_currentFrame + 1)
-        : tr("Open a clip to add notes"));
-    m_submit->setText(editing ? tr("Save") : tr("Add Note"));
+    m_composer->setPlaceholderText(m_available ? tr("Add a note for this frame…") : tr("Open a clip to add notes"));
+    if (editing)
+        m_frameChip->setText(tr("Editing · %1").arg(frameLabel(m_editFrame)));
+    else if (m_available)
+        m_frameChip->setText(QStringLiteral("%1  ·  %2").arg(frameLabel(m_currentFrame), m_currentTimecode));
+    else
+        m_frameChip->clear();
+    m_submit->setText(editing ? tr("Save") : tr("Submit"));
     m_cancel->setVisible(editing);
     m_submit->setEnabled((m_available || editing) && !m_composer->toPlainText().trimmed().isEmpty());
+}
+
+void NotesPanel::setComposerActive(bool active)
+{
+    if (m_composerCard->property("active").toBool() == active) return;
+    m_composerCard->setProperty("active", active);
+    m_composerCard->style()->unpolish(m_composerCard);
+    m_composerCard->style()->polish(m_composerCard);
 }
 
 void NotesPanel::submit()
@@ -172,7 +414,9 @@ void NotesPanel::submit()
         return;
     }
     if (!m_available) return;
-    emit addNoteRequested(m_currentFrame, text.left(annotation::AnnotationLimits::kMaxNoteLength));
+    const qint64 frame = m_currentFrame;
+    emit addNoteRequested(frame, text.left(annotation::AnnotationLimits::kMaxNoteLength));
+    m_drafts.remove(frame);
     m_composer->clear();
 }
 
@@ -181,6 +425,9 @@ void NotesPanel::beginEdit(qint64 frame, quint64 noteId)
     const auto it = std::find_if(m_rows.cbegin(), m_rows.cend(),
                                  [&](const NoteRow& r) { return r.frame == frame && r.note.id == noteId; });
     if (it == m_rows.cend()) return;
+    // Park any draft for the frame on screen before the composer is reused.
+    if (m_editNoteId == 0 && m_currentFrame >= 0 && !m_composer->toPlainText().trimmed().isEmpty())
+        m_drafts.insert(m_currentFrame, m_composer->toPlainText());
     m_editFrame = frame;
     m_editNoteId = noteId;
     m_composer->setPlainText(it->note.text);
@@ -194,7 +441,7 @@ void NotesPanel::cancelEdit()
     if (m_editNoteId == 0) return;
     m_editNoteId = 0;
     m_editFrame = -1;
-    m_composer->clear();
+    m_composer->setPlainText(m_drafts.value(m_currentFrame));
     refreshComposer();
 }
 
@@ -210,31 +457,49 @@ const NoteRow* NotesPanel::rowFor(QListWidgetItem* item) const
 void NotesPanel::rebuildList()
 {
     const quint64 selected = m_list->currentItem() ? m_list->currentItem()->data(kNoteRole).toULongLong() : 0;
+    const int scroll = m_list->verticalScrollBar()->value();
+    const Filter mode = filter();
     m_list->clear();
-    int shown = 0;
+    QListWidgetItem* firstOnFrame = nullptr;
+    const QLocale locale;
     for (const NoteRow& row : m_rows) {
-        if (row.note.resolved && !m_showResolved->isChecked()) continue;
-        QString header = tr("Frame %1  ·  %2").arg(row.frame + 1).arg(row.timecode);
-        if (row.frameHasDrawing) header += QStringLiteral("  ✎");
-        if (row.note.resolved) header += QStringLiteral("  ✓ ") + tr("resolved");
-        const QString author = row.note.author.isEmpty() ? QString() : row.note.author + QStringLiteral(": ");
-        auto* item = new QListWidgetItem(header + QLatin1Char('\n') + author + row.note.text, m_list);
+        if (mode == Filter::ThisFrame && row.frame != m_currentFrame) continue;
+        if (mode == Filter::Open && row.note.resolved) continue;
+        if (mode == Filter::Resolved && !row.note.resolved) continue;
+        auto* item = new QListWidgetItem(row.note.text, m_list);
         item->setData(kFrameRole, row.frame);
         item->setData(kNoteRole, row.note.id);
-        item->setToolTip(tr("Click to go to the frame, double-click to edit, right-click for more"));
-        QFont font = item->font();
-        if (row.note.resolved) {
-            font.setStrikeOut(true);
-            item->setForeground(palette().color(QPalette::Disabled, QPalette::Text));
-        }
-        if (row.frame == m_currentFrame) font.setBold(true); // notes on the frame on screen
-        item->setFont(font);
+        item->setData(kAuthorRole, row.note.author.isEmpty() ? tr("Anonymous") : row.note.author);
+        item->setData(kWhenRole, row.note.createdMsUtc > 0
+            ? locale.toString(QDateTime::fromMSecsSinceEpoch(row.note.createdMsUtc).toLocalTime(),
+                            QStringLiteral("MMM d, HH:mm"))
+            : QString());
+        int flags = 0;
+        if (row.frameHasDrawing) flags |= HasDrawing;
+        if (row.note.resolved) flags |= Resolved;
+        if (row.frame == m_currentFrame) flags |= OnCurrentFrame;
+        item->setData(kFlagsRole, flags);
+        item->setToolTip(tr("%1  ·  %2\nClick to go to the frame, double-click to edit, right-click for more")
+                             .arg(frameLabel(row.frame), row.timecode));
         if (row.note.id == selected) m_list->setCurrentItem(item);
-        ++shown;
+        if (!firstOnFrame && row.frame == m_currentFrame) firstOnFrame = item;
     }
-    m_emptyHint->setVisible(m_rows.isEmpty());
-    m_list->setVisible(!m_rows.isEmpty());
-    Q_UNUSED(shown);
+    m_count->setText(QString::number(m_rows.size()));
+
+    if (m_list->count() > 0) {
+        m_stack->setCurrentIndex(0);
+        m_list->verticalScrollBar()->setValue(scroll);
+        if (firstOnFrame) m_list->scrollToItem(firstOnFrame, QAbstractItemView::EnsureVisible);
+        return;
+    }
+    QString hint;
+    if (!m_available && m_rows.isEmpty()) hint = tr("Open a clip to start reviewing.");
+    else if (m_rows.isEmpty()) hint = tr("No notes yet!\nLeave the first one below…");
+    else if (mode == Filter::ThisFrame) hint = tr("No notes on %1 yet.\nWrite one below…").arg(frameLabel(m_currentFrame));
+    else if (mode == Filter::Open) hint = tr("No open notes. Everything is resolved.");
+    else hint = tr("No resolved notes yet.");
+    m_emptyHint->setText(hint);
+    m_stack->setCurrentIndex(1);
 }
 
 void NotesPanel::showContextMenu(const QPoint& position)
@@ -265,11 +530,14 @@ void NotesPanel::showContextMenu(const QPoint& position)
 
 bool NotesPanel::eventFilter(QObject* watched, QEvent* event)
 {
+    if (watched == m_composer && (event->type() == QEvent::FocusIn || event->type() == QEvent::FocusOut))
+        setComposerActive(event->type() == QEvent::FocusIn);
     if (event->type() == QEvent::KeyPress) {
         auto* key = static_cast<QKeyEvent*>(event);
         if (watched == m_composer) {
+            // Enter submits; Shift+Enter starts a new line (as in SyncSketch).
             if ((key->key() == Qt::Key_Return || key->key() == Qt::Key_Enter)
-                && (key->modifiers() & Qt::ControlModifier)) {
+                && !(key->modifiers() & Qt::ShiftModifier)) {
                 submit();
                 return true;
             }

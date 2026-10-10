@@ -97,6 +97,15 @@ OS-specific code. `ROADMAP.md` still lists "Drawn annotations over frames" under
   - The reviewer name persists, defaulting to the OS user.
 - Next/Previous Drawn Frame are now "Next/Previous Note or Drawing".
 
+- **Redesign after the owner's review (SyncSketch sidebar style):** a header with a filter
+  (All Notes / This Frame / Open / Resolved) and a count; notes drawn as cards (author,
+  time, text, a "Frame 0016" chip, drawing and resolved markers, an accent edge on the
+  frame on screen); an empty state; and a framed composer pinned to the bottom showing
+  the frame and timecode it writes to, with Submit. **Enter submits, Shift+Enter is a new
+  line.** The composer belongs to the frame: moving to another frame gives an empty
+  composer, and an unsent draft returns when you go back. "Posting as" and the Export
+  PDF / Export Video buttons sit under the composer.
+
 ### Photoshop brush sets (as built)
 
 - **Import:** `annotation::readAbr` reads `.abr` versions 1/2 (Photoshop ≤ 6) and 6/7/10

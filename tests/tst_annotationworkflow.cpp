@@ -18,6 +18,7 @@
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QSignalSpy>
 #include <QTimer>
 #include <QMouseEvent>
 #include <QTemporaryDir>
@@ -83,6 +84,7 @@ private slots:
     void importedBrushesAppearInTheToolbar();
     void notesPanelWritesNotesWhileDrawing();
     void notesPanelExportsAReviewNotesPdf();
+    void notesComposerBelongsToTheFrame();
 };
 
 void TestAnnotationWorkflow::drawModeNeedsMedia()
@@ -407,6 +409,57 @@ void TestAnnotationWorkflow::notesPanelExportsAReviewNotesPdf()
     QVERIFY(file.open(QIODevice::ReadOnly));
     QVERIFY(file.read(4) == "%PDF");
     QVERIFY(!QFile::exists(pdf + QStringLiteral(".partial")));
+}
+
+void TestAnnotationWorkflow::notesComposerBelongsToTheFrame()
+{
+    atk::ui::NotesPanel panel;
+    panel.resize(320, 600);
+    panel.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&panel));
+    QSignalSpy added(&panel, &atk::ui::NotesPanel::addNoteRequested);
+    panel.setCurrentFrame(15, QStringLiteral("00:00:00:15"), true);
+    panel.composer()->setFocus();
+
+    // Shift+Enter is a new line; Enter submits to the frame on screen.
+    QTest::keyClicks(panel.composer(), QStringLiteral("arc"));
+    QTest::keyClick(panel.composer(), Qt::Key_Return, Qt::ShiftModifier);
+    QTest::keyClicks(panel.composer(), QStringLiteral("smoother"));
+    QCOMPARE(panel.composer()->toPlainText(), QStringLiteral("arc\nsmoother"));
+    QTest::keyClick(panel.composer(), Qt::Key_Return);
+    QCOMPARE(added.size(), 1);
+    QCOMPARE(added[0][0].toLongLong(), qint64(15));
+    QCOMPARE(added[0][1].toString(), QStringLiteral("arc\nsmoother"));
+    QVERIFY(panel.composer()->toPlainText().isEmpty());
+
+    // An unsent draft stays with its frame: another frame starts empty.
+    QTest::keyClicks(panel.composer(), QStringLiteral("unfinished"));
+    panel.setCurrentFrame(24, QStringLiteral("00:00:01:00"), true);
+    QVERIFY(panel.composer()->toPlainText().isEmpty());
+    QTest::keyClicks(panel.composer(), QStringLiteral("frame 25 note"));
+    QTest::keyClick(panel.composer(), Qt::Key_Return);
+    QCOMPARE(added.size(), 2);
+    QCOMPARE(added[1][0].toLongLong(), qint64(24));
+    panel.setCurrentFrame(15, QStringLiteral("00:00:00:15"), true);
+    QCOMPARE(panel.composer()->toPlainText(), QStringLiteral("unfinished"));
+    panel.setCurrentFrame(24, QStringLiteral("00:00:01:00"), true);
+    QVERIFY(panel.composer()->toPlainText().isEmpty()); // submitted, so no draft
+
+    // The list: all notes by default, or only the frame on screen.
+    atk::annotation::FrameNote a{1, QStringLiteral("arc"), QStringLiteral("David"), 1, false};
+    atk::annotation::FrameNote b{2, QStringLiteral("frame 25 note"), QStringLiteral("David"), 2, true};
+    panel.setNotes({{15, QStringLiteral("00:00:00:15"), a, true}, {24, QStringLiteral("00:00:01:00"), b, false}});
+    QCOMPARE(panel.list()->count(), 2);
+    panel.setFilter(atk::ui::NotesPanel::Filter::ThisFrame);
+    QCOMPARE(panel.list()->count(), 1);
+    QCOMPARE(panel.list()->item(0)->text(), QStringLiteral("frame 25 note"));
+    panel.setCurrentFrame(40, QStringLiteral("00:00:01:16"), true);
+    QCOMPARE(panel.list()->count(), 0); // nothing on frame 41 yet
+    panel.setFilter(atk::ui::NotesPanel::Filter::Open);
+    QCOMPARE(panel.list()->count(), 1);
+    panel.setFilter(atk::ui::NotesPanel::Filter::Resolved);
+    QCOMPARE(panel.list()->count(), 1);
+    QCOMPARE(panel.list()->item(0)->text(), QStringLiteral("frame 25 note"));
 }
 
 QTEST_MAIN(TestAnnotationWorkflow)
