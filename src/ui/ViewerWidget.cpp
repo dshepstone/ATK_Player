@@ -236,12 +236,20 @@ void ViewerWidget::paintEvent(QPaintEvent* event)
     QElapsedTimer paintTimer;
     paintTimer.start();
     QPainter painter(this);
-    painter.fillRect(event->rect(), m_videoOnlyPresentation ? Qt::black
-                                                            : theme::viewerBackground());
+    // An explicit clip lets the annotation renderer limit its work to the
+    // area being repainted (a few pixels around the pen while drawing).
+    painter.setClipRegion(event->region());
+    const QColor background = m_videoOnlyPresentation ? QColor(Qt::black) : theme::viewerBackground();
+    painter.fillRect(event->rect(), background);
 
     switch (m_state) {
     case State::Loaded:
-        if (m_frame.isValid()) {
+        if (m_frame.isValid() && (m_annotateMode || m_tracingPaperPercent > 0)) {
+            const QRectF target = m_transform.imageRect();
+            paintCachedPicture(painter, target, background);
+            paintAnnotations(painter, target);
+            paintBrushCursor(painter);
+        } else if (m_frame.isValid()) {
             // Smooth minification keeps fitted playback clean; above 100%,
             // nearest-like sampling exposes source pixels for frame inspection.
             painter.setRenderHint(QPainter::SmoothPixmapTransform,
@@ -747,6 +755,7 @@ bool ViewerWidget::beginStroke(const QPointF& position, float pressure, float ti
         stroke.builder->addSample(n, pressure, tiltX, tiltY);
     }
     m_stroke = std::move(stroke);
+    m_lastStrokeDirty = {};
     update();
     return true;
 }
@@ -805,6 +814,12 @@ void ViewerWidget::continueStroke(const QPointF& position, float pressure, float
     case Kind::Draw:
         if (m_stroke->builder) {
             m_stroke->builder->addSample(n, pressure, tiltX, tiltY);
+            // Repaint only around the newest ink (and where it was last
+            // time, so a stabilised tail settles), not the whole picture.
+            const QRect dirty = freehandDirtyRect();
+            update(dirty | m_lastStrokeDirty);
+            m_lastStrokeDirty = dirty;
+            return;
         } else if (m_stroke->item.points.size() == 2) {
             m_stroke->item.points[1].x = float(std::clamp(n.x(), 0.0, 1.0));
             m_stroke->item.points[1].y = float(std::clamp(n.y(), 0.0, 1.0));
@@ -1142,8 +1157,73 @@ void ViewerWidget::updateAnnotateCursor()
 void ViewerWidget::setHoverPosition(std::optional<QPointF> position)
 {
     if (m_hoverPosition == position) return;
+    const std::optional<QPointF> previous = m_hoverPosition;
     m_hoverPosition = position;
-    if (m_annotateMode) update();
+    if (!m_annotateMode) return;
+    // Only the cursor's old and new spots need repainting.
+    QRect dirty;
+    if (previous) dirty |= brushCursorRect(*previous);
+    if (position) dirty |= brushCursorRect(*position);
+    if (!dirty.isEmpty()) update(dirty);
+}
+
+QRect ViewerWidget::brushCursorRect(const QPointF& position) const
+{
+    const qreal imagePixels = std::max(m_tool.eraserRadius(1.0f), 0.5 * m_tool.sizePixels);
+    const qreal radius = std::max<qreal>(1.5, imagePixels * widgetPixelsPerSourcePixel()) + 4.0;
+    return QRectF(position - QPointF(radius, radius), QSizeF(2 * radius, 2 * radius)).toAlignedRect();
+}
+
+QRect ViewerWidget::freehandDirtyRect() const
+{
+    if (!m_stroke || m_stroke->kind != ActiveStroke::Kind::Draw || !m_stroke->builder) return {};
+    const QVector<annotation::StrokePoint>& points = m_stroke->builder->points();
+    if (points.isEmpty()) return {};
+    // The smoothed curve can still bend over the last few samples.
+    const int first = std::max(0, int(points.size()) - 6);
+    QRectF bounds;
+    for (int i = first; i < points.size(); ++i) {
+        const QPointF p = normalizedToWidget(QPointF(points[i].x, points[i].y));
+        bounds = bounds.isNull() ? QRectF(p, QSizeF(0.01, 0.01)) : bounds.united(QRectF(p, QSizeF(0.01, 0.01)));
+    }
+    // Generous: full brush diameter (stamp tips can be wider than round ones).
+    const qreal pad = std::max<qreal>(2.0, m_tool.sizePixels * widgetPixelsPerSourcePixel()) * 1.5 + 4.0;
+    return bounds.adjusted(-pad, -pad, pad, pad).toAlignedRect();
+}
+
+void ViewerWidget::paintCachedPicture(QPainter& painter, const QRectF& target, const QColor& background)
+{
+    const qreal dpr = devicePixelRatioF();
+    const QSize pixelSize = (QSizeF(size()) * dpr).toSize();
+    const bool smooth = m_transform.zoomRatio() <= 1.0;
+    if (m_pictureCache.size() != pixelSize || !qFuzzyCompare(m_pictureCache.devicePixelRatio(), dpr)
+        || m_pictureCacheKey != m_frame.image.cacheKey() || m_pictureCacheTarget != target
+        || m_pictureCacheFlipped != m_flipHorizontal || m_pictureCacheTrace != m_tracingPaperPercent
+        || m_pictureCacheSmooth != smooth || m_pictureCacheBackground != background.rgba()) {
+        m_pictureCache = QImage(pixelSize, QImage::Format_ARGB32_Premultiplied);
+        m_pictureCache.setDevicePixelRatio(dpr);
+        m_pictureCache.fill(background);
+        QPainter cache(&m_pictureCache);
+        cache.setRenderHint(QPainter::SmoothPixmapTransform, smooth);
+        if (m_flipHorizontal) {
+            cache.save();
+            cache.translate(target.left() + target.right(), 0.0);
+            cache.scale(-1.0, 1.0);
+        }
+        cache.drawImage(target, m_frame.image);
+        if (m_flipHorizontal) cache.restore();
+        // Tracing paper sits over the picture and under the drawings.
+        if (m_tracingPaperPercent > 0)
+            cache.fillRect(target, QColor(255, 255, 255, m_tracingPaperPercent * 255 / 100));
+        cache.end();
+        m_pictureCacheKey = m_frame.image.cacheKey();
+        m_pictureCacheTarget = target;
+        m_pictureCacheFlipped = m_flipHorizontal;
+        m_pictureCacheTrace = m_tracingPaperPercent;
+        m_pictureCacheSmooth = smooth;
+        m_pictureCacheBackground = background.rgba();
+    }
+    painter.drawImage(QPointF(0.0, 0.0), m_pictureCache);
 }
 
 void ViewerWidget::paintAnnotations(QPainter& painter, const QRectF& target)

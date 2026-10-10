@@ -36,8 +36,11 @@ const QColor kBar(56, 60, 68);
 /// from points to device pixels, so the nominal size compensates for both.
 QFont fontPt(qreal points, bool bold = false, int weight = -1)
 {
-    QFont font(QStringLiteral("Helvetica"));
-    font.setStyleHint(QFont::SansSerif);
+    // Common outline fonts first, so text embeds as a plain TrueType subset.
+    QFont font;
+    font.setFamilies({QStringLiteral("Arial"), QStringLiteral("Helvetica"), QStringLiteral("Liberation Sans"),
+                      QStringLiteral("DejaVu Sans")});
+    font.setStyleHint(QFont::SansSerif, QFont::PreferOutline);
     font.setPointSizeF(points * 72.0 / kResolution);
     font.setBold(bold);
     if (weight > 0) font.setWeight(QFont::Weight(weight));
@@ -260,7 +263,9 @@ bool ReviewNotesPdfWriter::write(const ReviewNotesDocument& doc, const QString& 
             p.drawText(QPointF(x, ty + 10), QStringLiteral("(drawing only)"));
         }
         for (const annotation::FrameNote& note : row.notes) {
-            const QString text = noteText(note) + (note.resolved ? QStringLiteral("  ✓") : QString());
+            // Resolved notes are greyed (and the row says RESOLVED); no symbol
+            // glyphs that would pull in a fallback font.
+            const QString text = noteText(note);
             const qreal h = wrappedHeight(text, body, g.textWidth, &writer);
             p.setPen(note.resolved ? kMuted : kInk);
             drawWrapped(p, text, body, QRectF(x, ty, g.textWidth, h));
@@ -274,6 +279,53 @@ bool ReviewNotesPdfWriter::write(const ReviewNotesDocument& doc, const QString& 
         return false;
     }
     if (pages) *pages = pageCount;
+    return true;
+}
+
+bool ReviewNotesPdfWriter::verify(const QString& path, QString* error)
+{
+    auto fail = [&](const QString& why) {
+        if (error) *error = QStringLiteral("The PDF did not come out right (%1). Nothing was saved; please try again.").arg(why);
+        return false;
+    };
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) return fail(QStringLiteral("it could not be read back"));
+    const QByteArray data = file.readAll();
+    if (!data.startsWith("%PDF-")) return fail(QStringLiteral("no PDF header"));
+    if (!data.right(64).contains("%%EOF")) return fail(QStringLiteral("it is incomplete"));
+    // The cross-reference table must be where the trailer says, and every
+    // object it lists must start at its recorded offset.
+    const qsizetype start = data.lastIndexOf("startxref");
+    if (start < 0) return fail(QStringLiteral("no cross-reference"));
+    bool ok = false;
+    const qsizetype xref = data.mid(start + 9, 24).trimmed().split('\n').value(0).trimmed().toLongLong(&ok);
+    if (!ok || xref < 0 || xref >= data.size() || !data.mid(xref, 4).startsWith("xref"))
+        return fail(QStringLiteral("the cross-reference is misplaced"));
+    qsizetype at = data.indexOf('\n', xref) + 1;
+    int checked = 0;
+    while (at > 0 && at < data.size() && !data.mid(at, 7).startsWith("trailer")) {
+        const qsizetype lineEnd = data.indexOf('\n', at);
+        if (lineEnd < 0) return fail(QStringLiteral("the cross-reference is cut short"));
+        const QList<QByteArray> head = data.mid(at, lineEnd - at).trimmed().split(' ');
+        if (head.size() != 2) return fail(QStringLiteral("the cross-reference is malformed"));
+        const qint64 first = head[0].toLongLong(&ok);
+        if (!ok) return fail(QStringLiteral("the cross-reference is malformed"));
+        const qint64 count = head[1].toLongLong(&ok);
+        if (!ok || count < 0 || count > 10000000) return fail(QStringLiteral("the cross-reference is malformed"));
+        at = lineEnd + 1;
+        for (qint64 i = 0; i < count; ++i, at += 20) {
+            const QByteArray entry = data.mid(at, 20);
+            if (entry.size() < 18) return fail(QStringLiteral("the cross-reference is cut short"));
+            if (entry.at(17) != 'n') continue; // free entry
+            const qint64 offset = entry.left(10).toLongLong(&ok);
+            if (!ok || offset <= 0 || offset >= data.size()) return fail(QStringLiteral("an object is missing"));
+            const QByteArray expected = QByteArray::number(first + i) + ' ';
+            if (!data.mid(offset, expected.size()) .startsWith(expected) || !data.mid(offset, 32).contains(" obj"))
+                return fail(QStringLiteral("an object is out of place"));
+            ++checked;
+        }
+    }
+    if (checked == 0) return fail(QStringLiteral("it has no content"));
     return true;
 }
 
@@ -379,31 +431,43 @@ void ReviewNotesJob::run()
         return;
     }
 
-    // Write beside the destination, then replace it, so a failure never
-    // leaves a half-written PDF where the old one was.
+    // Hand the finished rows to the owner's thread to write: QPdfWriter lays
+    // out and embeds fonts, which is only dependable on the GUI thread on
+    // every platform. Writing takes milliseconds; the slow part (decoding and
+    // rendering) stayed here.
+    report([this, doc = std::move(doc)] { writeDocument(doc); });
+}
+
+void ReviewNotesJob::writeDocument(const ReviewNotesDocument& doc)
+{
+    if (m_cancel) {
+        emit cancelled();
+        return;
+    }
+    // Write beside the destination, check it, then replace it, so a failure
+    // never leaves a broken PDF where the old one was.
     const QString temporary = m_options.outputPath + QStringLiteral(".partial");
     QFile::remove(temporary);
     int pageCount = 0;
-    if (!ReviewNotesPdfWriter::write(doc, temporary, &error, &pageCount)) {
+    QString error;
+    if (!ReviewNotesPdfWriter::write(doc, temporary, &error, &pageCount)
+        || !ReviewNotesPdfWriter::verify(temporary, &error)) {
         QFile::remove(temporary);
-        report([this, error] { emit failed(error); });
+        emit failed(error);
         return;
     }
     if (QFile::exists(m_options.outputPath) && !QFile::remove(m_options.outputPath)) {
         QFile::remove(temporary);
-        report([this] { emit failed(QStringLiteral("The existing PDF could not be replaced (is it open in another app?).")); });
+        emit failed(QStringLiteral("The existing PDF could not be replaced (is it open in another app?)."));
         return;
     }
     if (!QFile::rename(temporary, m_options.outputPath)) {
         QFile::remove(temporary);
-        report([this] { emit failed(QStringLiteral("The PDF could not be saved.")); });
+        emit failed(QStringLiteral("The PDF could not be saved."));
         return;
     }
-    const QString output = m_options.outputPath;
-    report([this, output, pageCount] {
-        emit progress(100);
-        emit completed(output, pageCount);
-    });
+    emit progress(100);
+    emit completed(m_options.outputPath, pageCount);
 }
 
 } // namespace atk::exporter

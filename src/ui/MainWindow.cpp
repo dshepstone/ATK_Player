@@ -85,6 +85,7 @@
 #include <QMessageBox>
 #include <QStandardPaths>
 #include <QProgressDialog>
+#include <QShortcut>
 #include <QRegularExpression>
 #include <QScreen>
 #include <QSignalBlocker>
@@ -117,6 +118,7 @@ bool chooseBurnIns(QWidget* parent, const QString& title, exporter::ExportBurnIn
 bool startsNewGroup(CommandId id)
 {
     switch (id) {
+    case CommandId::ExportReviewNotes: // the notes exports, PDF and video
     case CommandId::CloseSource:
     case CommandId::Quit:
     case CommandId::ToggleAnnotateMode:
@@ -234,6 +236,17 @@ MainWindow::MainWindow(const QString& settingsIniPath, QWidget* parent)
     buildModels();
     buildWidgets();
     buildMenus();
+    // Next/previous note or drawing are Ctrl + the < and > keys. Their
+    // defaults are the unshifted keys (Ctrl+, / Ctrl+.); these also accept the
+    // shifted form, for whoever presses Ctrl+Shift+< / >.
+    for (const auto& [sequence, id] : {std::pair{"Ctrl+<", CommandId::PreviousAnnotatedFrame},
+                                       std::pair{"Ctrl+>", CommandId::NextAnnotatedFrame}}) {
+        auto* shortcut = new QShortcut(QKeySequence(QString::fromLatin1(sequence)), this);
+        shortcut->setContext(Qt::WindowShortcut);
+        connect(shortcut, &QShortcut::activated, this, [this, id = id] {
+            if (QAction* action = m_commands->action(id); action && action->isEnabled()) action->trigger();
+        });
+    }
     buildAudioControls();
     connectSignals();
 
@@ -645,7 +658,7 @@ void MainWindow::connectSignals()
     connect(m_notesPanel, &NotesPanel::reviewerNameChanged, this,
             [this](const QString& name) { m_settings->setReviewerName(name); });
     connect(m_notesPanel, &NotesPanel::exportPdfRequested, this, &MainWindow::exportReviewNotes);
-    connect(m_notesPanel, &NotesPanel::exportVideoRequested, this, &MainWindow::exportReview);
+    connect(m_notesPanel, &NotesPanel::exportVideoRequested, this, [this] { exportReview(true); });
     connect(m_notesDock, &QDockWidget::visibilityChanged, this, [this](bool visible) {
         if (QAction* action = m_commands->action(CommandId::ToggleNotesPanel)) {
             QSignalBlocker blocker(action);
@@ -1227,6 +1240,7 @@ void MainWindow::onCommand(CommandId id, bool checked)
     case CommandId::ExportCurrentFrame: exportCurrentFrame(); return;
     case CommandId::ExportImageSequence: exportImageSequence(); return;
     case CommandId::ExportReviewNotes: exportReviewNotes(); return;
+    case CommandId::ExportNotesVideo: exportReview(true); return;
     }
 }
 
@@ -1454,7 +1468,7 @@ void MainWindow::updateTransportEnabled()
 
     if (QAction* action = m_commands->action(CommandId::ExportReview))
         action->setEnabled(m_playback->hasMedia() && !exportInProgress());
-    for (CommandId id : {CommandId::ExportCurrentFrame, CommandId::ExportImageSequence})
+    for (CommandId id : {CommandId::ExportCurrentFrame, CommandId::ExportImageSequence, CommandId::ExportNotesVideo})
         if (QAction* action = m_commands->action(id))
             action->setEnabled(m_playback->hasMedia() && !exportInProgress());
     if (QAction* action = m_commands->action(CommandId::ExportReviewNotes))
@@ -2105,10 +2119,17 @@ bool MainWindow::exportInProgress() const
     return m_exportJob && m_exportJob->isRunning();
 }
 
-void MainWindow::exportReview()
+void MainWindow::exportReview(bool withNotes)
 {
     if (exportInProgress()) return;
     exporter::ExportSpec spec = exportSnapshot();
+    if (withNotes && !spec.comparison) {
+        spec.burnIns.annotations = true;
+        spec.burnIns.annotationNotes = true;
+        const QFileInfo out(spec.outputPath);
+        spec.outputPath = QDir(out.absolutePath()).filePath(out.completeBaseName().replace(
+            QStringLiteral("_review"), QStringLiteral("_notes")) + QStringLiteral(".mp4"));
+    }
     ExportDialog dialog(spec, this);
     if (dialog.exec() != QDialog::Accepted) return;
     spec.outputPath = dialog.destination();

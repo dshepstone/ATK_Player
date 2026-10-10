@@ -71,20 +71,45 @@ OS-specific code. `ROADMAP.md` still lists "Drawn annotations over frames" under
   `tst_annotationviewer` (tracing paper and ghost pixels),
   `tst_annotationworkflow::tracingPaperAndGhostingToggleAndPersist`.
 
+### Drawing responsiveness, shortcuts and the Draw button (as built)
+
+- **Faster drawing (most visible with tracing paper):** while Draw on Frame or tracing
+  paper is on, the viewer paints the picture through a widget-sized cache (frame + tracing
+  paper composed once per frame, zoom or setting change), and pen moves repaint only the
+  area around the newest ink and the brush cursor. `AnnotationRenderer` limits freehand and
+  stamp layers to the painter's clip, with the layer origin snapped to whole device pixels
+  so partial repaints match a full render exactly (`tst_annotationrenderer`
+  `partialRepaintsMatchAFullRender`, fails without the snap at 150 %). Measured at 2×
+  scaling, 1600×900 viewer, pencil: 12.4 → 1.2 ms per pen event (tracing paper off) and
+  14.3 → 1.4 ms (on).
+- **Next / previous note or drawing:** **Ctrl+.** and **Ctrl+,** (the > and < keys; with
+  Shift also accepted). The old Alt+Shift+←/→ collided with Windows' keyboard-layout
+  switch. **Preferences** moved from Ctrl+, to **Ctrl+K** (as in Photoshop).
+- **Draw on Frame button** at the left of the transport row (pencil icon drawn in code, so
+  no image plugin is needed), tied to the same command as D.
+
 ### Review Notes PDF (Phase F, as built)
 
-- **Entry points:** File → Export Review Notes (PDF)… (`file.exportReviewNotes`) and the
-  Notes panel's **Export PDF…** button. The panel's **Export Video…** opens Export Review
-  with drawings and notes burned in.
+- **Entry points:** File → **Export Notes PDF…** (`file.exportReviewNotes`) and
+  **Export Notes Video (MP4)…** (`file.exportNotesVideo`, Export Review with drawings and
+  note captions on, default name `<clip>_notes.mp4`), grouped after the other exports; and
+  the Notes panel's **Export PDF…** / **Export Video…** buttons.
 - **Dialog (`ReviewNotesDialog`):** destination (default `<clip>_review_notes.pdf` beside
   the project or clip), paper A4 or US Letter (Letter for US/Canada/Mexico locales),
   include resolved notes, and a live count of frames to be listed.
 - **Rows:** every frame with drawings, or with notes that pass the resolved filter, in
   frame order, over the whole clip (not the review range) of the annotated source.
 - **Job (`exporter::ReviewNotesJob`, `atk_core`):** on its own thread, decodes each row's
-  frame with its own `ExportRenderer` (drawings burned in, no other burn-ins), scales the
-  picture to at most 1280 px wide, then writes with `ReviewNotesPdfWriter`. It writes
-  `<path>.partial` and renames it on success, so a failure never leaves a broken PDF.
+  frame with its own `ExportRenderer` (drawings burned in, no other burn-ins) and scales the
+  picture to at most 1280 px wide. The finished rows come back to the owner's (GUI) thread,
+  which writes the PDF with `ReviewNotesPdfWriter` (tens of milliseconds): QPdfWriter's
+  font layout and embedding are only dependable there. This followed a Windows report of
+  a PDF that would not open; it did not reproduce on Linux (strict `pypdf` and poppler
+  checks under concurrent GUI text painting). The file is written to `<path>.partial`,
+  checked by `ReviewNotesPdfWriter::verify` (header, `%%EOF`, and every cross-reference
+  entry pointing at its object), and only then renamed over the destination; a failed
+  check reports an error and saves nothing. Note text no longer adds symbol glyphs (✓)
+  that would pull in a fallback font.
   Progress, completion (path and page count), cancel and failure come back as queued
   signals. `MainWindow` cancels and joins it before a project change or close.
 - **Layout (`ReviewNotesPdfWriter`, points):** "REVIEW NOTES" title with the generation

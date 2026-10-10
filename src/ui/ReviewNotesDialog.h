@@ -12,7 +12,7 @@ class QPushButton;
 
 namespace atk::ui {
 
-/// Options for "Export Review Notes (PDF)": where to save, paper size, and
+/// Options for "Export Notes PDF": where to save, paper size, and
 /// whether resolved notes are included. Shows how many frames will be listed.
 class ReviewNotesDialog final : public QDialog {
     Q_OBJECT

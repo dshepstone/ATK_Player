@@ -46,6 +46,11 @@ public:
     static bool write(const ReviewNotesDocument& document, const QString& path, QString* error,
                       int* pages = nullptr);
 
+    /// Structural check of a written PDF: header, end marker, and every
+    /// object where the cross-reference table says it is. Catches truncated
+    /// or scrambled files before they replace a good one.
+    static bool verify(const QString& path, QString* error);
+
     /// Which page each row lands on, given row heights and the space available
     /// on the first page (after the header) and on following pages. A row taller
     /// than a page gets a page of its own. Pure, for tests.
@@ -60,10 +65,12 @@ struct ReviewNotesOptions {
     int imageWidth = 1280; // pixels per frame picture in the PDF
 };
 
-/// Builds rows from a source's annotations and writes the PDF off the UI
-/// thread: decodes each annotated frame with its own decoder, burns in the
-/// drawings with the shared renderer, then writes atomically (temporary file,
-/// replaced on success). Shutdown order: cancel(), then wait() or destroy.
+/// Builds rows from a source's annotations and writes the PDF: decoding each
+/// annotated frame (with its own decoder) and burning in the drawings happens
+/// on a worker thread; the finished rows come back to the owner's thread,
+/// which writes the PDF (fonts are only dependable there), verifies it, and
+/// replaces the destination atomically. Shutdown order: cancel(), then wait()
+/// or destroy; a cancel before the rows arrive writes nothing.
 class ReviewNotesJob final : public QObject {
     Q_OBJECT
 
@@ -92,6 +99,7 @@ signals:
 
 private:
     void run();
+    void writeDocument(const ReviewNotesDocument& doc);
 
     ExportSpec m_spec;
     ReviewNotesDocument m_header;

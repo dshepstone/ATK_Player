@@ -85,6 +85,28 @@ QRectF textRect(const QRectF& rect, const AnnotationItem& item)
 
 void paintStamp(QPainter& painter, const QRectF& rect, const AnnotationItem& item, const BrushTip& tip);
 
+/// The layer a stroke renders into: its bounds, cut to the painter's clip
+/// (only the area being repainted, such as around the pen while drawing),
+/// with the origin snapped so it lands on whole device pixels. The snap keeps
+/// antialiasing and pencil grain identical however the area is cut.
+QRect layerRect(const QPainter& painter, QRectF bounds, qreal dpr)
+{
+    if (painter.hasClipping()) bounds = bounds.intersected(painter.clipBoundingRect().adjusted(-2, -2, 2, 2));
+    QRect rect = bounds.toAlignedRect();
+    if (rect.isEmpty()) return {};
+    int step = 1; // smallest step whose device size is whole (2 at 150%)
+    for (int k = 1; k <= 8; ++k) {
+        if (std::abs(k * dpr - std::round(k * dpr)) < 1e-6) {
+            step = k;
+            break;
+        }
+    }
+    auto down = [step](int v) { return v >= 0 ? v / step * step : -((-v + step - 1) / step) * step; };
+    rect.setLeft(down(rect.left()));
+    rect.setTop(down(rect.top()));
+    return rect;
+}
+
 void paintFreehand(QPainter& painter, const QRectF& rect, const AnnotationItem& item)
 {
     if (item.tool == AnnotationTool::Stamp) {
@@ -119,7 +141,7 @@ void paintFreehand(QPainter& painter, const QRectF& rect, const AnnotationItem& 
             bounds = bounds.intersected(inverse.mapRect(deviceRect).adjusted(-2, -2, 2, 2));
         }
     }
-    const QRect clipped = bounds.toAlignedRect();
+    const QRect clipped = layerRect(painter, bounds, dpr);
     if (clipped.isEmpty()) return;
     const QSize layerSize(std::max(1, qCeil(clipped.width() * dpr)), std::max(1, qCeil(clipped.height() * dpr)));
     // Hard cap so a pathological transform can never allocate gigabytes.
@@ -209,7 +231,7 @@ void paintStamp(QPainter& painter, const QRectF& rect, const AnnotationItem& ite
         const QTransform inverse = painter.combinedTransform().inverted(&invertible);
         if (invertible) bounds = bounds.intersected(inverse.mapRect(QRectF(0, 0, device->width(), device->height())).adjusted(-2, -2, 2, 2));
     }
-    const QRect clipped = bounds.toAlignedRect();
+    const QRect clipped = layerRect(painter, bounds, dpr);
     if (clipped.isEmpty()) return;
     const QSize layerSize(std::max(1, qCeil(clipped.width() * dpr)), std::max(1, qCeil(clipped.height() * dpr)));
     if (qint64(layerSize.width()) * layerSize.height() > 64LL * 1024 * 1024) return;

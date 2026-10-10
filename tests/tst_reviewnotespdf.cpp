@@ -64,6 +64,7 @@ private slots:
     void writerProducesAPagePerOverflow();
     void jobRendersAnnotatedFramesIntoAPdf();
     void jobCancelLeavesNoFile();
+    void verifyCatchesBrokenFiles();
 };
 
 void TestReviewNotesPdf::paginateKeepsRowsWhole()
@@ -178,6 +179,41 @@ void TestReviewNotesPdf::jobCancelLeavesNoFile()
     QCoreApplication::processEvents();
     QVERIFY(!QFile::exists(options.outputPath));
     QVERIFY(!QFile::exists(options.outputPath + QStringLiteral(".partial")));
+}
+
+void TestReviewNotesPdf::verifyCatchesBrokenFiles()
+{
+    QTemporaryDir dir;
+    exporter::ReviewNotesDocument doc;
+    doc.projectName = QStringLiteral("Project");
+    QImage picture(320, 180, QImage::Format_RGB32);
+    picture.fill(Qt::darkGray);
+    doc.rows.append({0, QStringLiteral("00:00:00:00"), picture, {note(1, QStringLiteral("Résumé ✓ 日本"), true)}});
+    const QString good = dir.filePath(QStringLiteral("good.pdf"));
+    QString error;
+    QVERIFY(exporter::ReviewNotesPdfWriter::write(doc, good, &error));
+    QVERIFY2(exporter::ReviewNotesPdfWriter::verify(good, &error), qPrintable(error));
+
+    QFile file(good);
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    const QByteArray bytes = file.readAll();
+    file.close();
+    auto broken = [&](const QByteArray& data) {
+        const QString path = dir.filePath(QStringLiteral("broken.pdf"));
+        QFile out(path);
+        if (!out.open(QIODevice::WriteOnly | QIODevice::Truncate)) return false;
+        out.write(data);
+        out.close();
+        QString why;
+        return !exporter::ReviewNotesPdfWriter::verify(path, &why) && !why.isEmpty();
+    };
+    QVERIFY(broken(bytes.left(bytes.size() / 2)));          // truncated
+    QVERIFY(broken(QByteArray()));                         // empty
+    QVERIFY(broken(QByteArray("hello") + bytes.mid(5)));   // no header
+    QByteArray shifted = bytes;
+    shifted.insert(bytes.size() / 3, "garbage ");          // objects moved
+    QVERIFY(broken(shifted));
+    QVERIFY(!exporter::ReviewNotesPdfWriter::verify(dir.filePath(QStringLiteral("missing.pdf")), &error));
 }
 
 QTEST_MAIN(TestReviewNotesPdf)

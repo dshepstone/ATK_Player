@@ -33,12 +33,13 @@ constexpr std::array kCommands{
     CommandDefinition{ CommandId::ExportReview,       "file.exportReview",     QT_TRANSLATE_NOOP("Command", "Export Review..."),     C::File,     nullptr,        false },
     CommandDefinition{ CommandId::ExportCurrentFrame, "file.exportCurrentFrame",QT_TRANSLATE_NOOP("Command", "Export Current Frame..."),C::File,   nullptr,        false },
     CommandDefinition{ CommandId::ExportImageSequence,"file.exportImageSequence",QT_TRANSLATE_NOOP("Command", "Export Image Sequence..."),C::File,  nullptr,        false },
-    CommandDefinition{ CommandId::ExportReviewNotes,  "file.exportReviewNotes", QT_TRANSLATE_NOOP("Command", "Export Review Notes (PDF)..."),C::File, nullptr,      false },
+    CommandDefinition{ CommandId::ExportReviewNotes,  "file.exportReviewNotes", QT_TRANSLATE_NOOP("Command", "Export Notes PDF..."),  C::File,     nullptr,        false },
+    CommandDefinition{ CommandId::ExportNotesVideo,   "file.exportNotesVideo", QT_TRANSLATE_NOOP("Command", "Export Notes Video (MP4)..."),C::File,nullptr,      false },
     CommandDefinition{ CommandId::CloseSource,        "file.closeSource",      QT_TRANSLATE_NOOP("Command", "Close Source"),         C::File,     "Ctrl+W",       false },
     CommandDefinition{ CommandId::Quit,               "file.quit",             QT_TRANSLATE_NOOP("Command", "Quit"),                 C::File,     "Ctrl+Q",       false },
 
     // Edit
-    CommandDefinition{ CommandId::Preferences,        "edit.preferences",      QT_TRANSLATE_NOOP("Command", "Preferences..."),       C::Edit,     "Ctrl+,",       false },
+    CommandDefinition{ CommandId::Preferences,        "edit.preferences",      QT_TRANSLATE_NOOP("Command", "Preferences..."),       C::Edit,     "Ctrl+K",       false },
 
     // Drawing
     CommandDefinition{ CommandId::ToggleAnnotateMode, "draw.annotateMode",     QT_TRANSLATE_NOOP("Command", "Draw on Frame"),        C::Edit,     "D",            true  },
@@ -50,8 +51,8 @@ constexpr std::array kCommands{
     CommandDefinition{ CommandId::ToggleAnnotationsVisible,"draw.showAnnotations",QT_TRANSLATE_NOOP("Command", "Show Drawings"),   C::Edit,     nullptr,        true  },
     CommandDefinition{ CommandId::ToggleTracingPaper, "draw.tracingPaper",     QT_TRANSLATE_NOOP("Command", "Tracing Paper"),        C::Edit,     "T",            true  },
     CommandDefinition{ CommandId::ToggleGhosting,     "draw.ghosting",         QT_TRANSLATE_NOOP("Command", "Ghost Drawings"),       C::Edit,     "G",            true  },
-    CommandDefinition{ CommandId::NextAnnotatedFrame, "draw.nextFrame",        QT_TRANSLATE_NOOP("Command", "Next Note or Drawing"),     C::Edit,     "Alt+Shift+Right",false },
-    CommandDefinition{ CommandId::PreviousAnnotatedFrame,"draw.previousFrame", QT_TRANSLATE_NOOP("Command", "Previous Note or Drawing"), C::Edit,     "Alt+Shift+Left",false },
+    CommandDefinition{ CommandId::NextAnnotatedFrame, "draw.nextFrame",        QT_TRANSLATE_NOOP("Command", "Next Note or Drawing"),     C::Edit,     "Ctrl+.",       false },
+    CommandDefinition{ CommandId::PreviousAnnotatedFrame,"draw.previousFrame", QT_TRANSLATE_NOOP("Command", "Previous Note or Drawing"), C::Edit,     "Ctrl+,",       false },
 
     // Playback
     CommandDefinition{ CommandId::PlayPause,          "playback.playPause",    QT_TRANSLATE_NOOP("Command", "Play / Pause"),         C::Playback, "Space",        false },

@@ -21,7 +21,7 @@ ReviewNotesDialog::ReviewNotesDialog(const annotation::SourceAnnotations& annota
     : QDialog(parent), m_annotations(annotations)
 {
     setObjectName(QStringLiteral("ReviewNotesDialog"));
-    setWindowTitle(tr("Export Review Notes (PDF)"));
+    setWindowTitle(tr("Export Notes PDF"));
     auto* root = new QVBoxLayout(this);
     auto* title = new QLabel(tr("EXPORT REVIEW NOTES"), this);
     title->setProperty("atkRole", "heading");

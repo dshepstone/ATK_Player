@@ -49,6 +49,8 @@ int columnCoverage(const QImage& image, int x)
 class TestAnnotationRenderer : public QObject {
     Q_OBJECT
 private slots:
+    void partialRepaintsMatchAFullRender_data();
+    void partialRepaintsMatchAFullRender();
     void pressureWidensPen();
     void markerIsConstantWidthAndNeverDarkensWhereItCrossesItself();
     void sizeScalesWithImageResolution();
@@ -453,6 +455,65 @@ void TestAnnotationRenderer::pressureCanBeDisabled()
     StrokeBuilder builder(settings, QSizeF(100, 100));
     builder.addSample(QPointF(0.5, 0.5), 0.1f);
     QCOMPARE(builder.points().constFirst().pressure, 1.0f);
+}
+
+void TestAnnotationRenderer::partialRepaintsMatchAFullRender_data()
+{
+    QTest::addColumn<int>("tool");
+    QTest::addColumn<qreal>("dpr");
+    for (qreal dpr : {1.0, 1.5, 2.0}) {
+        const QByteArray suffix = QByteArray::number(dpr);
+        QTest::newRow("pencil@" + suffix) << int(AnnotationTool::Pencil) << dpr;
+        QTest::newRow("brush@" + suffix) << int(AnnotationTool::Brush) << dpr;
+    }
+}
+
+// While drawing, the viewer repaints only small areas around the pen. Each
+// area must come out exactly as the same pixels of a full render, or seams
+// (grain or edge shifts) would show along the stroke.
+void TestAnnotationRenderer::partialRepaintsMatchAFullRender()
+{
+    QFETCH(int, tool);
+    QFETCH(qreal, dpr);
+    AnnotationItem item;
+    item.id = 1;
+    item.tool = AnnotationTool(tool);
+    item.color = QColor(20, 40, 200);
+    item.size = 0.06;
+    item.textureSeed = 7;
+    for (int i = 0; i < 40; ++i)
+        item.points.append({float(0.1 + i * 0.02), float(0.5 + 0.25 * std::sin(i / 4.0)), float(0.3 + (i % 7) / 10.0), 0, 0});
+    const QSize logical(300, 200);
+    const QRectF rect(QPointF(0, 0), QSizeF(logical));
+    auto canvas = [&] {
+        QImage image((QSizeF(logical) * dpr).toSize(), QImage::Format_ARGB32_Premultiplied);
+        image.setDevicePixelRatio(dpr);
+        image.fill(Qt::transparent);
+        return image;
+    };
+    QImage full = canvas();
+    {
+        QPainter p(&full);
+        AnnotationRenderer::paintItem(p, rect, item);
+    }
+    QImage tiled = canvas();
+    {
+        QPainter p(&tiled);
+        // Odd-sized, odd-placed tiles, like dirty rects around a moving pen.
+        for (int y = 0; y < logical.height(); y += 37)
+            for (int x = 0; x < logical.width(); x += 29) {
+                p.setClipRect(QRect(x, y, 29, 37));
+                AnnotationRenderer::paintItem(p, rect, item);
+            }
+    }
+    int worst = 0;
+    for (int y = 0; y < full.height(); ++y)
+        for (int x = 0; x < full.width(); ++x) {
+            const QRgb a = full.pixel(x, y), b = tiled.pixel(x, y);
+            worst = std::max({worst, std::abs(qAlpha(a) - qAlpha(b)), std::abs(qRed(a) - qRed(b)),
+                              std::abs(qGreen(a) - qGreen(b)), std::abs(qBlue(a) - qBlue(b))});
+        }
+    QVERIFY2(worst <= 2, qPrintable(QStringLiteral("largest channel difference %1").arg(worst)));
 }
 
 QTEST_MAIN(TestAnnotationRenderer)

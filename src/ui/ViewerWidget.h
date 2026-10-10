@@ -246,6 +246,13 @@ private:
     void setHoverPosition(std::optional<QPointF> position);
     void paintAnnotations(QPainter& painter, const QRectF& target);
     void paintBrushCursor(QPainter& painter);
+    /// Draws the picture (and tracing paper) through a widget-sized cache, so
+    /// a repaint while drawing is one blit instead of a scaled draw and blend.
+    void paintCachedPicture(QPainter& painter, const QRectF& target, const QColor& background);
+    /// Widget area the brush cursor occupies at `position`.
+    QRect brushCursorRect(const QPointF& position) const;
+    /// Widget area the newest part of a freehand stroke occupies.
+    QRect freehandDirtyRect() const;
 
     media::VideoFrame m_frame;
     State m_state = State::Empty;
@@ -290,6 +297,15 @@ private:
     quint64 m_ghostGeneration = 0;
     quint64 m_ghostCacheGeneration = ~quint64(0);
     int m_tracingPaperPercent = 0;
+    // Picture + tracing paper at widget resolution (see paintCachedPicture).
+    QImage m_pictureCache;
+    qint64 m_pictureCacheKey = 0;
+    QRectF m_pictureCacheTarget;
+    bool m_pictureCacheFlipped = false;
+    int m_pictureCacheTrace = -1;
+    bool m_pictureCacheSmooth = false;
+    QRgb m_pictureCacheBackground = 0;
+    QRect m_lastStrokeDirty; // repainted again on the next move
 };
 
 } // namespace atk::ui

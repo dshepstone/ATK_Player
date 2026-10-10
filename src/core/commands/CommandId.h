@@ -20,6 +20,7 @@ enum class CommandId {
     ExportCurrentFrame,
     ExportImageSequence,
     ExportReviewNotes,
+    ExportNotesVideo,
     CloseSource,
     Quit,
 

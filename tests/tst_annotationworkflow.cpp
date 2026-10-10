@@ -5,6 +5,7 @@
 #include "project/Project.h"
 #include "project/ProjectSerializer.h"
 #include "ui/AnnotationToolbar.h"
+#include "ui/ExportDialog.h"
 #include "ui/MainWindow.h"
 #include "ui/NotesPanel.h"
 #include "ui/ReviewNotesDialog.h"
@@ -16,6 +17,8 @@
 #include <QFile>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMenu>
+#include <QMenuBar>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QSignalSpy>
@@ -88,6 +91,8 @@ private slots:
     void notesPanelExportsAReviewNotesPdf();
     void notesComposerBelongsToTheFrame();
     void tracingPaperAndGhostingToggleAndPersist();
+    void drawButtonAndCtrlAngleBracketsJumpBetweenDrawings();
+    void fileMenuHasTheNotesExports();
 };
 
 void TestAnnotationWorkflow::drawModeNeedsMedia()
@@ -526,6 +531,99 @@ void TestAnnotationWorkflow::tracingPaperAndGhostingToggleAndPersist()
     QVERIFY(command(again, "draw.ghosting")->isChecked());
     QCOMPARE(again.findChild<QSpinBox*>(QStringLiteral("GhostBefore"))->value(), 1);
     QCOMPARE(again.findChild<QSpinBox*>(QStringLiteral("GhostAfter"))->value(), 3);
+}
+
+void TestAnnotationWorkflow::drawButtonAndCtrlAngleBracketsJumpBetweenDrawings()
+{
+    QTemporaryDir directory;
+    const QString projectPath = writeProject(directory);
+    atk::ui::MainWindow window(directory.filePath(QStringLiteral("settings.ini")));
+    window.resize(1400, 800);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    QVERIFY(openAt(window, projectPath, 10));
+    auto* viewer = window.findChild<atk::ui::ViewerWidget*>();
+    auto* toolbar = window.findChild<atk::ui::AnnotationToolbar*>();
+
+    // The Draw button on the transport row opens the drawing tools.
+    auto* drawButton = window.findChild<QToolButton*>(QStringLiteral("TransportDrawButton"));
+    QVERIFY(drawButton && drawButton->isVisible() && drawButton->isEnabled());
+    QVERIFY(!toolbar->isVisible());
+    drawButton->click();
+    QVERIFY(viewer->annotateMode());
+    QVERIFY(toolbar->isVisible());
+    QVERIFY(drawButton->isChecked());
+    drawStroke(viewer, {0.3, 0.4}, {0.6, 0.5});
+    window.playbackController()->seekFrame(30);
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->currentFrame(), qint64(30), 5000);
+    QTRY_VERIFY(viewer->state() == atk::ui::ViewerWidget::State::Loaded);
+    drawStroke(viewer, {0.3, 0.4}, {0.6, 0.5});
+    drawButton->click();
+    QVERIFY(!viewer->annotateMode());
+    QVERIFY(!toolbar->isVisible());
+
+    // Ctrl + > / < (the . and , keys, shifted or not) step between drawings.
+    window.playbackController()->seekFrame(0);
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->currentFrame(), qint64(0), 5000);
+    viewer->setFocus();
+    QTest::keyClick(viewer, Qt::Key_Period, Qt::ControlModifier);
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->currentFrame(), qint64(10), 5000);
+    QTest::keyClick(viewer, Qt::Key_Greater, Qt::ControlModifier);
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->currentFrame(), qint64(30), 5000);
+    QTest::keyClick(viewer, Qt::Key_Comma, Qt::ControlModifier);
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->currentFrame(), qint64(10), 5000);
+    QTest::keyClick(viewer, Qt::Key_Less, Qt::ControlModifier);
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->currentFrame(), qint64(30), 5000); // wraps
+    // Also from the notes composer, so you can jump while writing notes.
+    auto* panel = window.findChild<atk::ui::NotesPanel*>();
+    panel->composer()->setFocus();
+    QTest::keyClick(panel->composer(), Qt::Key_Period, Qt::ControlModifier);
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->currentFrame(), qint64(10), 5000);
+    QCOMPARE(command(window, "draw.nextFrame")->shortcut(), QKeySequence(QStringLiteral("Ctrl+.")));
+    QCOMPARE(command(window, "draw.previousFrame")->shortcut(), QKeySequence(QStringLiteral("Ctrl+,")));
+    QCOMPARE(command(window, "edit.preferences")->shortcut(), QKeySequence(QStringLiteral("Ctrl+K")));
+}
+
+void TestAnnotationWorkflow::fileMenuHasTheNotesExports()
+{
+    QTemporaryDir directory;
+    const QString projectPath = writeProject(directory);
+    atk::ui::MainWindow window(directory.filePath(QStringLiteral("settings.ini")));
+    window.resize(1400, 800);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    QAction* pdf = command(window, "file.exportReviewNotes");
+    QAction* video = command(window, "file.exportNotesVideo");
+    QVERIFY(pdf && video);
+
+    // Both sit in the File menu, together, after the other exports.
+    QMenu* fileMenu = nullptr;
+    for (QAction* top : window.menuBar()->actions())
+        if (top->menu() && top->menu()->actions().contains(command(window, "file.exportReview"))) fileMenu = top->menu();
+    QVERIFY(fileMenu);
+    const QList<QAction*> items = fileMenu->actions();
+    const int pdfAt = int(items.indexOf(pdf));
+    QVERIFY(pdfAt > int(items.indexOf(command(window, "file.exportImageSequence"))));
+    QCOMPARE(items.value(pdfAt + 1), video);
+    QVERIFY(items.value(pdfAt - 1)->isSeparator());
+    QCOMPARE(pdf->text(), QStringLiteral("Export Notes PDF..."));
+    QCOMPARE(video->text(), QStringLiteral("Export Notes Video (MP4)..."));
+
+    // Export Notes Video opens Export Review with drawings and notes on.
+    QVERIFY(openAt(window, projectPath, 5));
+    QVERIFY(video->isEnabled());
+    bool checked = false;
+    QString destination;
+    QTimer::singleShot(0, this, [&] {
+        QTRY_VERIFY(qobject_cast<atk::ui::ExportDialog*>(QApplication::activeModalWidget()));
+        auto* dialog = qobject_cast<atk::ui::ExportDialog*>(QApplication::activeModalWidget());
+        checked = dialog->burnIns().annotations && dialog->burnIns().annotationNotes;
+        destination = dialog->destination();
+        dialog->reject();
+    });
+    video->trigger();
+    QVERIFY(checked);
+    QVERIFY2(destination.endsWith(QStringLiteral("_notes.mp4")), qPrintable(destination));
 }
 
 QTEST_MAIN(TestAnnotationWorkflow)

@@ -191,7 +191,9 @@ private:
     void applyComparisonAudioMode(playback::CompareAudioMode mode);
     void loadExternalAudio();
     void clearExternalAudio();
-    void exportReview();
+    /// Export Review; `withNotes` turns on the drawings and note captions
+    /// (Export Notes Video).
+    void exportReview(bool withNotes = false);
     void exportCurrentFrame();
     void exportImageSequence();
     void exportReviewNotes();
