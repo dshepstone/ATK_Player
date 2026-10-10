@@ -1,5 +1,6 @@
 #include "ui/MainWindow.h"
 
+#include "annotation/AnnotationStore.h"
 #include "api/ApiServer.h"
 #include "playback/CompareSession.h"
 #include "playback/CompareVideoLane.h"
@@ -13,6 +14,7 @@
 #include "project/Project.h"
 #include "project/ProjectSerializer.h"
 #include "timeline/TimelineModel.h"
+#include "ui/AnnotationToolbar.h"
 #include "ui/ApplicationSettings.h"
 #include "ui/BookmarkPanel.h"
 #include "ui/BurnInOptionsWidget.h"
@@ -36,6 +38,7 @@
 #include "ui/commands/CommandRegistry.h"
 
 #include <QFileDialog>
+#include <QInputDialog>
 #include <QDir>
 #include <QFileInfo>
 #include <QGuiApplication>
@@ -105,6 +108,8 @@ bool startsNewGroup(CommandId id)
     switch (id) {
     case CommandId::CloseSource:
     case CommandId::Quit:
+    case CommandId::ToggleAnnotateMode:
+    case CommandId::IncreaseBrushSize:
     case CommandId::PreviousFrame:
     case CommandId::ToggleLoop:
     case CommandId::SetRangeIn:
@@ -253,6 +258,7 @@ void MainWindow::buildModels()
     m_playback->setVolume(m_settings->volume());
     m_playback->setMuted(m_settings->muted());
     m_project  = std::make_unique<project::Project>();
+    m_annotations = std::make_unique<annotation::AnnotationStore>();
     m_probeThread = new QThread(this);
     m_probeWorker = new media::PlaylistProbeWorker;
     m_probeWorker->moveToThread(m_probeThread);
@@ -415,6 +421,14 @@ void MainWindow::buildWidgets()
     m_bookmarksDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetClosable);
     addDockWidget(Qt::RightDockWidgetArea, m_bookmarksDock);
 
+    // --- Drawing toolbar --------------------------------------------------
+    // Shown only while Draw on Frame is on.
+    m_annotationToolbar = new AnnotationToolbar(this);
+    m_annotationToolbar->setSettings(m_settings->annotationTool());
+    addToolBar(Qt::TopToolBarArea, m_annotationToolbar);
+    m_annotationToolbar->hide();
+    m_viewer->setAnnotationTool(m_annotationToolbar->settings());
+
     // --- Status bar -------------------------------------------------------
     m_statusInfo = new StatusInfoBar(this);
     m_statusInfo->setModel(m_timeline.get());
@@ -483,6 +497,9 @@ void MainWindow::buildMenus()
         snapAction->setChecked(m_settings->bookmarkSnapEnabled());
         m_timelineWidget->setBookmarkSnapEnabled(m_settings->bookmarkSnapEnabled());
     }
+    if (QAction* showDrawings = m_commands->action(CommandId::ToggleAnnotationsVisible)) {
+        showDrawings->setChecked(true);
+    }
     if (QAction* scrubAction = m_commands->action(CommandId::ToggleAudioScrub)) {
         scrubAction->setChecked(m_settings->audioScrubEnabled());
     }
@@ -532,9 +549,52 @@ void MainWindow::connectSignals()
     connect(m_playback.get(), &playback::PlaybackController::frameChanged,
             this, [this](const media::VideoFrame& frame) {
                 m_viewer->setFrame(frame);
+                if (frame.frameIndex != m_displayedFrameIndex
+                    || frame.image.height() != m_displayedImageHeight) {
+                    m_displayedFrameIndex = frame.frameIndex;
+                    m_displayedImageHeight = frame.image.height();
+                    m_displayedFramePtsUs = frame.ptsUs;
+                    refreshViewerAnnotations();
+                }
                 m_compareComposite->setFrameA(frame);
                 synchronizeComparison(frame);
             });
+
+    // --- Drawing on frames ------------------------------------------------
+    connect(m_viewer, &ViewerWidget::annotationItemDrawn, this,
+            [this](qint64 frameIndex, const annotation::AnnotationItem& item) {
+                if (m_annotationSourceId.isNull() || frameIndex < 0) return;
+                if (m_annotations->addItem(frameIndex, annotationMediaTimeUs(frameIndex), item) == 0)
+                    statusBar()->showMessage(tr("This drawing could not be added (frame limit reached)."), 4000);
+            });
+    connect(m_viewer, &ViewerWidget::annotationEraseRequested, this,
+            [this](qint64 frameIndex, const QVector<quint64>& ids) {
+                for (quint64 id : ids) m_annotations->removeItem(frameIndex, id);
+            });
+    connect(m_viewer, &ViewerWidget::annotationTextRequested, this, &MainWindow::addAnnotationText);
+    connect(m_annotationToolbar, &AnnotationToolbar::settingsChanged, this, &MainWindow::applyAnnotationTool);
+    connect(m_annotations.get(), &annotation::AnnotationStore::annotationsEdited, this, [this] {
+        if (!m_annotationSourceId.isNull())
+            m_project->setAnnotations(m_annotationSourceId, m_annotations->annotations());
+    });
+    connect(m_annotations.get(), &annotation::AnnotationStore::frameChanged, this, [this](qint64 frame) {
+        if (frame == m_displayedFrameIndex) refreshViewerAnnotations();
+    });
+    connect(m_annotations.get(), &annotation::AnnotationStore::annotationsReset, this,
+            &MainWindow::refreshViewerAnnotations);
+    auto markDrawnFrames = [this] { m_timelineWidget->setAnnotatedFrames(m_annotations->annotatedFrames()); };
+    connect(m_annotations.get(), &annotation::AnnotationStore::annotationsEdited, this, markDrawnFrames);
+    connect(m_annotations.get(), &annotation::AnnotationStore::annotationsReset, this, markDrawnFrames);
+    connect(m_annotations.get(), &annotation::AnnotationStore::historyChanged, this,
+            &MainWindow::updateAnnotationActions);
+    // Rebind whenever the active source or the playlist changes. Binding is a
+    // no-op when the store already holds that source's data, so undo history
+    // survives unrelated playlist updates such as probe results.
+    connect(m_project.get(), &project::Project::activeIndexChanged, this,
+            [this](int) { bindAnnotationsToActiveSource(); });
+    connect(m_project.get(), &project::Project::entriesChanged, this,
+            &MainWindow::bindAnnotationsToActiveSource);
+    updateAnnotationActions();
 
     connect(m_viewer, &ViewerWidget::activated, this,
             [this] { if (isComparisonActive()) m_compare->setActivePane(playback::ComparePane::A); });
@@ -866,6 +926,39 @@ void MainWindow::onCommand(CommandId id, bool checked)
         m_settings->setBookmarkSnapEnabled(checked);
         return;
 
+    // --- Drawing ------------------------------------------------------------
+    case CommandId::ToggleAnnotateMode:
+        setAnnotateMode(checked);
+        return;
+    case CommandId::UndoAnnotation:
+        m_annotations->undo();
+        return;
+    case CommandId::RedoAnnotation:
+        m_annotations->redo();
+        return;
+    case CommandId::ClearFrameAnnotations:
+        if (m_displayedFrameIndex >= 0) m_annotations->clearFrame(m_displayedFrameIndex);
+        return;
+    case CommandId::IncreaseBrushSize:
+    case CommandId::DecreaseBrushSize: {
+        auto settings = m_annotationToolbar->settings();
+        settings.sizePixels = annotation::stepBrushSize(settings.sizePixels,
+                                                        id == CommandId::IncreaseBrushSize ? 1 : -1);
+        m_annotationToolbar->setSettings(settings);
+        applyAnnotationTool(settings);
+        statusBar()->showMessage(tr("Brush size %1 px").arg(settings.sizePixels), 1500);
+        return;
+    }
+    case CommandId::ToggleAnnotationsVisible:
+        m_viewer->setAnnotationsVisible(checked);
+        return;
+    case CommandId::NextAnnotatedFrame:
+        seekAnnotatedFrame(1);
+        return;
+    case CommandId::PreviousAnnotatedFrame:
+        seekAnnotatedFrame(-1);
+        return;
+
     // --- View: fully wired ------------------------------------------------
     case CommandId::ZoomFit:
         if (isComparisonActive() && m_compare->layout() != playback::CompareLayout::SideBySide
@@ -1177,6 +1270,9 @@ void MainWindow::restoreApplicationLayout()
         addDockWidget(Qt::LeftDockWidgetArea, m_sourcesDock);
         addDockWidget(Qt::RightDockWidgetArea, m_bookmarksDock);
     }
+    // The saved layout may record the drawing toolbar as visible; it belongs
+    // to Draw on Frame, which always starts off.
+    if (m_annotationToolbar) m_annotationToolbar->setVisible(m_viewer->annotateMode());
 }
 
 void MainWindow::saveApplicationLayout()
@@ -1622,6 +1718,7 @@ void MainWindow::restoreActiveReviewState()
         m_timeline->fitViewport();
     m_viewer->resetNavigationToFit();
     m_restoringSourceState = false;
+    bindAnnotationsToActiveSource();
 }
 
 void MainWindow::activatePlaylistIndex(int index, bool continuePlayback)
@@ -2186,6 +2283,8 @@ void MainWindow::enterComparison()
 {
     QAction* toggle = m_commands->action(CommandId::ToggleComparison);
     if (isComparisonActive()) return;
+    // Drawing targets one source's frames; comparison shows two.
+    if (m_viewer->annotateMode()) setAnnotateMode(false);
     if (isVideoFullScreen()) exitVideoFullScreen();
     const int a = m_project->activeIndex();
     const int b = defaultComparisonBIndex(a);
@@ -2943,6 +3042,109 @@ void MainWindow::updateWindowTitle()
              projectName, QString::fromLatin1(version::kApplicationName));
 
     setWindowTitle(title);
+}
+
+// --- Drawing on frames -------------------------------------------------------
+
+void MainWindow::setAnnotateMode(bool enabled)
+{
+    QAction* toggle = m_commands->action(CommandId::ToggleAnnotateMode);
+    if (enabled && isComparisonActive()) {
+        if (toggle) { QSignalBlocker blocker(toggle); toggle->setChecked(false); }
+        statusBar()->showMessage(tr("Drawing is not available during A/B Comparison."), 4000);
+        return;
+    }
+    if (enabled && m_project->activeIndex() < 0) {
+        if (toggle) { QSignalBlocker blocker(toggle); toggle->setChecked(false); }
+        statusBar()->showMessage(tr("Open a clip to draw on its frames."), 4000);
+        return;
+    }
+    if (toggle && toggle->isChecked() != enabled) {
+        QSignalBlocker blocker(toggle);
+        toggle->setChecked(enabled);
+    }
+    // Drawing is done on a held frame: a stroke always lands on the frame it
+    // started on, so pausing avoids the picture moving under the pen.
+    if (enabled && m_playback->isPlaying()) m_playback->pause();
+    m_viewer->setAnnotateMode(enabled);
+    m_annotationToolbar->setVisible(enabled);
+    if (enabled) m_viewer->setFocus(Qt::OtherFocusReason);
+}
+
+void MainWindow::bindAnnotationsToActiveSource()
+{
+    static const annotation::SourceAnnotations kNone;
+    const int index = m_project->activeIndex();
+    const bool valid = index >= 0 && index < m_project->entries().size();
+    const QUuid id = valid ? m_project->entries().at(index).id : QUuid();
+    const annotation::SourceAnnotations& sourceData = valid ? m_project->entries().at(index).annotations : kNone;
+    if (id == m_annotationSourceId && m_annotations->annotations() == sourceData) return;
+    m_annotationSourceId = id;
+    m_annotations->setAnnotations(sourceData);
+    if (!valid && m_viewer->annotateMode()) setAnnotateMode(false);
+    updateAnnotationActions();
+}
+
+qint64 MainWindow::annotationMediaTimeUs(qint64 frameIndex) const
+{
+    // The decoded timestamp of the frame actually drawn on. A stroke normally
+    // ends on the frame it started on (drawing pauses playback); if not, the
+    // index alone is authoritative and the time is left unknown.
+    return frameIndex == m_displayedFrameIndex ? m_displayedFramePtsUs : 0;
+}
+
+void MainWindow::refreshViewerAnnotations()
+{
+    m_viewer->setAnnotationFrame(m_displayedFrameIndex >= 0 ? m_annotations->frame(m_displayedFrameIndex)
+                                                            : annotation::FrameAnnotation{});
+}
+
+void MainWindow::applyAnnotationTool(const annotation::AnnotationToolSettings& settings)
+{
+    m_viewer->setAnnotationTool(settings);
+    m_settings->setAnnotationTool(settings);
+}
+
+void MainWindow::addAnnotationText(qint64 frameIndex, const QPointF& normalized)
+{
+    if (m_annotationSourceId.isNull() || frameIndex < 0) return;
+    bool ok = false;
+    const QString text = QInputDialog::getText(this, tr("Add Text"), tr("Text:"), QLineEdit::Normal,
+                                               QString(), &ok).trimmed();
+    if (!ok || text.isEmpty()) return;
+    annotation::AnnotationItem item = m_annotationToolbar->settings().makeItem(
+        m_displayedImageHeight > 0 ? m_displayedImageHeight : 1080);
+    item.tool = annotation::AnnotationTool::Text;
+    item.text = text.left(annotation::AnnotationLimits::kMaxTextLength);
+    item.points = {{float(std::clamp(normalized.x(), 0.0, 1.0)), float(std::clamp(normalized.y(), 0.0, 1.0)),
+                    1.0f, 0.0f, 0.0f}};
+    m_annotations->addItem(frameIndex, annotationMediaTimeUs(frameIndex), item);
+}
+
+void MainWindow::seekAnnotatedFrame(int direction)
+{
+    const QVector<int64_t> frames = m_annotations->annotatedFrames();
+    if (frames.isEmpty()) {
+        statusBar()->showMessage(tr("No drawings on this clip."), 2500);
+        return;
+    }
+    const int64_t current = m_displayedFrameIndex >= 0 ? m_displayedFrameIndex : m_playback->currentFrame();
+    int64_t target = -1;
+    if (direction > 0) {
+        const auto it = std::upper_bound(frames.cbegin(), frames.cend(), current);
+        target = it != frames.cend() ? *it : frames.constFirst(); // wrap, like bookmarks
+    } else {
+        const auto it = std::lower_bound(frames.cbegin(), frames.cend(), current);
+        target = it != frames.cbegin() ? *(it - 1) : frames.constLast();
+    }
+    m_playback->seekFrame(target);
+}
+
+void MainWindow::updateAnnotationActions()
+{
+    if (!m_commands || !m_annotations) return;
+    if (QAction* undo = m_commands->action(CommandId::UndoAnnotation)) undo->setEnabled(m_annotations->canUndo());
+    if (QAction* redo = m_commands->action(CommandId::RedoAnnotation)) redo->setEnabled(m_annotations->canRedo());
 }
 
 } // namespace atk::ui

@@ -42,6 +42,9 @@ set(ATK_CORE_SOURCES
 
     annotation/AnnotationTypes.cpp
     annotation/AnnotationStore.cpp
+    annotation/AnnotationRenderer.cpp
+    annotation/AnnotationToolSettings.cpp
+    annotation/StrokeBuilder.cpp
 
     timeline/Bookmark.cpp
     timeline/Timecode.cpp
@@ -99,6 +102,9 @@ set(ATK_CORE_HEADERS
 
     annotation/AnnotationTypes.h
     annotation/AnnotationStore.h
+    annotation/AnnotationRenderer.h
+    annotation/AnnotationToolSettings.h
+    annotation/StrokeBuilder.h
 
     timeline/Bookmark.h
     timeline/PlaybackRange.h

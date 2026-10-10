@@ -1,0 +1,368 @@
+#include "annotation/AnnotationRenderer.h"
+
+#include <QFont>
+#include <QFontMetricsF>
+#include <QPainter>
+#include <QPainterPath>
+#include <QPainterPathStroker>
+#include <QtMath>
+
+#include <algorithm>
+#include <cmath>
+
+namespace atk::annotation {
+namespace {
+
+QPointF toPainter(const QRectF& rect, const StrokePoint& p)
+{
+    return {rect.left() + qreal(p.x) * rect.width(), rect.top() + qreal(p.y) * rect.height()};
+}
+
+/// How each freehand tool turns pressure into width and opacity.
+struct BrushShape {
+    qreal minWidth = 1.0;    // radius factor at zero pressure
+    qreal minOpacity = 1.0;  // alpha factor at zero pressure
+    bool constantWidth = false;
+    bool soft = false;
+    bool grainy = false;
+};
+
+BrushShape brushShape(AnnotationTool tool)
+{
+    switch (tool) {
+    case AnnotationTool::Pencil: return {0.35, 0.30, false, false, true};
+    case AnnotationTool::Pen: return {0.12, 1.00, false, false, false};
+    case AnnotationTool::Brush: return {0.25, 0.25, false, true, false};
+    case AnnotationTool::Marker: return {1.00, 1.00, true, false, false};
+    default: return {};
+    }
+}
+
+qreal mix(qreal a, qreal b, qreal t) { return a + (b - a) * t; }
+
+/// Catmull-Rom point at t between p1 and p2.
+QPointF catmullRom(const QPointF& p0, const QPointF& p1, const QPointF& p2, const QPointF& p3, qreal t)
+{
+    const qreal t2 = t * t;
+    const qreal t3 = t2 * t;
+    return 0.5 * ((2.0 * p1) + (-p0 + p2) * t + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2
+                  + (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t3);
+}
+
+/// Convex hull of two circles as a fill path (round caps, round joins).
+void addCapsule(QPainterPath& path, const QPointF& a, qreal ra, const QPointF& b, qreal rb)
+{
+    path.addEllipse(a, ra, ra);
+    path.addEllipse(b, rb, rb);
+    const QPointF d = b - a;
+    const qreal length = std::hypot(d.x(), d.y());
+    if (length <= std::abs(ra - rb) || length < 1e-6) return; // one circle contains the other
+    const QPointF n(-d.y() / length, d.x() / length);
+    QPolygonF quad;
+    quad << a + n * ra << b + n * rb << b - n * rb << a - n * ra;
+    path.addPolygon(quad);
+    path.closeSubpath();
+}
+
+qreal distanceToSegment(const QPointF& p, const QPointF& a, const QPointF& b)
+{
+    const QPointF ab = b - a;
+    const qreal len2 = QPointF::dotProduct(ab, ab);
+    qreal t = len2 > 0.0 ? QPointF::dotProduct(p - a, ab) / len2 : 0.0;
+    t = std::clamp(t, 0.0, 1.0);
+    const QPointF closest = a + ab * t;
+    return std::hypot(p.x() - closest.x(), p.y() - closest.y());
+}
+
+QFont textFont(const QRectF& rect, const AnnotationItem& item)
+{
+    QFont font;
+    font.setPixelSize(std::max(6, qRound(item.size * 5.0 * rect.height())));
+    font.setBold(true);
+    return font;
+}
+
+QRectF textRect(const QRectF& rect, const AnnotationItem& item)
+{
+    const QFont font = textFont(rect, item);
+    const QFontMetricsF metrics(font);
+    const QPointF anchor = toPainter(rect, item.points.constFirst());
+    return QRectF(anchor, metrics.size(0, item.text));
+}
+
+void paintFreehand(QPainter& painter, const QRectF& rect, const AnnotationItem& item)
+{
+    const BrushShape shape = brushShape(item.tool);
+    const QVector<AnnotationRenderer::PathSample> path = AnnotationRenderer::smoothedPath(rect, item);
+    if (path.isEmpty()) return;
+    const qreal radius = AnnotationRenderer::baseRadius(rect, item);
+
+    // Layer covering the stroke, in device pixels so strokes stay crisp on
+    // high-DPI displays.
+    QRectF bounds = AnnotationRenderer::itemBounds(rect, item).adjusted(-2, -2, 2, 2);
+    qreal dpr = 1.0;
+    if (QPaintDevice* device = painter.device()) {
+        dpr = std::max<qreal>(1.0, device->devicePixelRatioF());
+        // Only the visible part needs a layer: at high zoom a stroke can be far
+        // larger than the screen.
+        bool invertible = false;
+        const QTransform inverse = painter.combinedTransform().inverted(&invertible);
+        if (invertible) {
+            const QRectF deviceRect(0, 0, device->width(), device->height());
+            bounds = bounds.intersected(inverse.mapRect(deviceRect).adjusted(-2, -2, 2, 2));
+        }
+    }
+    const QRect clipped = bounds.toAlignedRect();
+    if (clipped.isEmpty()) return;
+    const QSize layerSize(std::max(1, qCeil(clipped.width() * dpr)), std::max(1, qCeil(clipped.height() * dpr)));
+    // Hard cap so a pathological transform can never allocate gigabytes.
+    if (qint64(layerSize.width()) * layerSize.height() > 64LL * 1024 * 1024) return;
+
+    QImage layer(layerSize, QImage::Format_ARGB32_Premultiplied);
+    layer.setDevicePixelRatio(dpr);
+    layer.fill(Qt::transparent);
+    {
+        QPainter lp(&layer);
+        lp.setRenderHint(QPainter::Antialiasing, true);
+        lp.translate(-clipped.topLeft());
+        lp.setPen(Qt::NoPen);
+        lp.setCompositionMode(QPainter::CompositionMode_Source);
+
+        auto radiusAt = [&](qreal p) {
+            return shape.constantWidth ? radius : radius * mix(shape.minWidth, 1.0, p);
+        };
+        auto alphaAt = [&](qreal p) { return mix(shape.minOpacity, 1.0, p); };
+
+        // Soft brush: concentric passes, outer faint to inner full, so the
+        // edge falls off. Each pass overwrites (Source), so they never stack.
+        const qreal rings[] = {1.0, 0.82, 0.62};
+        const qreal ringAlpha[] = {0.30, 0.65, 1.0};
+        const int passes = shape.soft ? 3 : 1;
+        for (int pass = 0; pass < passes; ++pass) {
+            const qreal ringScale = shape.soft ? rings[pass] : 1.0;
+            const qreal ringOpacity = shape.soft ? ringAlpha[pass] : 1.0;
+            if (path.size() == 1) {
+                QColor c = item.color;
+                c.setAlphaF(c.alphaF() * alphaAt(path[0].pressure) * ringOpacity);
+                lp.setBrush(c);
+                const qreal r = radiusAt(path[0].pressure) * ringScale;
+                lp.drawEllipse(path[0].position, r, r);
+                continue;
+            }
+            for (int i = 1; i < path.size(); ++i) {
+                const auto& a = path[i - 1];
+                const auto& b = path[i];
+                QPainterPath capsule;
+                capsule.setFillRule(Qt::WindingFill);
+                addCapsule(capsule, a.position, radiusAt(a.pressure) * ringScale, b.position,
+                           radiusAt(b.pressure) * ringScale);
+                QColor c = item.color;
+                c.setAlphaF(c.alphaF() * alphaAt(0.5 * (a.pressure + b.pressure)) * ringOpacity);
+                lp.setBrush(c);
+                lp.drawPath(capsule);
+            }
+        }
+    }
+
+    if (shape.grainy) {
+        // Paper grain: knock alpha back per pixel, deterministic per seed.
+        constexpr float kStrength = 0.55f;
+        for (int y = 0; y < layer.height(); ++y) {
+            auto* line = reinterpret_cast<QRgb*>(layer.scanLine(y));
+            for (int x = 0; x < layer.width(); ++x) {
+                const QRgb px = line[x];
+                if (qAlpha(px) == 0) continue;
+                const float keep = 1.0f - kStrength * AnnotationRenderer::grain(x, y, item.textureSeed);
+                line[x] = qRgba(int(qRed(px) * keep), int(qGreen(px) * keep), int(qBlue(px) * keep),
+                                int(qAlpha(px) * keep));
+            }
+        }
+    }
+
+    painter.save();
+    painter.setOpacity(painter.opacity() * item.opacity);
+    painter.drawImage(QRectF(clipped), layer);
+    painter.restore();
+}
+
+void paintShape(QPainter& painter, const QRectF& rect, const AnnotationItem& item)
+{
+    const QPointF a = toPainter(rect, item.points[0]);
+    const QPointF b = toPainter(rect, item.points[1]);
+    const qreal width = 2.0 * AnnotationRenderer::baseRadius(rect, item);
+    painter.save();
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setOpacity(painter.opacity() * item.opacity);
+    QPen pen(item.color, width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+    painter.setPen(pen);
+    painter.setBrush(Qt::NoBrush);
+    switch (item.tool) {
+    case AnnotationTool::Line:
+        painter.drawLine(a, b);
+        break;
+    case AnnotationTool::Arrow: {
+        QPainterPath arrow;
+        arrow.moveTo(a);
+        arrow.lineTo(b);
+        const qreal angle = std::atan2(b.y() - a.y(), b.x() - a.x());
+        const qreal head = std::max(width * 4.0, rect.height() * 0.02);
+        for (qreal side : {-1.0, 1.0}) {
+            const qreal theta = angle + M_PI + side * qDegreesToRadians(28.0);
+            arrow.moveTo(b);
+            arrow.lineTo(b + QPointF(std::cos(theta), std::sin(theta)) * head);
+        }
+        painter.drawPath(arrow);
+        break;
+    }
+    case AnnotationTool::Rectangle:
+        painter.drawRect(QRectF(a, b).normalized());
+        break;
+    case AnnotationTool::Ellipse:
+        painter.drawEllipse(QRectF(a, b).normalized());
+        break;
+    default:
+        break;
+    }
+    painter.restore();
+}
+
+void paintText(QPainter& painter, const QRectF& rect, const AnnotationItem& item)
+{
+    const QFont font = textFont(rect, item);
+    const QPointF anchor = toPainter(rect, item.points.constFirst());
+    QPainterPath path;
+    path.addText(anchor + QPointF(0, QFontMetricsF(font).ascent()), font, item.text);
+    painter.save();
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setOpacity(painter.opacity() * item.opacity);
+    // A thin dark outline keeps text readable over any picture.
+    const qreal outline = std::max<qreal>(1.0, font.pixelSize() / 10.0);
+    painter.strokePath(path, QPen(QColor(0, 0, 0, 160), outline * 2, Qt::SolidLine, Qt::RoundCap,
+                                  Qt::RoundJoin));
+    painter.fillPath(path, item.color);
+    painter.restore();
+}
+
+} // namespace
+
+qreal AnnotationRenderer::baseRadius(const QRectF& imageRect, const AnnotationItem& item)
+{
+    return std::max<qreal>(0.5, 0.5 * item.size * imageRect.height());
+}
+
+QVector<AnnotationRenderer::PathSample> AnnotationRenderer::smoothedPath(const QRectF& imageRect,
+                                                                         const AnnotationItem& item)
+{
+    QVector<PathSample> raw;
+    raw.reserve(item.points.size());
+    for (const StrokePoint& p : item.points) raw.append({toPainter(imageRect, p), qreal(p.pressure)});
+    if (raw.size() < 3) return raw;
+
+    QVector<PathSample> out;
+    out.reserve(raw.size() * 2);
+    out.append(raw.constFirst());
+    for (int i = 0; i + 1 < raw.size(); ++i) {
+        const QPointF p0 = raw[std::max(0, i - 1)].position;
+        const QPointF p1 = raw[i].position;
+        const QPointF p2 = raw[i + 1].position;
+        const QPointF p3 = raw[std::min<int>(int(raw.size()) - 1, i + 2)].position;
+        const qreal length = std::hypot(p2.x() - p1.x(), p2.y() - p1.y());
+        // About one sample per 2 px keeps curves round without bloating.
+        const int steps = std::clamp(int(length / 2.0), 1, 16);
+        for (int s = 1; s <= steps; ++s) {
+            const qreal t = qreal(s) / steps;
+            out.append({catmullRom(p0, p1, p2, p3, t), mix(raw[i].pressure, raw[i + 1].pressure, t)});
+        }
+    }
+    return out;
+}
+
+QRectF AnnotationRenderer::itemBounds(const QRectF& imageRect, const AnnotationItem& item)
+{
+    if (item.points.isEmpty()) return {};
+    if (item.tool == AnnotationTool::Text) return textRect(imageRect, item);
+    qreal minX = 1e18, minY = 1e18, maxX = -1e18, maxY = -1e18;
+    for (const StrokePoint& p : item.points) {
+        const QPointF q = toPainter(imageRect, p);
+        minX = std::min(minX, q.x());
+        minY = std::min(minY, q.y());
+        maxX = std::max(maxX, q.x());
+        maxY = std::max(maxY, q.y());
+    }
+    qreal pad = baseRadius(imageRect, item);
+    if (item.tool == AnnotationTool::Arrow)
+        pad = std::max(pad * 8.0 + 2.0, imageRect.height() * 0.02 + pad);
+    return QRectF(QPointF(minX, minY), QPointF(maxX, maxY)).adjusted(-pad - 1, -pad - 1, pad + 1, pad + 1);
+}
+
+bool AnnotationRenderer::hitTest(const QRectF& imageRect, const AnnotationItem& item,
+                                 const QPointF& position, qreal tolerance)
+{
+    if (item.points.isEmpty()) return false;
+    const qreal reach = baseRadius(imageRect, item) + tolerance;
+    if (!itemBounds(imageRect, item).adjusted(-tolerance, -tolerance, tolerance, tolerance).contains(position))
+        return false;
+
+    if (item.tool == AnnotationTool::Text)
+        return textRect(imageRect, item).adjusted(-tolerance, -tolerance, tolerance, tolerance).contains(position);
+
+    if (isFreehandTool(item.tool)) {
+        if (item.points.size() == 1) {
+            const QPointF c = toPainter(imageRect, item.points[0]);
+            return std::hypot(position.x() - c.x(), position.y() - c.y()) <= reach;
+        }
+        for (int i = 1; i < item.points.size(); ++i) {
+            if (distanceToSegment(position, toPainter(imageRect, item.points[i - 1]),
+                                  toPainter(imageRect, item.points[i])) <= reach)
+                return true;
+        }
+        return false;
+    }
+
+    const QPointF a = toPainter(imageRect, item.points[0]);
+    const QPointF b = toPainter(imageRect, item.points[1]);
+    if (item.tool == AnnotationTool::Line || item.tool == AnnotationTool::Arrow)
+        return distanceToSegment(position, a, b) <= reach;
+
+    QPainterPath outline;
+    if (item.tool == AnnotationTool::Rectangle) outline.addRect(QRectF(a, b).normalized());
+    else outline.addEllipse(QRectF(a, b).normalized());
+    QPainterPathStroker stroker;
+    stroker.setWidth(2.0 * reach);
+    return stroker.createStroke(outline).contains(position);
+}
+
+float AnnotationRenderer::grain(int x, int y, quint32 seed)
+{
+    // Small integer hash (PCG-style mix); cheap, stable across platforms.
+    quint32 h = quint32(x) * 0x8da6b343u ^ quint32(y) * 0xd8163841u ^ seed * 0xcb1ab31fu;
+    h ^= h >> 15;
+    h *= 0x2c1b3c6du;
+    h ^= h >> 12;
+    h *= 0x297a2d39u;
+    h ^= h >> 15;
+    return float(h & 0xFFFFFFu) / float(0x1000000);
+}
+
+void AnnotationRenderer::paintItem(QPainter& painter, const QRectF& imageRect, const AnnotationItem& item)
+{
+    if (!isValidItem(item) || imageRect.isEmpty()) return;
+    if (isFreehandTool(item.tool)) paintFreehand(painter, imageRect, item);
+    else if (isShapeTool(item.tool)) paintShape(painter, imageRect, item);
+    else if (item.tool == AnnotationTool::Text) paintText(painter, imageRect, item);
+}
+
+void AnnotationRenderer::paintFrame(QPainter& painter, const QRectF& imageRect, const FrameAnnotation& frame)
+{
+    for (const AnnotationItem& item : frame.items) paintItem(painter, imageRect, item);
+}
+
+void AnnotationRenderer::renderOnto(QImage& image, const FrameAnnotation& frame)
+{
+    if (image.isNull() || frame.isEmpty()) return;
+    QPainter painter(&image);
+    const qreal dpr = image.devicePixelRatio();
+    paintFrame(painter, QRectF(QPointF(0, 0), QSizeF(image.size()) / dpr), frame);
+}
+
+} // namespace atk::annotation

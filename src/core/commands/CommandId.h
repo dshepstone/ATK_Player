@@ -25,6 +25,17 @@ enum class CommandId {
     // Edit
     Preferences,
 
+    // Drawing (Edit menu)
+    ToggleAnnotateMode,
+    UndoAnnotation,
+    RedoAnnotation,
+    ClearFrameAnnotations,
+    IncreaseBrushSize,
+    DecreaseBrushSize,
+    ToggleAnnotationsVisible,
+    NextAnnotatedFrame,
+    PreviousAnnotatedFrame,
+
     // Playback transport
     PlayPause,
     Stop,

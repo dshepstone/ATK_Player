@@ -1,5 +1,6 @@
 #pragma once
 
+#include "annotation/AnnotationToolSettings.h"
 #include "core/commands/CommandDefinitions.h"
 #include "core/commands/CommandId.h"
 #include "export/ExportSpec.h"
@@ -27,6 +28,7 @@ class QSplitter;
 class QProgressDialog;
 class QJsonObject;
 
+namespace atk::annotation { class AnnotationStore; }
 namespace atk::api { class ApiServer; }
 namespace atk::api { struct ApiResponse; }
 namespace atk::playback { class CompareSession; class CompareVideoLane; enum class CompareLayout; enum class CompareAudioMode; }
@@ -37,6 +39,7 @@ namespace atk::timeline { class TimelineModel; }
 
 namespace atk::ui {
 
+class AnnotationToolbar;
 class CommandRegistry;
 class ApplicationSettings;
 class BookmarkPanel;
@@ -195,6 +198,16 @@ private:
     bool cancelExportForProjectChange();
     ViewerWidget* activeViewer() const;
 
+    // Drawing on frames. The store holds the active source's annotations; the
+    // viewer only displays the displayed frame's and reports new strokes.
+    void setAnnotateMode(bool enabled);
+    void bindAnnotationsToActiveSource();
+    void refreshViewerAnnotations();
+    void applyAnnotationTool(const annotation::AnnotationToolSettings& settings);
+    void addAnnotationText(qint64 frameIndex, const QPointF& normalized);
+    void seekAnnotatedFrame(int direction);
+    void updateAnnotationActions();
+
 
     std::unique_ptr<ApplicationSettings> m_settings;
 
@@ -207,9 +220,19 @@ private:
     std::unique_ptr<playback::CompareVideoLane> m_compareLane;
     std::unique_ptr<api::ApiServer> m_apiServer;
     std::unique_ptr<exporter::ExportJob> m_exportJob;
+    std::unique_ptr<annotation::AnnotationStore> m_annotations;
+    /// Source the annotation store is bound to; edits are written back to it.
+    QUuid m_annotationSourceId;
+    /// The frame on screen in viewer A, and its picture height in pixels.
+    qint64 m_displayedFrameIndex = -1;
+    int m_displayedImageHeight = 0;
+    /// Decoded presentation time of that frame; stored with new drawings.
+    qint64 m_displayedFramePtsUs = 0;
+    qint64 annotationMediaTimeUs(qint64 frameIndex) const;
 
     CommandRegistry* m_commands = nullptr;
     BookmarkPanel* m_bookmarks = nullptr;
+    AnnotationToolbar* m_annotationToolbar = nullptr;
 
     ViewerWidget* m_viewer = nullptr;
     ViewerWidget* m_viewerB = nullptr;

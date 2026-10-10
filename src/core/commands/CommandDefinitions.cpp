@@ -39,6 +39,17 @@ constexpr std::array kCommands{
     // Edit
     CommandDefinition{ CommandId::Preferences,        "edit.preferences",      QT_TRANSLATE_NOOP("Command", "Preferences..."),       C::Edit,     "Ctrl+,",       false },
 
+    // Drawing
+    CommandDefinition{ CommandId::ToggleAnnotateMode, "draw.annotateMode",     QT_TRANSLATE_NOOP("Command", "Draw on Frame"),        C::Edit,     "D",            true  },
+    CommandDefinition{ CommandId::UndoAnnotation,     "draw.undo",             QT_TRANSLATE_NOOP("Command", "Undo Drawing"),         C::Edit,     "Ctrl+Z",       false },
+    CommandDefinition{ CommandId::RedoAnnotation,     "draw.redo",             QT_TRANSLATE_NOOP("Command", "Redo Drawing"),         C::Edit,     "Ctrl+Shift+Z", false },
+    CommandDefinition{ CommandId::ClearFrameAnnotations,"draw.clearFrame",     QT_TRANSLATE_NOOP("Command", "Clear Drawings on Frame"),C::Edit,   nullptr,        false },
+    CommandDefinition{ CommandId::IncreaseBrushSize,  "draw.brushSizeUp",      QT_TRANSLATE_NOOP("Command", "Increase Brush Size"),  C::Edit,     "]",            false },
+    CommandDefinition{ CommandId::DecreaseBrushSize,  "draw.brushSizeDown",    QT_TRANSLATE_NOOP("Command", "Decrease Brush Size"),  C::Edit,     "[",            false },
+    CommandDefinition{ CommandId::ToggleAnnotationsVisible,"draw.showAnnotations",QT_TRANSLATE_NOOP("Command", "Show Drawings"),   C::Edit,     nullptr,        true  },
+    CommandDefinition{ CommandId::NextAnnotatedFrame, "draw.nextFrame",        QT_TRANSLATE_NOOP("Command", "Next Drawn Frame"),     C::Edit,     "Alt+Shift+Right",false },
+    CommandDefinition{ CommandId::PreviousAnnotatedFrame,"draw.previousFrame", QT_TRANSLATE_NOOP("Command", "Previous Drawn Frame"), C::Edit,     "Alt+Shift+Left",false },
+
     // Playback
     CommandDefinition{ CommandId::PlayPause,          "playback.playPause",    QT_TRANSLATE_NOOP("Command", "Play / Pause"),         C::Playback, "Space",        false },
     CommandDefinition{ CommandId::Stop,               "playback.stop",         QT_TRANSLATE_NOOP("Command", "Stop"),                 C::Playback, "Esc",          false },

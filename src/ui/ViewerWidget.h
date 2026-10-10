@@ -1,9 +1,19 @@
 #pragma once
 
+#include "annotation/AnnotationToolSettings.h"
+#include "annotation/AnnotationTypes.h"
 #include "media/VideoFrame.h"
 #include "ui/ViewerTransform.h"
 
+#include <QImage>
 #include <QWidget>
+
+#include <memory>
+#include <optional>
+
+class QTabletEvent;
+
+namespace atk::annotation { class StrokeBuilder; }
 
 namespace atk::ui {
 
@@ -92,9 +102,48 @@ public:
 
     QSize sizeHint() const override;
 
+    // --- Annotations ------------------------------------------------------
+    //
+    // The viewer draws annotations over the picture and turns pointer and
+    // tablet input into strokes, but owns no annotation data: it is told what
+    // to show for the displayed frame and reports finished strokes by signal.
+    // The owner (MainWindow) keeps the AnnotationStore.
+
+    /// What to draw over the current picture. Call whenever the displayed
+    /// frame or its annotations change.
+    void setAnnotationFrame(const annotation::FrameAnnotation& frame);
+    const annotation::FrameAnnotation& annotationFrame() const { return m_annotationFrame; }
+    void setAnnotationsVisible(bool visible);
+    bool annotationsVisible() const { return m_annotationsVisible; }
+
+    /// In annotate mode the left button / pen tip draws instead of doing
+    /// nothing; middle-drag pan and wheel zoom keep working.
+    void setAnnotateMode(bool enabled);
+    bool annotateMode() const { return m_annotateMode; }
+    void setAnnotationTool(const annotation::AnnotationToolSettings& settings);
+    const annotation::AnnotationToolSettings& annotationTool() const { return m_tool; }
+
+    /// Maps a widget point to normalised source-image coordinates (0..1 over
+    /// the picture, unflipped), and back. Outside the picture gives values
+    /// outside 0..1.
+    QPointF widgetToNormalized(const QPointF& point) const;
+    QPointF normalizedToWidget(const QPointF& normalized) const;
+
+    bool isDrawing() const { return m_stroke.has_value(); }
+    /// The in-progress item, for tests and the live preview.
+    std::optional<annotation::AnnotationItem> strokePreview() const;
+
 signals:
     void zoomChanged(qreal percent, bool fitMode);
     void activated();
+
+    /// A stroke, shape or text anchor was completed on `frameIndex` (the
+    /// zero-based index of the frame displayed when the stroke started).
+    void annotationItemDrawn(qint64 frameIndex, const atk::annotation::AnnotationItem& item);
+    /// The eraser touched these items on `frameIndex`.
+    void annotationEraseRequested(qint64 frameIndex, const QVector<quint64>& itemIds);
+    /// The text tool was clicked at `normalized`; the owner asks for the text.
+    void annotationTextRequested(qint64 frameIndex, const QPointF& normalized);
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -104,6 +153,8 @@ protected:
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
     void mouseDoubleClickEvent(QMouseEvent* event) override;
+    void tabletEvent(QTabletEvent* event) override;
+    void leaveEvent(QEvent* event) override;
 
 private:
     /// Where the picture lands inside the widget for the current fit mode.
@@ -112,6 +163,30 @@ private:
     void notifyNavigationChanged();
     void paintEmptyState(QPainter& painter);
     void paintMessage(QPainter& painter, const QString& headline, const QString& detail);
+
+    // Annotation input and painting.
+    struct ActiveStroke {
+        qint64 frameIndex = -1;
+        bool eraser = false;
+        bool fromTablet = false;
+        annotation::AnnotationItem item;
+        std::shared_ptr<annotation::StrokeBuilder> builder; // freehand only
+        QPointF pressWidgetPosition;
+        QPointF lastWidgetPosition; // eraser: previous sample, to sweep the gap
+    };
+    bool canAnnotate() const;
+    bool beginStroke(const QPointF& position, float pressure, float tiltX, float tiltY,
+                     bool eraserPointer, bool fromTablet);
+    void continueStroke(const QPointF& position, float pressure, float tiltX, float tiltY);
+    void finishStroke();
+    void eraseAt(const QPointF& position);
+    void eraseAlong(const QPointF& from, const QPointF& to);
+    qreal widgetPixelsPerSourcePixel() const;
+    qreal sourceImageHeight() const;
+    void updateAnnotateCursor();
+    void setHoverPosition(std::optional<QPointF> position);
+    void paintAnnotations(QPainter& painter, const QRectF& target);
+    void paintBrushCursor(QPainter& painter);
 
     media::VideoFrame m_frame;
     State m_state = State::Empty;
@@ -125,6 +200,20 @@ private:
     QString m_placeholderText;
     QString m_placeholderSubtext;
     QString m_cornerLabel;
+
+    annotation::FrameAnnotation m_annotationFrame;
+    bool m_annotationsVisible = true;
+    bool m_annotateMode = false;
+    annotation::AnnotationToolSettings m_tool;
+    std::optional<ActiveStroke> m_stroke;
+    std::optional<QPointF> m_hoverPosition;
+    // Committed annotations rendered once per change of data or geometry, so
+    // drawing a new stroke does not re-render every earlier one per event.
+    QImage m_annotationCache;
+    QRectF m_annotationCacheTarget;
+    bool m_annotationCacheFlipped = false;
+    quint64 m_annotationGeneration = 0;
+    quint64 m_annotationCacheGeneration = ~quint64(0);
 };
 
 } // namespace atk::ui

@@ -1,13 +1,40 @@
 # Annotation and Review-Notes PDF — Coding Plan
 
-Status: **Phases A and B implemented** (data model, undo store, project persistence; see
-`src/annotation/`, `tests/tst_annotationstore.cpp`, `tests/tst_annotationproject.cpp`).
-Phases C–G not started. Milestone approved by the project owner as a new
-annotation/notes feature. "Drawn annotations over frames" is currently
-under *Not scheduled* in `ROADMAP.md`; per AGENTS.md this plan does not authorise
-work until it is accepted as a milestone (suggested name: **M9 — Annotation and
-Review Notes**, which can land before or after M7/M8 because it has no OS-specific
-code).
+Status:
+- **Phases A and B: done** (data model, undo store, project persistence).
+- **Phase C: implemented, pending hardware acceptance.** Shipped so far:
+  - **Brush engine:** `AnnotationRenderer`, `StrokeBuilder`, `AnnotationToolSettings`.
+  - **Viewer:** drawing, display and tablet input in `ViewerWidget`.
+  - **Toolbar:** `AnnotationToolbar`.
+  - **Commands and wiring:** Draw on Frame (`D`), undo/redo, `[` / `]` brush size, clear frame,
+    show drawings, next/previous drawn frame, plus `MainWindow` integration.
+  - **Timeline:** markers on drawn frames.
+  - **Tests:** `tst_annotationrenderer`, `tst_annotationviewer`, `tst_annotationworkflow`.
+- **Phases D–G:** not started.
+
+The project owner approved this as a new annotation/notes milestone (suggested name:
+**M9 — Annotation and Review Notes**). It can land before or after M7/M8 because it has no
+OS-specific code. `ROADMAP.md` still lists "Drawn annotations over frames" under
+*Not scheduled*; update it when the milestone lands.
+
+### Phase C notes (as built)
+
+- Freehand strokes are rendered per item into a layer, one segment at a time with
+  Source composition. A stroke never darkens where it crosses itself (marker), yet
+  width and opacity still follow pressure. Pencil grain comes from a seed stored with
+  the item, so the viewer and every export draw identical grain.
+- Pressure goes through the curve once, at capture. Changing the curve later never
+  alters existing drawings.
+- **Tablet input:** `QTabletEvent`s are accepted in Draw mode, so Qt does not also
+  synthesise mouse events. The stylus eraser end erases. Barrel buttons are ignored,
+  which lets them fall through to mouse handling (middle-drag pan). Hover moves drive
+  the brush-size cursor.
+- The eraser sweeps the path between pointer samples, so a fast drag cannot jump a
+  thin line.
+- Entering Draw on Frame pauses playback, and a stroke always lands on the frame it
+  started on. Draw mode is unavailable during A/B comparison and when no clip is open.
+- New drawings store the displayed frame's decoded `ptsUs` as `mediaTimeUs`. The frame
+  index stays authoritative.
 
 ## 1. Goal
 

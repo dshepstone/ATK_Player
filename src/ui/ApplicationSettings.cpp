@@ -29,6 +29,23 @@ constexpr auto kStillHoldFrames = "media/stillImageHoldFrames";
 constexpr auto kSequenceFrameRate = "media/imageSequenceFrameRate";
 constexpr auto kShortcutGroup = "shortcuts";
 constexpr auto kWelcomeShownVersion = "ui/welcomeShownVersion";
+constexpr auto kDrawTool = "draw/tool";
+constexpr auto kDrawColor = "draw/color";
+constexpr auto kDrawSize = "draw/sizePixels";
+constexpr auto kDrawOpacity = "draw/opacity";
+constexpr auto kDrawPressure = "draw/usePressure";
+constexpr auto kDrawCurve = "draw/pressureCurve";
+constexpr auto kDrawStabilizer = "draw/stabilizer";
+
+QString curveName(annotation::PressureCurve curve)
+{
+    switch (curve) {
+    case annotation::PressureCurve::Soft: return QStringLiteral("soft");
+    case annotation::PressureCurve::Firm: return QStringLiteral("firm");
+    case annotation::PressureCurve::Linear: break;
+    }
+    return QStringLiteral("linear");
+}
 }
 
 ApplicationSettings::ApplicationSettings()
@@ -185,5 +202,40 @@ void ApplicationSettings::resetAll()
     if (welcome.isValid()) m_settings->setValue(QString::fromLatin1(kWelcomeShownVersion), welcome);
 }
 void ApplicationSettings::sync() { m_settings->sync(); }
+
+annotation::AnnotationToolSettings ApplicationSettings::annotationTool() const
+{
+    annotation::AnnotationToolSettings result;
+    annotation::AnnotationTool tool;
+    if (annotation::toolFromName(m_settings->value(QString::fromLatin1(kDrawTool)).toString(), &tool))
+        result.tool = tool;
+    const QColor color(m_settings->value(QString::fromLatin1(kDrawColor)).toString());
+    if (color.isValid()) result.color = color;
+    bool ok = false;
+    const double size = m_settings->value(QString::fromLatin1(kDrawSize)).toDouble(&ok);
+    if (ok && size >= annotation::AnnotationToolSettings::kMinSizePixels
+        && size <= annotation::AnnotationToolSettings::kMaxSizePixels)
+        result.sizePixels = size;
+    const double opacity = m_settings->value(QString::fromLatin1(kDrawOpacity)).toDouble(&ok);
+    if (ok && opacity >= 0.05 && opacity <= 1.0) result.opacity = opacity;
+    result.usePressure = readBool(kDrawPressure, result.usePressure);
+    const QString curve = m_settings->value(QString::fromLatin1(kDrawCurve)).toString();
+    if (curve == QStringLiteral("soft")) result.pressureCurve = annotation::PressureCurve::Soft;
+    else if (curve == QStringLiteral("firm")) result.pressureCurve = annotation::PressureCurve::Firm;
+    const double stabilizer = m_settings->value(QString::fromLatin1(kDrawStabilizer)).toDouble(&ok);
+    if (ok && stabilizer >= 0.0 && stabilizer <= 0.95) result.stabilizer = stabilizer;
+    return result;
+}
+
+void ApplicationSettings::setAnnotationTool(const annotation::AnnotationToolSettings& settings)
+{
+    m_settings->setValue(QString::fromLatin1(kDrawTool), annotation::toolName(settings.tool));
+    m_settings->setValue(QString::fromLatin1(kDrawColor), settings.color.name(QColor::HexArgb));
+    m_settings->setValue(QString::fromLatin1(kDrawSize), settings.sizePixels);
+    m_settings->setValue(QString::fromLatin1(kDrawOpacity), settings.opacity);
+    m_settings->setValue(QString::fromLatin1(kDrawPressure), settings.usePressure);
+    m_settings->setValue(QString::fromLatin1(kDrawCurve), curveName(settings.pressureCurve));
+    m_settings->setValue(QString::fromLatin1(kDrawStabilizer), settings.stabilizer);
+}
 
 } // namespace atk::ui

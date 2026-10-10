@@ -24,6 +24,7 @@ set(ATK_TEST_SOURCES
     tst_project.cpp
     tst_annotationstore.cpp
     tst_annotationproject.cpp
+    tst_annotationrenderer.cpp
 )
 
 # Suites that include FFmpeg-facing headers.
@@ -52,6 +53,8 @@ set(ATK_UI_TEST_SOURCES
     tst_videofullscreen.cpp
     tst_comparison.cpp
     tst_mediainformation.cpp
+    tst_annotationviewer.cpp
+    tst_annotationworkflow.cpp
 )
 
 foreach(test_source IN LISTS ATK_TEST_SOURCES ATK_FFMPEG_TEST_SOURCES ATK_UI_TEST_SOURCES)
@@ -117,7 +120,8 @@ foreach(test_source IN LISTS ATK_TEST_SOURCES ATK_FFMPEG_TEST_SOURCES ATK_UI_TES
     endif()
 
     if(test_name STREQUAL "tst_playlistend" OR test_name STREQUAL "tst_videofullscreen"
-       OR test_name STREQUAL "tst_comparison" OR test_name STREQUAL "tst_mediainformation")
+       OR test_name STREQUAL "tst_comparison" OR test_name STREQUAL "tst_mediainformation"
+       OR test_name STREQUAL "tst_annotationworkflow")
         target_compile_definitions(${test_name}
             PRIVATE ATK_TEST_MEDIA_DIR="${ATK_TEST_MEDIA_DIR}"
                     ATK_VERSION_STRING="${ATK_VERSION_STRING}")

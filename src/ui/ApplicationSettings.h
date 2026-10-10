@@ -1,5 +1,6 @@
 #pragma once
 
+#include "annotation/AnnotationToolSettings.h"
 #include "media/ImageSource.h"
 
 #include <QByteArray>
@@ -64,6 +65,9 @@ public:
     /// Version string the welcome dialog was last shown for. Empty until the
     /// first launch after installation has shown it.
     QString welcomeShownVersion() const;
+    /// The drawing tool, colour, size and options last used. Invalid or
+    /// missing values fall back to the defaults field by field.
+    annotation::AnnotationToolSettings annotationTool() const;
 
     void setRestoreWindowLayout(bool value);
     void setAudioScrubEnabled(bool value);
@@ -80,6 +84,7 @@ public:
     void setStillImageHoldFrames(int value);
     void setImageSequenceFrameRate(const media::FrameRate& rate);
     void setWelcomeShownVersion(const QString& version);
+    void setAnnotationTool(const annotation::AnnotationToolSettings& settings);
 
     QByteArray windowGeometry() const;
     QByteArray windowState() const;

@@ -7,6 +7,7 @@
 # ---------------------------------------------------------------------------
 
 set(ATK_UI_SOURCES
+    AnnotationToolbar.cpp
     ApplicationSettings.cpp
     BookmarkPanel.cpp
     BurnInOptionsWidget.cpp
@@ -34,6 +35,7 @@ set(ATK_UI_SOURCES
 )
 
 set(ATK_UI_HEADERS
+    AnnotationToolbar.h
     ApplicationSettings.h
     BookmarkPanel.h
     BurnInOptionsWidget.h
