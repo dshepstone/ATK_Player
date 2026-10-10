@@ -1,5 +1,6 @@
 #pragma once
 
+#include "annotation/AnnotationTypes.h"
 #include "media/MediaSource.h"
 #include "timeline/Bookmark.h"
 #include "timeline/PlaybackRange.h"
@@ -29,6 +30,10 @@ struct SourceEntry {
     quint64 probeToken = 0;
     timeline::PlaybackRange playbackRange;
     QVector<timeline::Bookmark> bookmarks;
+    /// Drawn annotations, keyed by zero-based source frame. Review state like
+    /// the bookmarks: saved with the project, trimmed when a relink shortens
+    /// the media.
+    annotation::SourceAnnotations annotations;
     /// Frames added to the master frame number for this source. Used by A/B
     /// comparison to line up takes with different handles.
     int64_t frameOffset = 0;
@@ -94,6 +99,10 @@ public:
     /// replacement. Returns false without mutation for invalid input.
     bool relinkSource(const QUuid& id, std::shared_ptr<media::MediaSource> source,
                       int64_t replacementFrameCount);
+    /// Replaces one source's annotations (the editor writes its result back
+    /// here), marks the project modified and emits annotationsChanged. Returns
+    /// false for an unknown id; no change is made then.
+    bool setAnnotations(const QUuid& id, annotation::SourceAnnotations annotations);
     bool beginProbe(const QUuid& id, const QString& path, quint64 token);
     bool applyProbeResult(const QUuid& id, const QString& path, quint64 token,
                           const media::MediaMetadata& metadata, const QString& error,
@@ -109,11 +118,24 @@ signals:
     void nameChanged(const QString& name);
     void modifiedChanged(bool modified);
     void entriesChanged();
+    void annotationsChanged(const QUuid& sourceId);
     void activeIndexChanged(int index);
     void compareAssignmentChanged();
 
 private:
     bool isValidIndex(int index) const;
+
+    /// What a save would keep that is worth asking about: the videos and
+    /// their order, bookmarks, drawings and notes, comparison offsets. Not the
+    /// timeline zoom or the frame on screen, which change just by watching.
+    struct ReviewContent {
+        QString path;
+        QVector<timeline::Bookmark> bookmarks;
+        annotation::SourceAnnotations annotations;
+        int64_t frameOffset = 0;
+        friend bool operator==(const ReviewContent&, const ReviewContent&) = default;
+    };
+    QVector<ReviewContent> reviewContent() const;
 
     QString m_name;
     QString m_filePath;
@@ -122,6 +144,9 @@ private:
     int m_compareA = -1;
     int m_compareB = -1;
     bool m_modified = false;
+    /// reviewContent() when the project last matched its file (saved, loaded
+    /// or new), so a save prompt only appears when something real changed.
+    QVector<ReviewContent> m_savedContent;
 };
 
 } // namespace atk::project

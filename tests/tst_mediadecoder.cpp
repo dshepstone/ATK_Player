@@ -43,6 +43,11 @@ QString losslessFixture()
 
 /// The lossy MP4 exercises a different container and a codec whose seek
 /// behaviour is not all-intra.
+QString longGopFixture()
+{
+    return QDir(QStringLiteral(ATK_TEST_MEDIA_DIR)).filePath(QStringLiteral("atk_longgop_96f.mp4"));
+}
+
 QString lossyFixture()
 {
     return QDir(fixtureDir()).filePath(QStringLiteral("atk_fixture_48f.mp4"));
@@ -84,6 +89,7 @@ private slots:
     // --- Frame accuracy ---------------------------------------------------
     void stepsForwardOneRealFrame();
     void nearbyForwardRequestAvoidsSeek();
+    void forwardJumpWithinTheKeyframeSpacingDecodesOn();
     void stepsBackwardOneRealFrame();
     void steppingSequenceMatchesDecodedFrames();
     void randomAccessReturnsRequestedFrame_data();
@@ -356,6 +362,41 @@ void TestMediaDecoder::nearbyForwardRequestAvoidsSeek()
     QVERIFY2(decoder.frameAtIndex(15, frame, &error), qPrintable(error));
     QCOMPARE(frame.frameIndex, qint64(15));
     QCOMPARE(decoder.seekOperationCount(), seeksBeforeLocalMove);
+}
+
+void TestMediaDecoder::forwardJumpWithinTheKeyframeSpacingDecodesOn()
+{
+    // One keyframe for 96 frames: reaching frame 60 decodes from 0, so the
+    // decoder has seen that keyframes are at least 60 frames apart. A later
+    // jump of 34 frames (more than a second) is then cheaper to decode
+    // forward than to seek back to frame 0 and decode 95 frames.
+    MediaDecoder decoder;
+    QVERIFY(decoder.open(longGopFixture(), nullptr));
+    VideoFrame frame;
+    QString error;
+    QVERIFY2(decoder.frameAtIndex(60, frame, &error), qPrintable(error));
+    QCOMPARE(frame.frameIndex, qint64(60));
+    const int64_t seeks = decoder.seekOperationCount();
+    QVERIFY2(decoder.frameAtIndex(94, frame, &error), qPrintable(error));
+    QCOMPARE(frame.frameIndex, qint64(94));
+    QCOMPARE(decoder.seekOperationCount(), seeks);
+
+    // Same picture as reaching frame 94 by a fresh seek.
+    MediaDecoder fresh;
+    QVERIFY(fresh.open(longGopFixture(), nullptr));
+    VideoFrame reference;
+    QVERIFY2(fresh.frameAtIndex(94, reference, &error), qPrintable(error));
+    QCOMPARE(frame.ptsTicks, reference.ptsTicks);
+    QCOMPARE(frame.image, reference.image);
+
+    // A short-keyframe file keeps seeking for far jumps (no needless decode).
+    MediaDecoder shortGop;
+    QVERIFY(shortGop.open(lossyFixture(), nullptr));
+    QVERIFY2(shortGop.frameAtIndex(2, frame, &error), qPrintable(error));
+    const int64_t before = shortGop.seekOperationCount();
+    QVERIFY2(shortGop.frameAtIndex(45, frame, &error), qPrintable(error));
+    QCOMPARE(frame.frameIndex, qint64(45));
+    QVERIFY(shortGop.seekOperationCount() > before);
 }
 
 void TestMediaDecoder::stepsBackwardOneRealFrame()

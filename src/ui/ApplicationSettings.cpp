@@ -29,6 +29,35 @@ constexpr auto kStillHoldFrames = "media/stillImageHoldFrames";
 constexpr auto kSequenceFrameRate = "media/imageSequenceFrameRate";
 constexpr auto kShortcutGroup = "shortcuts";
 constexpr auto kWelcomeShownVersion = "ui/welcomeShownVersion";
+constexpr auto kDrawTool = "draw/tool";
+constexpr auto kDrawColor = "draw/color";
+constexpr auto kDrawSize = "draw/sizePixels";
+constexpr auto kDrawOpacity = "draw/opacity";
+constexpr auto kDrawPressure = "draw/usePressure";
+constexpr auto kDrawCurve = "draw/pressureCurve";
+constexpr auto kDrawStabilizer = "draw/stabilizer";
+constexpr auto kDrawEraserSize = "draw/eraserSizePixels";
+constexpr auto kDrawEraserMode = "draw/eraserMode";
+constexpr auto kDrawBrushTip = "draw/brushTip";
+constexpr auto kReviewerName = "review/reviewerName";
+constexpr auto kTracingPaper = "draw/tracingPaper";
+constexpr auto kTracingPaperLevel = "draw/tracingPaperLevel";
+constexpr auto kOpenExportsWhenDone = "export/openWhenDone";
+constexpr auto kGhostEnabled = "draw/ghostEnabled";
+constexpr auto kGhostBefore = "draw/ghostBefore";
+constexpr auto kGhostAfter = "draw/ghostAfter";
+constexpr auto kGhostMode = "draw/ghostMode";
+constexpr auto kGhostTint = "draw/ghostTint";
+
+QString curveName(annotation::PressureCurve curve)
+{
+    switch (curve) {
+    case annotation::PressureCurve::Soft: return QStringLiteral("soft");
+    case annotation::PressureCurve::Firm: return QStringLiteral("firm");
+    case annotation::PressureCurve::Linear: break;
+    }
+    return QStringLiteral("linear");
+}
 }
 
 ApplicationSettings::ApplicationSettings()
@@ -185,5 +214,123 @@ void ApplicationSettings::resetAll()
     if (welcome.isValid()) m_settings->setValue(QString::fromLatin1(kWelcomeShownVersion), welcome);
 }
 void ApplicationSettings::sync() { m_settings->sync(); }
+
+annotation::AnnotationToolSettings ApplicationSettings::annotationTool() const
+{
+    annotation::AnnotationToolSettings result;
+    annotation::AnnotationTool tool;
+    if (annotation::toolFromName(m_settings->value(QString::fromLatin1(kDrawTool)).toString(), &tool))
+        result.tool = tool;
+    const QColor color(m_settings->value(QString::fromLatin1(kDrawColor)).toString());
+    if (color.isValid()) result.color = color;
+    bool ok = false;
+    const double size = m_settings->value(QString::fromLatin1(kDrawSize)).toDouble(&ok);
+    if (ok && size >= annotation::AnnotationToolSettings::kMinSizePixels
+        && size <= annotation::AnnotationToolSettings::kMaxSizePixels)
+        result.sizePixels = size;
+    const double opacity = m_settings->value(QString::fromLatin1(kDrawOpacity)).toDouble(&ok);
+    if (ok && opacity >= 0.05 && opacity <= 1.0) result.opacity = opacity;
+    result.usePressure = readBool(kDrawPressure, result.usePressure);
+    const QString curve = m_settings->value(QString::fromLatin1(kDrawCurve)).toString();
+    if (curve == QStringLiteral("soft")) result.pressureCurve = annotation::PressureCurve::Soft;
+    else if (curve == QStringLiteral("firm")) result.pressureCurve = annotation::PressureCurve::Firm;
+    const double stabilizer = m_settings->value(QString::fromLatin1(kDrawStabilizer)).toDouble(&ok);
+    if (ok && stabilizer >= 0.0 && stabilizer <= 0.95) result.stabilizer = stabilizer;
+    const double eraserSize = m_settings->value(QString::fromLatin1(kDrawEraserSize)).toDouble(&ok);
+    if (ok && eraserSize >= annotation::AnnotationToolSettings::kMinSizePixels
+        && eraserSize <= annotation::AnnotationToolSettings::kMaxSizePixels)
+        result.eraserSizePixels = eraserSize;
+    if (m_settings->value(QString::fromLatin1(kDrawEraserMode)).toString() == QStringLiteral("stroke"))
+        result.eraserMode = annotation::EraserMode::WholeStroke;
+    result.brushTipId = m_settings->value(QString::fromLatin1(kDrawBrushTip)).toString().left(200);
+    return result;
+}
+
+QString ApplicationSettings::reviewerName() const
+{
+    const QVariant stored = m_settings->value(QString::fromLatin1(kReviewerName));
+    if (stored.isValid()) return stored.toString().left(200);
+    QString user = qEnvironmentVariable("USERNAME");
+    if (user.isEmpty()) user = qEnvironmentVariable("USER");
+    return user.left(200);
+}
+
+int ApplicationSettings::tracingPaper() const
+{
+    bool ok = false;
+    const int value = m_settings->value(QString::fromLatin1(kTracingPaper)).toInt(&ok);
+    return ok && value >= 0 && value <= 100 ? value : 0;
+}
+
+int ApplicationSettings::tracingPaperLevel() const
+{
+    bool ok = false;
+    const int value = m_settings->value(QString::fromLatin1(kTracingPaperLevel)).toInt(&ok);
+    return ok && value > 0 && value <= 100 ? value : 50;
+}
+
+annotation::GhostSettings ApplicationSettings::ghostSettings() const
+{
+    annotation::GhostSettings result;
+    result.enabled = readBool(kGhostEnabled, result.enabled);
+    bool ok = false;
+    const int before = m_settings->value(QString::fromLatin1(kGhostBefore)).toInt(&ok);
+    if (ok && before >= 0 && before <= annotation::GhostSettings::kMaxRange) result.before = before;
+    const int after = m_settings->value(QString::fromLatin1(kGhostAfter)).toInt(&ok);
+    if (ok && after >= 0 && after <= annotation::GhostSettings::kMaxRange) result.after = after;
+    if (m_settings->value(QString::fromLatin1(kGhostMode)).toString() == QStringLiteral("drawings"))
+        result.mode = annotation::GhostSettings::Mode::Drawings;
+    result.tint = readBool(kGhostTint, result.tint);
+    return result;
+}
+
+bool ApplicationSettings::openExportsWhenDone() const { return readBool(kOpenExportsWhenDone, true); }
+
+void ApplicationSettings::setOpenExportsWhenDone(bool open)
+{
+    m_settings->setValue(QString::fromLatin1(kOpenExportsWhenDone), open);
+}
+
+void ApplicationSettings::setTracingPaper(int percent)
+{
+    m_settings->setValue(QString::fromLatin1(kTracingPaper), std::clamp(percent, 0, 100));
+}
+
+void ApplicationSettings::setTracingPaperLevel(int percent)
+{
+    if (percent > 0) m_settings->setValue(QString::fromLatin1(kTracingPaperLevel), std::clamp(percent, 1, 100));
+}
+
+void ApplicationSettings::setGhostSettings(const annotation::GhostSettings& settings)
+{
+    m_settings->setValue(QString::fromLatin1(kGhostEnabled), settings.enabled);
+    m_settings->setValue(QString::fromLatin1(kGhostBefore), settings.before);
+    m_settings->setValue(QString::fromLatin1(kGhostAfter), settings.after);
+    m_settings->setValue(QString::fromLatin1(kGhostMode),
+                         settings.mode == annotation::GhostSettings::Mode::Drawings ? QStringLiteral("drawings")
+                                                                                    : QStringLiteral("frames"));
+    m_settings->setValue(QString::fromLatin1(kGhostTint), settings.tint);
+}
+
+void ApplicationSettings::setReviewerName(const QString& name)
+{
+    m_settings->setValue(QString::fromLatin1(kReviewerName), name.left(200));
+}
+
+void ApplicationSettings::setAnnotationTool(const annotation::AnnotationToolSettings& settings)
+{
+    m_settings->setValue(QString::fromLatin1(kDrawTool), annotation::toolName(settings.tool));
+    m_settings->setValue(QString::fromLatin1(kDrawColor), settings.color.name(QColor::HexArgb));
+    m_settings->setValue(QString::fromLatin1(kDrawSize), settings.sizePixels);
+    m_settings->setValue(QString::fromLatin1(kDrawOpacity), settings.opacity);
+    m_settings->setValue(QString::fromLatin1(kDrawPressure), settings.usePressure);
+    m_settings->setValue(QString::fromLatin1(kDrawCurve), curveName(settings.pressureCurve));
+    m_settings->setValue(QString::fromLatin1(kDrawStabilizer), settings.stabilizer);
+    m_settings->setValue(QString::fromLatin1(kDrawEraserSize), settings.eraserSizePixels);
+    m_settings->setValue(QString::fromLatin1(kDrawEraserMode),
+                         settings.eraserMode == annotation::EraserMode::WholeStroke ? QStringLiteral("stroke")
+                                                                                    : QStringLiteral("area"));
+    m_settings->setValue(QString::fromLatin1(kDrawBrushTip), settings.brushTipId);
+}
 
 } // namespace atk::ui

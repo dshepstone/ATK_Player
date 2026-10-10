@@ -120,6 +120,20 @@ jobs:
       - name: Test
         run: ctest --preset ${{ matrix.preset }} --output-on-failure
 
+      # GUI-linked tests write their Qt Test report to a file (see
+      # tests/CMakeLists.txt); show the failing cases right in the log.
+      - name: Show failing test reports
+        if: failure()
+        shell: pwsh
+        run: |
+          Get-ChildItem "build/${{ matrix.preset }}/bin" -Filter "*-results.txt" | ForEach-Object {
+            $lines = Get-Content $_.FullName
+            if ($lines | Select-String -SimpleMatch "FAIL!") {
+              Write-Host "===== $($_.Name) ====="
+              $lines | Select-String -SimpleMatch -Context 0,4 "FAIL!" | ForEach-Object { $_.ToString() }
+            }
+          }
+
       - name: Test dependency source packaging
         run: python -m unittest discover -s packaging/windows/tests -v
 

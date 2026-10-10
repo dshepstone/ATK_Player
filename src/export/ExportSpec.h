@@ -1,5 +1,6 @@
 #pragma once
 
+#include "annotation/AnnotationTypes.h"
 #include "media/MediaMetadata.h"
 #include "media/ImageSource.h"
 #include "playback/CompareSession.h"
@@ -15,8 +16,26 @@ struct ExportBurnIns {
     bool frameNumber = false;
     bool bookmarkLabels = false;
     bool bookmarkNotes = false;
+    /// Drawings made on frames, burned in on the frame they were drawn on.
+    bool annotations = false;
+    /// Frame notes from the Notes panel, as a caption on their frame.
+    bool annotationNotes = false;
+    /// Keep drawings and notes on screen for this many further frames (or
+    /// until the next annotated frame), so they can be read in a play-through.
+    /// 0 shows each exactly on its own frame.
+    int annotationHoldFrames = 0;
+    /// Video only: stop the picture on each drawn or noted frame for this many
+    /// further frames (the sound pauses too), then play on. 0 = no freeze.
+    int annotationFreezeFrames = 0;
+    /// Tracing paper, as in the viewer: a white wash over the picture and
+    /// under the drawings, in percent (0 = off).
+    int tracingPaperPercent = 0;
 
-    bool enabled() const { return frameNumber || bookmarkLabels || bookmarkNotes; }
+    bool enabled() const
+    {
+        return frameNumber || bookmarkLabels || bookmarkNotes || annotations || annotationNotes
+            || tracingPaperPercent > 0;
+    }
 };
 
 struct ExportBookmark {
@@ -57,6 +76,9 @@ struct ExportSpec {
     QString imagePrefix;
     ExportBurnIns burnIns;
     QVector<ExportBookmark> bookmarks;
+    /// Snapshot of Source A's drawings and notes (implicitly shared, read-only
+    /// in the export thread). Burned in for single-source exports only.
+    annotation::SourceAnnotations annotations;
     /// Optional output subset. Mapping origins remain the source review ranges.
     qint64 firstFrame = -1;
     qint64 lastFrame = -1;
@@ -74,5 +96,10 @@ struct ExportSpec {
     QString audioSummary() const;
     QString validate() const;
 };
+
+/// "name (2).ext", "name (3).ext"... beside `path`: the first that does not
+/// exist. Used when the destination cannot be replaced because another app
+/// has it open (Windows locks files a viewer has open).
+QString numberedSibling(const QString& path);
 
 } // namespace atk::exporter

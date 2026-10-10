@@ -60,6 +60,10 @@ public:
     quint64 bookmarkAtPosition(const QPoint& point) const;
     int64_t displayedFrame() const { return displayFrame(); }
     void setSelectedBookmark(quint64 id) { m_selectedBookmarkId = id; update(); }
+    /// Frames that carry drawings, marked under the track so a reviewer can
+    /// see where notes are and step to them.
+    void setAnnotatedFrames(QVector<int64_t> frames);
+    const QVector<int64_t>& annotatedFrames() const { return m_annotatedFrames; }
     quint64 selectedBookmarkId() const { return m_selectedBookmarkId; }
     /// Badge above the playhead showing the frame under the pointer while a
     /// scrub drag is in progress. Empty when not scrubbing.
@@ -108,6 +112,7 @@ private:
     void paintWaveform(QPainter& painter);
     void paintTrack(QPainter& painter);
     void paintBookmarks(QPainter& painter);
+    void paintAnnotatedFrames(QPainter& painter);
     void paintPlayhead(QPainter& painter);
     void paintFrameLabels(QPainter& painter);
     void paintScrubFrameLabel(QPainter& painter);
@@ -145,6 +150,7 @@ private:
     int64_t m_scrubFrame = -1;
     bool m_bookmarkSnapEnabled = true;
     quint64 m_selectedBookmarkId = 0;
+    QVector<int64_t> m_annotatedFrames;
 };
 
 } // namespace atk::ui

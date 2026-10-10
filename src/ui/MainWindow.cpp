@@ -1,6 +1,11 @@
 #include "ui/MainWindow.h"
 
+#include "annotation/AbrReader.h"
+#include "annotation/AnnotationGhosting.h"
+#include "annotation/AnnotationStore.h"
+#include "annotation/BrushLibrary.h"
 #include "api/ApiServer.h"
+#include "platform/PlatformInfo.h"
 #include "playback/CompareSession.h"
 #include "playback/CompareVideoLane.h"
 #include "core/Logging.h"
@@ -10,20 +15,26 @@
 #include "media/PlaylistProbeWorker.h"
 #include "export/ExportJob.h"
 #include "export/FFmpegExporter.h"
+#include "export/ReviewNotesPdf.h"
 #include "project/Project.h"
 #include "project/ProjectSerializer.h"
+#include "timeline/Timecode.h"
 #include "timeline/TimelineModel.h"
+#include "ui/AnnotationToolbar.h"
 #include "ui/ApplicationSettings.h"
 #include "ui/BookmarkPanel.h"
 #include "ui/BurnInOptionsWidget.h"
 #include "ui/CompareBar.h"
 #include "ui/ComparisonCompositeWidget.h"
 #include "ui/ExportDialog.h"
+#include "ui/ExportUi.h"
 #include "ui/FrameFieldStyle.h"
 #include "ui/FrameNumberInput.h"
 #include "ui/MediaInformationDialog.h"
+#include "ui/NotesPanel.h"
 #include "ui/PreferencesDialog.h"
 #include "ui/Resources.h"
+#include "ui/ReviewNotesDialog.h"
 #include "ui/SourcesPanel.h"
 #include "ui/StatusInfoBar.h"
 #include "ui/Theme.h"
@@ -69,8 +80,14 @@
 #include <QDialogButtonBox>
 #include <QMenu>
 #include <QMenuBar>
+#include <QDateTime>
+#include <QDesktopServices>
+#include <QLocale>
+#include <QFile>
 #include <QMessageBox>
+#include <QStandardPaths>
 #include <QProgressDialog>
+#include <QShortcut>
 #include <QRegularExpression>
 #include <QScreen>
 #include <QSignalBlocker>
@@ -83,16 +100,22 @@ namespace atk::ui {
 namespace {
 using commands::CommandId;
 
-bool chooseBurnIns(QWidget* parent, const QString& title, exporter::ExportBurnIns& result)
+bool chooseBurnIns(QWidget* parent, const QString& title, const QString& summary, exporter::ExportBurnIns& result)
 {
-    QDialog dialog(parent); dialog.setWindowTitle(title);
-    auto* layout = new QVBoxLayout(&dialog);
+    QDialog dialog(parent);
+    dialog.setWindowTitle(title);
+    dialog.setStyleSheet(exportui::styleSheet());
+    dialog.setMinimumWidth(520);
+    auto* root = new QVBoxLayout(&dialog);
+    root->setContentsMargins(0, 0, 0, 0);
+    root->setSpacing(0);
+    exportui::addHeader(root, &dialog, QStringLiteral("PNG"), title, summary);
+    auto* body = exportui::addBody(root);
+    auto* card = exportui::addCard(body, &dialog, QObject::tr("Drawings, notes and burn-ins"));
     auto* options = new BurnInOptionsWidget(&dialog); options->setOptions(result);
-    layout->addWidget(options);
-    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
-    layout->addWidget(buttons);
-    QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
-    QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    options->setVideoOptionsVisible(false); // stills: no play-through, hold or freeze
+    card->addWidget(options);
+    exportui::addFooter(root, &dialog, QObject::tr("Export"));
     if (dialog.exec() != QDialog::Accepted) return false;
     result = options->options();
     return true;
@@ -103,8 +126,11 @@ bool chooseBurnIns(QWidget* parent, const QString& title, exporter::ExportBurnIn
 bool startsNewGroup(CommandId id)
 {
     switch (id) {
+    case CommandId::ExportReviewNotes: // the notes exports, PDF and video
     case CommandId::CloseSource:
     case CommandId::Quit:
+    case CommandId::ToggleAnnotateMode:
+    case CommandId::IncreaseBrushSize:
     case CommandId::PreviousFrame:
     case CommandId::ToggleLoop:
     case CommandId::SetRangeIn:
@@ -210,6 +236,7 @@ MainWindow::MainWindow(const QString& settingsIniPath, QWidget* parent)
     ensureResourcesInitialized();
     if (!settingsIniPath.isEmpty())
         m_settings = std::make_unique<ApplicationSettings>(settingsIniPath);
+    m_settingsIniPath = settingsIniPath;
     setObjectName(QStringLiteral("AtkMainWindow"));
     setWindowIcon(QIcon(QStringLiteral(":/icons/ATK_Player_Icon.png")));
     setAcceptDrops(true);
@@ -217,6 +244,17 @@ MainWindow::MainWindow(const QString& settingsIniPath, QWidget* parent)
     buildModels();
     buildWidgets();
     buildMenus();
+    // Next/previous note or drawing are Ctrl + the < and > keys. Their
+    // defaults are the unshifted keys (Ctrl+, / Ctrl+.); these also accept the
+    // shifted form, for whoever presses Ctrl+Shift+< / >.
+    for (const auto& [sequence, id] : {std::pair{"Ctrl+<", CommandId::PreviousAnnotatedFrame},
+                                       std::pair{"Ctrl+>", CommandId::NextAnnotatedFrame}}) {
+        auto* shortcut = new QShortcut(QKeySequence(QString::fromLatin1(sequence)), this);
+        shortcut->setContext(Qt::WindowShortcut);
+        connect(shortcut, &QShortcut::activated, this, [this, id = id] {
+            if (QAction* action = m_commands->action(id); action && action->isEnabled()) action->trigger();
+        });
+    }
     buildAudioControls();
     connectSignals();
 
@@ -253,6 +291,13 @@ void MainWindow::buildModels()
     m_playback->setVolume(m_settings->volume());
     m_playback->setMuted(m_settings->muted());
     m_project  = std::make_unique<project::Project>();
+    m_annotations = std::make_unique<annotation::AnnotationStore>();
+    const QString brushDirectory = !m_settingsIniPath.isEmpty()
+        ? QFileInfo(m_settingsIniPath).absoluteDir().filePath(QStringLiteral("brushes"))
+        : QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)).filePath(QStringLiteral("brushes"));
+    m_brushLibrary = std::make_unique<annotation::BrushLibrary>(brushDirectory);
+    m_brushLibrary->load();
+    m_brushLibrary->registerAll();
     m_probeThread = new QThread(this);
     m_probeWorker = new media::PlaylistProbeWorker;
     m_probeWorker->moveToThread(m_probeThread);
@@ -415,6 +460,25 @@ void MainWindow::buildWidgets()
     m_bookmarksDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetClosable);
     addDockWidget(Qt::RightDockWidgetArea, m_bookmarksDock);
 
+    // --- Notes (right side, like SyncSketch) -------------------------------
+    m_notesPanel = new NotesPanel(this);
+    m_notesPanel->setReviewerName(m_settings->reviewerName());
+    m_notesDock = new QDockWidget(tr("Notes"), this);
+    m_notesDock->setObjectName(QStringLiteral("NotesDock"));
+    m_notesDock->setWidget(m_notesPanel);
+    m_notesDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+    m_notesDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetClosable);
+    addDockWidget(Qt::RightDockWidgetArea, m_notesDock);
+
+    // --- Drawing toolbar --------------------------------------------------
+    // Shown only while Draw on Frame is on.
+    m_annotationToolbar = new AnnotationToolbar(this);
+    m_annotationToolbar->setBrushSets(m_brushLibrary->sets());
+    m_annotationToolbar->setSettings(m_settings->annotationTool());
+    addToolBar(Qt::TopToolBarArea, m_annotationToolbar);
+    m_annotationToolbar->hide();
+    m_viewer->setAnnotationTool(m_annotationToolbar->settings());
+
     // --- Status bar -------------------------------------------------------
     m_statusInfo = new StatusInfoBar(this);
     m_statusInfo->setModel(m_timeline.get());
@@ -483,6 +547,15 @@ void MainWindow::buildMenus()
         snapAction->setChecked(m_settings->bookmarkSnapEnabled());
         m_timelineWidget->setBookmarkSnapEnabled(m_settings->bookmarkSnapEnabled());
     }
+    if (QAction* showDrawings = m_commands->action(CommandId::ToggleAnnotationsVisible)) {
+        showDrawings->setChecked(true);
+    }
+    m_tracingPaperLevel = m_settings->tracingPaperLevel();
+    applyTracingPaper(m_settings->tracingPaper());
+    applyGhostSettings(m_settings->ghostSettings());
+    if (QAction* notesAction = m_commands->action(CommandId::ToggleNotesPanel)) {
+        notesAction->setChecked(true);
+    }
     if (QAction* scrubAction = m_commands->action(CommandId::ToggleAudioScrub)) {
         scrubAction->setChecked(m_settings->audioScrubEnabled());
     }
@@ -532,9 +605,102 @@ void MainWindow::connectSignals()
     connect(m_playback.get(), &playback::PlaybackController::frameChanged,
             this, [this](const media::VideoFrame& frame) {
                 m_viewer->setFrame(frame);
+                if (frame.frameIndex != m_displayedFrameIndex
+                    || frame.image.height() != m_displayedImageHeight) {
+                    m_displayedFrameIndex = frame.frameIndex;
+                    m_displayedImageHeight = frame.image.height();
+                    m_displayedFramePtsUs = frame.ptsUs;
+                    refreshViewerAnnotations();
+                    m_notesPanel->setCurrentFrame(
+                        frame.frameIndex, timeline::timecode::fromFrame(frame.frameIndex, m_timeline->frameRate()),
+                        !m_annotationSourceId.isNull());
+                }
                 m_compareComposite->setFrameA(frame);
                 synchronizeComparison(frame);
             });
+
+    // --- Drawing on frames ------------------------------------------------
+    connect(m_viewer, &ViewerWidget::annotationItemDrawn, this,
+            [this](qint64 frameIndex, const annotation::AnnotationItem& item) {
+                if (m_annotationSourceId.isNull() || frameIndex < 0) return;
+                if (m_annotations->addItem(frameIndex, annotationMediaTimeUs(frameIndex), item) == 0)
+                    statusBar()->showMessage(tr("This drawing could not be added (frame limit reached)."), 4000);
+            });
+    // One eraser swipe is one undo step.
+    connect(m_viewer, &ViewerWidget::annotationEraseStarted, this,
+            [this](qint64) { m_annotations->beginEditGroup(); });
+    connect(m_viewer, &ViewerWidget::annotationEraseFinished, this,
+            [this] { m_annotations->endEditGroup(); });
+    connect(m_viewer, &ViewerWidget::annotationEraseRequested, this,
+            [this](qint64 frameIndex, const QVector<QPointF>& centers, qreal radius, const QSizeF& imageSize) {
+                m_annotations->eraseDiscs(frameIndex, centers, radius, imageSize,
+                                          m_annotationToolbar->settings().eraserMode);
+            });
+    connect(m_viewer, &ViewerWidget::annotationItemChanged, this,
+            [this](qint64 frameIndex, const annotation::AnnotationItem& item) {
+                m_annotations->replaceItem(frameIndex, item);
+            });
+    connect(m_viewer, &ViewerWidget::annotationItemDeleteRequested, this,
+            [this](qint64 frameIndex, quint64 id) { m_annotations->removeItem(frameIndex, id); });
+    connect(m_annotationToolbar, &AnnotationToolbar::settingsChanged, this, &MainWindow::applyAnnotationTool);
+    connect(m_annotationToolbar, &AnnotationToolbar::importBrushesRequested, this, &MainWindow::importBrushSet);
+
+    // Notes panel: writes go through the same store as drawings, so they
+    // share undo, saving and export.
+    connect(m_notesPanel, &NotesPanel::addNoteRequested, this, [this](qint64 frame, const QString& text) {
+        if (m_annotationSourceId.isNull() || frame < 0) return;
+        annotation::FrameNote note;
+        note.text = text;
+        note.author = m_notesPanel->reviewerName();
+        note.createdMsUtc = QDateTime::currentMSecsSinceEpoch();
+        if (m_annotations->addNote(frame, annotationMediaTimeUs(frame), note) == 0)
+            statusBar()->showMessage(tr("The note could not be added."), 4000);
+    });
+    connect(m_notesPanel, &NotesPanel::updateNoteRequested, this,
+            [this](qint64 frame, const annotation::FrameNote& note) { m_annotations->updateNote(frame, note); });
+    connect(m_notesPanel, &NotesPanel::deleteNoteRequested, this,
+            [this](qint64 frame, quint64 id) { m_annotations->removeNote(frame, id); });
+    connect(m_notesPanel, &NotesPanel::noteActivated, this, [this](qint64 frame) {
+        if (frame != m_displayedFrameIndex) m_playback->seekFrame(frame);
+    });
+    connect(m_notesPanel, &NotesPanel::reviewerNameChanged, this,
+            [this](const QString& name) { m_settings->setReviewerName(name); });
+    connect(m_notesPanel, &NotesPanel::exportPdfRequested, this, &MainWindow::exportReviewNotes);
+    connect(m_notesPanel, &NotesPanel::exportVideoRequested, this, [this] { exportReview(true); });
+    connect(m_notesDock, &QDockWidget::visibilityChanged, this, [this](bool visible) {
+        if (QAction* action = m_commands->action(CommandId::ToggleNotesPanel)) {
+            QSignalBlocker blocker(action);
+            action->setChecked(visible);
+        }
+    });
+    connect(m_annotations.get(), &annotation::AnnotationStore::annotationsEdited, this, &MainWindow::refreshNotesPanel);
+    connect(m_annotations.get(), &annotation::AnnotationStore::annotationsReset, this, &MainWindow::refreshNotesPanel);
+    connect(m_annotationToolbar, &AnnotationToolbar::removeBrushSetRequested, this, &MainWindow::removeBrushSet);
+    connect(m_annotationToolbar, &AnnotationToolbar::tracingPaperRequested, this, &MainWindow::applyTracingPaper);
+    connect(m_annotationToolbar, &AnnotationToolbar::ghostSettingsRequested, this, &MainWindow::applyGhostSettings);
+    connect(m_annotations.get(), &annotation::AnnotationStore::annotationsEdited, this, [this] {
+        if (!m_annotationSourceId.isNull())
+            m_project->setAnnotations(m_annotationSourceId, m_annotations->annotations());
+    });
+    connect(m_annotations.get(), &annotation::AnnotationStore::frameChanged, this, [this](qint64 frame) {
+        // Ghosts show nearby frames too, so any edit may change what is on screen.
+        if (frame == m_displayedFrameIndex || m_ghostSettings.enabled) refreshViewerAnnotations();
+    });
+    connect(m_annotations.get(), &annotation::AnnotationStore::annotationsReset, this,
+            &MainWindow::refreshViewerAnnotations);
+    auto markDrawnFrames = [this] { m_timelineWidget->setAnnotatedFrames(m_annotations->annotatedFrames()); };
+    connect(m_annotations.get(), &annotation::AnnotationStore::annotationsEdited, this, markDrawnFrames);
+    connect(m_annotations.get(), &annotation::AnnotationStore::annotationsReset, this, markDrawnFrames);
+    connect(m_annotations.get(), &annotation::AnnotationStore::historyChanged, this,
+            &MainWindow::updateAnnotationActions);
+    // Rebind whenever the active source or the playlist changes. Binding is a
+    // no-op when the store already holds that source's data, so undo history
+    // survives unrelated playlist updates such as probe results.
+    connect(m_project.get(), &project::Project::activeIndexChanged, this,
+            [this](int) { bindAnnotationsToActiveSource(); });
+    connect(m_project.get(), &project::Project::entriesChanged, this,
+            &MainWindow::bindAnnotationsToActiveSource);
+    updateAnnotationActions();
 
     connect(m_viewer, &ViewerWidget::activated, this,
             [this] { if (isComparisonActive()) m_compare->setActivePane(playback::ComparePane::A); });
@@ -866,6 +1032,57 @@ void MainWindow::onCommand(CommandId id, bool checked)
         m_settings->setBookmarkSnapEnabled(checked);
         return;
 
+    // --- Drawing ------------------------------------------------------------
+    case CommandId::ToggleAnnotateMode:
+        setAnnotateMode(checked);
+        return;
+    case CommandId::UndoAnnotation:
+        m_annotations->undo();
+        return;
+    case CommandId::RedoAnnotation:
+        m_annotations->redo();
+        return;
+    case CommandId::ClearFrameAnnotations:
+        if (m_displayedFrameIndex >= 0) m_annotations->clearFrame(m_displayedFrameIndex);
+        return;
+    case CommandId::IncreaseBrushSize:
+    case CommandId::DecreaseBrushSize: {
+        auto settings = m_annotationToolbar->settings();
+        settings.setActiveSizePixels(annotation::stepBrushSize(settings.activeSizePixels(),
+                                                               id == CommandId::IncreaseBrushSize ? 1 : -1));
+        m_annotationToolbar->setSettings(settings);
+        applyAnnotationTool(settings);
+        statusBar()->showMessage(settings.tool == annotation::AnnotationTool::Eraser
+                                     ? tr("Eraser size %1 px").arg(settings.eraserSizePixels)
+                                     : tr("Brush size %1 px").arg(settings.sizePixels), 1500);
+        return;
+    }
+    case CommandId::ToggleNotesPanel:
+        m_notesDock->setVisible(checked);
+        if (checked) m_notesDock->raise();
+        return;
+    case CommandId::ToggleAnnotationsVisible:
+        m_viewer->setAnnotationsVisible(checked);
+        return;
+    case CommandId::ToggleTracingPaper:
+        applyTracingPaper(checked ? m_tracingPaperLevel : 0);
+        statusBar()->showMessage(checked ? tr("Tracing paper %1%").arg(m_tracingPaperLevel) : tr("Tracing paper off"), 1500);
+        return;
+    case CommandId::ToggleGhosting: {
+        auto ghost = m_ghostSettings;
+        ghost.enabled = checked;
+        applyGhostSettings(ghost);
+        statusBar()->showMessage(checked ? tr("Ghosting %1 frames back, %2 forward").arg(ghost.before).arg(ghost.after)
+                                         : tr("Ghosting off"), 1500);
+        return;
+    }
+    case CommandId::NextAnnotatedFrame:
+        seekAnnotatedFrame(1);
+        return;
+    case CommandId::PreviousAnnotatedFrame:
+        seekAnnotatedFrame(-1);
+        return;
+
     // --- View: fully wired ------------------------------------------------
     case CommandId::ZoomFit:
         if (isComparisonActive() && m_compare->layout() != playback::CompareLayout::SideBySide
@@ -1030,6 +1247,8 @@ void MainWindow::onCommand(CommandId id, bool checked)
     case CommandId::ExportReview: exportReview(); return;
     case CommandId::ExportCurrentFrame: exportCurrentFrame(); return;
     case CommandId::ExportImageSequence: exportImageSequence(); return;
+    case CommandId::ExportReviewNotes: exportReviewNotes(); return;
+    case CommandId::ExportNotesVideo: exportReview(true); return;
     }
 }
 
@@ -1177,6 +1396,9 @@ void MainWindow::restoreApplicationLayout()
         addDockWidget(Qt::LeftDockWidgetArea, m_sourcesDock);
         addDockWidget(Qt::RightDockWidgetArea, m_bookmarksDock);
     }
+    // The saved layout may record the drawing toolbar as visible; it belongs
+    // to Draw on Frame, which always starts off.
+    if (m_annotationToolbar) m_annotationToolbar->setVisible(m_viewer->annotateMode());
 }
 
 void MainWindow::saveApplicationLayout()
@@ -1254,9 +1476,11 @@ void MainWindow::updateTransportEnabled()
 
     if (QAction* action = m_commands->action(CommandId::ExportReview))
         action->setEnabled(m_playback->hasMedia() && !exportInProgress());
-    for (CommandId id : {CommandId::ExportCurrentFrame, CommandId::ExportImageSequence})
+    for (CommandId id : {CommandId::ExportCurrentFrame, CommandId::ExportImageSequence, CommandId::ExportNotesVideo})
         if (QAction* action = m_commands->action(id))
             action->setEnabled(m_playback->hasMedia() && !exportInProgress());
+    if (QAction* action = m_commands->action(CommandId::ExportReviewNotes))
+        action->setEnabled(m_playback->hasMedia() && !notesPdfInProgress());
 
     if (QAction* action = m_commands->action(CommandId::ToggleVideoFullScreen)) {
         action->setEnabled(m_playback->hasMedia());
@@ -1622,6 +1846,7 @@ void MainWindow::restoreActiveReviewState()
         m_timeline->fitViewport();
     m_viewer->resetNavigationToFit();
     m_restoringSourceState = false;
+    bindAnnotationsToActiveSource();
 }
 
 void MainWindow::activatePlaylistIndex(int index, bool continuePlayback)
@@ -1857,6 +2082,17 @@ exporter::ExportSpec MainWindow::exportSnapshot(const QString& outputPath) const
             bookmark.name, bookmark.note, bookmark.colorIndex});
     }
     spec.comparison = isComparisonActive();
+    // Exports keep the viewer's tracing paper unless it is turned off there.
+    if (!spec.comparison) spec.burnIns.tracingPaperPercent = m_tracingPaper;
+    // Drawings and notes of Source A. On by default when there are any, so
+    // "Export Review" gives the SyncSketch-style annotated video in one step.
+    if (!spec.comparison && a.id == m_annotationSourceId) {
+        spec.annotations = m_annotations->annotations();
+        if (!spec.annotations.isEmpty()) {
+            spec.burnIns.annotations = true;
+            spec.burnIns.annotationNotes = true;
+        }
+    }
     if (spec.comparison) {
         const int bIndex = m_project->indexForId(m_compare->sourceBId());
         if (bIndex >= 0) {
@@ -1893,14 +2129,24 @@ bool MainWindow::exportInProgress() const
     return m_exportJob && m_exportJob->isRunning();
 }
 
-void MainWindow::exportReview()
+void MainWindow::exportReview(bool withNotes)
 {
     if (exportInProgress()) return;
     exporter::ExportSpec spec = exportSnapshot();
+    if (withNotes && !spec.comparison) {
+        spec.burnIns.annotations = true;
+        spec.burnIns.annotationNotes = true;
+        const QFileInfo out(spec.outputPath);
+        spec.outputPath = QDir(out.absolutePath()).filePath(out.completeBaseName().replace(
+            QStringLiteral("_review"), QStringLiteral("_notes")) + QStringLiteral(".mp4"));
+    }
     ExportDialog dialog(spec, this);
+    dialog.setOpenWhenDone(m_settings->openExportsWhenDone());
     if (dialog.exec() != QDialog::Accepted) return;
     spec.outputPath = dialog.destination();
     spec.burnIns = dialog.burnIns();
+    m_settings->setOpenExportsWhenDone(dialog.openWhenDone());
+    m_openExportWhenDone = dialog.openWhenDone();
     if (QFileInfo::exists(spec.outputPath)
         && QMessageBox::question(this, tr("Export Review"),
             tr("Replace the existing file?\n%1").arg(QDir::toNativeSeparators(spec.outputPath)),
@@ -1931,7 +2177,7 @@ void MainWindow::exportCurrentFrame()
         && QMessageBox::question(this, tr("Export Current Frame"),
             tr("Replace the existing image?\n%1").arg(QDir::toNativeSeparators(path)),
             QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes) return;
-    if (!chooseBurnIns(this, tr("Export Current Frame"), spec.burnIns)) return;
+    if (!chooseBurnIns(this, tr("Export Current Frame"), QDir::toNativeSeparators(path), spec.burnIns)) return;
     spec.outputPath = QFileInfo(path).absoluteFilePath();
     const QString validation = spec.validate();
     if (!validation.isEmpty()) { QMessageBox::critical(this, tr("Export Current Frame"), validation); return; }
@@ -1948,7 +2194,10 @@ void MainWindow::exportImageSequence()
         this, tr("Choose Parent Folder for Image Sequence"), QFileInfo(spec.outputPath).absolutePath());
     if (parent.isEmpty()) return;
     spec.outputPath = QDir(parent).filePath(spec.imagePrefix + QStringLiteral("_frames"));
-    if (!chooseBurnIns(this, tr("Export Image Sequence"), spec.burnIns)) return;
+    if (!chooseBurnIns(this, tr("Export Image Sequence"),
+                       tr("%n frame(s) as PNG images into %1", nullptr, int(spec.frameCount()))
+                           .arg(QDir::toNativeSeparators(spec.outputPath)),
+                       spec.burnIns)) return;
     const QString validation = spec.validate();
     if (!validation.isEmpty()) { QMessageBox::critical(this, tr("Export Image Sequence"), validation); return; }
     startExport(std::move(spec));
@@ -1959,15 +2208,14 @@ void MainWindow::startExport(exporter::ExportSpec spec, bool showProgressUi)
     if (exportInProgress()) return;
     m_exportJob = std::make_unique<exporter::ExportJob>(std::move(spec), this);
     if (showProgressUi) {
-        m_exportProgress = new QProgressDialog(tr("Preparing…"), tr("Cancel"), 0, 100, this);
-        m_exportProgress->setWindowTitle(m_exportJob->spec().kind == exporter::ExportKind::ReviewVideo
-            ? tr("Export Review") : m_exportJob->spec().kind == exporter::ExportKind::CurrentFrame
-                ? tr("Export Current Frame") : tr("Export Image Sequence"));
+        const exporter::ExportKind kind = m_exportJob->spec().kind;
+        m_exportProgress = new ExportProgressDialog(
+            kind == exporter::ExportKind::ReviewVideo ? QStringLiteral("MP4") : QStringLiteral("PNG"),
+            kind == exporter::ExportKind::ReviewVideo ? tr("Exporting video")
+                : kind == exporter::ExportKind::CurrentFrame ? tr("Exporting frame") : tr("Exporting image sequence"),
+            QDir::toNativeSeparators(m_exportJob->spec().outputPath), this);
         m_exportProgress->setWindowModality(Qt::NonModal);
-        m_exportProgress->setMinimumDuration(0);
-        m_exportProgress->setAutoClose(false);
-        m_exportProgress->setAutoReset(false);
-        connect(m_exportProgress, &QProgressDialog::canceled,
+        connect(m_exportProgress, &ExportProgressDialog::canceled,
                 m_exportJob.get(), &exporter::ExportJob::cancel);
         connect(m_exportJob.get(), &exporter::ExportJob::progress, m_exportProgress,
                 [this](int percent, qint64, qint64) {
@@ -1985,13 +2233,18 @@ void MainWindow::startExport(exporter::ExportSpec spec, bool showProgressUi)
                 m_apiExportTotal = total;
             });
     const auto closeProgress = [this] {
-        if (m_exportProgress) { m_exportProgress->close(); m_exportProgress->deleteLater(); m_exportProgress = nullptr; }
+        if (m_exportProgress) { m_exportProgress->finish(); m_exportProgress->deleteLater(); m_exportProgress = nullptr; }
         updateTransportEnabled();
     };
     connect(m_exportJob.get(), &exporter::ExportJob::completed, this, [this, closeProgress](const QString& path) {
         m_apiExportState = QStringLiteral("completed");
         m_apiExportProgress = 100;
-        closeProgress(); statusBar()->showMessage(tr("Exported %1").arg(QDir::toNativeSeparators(path)), 6000);
+        const bool renamed = m_exportJob && QFileInfo(path) != QFileInfo(m_exportJob->spec().outputPath);
+        closeProgress();
+        statusBar()->showMessage(renamed
+            ? tr("The old file was open in another app, so this export is saved as %1").arg(QDir::toNativeSeparators(path))
+            : tr("Exported %1").arg(QDir::toNativeSeparators(path)), 10000);
+        if (std::exchange(m_openExportWhenDone, false)) openExportedFile(path);
     });
     connect(m_exportJob.get(), &exporter::ExportJob::cancelled, this, [this, closeProgress] {
         m_apiExportState = QStringLiteral("cancelled");
@@ -2009,15 +2262,141 @@ void MainWindow::startExport(exporter::ExportSpec spec, bool showProgressUi)
     m_exportJob->start();
 }
 
+void MainWindow::openExportedFile(const QString& path)
+{
+    // A sync client (Google Drive, OneDrive, Dropbox) grabs a new file to
+    // upload it, and a viewer started in that moment gets "Access denied".
+    // Wait until the file is free (readable and held by no other program),
+    // checking a few times a second for up to 30 s, then open it.
+    constexpr int kIntervalMs = 300;
+    constexpr int kMaxAttempts = 100;
+    auto attempt = std::make_shared<std::function<void(int)>>();
+    // The retry holds the function alive; the function itself only refers
+    // to it weakly, so nothing outlives the last retry.
+    *attempt = [this, path, weak = std::weak_ptr<std::function<void(int)>>(attempt)](int tries) {
+        QFile probe(path);
+        const bool readable = probe.open(QIODevice::ReadOnly) && probe.size() > 0;
+        // Close our own handle first: on Windows the exclusivity check would
+        // otherwise see it and report the file as busy forever.
+        probe.close();
+        const bool free = readable && !platform::PlatformInfo::isFileOpenElsewhere(path);
+        if (!free && tries < kMaxAttempts) {
+            if (tries == 0)
+                statusBar()->showMessage(tr("Saved %1; opening it once it is free (a sync app may be uploading it)…")
+                                             .arg(QDir::toNativeSeparators(path)));
+            if (auto self = weak.lock())
+                QTimer::singleShot(kIntervalMs, this, [self, tries] { (*self)(tries + 1); });
+            return;
+        }
+        m_lastOpenedExport = path;
+        if (qEnvironmentVariableIsSet("ATK_NO_OPEN_EXPORTS")) return; // tests
+        if (!QDesktopServices::openUrl(QUrl::fromLocalFile(path)))
+            statusBar()->showMessage(tr("Exported %1, but no app could open it.").arg(QDir::toNativeSeparators(path)), 8000);
+        else if (tries > 0)
+            statusBar()->showMessage(tr("Opened %1").arg(QDir::toNativeSeparators(path)), 6000);
+    };
+    (*attempt)(0);
+}
+
+bool MainWindow::notesPdfInProgress() const
+{
+    return m_notesPdfJob && m_notesPdfJob->isRunning();
+}
+
+void MainWindow::exportReviewNotes()
+{
+    if (notesPdfInProgress() || !m_playback->hasMedia()) return;
+    exporter::ExportSpec spec = exportSnapshot();
+    // Notes belong to one source: the PDF always lists the annotated source
+    // on its own, over the whole clip, whatever the comparison or range.
+    spec.comparison = false;
+    spec.sourceB = {};
+    spec.burnIns = {};
+    spec.annotations = spec.sourceA.id == m_annotationSourceId ? m_annotations->annotations()
+                                                              : annotation::SourceAnnotations{};
+    spec.sourceA.rangeStartFrame = 0;
+    spec.sourceA.rangeEndFrame = std::max<qint64>(0, spec.sourceA.metadata.effectiveFrameCount() - 1);
+    const QString suggested = QDir(QFileInfo(spec.outputPath).absolutePath())
+        .filePath(exportBaseName(spec.sourceA) + QStringLiteral("_review_notes.pdf"));
+    ReviewNotesDialog dialog(spec.annotations, suggested, m_tracingPaper, this);
+    dialog.setOpenWhenDone(m_settings->openExportsWhenDone());
+    if (dialog.exec() != QDialog::Accepted) return;
+    m_settings->setOpenExportsWhenDone(dialog.openWhenDone());
+    const bool openWhenDone = dialog.openWhenDone();
+    const exporter::ReviewNotesOptions options = dialog.options();
+    if (options.outputPath.isEmpty()) return;
+    if (QFileInfo::exists(options.outputPath)
+        && QMessageBox::question(this, tr("Export Review Notes"),
+            tr("Replace the existing file?\n%1").arg(QDir::toNativeSeparators(options.outputPath)),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes) return;
+
+    // Header text, decided now on the UI thread.
+    exporter::ReviewNotesDocument header;
+    header.projectName = m_project->filePath().isEmpty() ? tr("Untitled project")
+                                                         : QFileInfo(m_project->filePath()).completeBaseName();
+    header.clipName = QFileInfo(spec.sourceA.path).fileName();
+    QStringList reviewers;
+    for (const annotation::FrameAnnotation& frame : spec.annotations.frames())
+        for (const annotation::FrameNote& note : frame.notes)
+            if ((options.includeResolved || !note.resolved) && !note.author.trimmed().isEmpty()
+                && !reviewers.contains(note.author.trimmed()))
+                reviewers.append(note.author.trimmed());
+    header.reviewers = reviewers.join(QStringLiteral(", "));
+    header.generatedText = tr("from %1").arg(QLocale().toString(QDateTime::currentDateTime(), QLocale::LongFormat));
+    header.footerLeft = QStringLiteral("ATK Player %1").arg(QString::fromLatin1(version::kString));
+
+    m_notesPdfJob = std::make_unique<exporter::ReviewNotesJob>(std::move(spec), std::move(header), options, this);
+    m_notesPdfProgress = new ExportProgressDialog(QStringLiteral("PDF"), tr("Exporting notes PDF"),
+                                                  QDir::toNativeSeparators(options.outputPath), this);
+    m_notesPdfProgress->setLabelText(tr("Rendering the drawn frames…"));
+    m_notesPdfProgress->setWindowModality(Qt::NonModal);
+    connect(m_notesPdfProgress, &ExportProgressDialog::canceled, m_notesPdfJob.get(), &exporter::ReviewNotesJob::cancel);
+    connect(m_notesPdfJob.get(), &exporter::ReviewNotesJob::progress, m_notesPdfProgress, [this](int percent) {
+        if (!m_notesPdfProgress) return;
+        m_notesPdfProgress->setValue(percent);
+        if (percent >= 90) m_notesPdfProgress->setLabelText(tr("Writing PDF…"));
+    });
+    const auto finish = [this] {
+        m_notesPdfJob->wait(); // the worker has reported; join it
+        if (m_notesPdfProgress) {
+            m_notesPdfProgress->finish();
+            m_notesPdfProgress->deleteLater();
+            m_notesPdfProgress = nullptr;
+        }
+        updateTransportEnabled();
+    };
+    connect(m_notesPdfJob.get(), &exporter::ReviewNotesJob::completed, this,
+            [this, finish, openWhenDone, requested = options.outputPath](const QString& path, int pages) {
+        finish();
+        statusBar()->showMessage(QFileInfo(path) != QFileInfo(requested)
+            ? tr("The old PDF was open in another app, so this one is saved as %1").arg(QDir::toNativeSeparators(path))
+            : tr("Exported %1 (%n page(s))", nullptr, pages).arg(QDir::toNativeSeparators(path)), 10000);
+        if (openWhenDone) openExportedFile(path);
+    });
+    connect(m_notesPdfJob.get(), &exporter::ReviewNotesJob::cancelled, this, [this, finish] {
+        finish();
+        statusBar()->showMessage(tr("Export cancelled"), 4000);
+    });
+    connect(m_notesPdfJob.get(), &exporter::ReviewNotesJob::failed, this, [this, finish](const QString& message) {
+        finish();
+        QMessageBox::critical(this, tr("Export Review Notes"), message);
+    });
+    m_notesPdfProgress->show();
+    m_notesPdfJob->start();
+    updateTransportEnabled();
+}
+
 bool MainWindow::cancelExportForProjectChange()
 {
-    if (!exportInProgress()) return true;
+    if (!exportInProgress() && !notesPdfInProgress()) return true;
     if (QMessageBox::question(this, tr("Export in Progress"),
         tr("Cancel the export before changing projects?"), QMessageBox::Yes | QMessageBox::No,
         QMessageBox::No) != QMessageBox::Yes) return false;
-    m_exportJob->cancel();
-    m_exportJob->wait();
-    if (m_exportProgress) { m_exportProgress->close(); m_exportProgress->deleteLater(); m_exportProgress = nullptr; }
+    // Stop work, then join the worker, before the UI state it reports to goes.
+    if (m_exportJob) { m_exportJob->cancel(); m_exportJob->wait(); }
+    if (m_notesPdfJob) { m_notesPdfJob->cancel(); m_notesPdfJob->wait(); }
+    if (m_exportProgress) { m_exportProgress->finish(); m_exportProgress->deleteLater(); m_exportProgress = nullptr; }
+    if (m_notesPdfProgress) { m_notesPdfProgress->finish(); m_notesPdfProgress->deleteLater(); m_notesPdfProgress = nullptr; }
     updateTransportEnabled();
     return true;
 }
@@ -2186,6 +2565,8 @@ void MainWindow::enterComparison()
 {
     QAction* toggle = m_commands->action(CommandId::ToggleComparison);
     if (isComparisonActive()) return;
+    // Drawing targets one source's frames; comparison shows two.
+    if (m_viewer->annotateMode()) setAnnotateMode(false);
     if (isVideoFullScreen()) exitVideoFullScreen();
     const int a = m_project->activeIndex();
     const int b = defaultComparisonBIndex(a);
@@ -2511,9 +2892,25 @@ api::ApiResponse MainWindow::handleApiApplicationCommand(
             if (!object.value(key).isBool()) { *error = key + QStringLiteral(" must be a boolean"); return false; }
             *target = object.value(key).toBool(); return true;
         };
+        const auto readInt = [&](const QString& key, int maximum, int* target) {
+            if (!object.contains(key)) return true;
+            const QJsonValue v = object.value(key);
+            if (!v.isDouble() || v.toDouble() < 0 || v.toDouble() > maximum || v.toDouble() != std::floor(v.toDouble())) {
+                *error = key + QStringLiteral(" must be an integer from 0 to %1").arg(maximum);
+                return false;
+            }
+            *target = v.toInt();
+            return true;
+        };
+        if (!readInt(QStringLiteral("annotationHoldFrames"), 240, &out->annotationHoldFrames)
+            || !readInt(QStringLiteral("annotationFreezeFrames"), 240, &out->annotationFreezeFrames)
+            || !readInt(QStringLiteral("tracingPaper"), 100, &out->tracingPaperPercent))
+            return false;
         return read(QStringLiteral("frameNumber"), &out->frameNumber)
             && read(QStringLiteral("bookmarkLabels"), &out->bookmarkLabels)
-            && read(QStringLiteral("bookmarkNotes"), &out->bookmarkNotes);
+            && read(QStringLiteral("bookmarkNotes"), &out->bookmarkNotes)
+            && read(QStringLiteral("annotations"), &out->annotations)
+            && read(QStringLiteral("annotationNotes"), &out->annotationNotes);
     };
     const auto mayDiscard = [&] {
         return !m_project->needsSavePrompt()
@@ -2818,6 +3215,7 @@ api::ApiResponse MainWindow::handleApiApplicationCommand(
             return fail(QStringLiteral("destination exists; set overwrite=true to replace it"));
         exporter::ExportSpec spec = exportSnapshot(path);
         QString burnInError;
+        spec.burnIns = {}; // API contract: clean output unless burn-ins are requested
         if (!readBurnIns(&spec.burnIns, &burnInError)) return fail(burnInError);
         const QString validation = spec.validate();
         if (!validation.isEmpty()) return fail(validation);
@@ -2843,6 +3241,7 @@ api::ApiResponse MainWindow::handleApiApplicationCommand(
         exporter::ExportSpec spec = exportSnapshot(path);
         spec.kind = exporter::ExportKind::CurrentFrame;
         QString burnInError;
+        spec.burnIns = {}; // API contract: clean output unless burn-ins are requested
         if (!readBurnIns(&spec.burnIns, &burnInError)) return fail(burnInError);
         qint64 frame = m_timeline->currentFrame();
         if (params.contains(QStringLiteral("frame"))) {
@@ -2875,6 +3274,7 @@ api::ApiResponse MainWindow::handleApiApplicationCommand(
         exporter::ExportSpec spec = exportSnapshot(destination.absoluteFilePath());
         spec.kind = exporter::ExportKind::ImageSequence;
         QString burnInError;
+        spec.burnIns = {}; // API contract: clean output unless burn-ins are requested
         if (!readBurnIns(&spec.burnIns, &burnInError)) return fail(burnInError);
         spec.imagePrefix = safeImagePrefix(params.value(QStringLiteral("prefix")).toString(
             exportBaseName(spec.sourceA)));
@@ -2943,6 +3343,189 @@ void MainWindow::updateWindowTitle()
              projectName, QString::fromLatin1(version::kApplicationName));
 
     setWindowTitle(title);
+}
+
+// --- Drawing on frames -------------------------------------------------------
+
+void MainWindow::setAnnotateMode(bool enabled)
+{
+    QAction* toggle = m_commands->action(CommandId::ToggleAnnotateMode);
+    if (enabled && isComparisonActive()) {
+        if (toggle) { QSignalBlocker blocker(toggle); toggle->setChecked(false); }
+        statusBar()->showMessage(tr("Drawing is not available during A/B Comparison."), 4000);
+        return;
+    }
+    if (enabled && m_project->activeIndex() < 0) {
+        if (toggle) { QSignalBlocker blocker(toggle); toggle->setChecked(false); }
+        statusBar()->showMessage(tr("Open a clip to draw on its frames."), 4000);
+        return;
+    }
+    if (toggle && toggle->isChecked() != enabled) {
+        QSignalBlocker blocker(toggle);
+        toggle->setChecked(enabled);
+    }
+    // Drawing is done on a held frame: a stroke always lands on the frame it
+    // started on, so pausing avoids the picture moving under the pen.
+    if (enabled && m_playback->isPlaying()) m_playback->pause();
+    m_viewer->setAnnotateMode(enabled);
+    m_annotationToolbar->setVisible(enabled);
+    if (enabled) m_viewer->setFocus(Qt::OtherFocusReason);
+}
+
+void MainWindow::bindAnnotationsToActiveSource()
+{
+    static const annotation::SourceAnnotations kNone;
+    const int index = m_project->activeIndex();
+    const bool valid = index >= 0 && index < m_project->entries().size();
+    const QUuid id = valid ? m_project->entries().at(index).id : QUuid();
+    const annotation::SourceAnnotations& sourceData = valid ? m_project->entries().at(index).annotations : kNone;
+    if (id == m_annotationSourceId && m_annotations->annotations() == sourceData) return;
+    m_annotationSourceId = id;
+    m_annotations->setAnnotations(sourceData);
+    if (!valid && m_viewer->annotateMode()) setAnnotateMode(false);
+    updateAnnotationActions();
+}
+
+qint64 MainWindow::annotationMediaTimeUs(qint64 frameIndex) const
+{
+    // The decoded timestamp of the frame actually drawn on. A stroke normally
+    // ends on the frame it started on (drawing pauses playback); if not, the
+    // index alone is authoritative and the time is left unknown.
+    return frameIndex == m_displayedFrameIndex ? m_displayedFramePtsUs : 0;
+}
+
+void MainWindow::refreshNotesPanel()
+{
+    QVector<NoteRow> rows;
+    for (const annotation::FrameAnnotation& frame : m_annotations->annotations().frames()) {
+        const QString timecode = timeline::timecode::fromFrame(frame.frame, m_timeline->frameRate());
+        for (const annotation::FrameNote& note : frame.notes)
+            rows.append({frame.frame, timecode, note, frame.hasDrawings()});
+    }
+    m_notesPanel->setNotes(rows);
+    m_notesPanel->setCurrentFrame(m_displayedFrameIndex,
+                                  timeline::timecode::fromFrame(std::max<qint64>(0, m_displayedFrameIndex),
+                                                                m_timeline->frameRate()),
+                                  !m_annotationSourceId.isNull() && m_displayedFrameIndex >= 0);
+}
+
+void MainWindow::refreshViewerAnnotations()
+{
+    m_viewer->setAnnotationFrame(m_displayedFrameIndex >= 0 ? m_annotations->frame(m_displayedFrameIndex)
+                                                            : annotation::FrameAnnotation{});
+    m_viewer->setGhostFrames(m_displayedFrameIndex,
+                             annotation::ghostFramesFor(m_annotations->annotations(), m_displayedFrameIndex,
+                                                        m_ghostSettings));
+}
+
+void MainWindow::applyTracingPaper(int percent)
+{
+    m_tracingPaper = std::clamp(percent, 0, 100);
+    if (m_tracingPaper > 0) m_tracingPaperLevel = m_tracingPaper;
+    m_viewer->setTracingPaper(m_tracingPaper);
+    m_annotationToolbar->setTracingPaper(m_tracingPaper, m_tracingPaperLevel);
+    if (QAction* action = m_commands->action(CommandId::ToggleTracingPaper)) {
+        QSignalBlocker blocker(action);
+        action->setChecked(m_tracingPaper > 0);
+    }
+    m_settings->setTracingPaper(m_tracingPaper);
+    m_settings->setTracingPaperLevel(m_tracingPaperLevel);
+}
+
+void MainWindow::applyGhostSettings(const annotation::GhostSettings& settings)
+{
+    m_ghostSettings = settings;
+    m_ghostSettings.before = std::clamp(m_ghostSettings.before, 0, annotation::GhostSettings::kMaxRange);
+    m_ghostSettings.after = std::clamp(m_ghostSettings.after, 0, annotation::GhostSettings::kMaxRange);
+    m_annotationToolbar->setGhostSettings(m_ghostSettings);
+    if (QAction* action = m_commands->action(CommandId::ToggleGhosting)) {
+        QSignalBlocker blocker(action);
+        action->setChecked(m_ghostSettings.enabled);
+    }
+    m_settings->setGhostSettings(m_ghostSettings);
+    refreshViewerAnnotations();
+}
+
+void MainWindow::applyAnnotationTool(const annotation::AnnotationToolSettings& settings)
+{
+    m_viewer->setAnnotationTool(settings);
+    m_settings->setAnnotationTool(settings);
+}
+
+void MainWindow::seekAnnotatedFrame(int direction)
+{
+    const QVector<int64_t> frames = m_annotations->annotatedFrames();
+    if (frames.isEmpty()) {
+        statusBar()->showMessage(tr("No drawings on this clip."), 2500);
+        return;
+    }
+    const int64_t current = m_displayedFrameIndex >= 0 ? m_displayedFrameIndex : m_playback->currentFrame();
+    int64_t target = -1;
+    if (direction > 0) {
+        const auto it = std::upper_bound(frames.cbegin(), frames.cend(), current);
+        target = it != frames.cend() ? *it : frames.constFirst(); // wrap, like bookmarks
+    } else {
+        const auto it = std::lower_bound(frames.cbegin(), frames.cend(), current);
+        target = it != frames.cbegin() ? *(it - 1) : frames.constLast();
+    }
+    m_playback->seekFrame(target);
+}
+
+void MainWindow::importBrushSet()
+{
+    const QString path = QFileDialog::getOpenFileName(this, tr("Import Photoshop Brushes"), m_lastMediaDirectory,
+                                                      tr("Photoshop Brushes (*.abr);;All Files (*)"));
+    if (path.isEmpty()) return;
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly) || file.size() > 512LL * 1024 * 1024) {
+        QMessageBox::warning(this, tr("Import Brushes"), tr("Could not read %1.").arg(QDir::toNativeSeparators(path)));
+        return;
+    }
+    const QString setName = QFileInfo(path).completeBaseName();
+    const annotation::AbrReadResult result = annotation::readAbr(file.readAll(), setName);
+    if (!result.ok()) {
+        QMessageBox::warning(this, tr("Import Brushes"), result.error);
+        return;
+    }
+    annotation::BrushSet set;
+    set.name = setName;
+    set.tips = result.tips;
+    QString error;
+    if (!m_brushLibrary->addSet(set, &error)) {
+        QMessageBox::warning(this, tr("Import Brushes"), tr("The brushes could not be saved: %1").arg(error));
+        return;
+    }
+    m_brushLibrary->registerAll();
+    m_annotationToolbar->setBrushSets(m_brushLibrary->sets());
+    // Ready to paint with the first imported brush.
+    auto settings = m_annotationToolbar->settings();
+    settings.tool = annotation::AnnotationTool::Stamp;
+    settings.brushTipId = set.tips.constFirst().id;
+    m_annotationToolbar->setSettings(settings);
+    applyAnnotationTool(settings);
+    QString message = tr("Imported %n brush(es) from %1.", nullptr, int(set.tips.size())).arg(setName);
+    if (result.skippedComputed > 0)
+        message += QLatin1Char(' ') + tr("%n round brush(es) defined only by settings were skipped.", nullptr,
+                                          result.skippedComputed);
+    statusBar()->showMessage(message, 6000);
+}
+
+void MainWindow::removeBrushSet(const QString& name)
+{
+    if (QMessageBox::question(this, tr("Remove Brush Set"),
+                              tr("Remove the brush set \"%1\"? Drawings already made with it keep their look "
+                                 "in projects that were saved with it.").arg(name))
+        != QMessageBox::Yes)
+        return;
+    m_brushLibrary->removeSet(name);
+    m_annotationToolbar->setBrushSets(m_brushLibrary->sets());
+}
+
+void MainWindow::updateAnnotationActions()
+{
+    if (!m_commands || !m_annotations) return;
+    if (QAction* undo = m_commands->action(CommandId::UndoAnnotation)) undo->setEnabled(m_annotations->canUndo());
+    if (QAction* redo = m_commands->action(CommandId::RedoAnnotation)) redo->setEnabled(m_annotations->canRedo());
 }
 
 } // namespace atk::ui

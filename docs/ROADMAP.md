@@ -247,7 +247,6 @@ retention, and reinstall.
 Ideas that are worth keeping but do not have a milestone yet:
 
 - Audio playback and waveform display
-- Drawn annotations over frames
 - Colour management (OCIO), for review that has to match a grading pipeline
 - Image-sequence support: EXR, DPX, PNG
 - Network review sessions with a synchronised remote playhead

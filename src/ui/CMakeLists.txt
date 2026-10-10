@@ -7,16 +7,20 @@
 # ---------------------------------------------------------------------------
 
 set(ATK_UI_SOURCES
+    AnnotationToolbar.cpp
     ApplicationSettings.cpp
     BookmarkPanel.cpp
     BurnInOptionsWidget.cpp
     CompareBar.cpp
     ComparisonCompositeWidget.cpp
     ExportDialog.cpp
+    ExportUi.cpp
     FrameFieldStyle.cpp
     FrameNumberInput.cpp
     MainWindow.cpp
     MediaInformationDialog.cpp
+    NotesPanel.cpp
+    ReviewNotesDialog.cpp
     PreferencesDialog.cpp
     Resources.cpp
     SourcesPanel.cpp
@@ -34,16 +38,20 @@ set(ATK_UI_SOURCES
 )
 
 set(ATK_UI_HEADERS
+    AnnotationToolbar.h
     ApplicationSettings.h
     BookmarkPanel.h
     BurnInOptionsWidget.h
     CompareBar.h
     ComparisonCompositeWidget.h
     ExportDialog.h
+    ExportUi.h
     FrameFieldStyle.h
     FrameNumberInput.h
     MainWindow.h
     MediaInformationDialog.h
+    NotesPanel.h
+    ReviewNotesDialog.h
     PreferencesDialog.h
     Resources.h
     SourcesPanel.h

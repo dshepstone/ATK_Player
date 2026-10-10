@@ -1,5 +1,7 @@
 #include "export/ExportBurnInRenderer.h"
+#include "annotation/AnnotationRenderer.h"
 #include "timeline/Bookmark.h"
+#include "timeline/Timecode.h"
 #include <QFontMetrics>
 #include <QPainter>
 #include <algorithm>
@@ -58,6 +60,81 @@ QRect ExportBurnInRenderer::bookmarkBounds(const QSize& size)
             std::max(1, size.height() / 3 - margin)};
 }
 
+const annotation::FrameAnnotation* ExportBurnInRenderer::annotationFor(const ExportSpec& spec, qint64 frame)
+{
+    if ((!spec.burnIns.annotations && !spec.burnIns.annotationNotes) || spec.comparison) return nullptr;
+    const auto& frames = spec.annotations.frames();
+    // The latest annotated frame at or before this one...
+    auto it = frames.upperBound(frame);
+    if (it == frames.cbegin()) return nullptr;
+    --it;
+    // ...counts if it is this frame, or still within the hold.
+    const qint64 hold = std::max(0, spec.burnIns.annotationHoldFrames);
+    if (frame - it.key() > hold) return nullptr;
+    const annotation::FrameAnnotation& found = it.value();
+    const bool shows = (spec.burnIns.annotations && found.hasDrawings())
+        || (spec.burnIns.annotationNotes && !found.notes.isEmpty());
+    return shows ? &found : nullptr;
+}
+
+bool ExportBurnInRenderer::freezesOn(const ExportSpec& spec, qint64 frame)
+{
+    if (spec.burnIns.annotationFreezeFrames <= 0) return false;
+    const annotation::FrameAnnotation* shown = annotationFor(spec, frame);
+    return shown && shown->frame == frame;
+}
+
+QVector<ExportBurnInRenderer::ScheduledFrame> ExportBurnInRenderer::videoSchedule(const ExportSpec& spec)
+{
+    QVector<ScheduledFrame> schedule;
+    const qint64 total = spec.frameCount();
+    const qint64 freeze = std::clamp(spec.burnIns.annotationFreezeFrames, 0, 240);
+    schedule.reserve(qsizetype(std::max<qint64>(0, total)));
+    for (qint64 n = 0; n < total; ++n) {
+        const qint64 frame = spec.exportStartFrame() + n;
+        schedule.append({frame, false});
+        if (freeze > 0 && freezesOn(spec, frame))
+            for (qint64 k = 0; k < freeze; ++k) schedule.append({frame, true});
+    }
+    return schedule;
+}
+
+qint64 ExportBurnInRenderer::samplesAtFrame(qint64 n, media::FrameRate rate, int sampleRate)
+{
+    if (rate.numerator <= 0) return 0;
+    return (n * rate.denominator * sampleRate + rate.numerator / 2) / rate.numerator;
+}
+
+QByteArray ExportBurnInRenderer::scheduleAudio(const QByteArray& sourcePcm, const QVector<ScheduledFrame>& schedule,
+                                               media::FrameRate rate, int sampleRate, int bytesPerSample)
+{
+    const qint64 outSamples = samplesAtFrame(schedule.size(), rate, sampleRate);
+    QByteArray out(qsizetype(outSamples * bytesPerSample), '\0');
+    qint64 sourceIndex = 0; // source frames consumed so far
+    for (qsizetype j = 0; j < schedule.size(); ++j) {
+        const qint64 outStart = samplesAtFrame(j, rate, sampleRate);
+        const qint64 outLength = samplesAtFrame(j + 1, rate, sampleRate) - outStart;
+        if (schedule[j].repeat) continue; // silence while the picture is frozen
+        const qint64 srcStart = samplesAtFrame(sourceIndex, rate, sampleRate);
+        const qint64 srcLength = samplesAtFrame(sourceIndex + 1, rate, sampleRate) - srcStart;
+        ++sourceIndex;
+        const qint64 bytes = std::min(outLength, srcLength) * bytesPerSample;
+        const qint64 from = srcStart * bytesPerSample;
+        const qint64 available = std::max<qint64>(0, std::min<qint64>(bytes, sourcePcm.size() - from));
+        if (available > 0)
+            std::copy_n(sourcePcm.constData() + from, available, out.data() + outStart * bytesPerSample);
+    }
+    return out;
+}
+
+QRect ExportBurnInRenderer::noteBounds(const QSize& size)
+{
+    // Bottom right, beside the bookmark cards (bottom left), so both fit.
+    const int margin = std::max(8, size.height() / 54);
+    const int width = std::min(std::max(1, size.width() - margin * 2), std::max(280, size.width() * 2 / 5));
+    return {size.width() - margin - width, size.height() / 2, width, std::max(1, size.height() / 2 - margin)};
+}
+
 void ExportBurnInRenderer::apply(QImage& image, const ExportSpec& spec, qint64 frame)
 {
     if (!spec.burnIns.enabled() || image.isNull()) return;
@@ -67,6 +144,48 @@ void ExportBurnInRenderer::apply(QImage& image, const ExportSpec& spec, qint64 f
     QFont font = painter.font();
     font.setPixelSize(std::max(14, image.height() / 42));
     painter.setFont(font);
+
+    // Tracing paper over the picture, under everything drawn on it.
+    const QSize contentSize = spec.contentSize().isEmpty() ? image.size() : spec.contentSize();
+    if (spec.burnIns.tracingPaperPercent > 0 && !spec.comparison)
+        painter.fillRect(QRect(QPoint(0, 0), contentSize),
+                         QColor(255, 255, 255, std::clamp(spec.burnIns.tracingPaperPercent, 0, 100) * 255 / 100));
+
+    // Drawings go on the picture first, so labels stay readable on top. The
+    // content rect excludes the even-size padding of video output.
+    const annotation::FrameAnnotation* drawn = annotationFor(spec, frame);
+    if (drawn && spec.burnIns.annotations && drawn->hasDrawings()) {
+        const QSize content = spec.contentSize().isEmpty() ? image.size() : spec.contentSize();
+        painter.save();
+        annotation::AnnotationRenderer::paintFrame(painter, QRectF(QPointF(0, 0), QSizeF(content)), *drawn);
+        painter.restore();
+        painter.setFont(font);
+    }
+    if (drawn && spec.burnIns.annotationNotes && !drawn->notes.isEmpty()) {
+        // SyncSketch-style caption: frame and timecode, then each note.
+        const QRect safe = noteBounds(image.size());
+        QStringList lines;
+        lines << QStringLiteral("Frame %1  ·  %2").arg(drawn->frame + 1)
+                     .arg(timeline::timecode::fromFrame(drawn->frame, spec.sourceA.metadata.frameRate));
+        for (const annotation::FrameNote& note : drawn->notes) {
+            const QString author = note.author.trimmed();
+            lines << (author.isEmpty() ? note.text.trimmed() : author + QStringLiteral(": ") + note.text.trimmed())
+                     + (note.resolved ? QStringLiteral("  ✓") : QString());
+        }
+        const QString text = lines.join(QLatin1Char('\n'));
+        const QRect measure = QFontMetrics(font).boundingRect(
+            QRect(0, 0, safe.width() - unit * 8, safe.height()), Qt::TextWordWrap, text);
+        const int cardHeight = std::min(safe.height(), measure.height() + unit * 6);
+        const QRect card(safe.left(), safe.bottom() - cardHeight + 1, safe.width(), cardHeight);
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(QColor(0, 0, 0, 190));
+        painter.drawRoundedRect(card, unit * 2, unit * 2);
+        painter.fillRect(QRect(card.left(), card.top() + unit * 2, unit, card.height() - unit * 4),
+                         QColor(255, 96, 64)); // the timeline's drawn-frame colour
+        painter.setPen(Qt::white);
+        painter.drawText(card.adjusted(unit * 4, unit * 2, -unit * 3, -unit * 2),
+                         Qt::AlignLeft | Qt::AlignVCenter | Qt::TextWordWrap, text);
+    }
     if (spec.burnIns.frameNumber) {
         const QRect badge = frameNumberBounds(image.size());
         painter.setPen(Qt::NoPen); painter.setBrush(QColor(0, 0, 0, 185));

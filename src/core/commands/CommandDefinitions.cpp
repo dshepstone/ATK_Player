@@ -33,11 +33,26 @@ constexpr std::array kCommands{
     CommandDefinition{ CommandId::ExportReview,       "file.exportReview",     QT_TRANSLATE_NOOP("Command", "Export Review..."),     C::File,     nullptr,        false },
     CommandDefinition{ CommandId::ExportCurrentFrame, "file.exportCurrentFrame",QT_TRANSLATE_NOOP("Command", "Export Current Frame..."),C::File,   nullptr,        false },
     CommandDefinition{ CommandId::ExportImageSequence,"file.exportImageSequence",QT_TRANSLATE_NOOP("Command", "Export Image Sequence..."),C::File,  nullptr,        false },
+    CommandDefinition{ CommandId::ExportReviewNotes,  "file.exportReviewNotes", QT_TRANSLATE_NOOP("Command", "Export Notes PDF..."),  C::File,     nullptr,        false },
+    CommandDefinition{ CommandId::ExportNotesVideo,   "file.exportNotesVideo", QT_TRANSLATE_NOOP("Command", "Export Notes Video (MP4)..."),C::File,nullptr,      false },
     CommandDefinition{ CommandId::CloseSource,        "file.closeSource",      QT_TRANSLATE_NOOP("Command", "Close Source"),         C::File,     "Ctrl+W",       false },
     CommandDefinition{ CommandId::Quit,               "file.quit",             QT_TRANSLATE_NOOP("Command", "Quit"),                 C::File,     "Ctrl+Q",       false },
 
     // Edit
-    CommandDefinition{ CommandId::Preferences,        "edit.preferences",      QT_TRANSLATE_NOOP("Command", "Preferences..."),       C::Edit,     "Ctrl+,",       false },
+    CommandDefinition{ CommandId::Preferences,        "edit.preferences",      QT_TRANSLATE_NOOP("Command", "Preferences..."),       C::Edit,     "Ctrl+K",       false },
+
+    // Drawing
+    CommandDefinition{ CommandId::ToggleAnnotateMode, "draw.annotateMode",     QT_TRANSLATE_NOOP("Command", "Draw on Frame"),        C::Edit,     "D",            true  },
+    CommandDefinition{ CommandId::UndoAnnotation,     "draw.undo",             QT_TRANSLATE_NOOP("Command", "Undo Drawing"),         C::Edit,     "Ctrl+Z",       false },
+    CommandDefinition{ CommandId::RedoAnnotation,     "draw.redo",             QT_TRANSLATE_NOOP("Command", "Redo Drawing"),         C::Edit,     "Ctrl+Shift+Z", false },
+    CommandDefinition{ CommandId::ClearFrameAnnotations,"draw.clearFrame",     QT_TRANSLATE_NOOP("Command", "Clear Drawings on Frame"),C::Edit,   nullptr,        false },
+    CommandDefinition{ CommandId::IncreaseBrushSize,  "draw.brushSizeUp",      QT_TRANSLATE_NOOP("Command", "Increase Brush Size"),  C::Edit,     "]",            false },
+    CommandDefinition{ CommandId::DecreaseBrushSize,  "draw.brushSizeDown",    QT_TRANSLATE_NOOP("Command", "Decrease Brush Size"),  C::Edit,     "[",            false },
+    CommandDefinition{ CommandId::ToggleAnnotationsVisible,"draw.showAnnotations",QT_TRANSLATE_NOOP("Command", "Show Drawings"),   C::Edit,     nullptr,        true  },
+    CommandDefinition{ CommandId::ToggleTracingPaper, "draw.tracingPaper",     QT_TRANSLATE_NOOP("Command", "Tracing Paper"),        C::Edit,     "T",            true  },
+    CommandDefinition{ CommandId::ToggleGhosting,     "draw.ghosting",         QT_TRANSLATE_NOOP("Command", "Ghost Drawings"),       C::Edit,     "G",            true  },
+    CommandDefinition{ CommandId::NextAnnotatedFrame, "draw.nextFrame",        QT_TRANSLATE_NOOP("Command", "Next Note or Drawing"),     C::Edit,     "Ctrl+.",       false },
+    CommandDefinition{ CommandId::PreviousAnnotatedFrame,"draw.previousFrame", QT_TRANSLATE_NOOP("Command", "Previous Note or Drawing"), C::Edit,     "Ctrl+,",       false },
 
     // Playback
     CommandDefinition{ CommandId::PlayPause,          "playback.playPause",    QT_TRANSLATE_NOOP("Command", "Play / Pause"),         C::Playback, "Space",        false },
@@ -97,6 +112,7 @@ constexpr std::array kCommands{
     CommandDefinition{ CommandId::ResetCompareBOffset, "view.compareBOffsetReset", QT_TRANSLATE_NOOP("Command", "Reset B Offset"), C::View, nullptr, false },
     CommandDefinition{ CommandId::ToggleSourcesPanel, "view.toggleSources",    QT_TRANSLATE_NOOP("Command", "Sources Panel"),        C::View,     "F4",           true  },
     CommandDefinition{ CommandId::ToggleBookmarksPanel,"view.toggleBookmarks", QT_TRANSLATE_NOOP("Command", "Bookmarks Panel"),      C::View,     "F5",           true  },
+    CommandDefinition{ CommandId::ToggleNotesPanel,   "view.toggleNotes",      QT_TRANSLATE_NOOP("Command", "Notes Panel"),          C::View,     "F6",           true  },
     CommandDefinition{ CommandId::TimelineZoomIn,     "view.timelineZoomIn",   QT_TRANSLATE_NOOP("Command", "Timeline Zoom In"),     C::View,     "=",            false },
     CommandDefinition{ CommandId::TimelineZoomOut,    "view.timelineZoomOut",  QT_TRANSLATE_NOOP("Command", "Timeline Zoom Out"),    C::View,     "-",            false },
     CommandDefinition{ CommandId::TimelineZoomFit,    "view.timelineZoomFit",  QT_TRANSLATE_NOOP("Command", "Fit Entire Timeline"), C::View,     "F",            false },

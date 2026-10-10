@@ -1,9 +1,22 @@
 #pragma once
 
+#include "annotation/AnnotationGhosting.h"
+#include "annotation/AnnotationToolSettings.h"
+#include "annotation/AnnotationTypes.h"
 #include "media/VideoFrame.h"
 #include "ui/ViewerTransform.h"
 
+#include <QElapsedTimer>
+#include <QImage>
 #include <QWidget>
+
+#include <memory>
+#include <optional>
+
+class QTabletEvent;
+class QTextEdit;
+
+namespace atk::annotation { class StrokeBuilder; }
 
 namespace atk::ui {
 
@@ -92,9 +105,78 @@ public:
 
     QSize sizeHint() const override;
 
+    // --- Annotations ------------------------------------------------------
+    //
+    // The viewer draws annotations over the picture and turns pointer and
+    // tablet input into strokes, but owns no annotation data: it is told what
+    // to show for the displayed frame and reports finished strokes by signal.
+    // The owner (MainWindow) keeps the AnnotationStore.
+
+    /// What to draw over the current picture. Call whenever the displayed
+    /// frame or its annotations change.
+    void setAnnotationFrame(const annotation::FrameAnnotation& frame);
+    const annotation::FrameAnnotation& annotationFrame() const { return m_annotationFrame; }
+    void setAnnotationsVisible(bool visible);
+    bool annotationsVisible() const { return m_annotationsVisible; }
+
+    /// Drawings from nearby frames to show faintly under this frame's
+    /// (onion skin), for the frame `centerFrame`. Empty = no ghosts.
+    void setGhostFrames(qint64 centerFrame, const QVector<annotation::GhostFrame>& ghosts);
+    const QVector<annotation::GhostFrame>& ghostFrames() const { return m_ghosts; }
+
+    /// Tracing paper: a white wash over the picture, under the drawings, so
+    /// strokes read clearly (0 = off, 100 = blank paper). View only.
+    void setTracingPaper(int opacityPercent);
+    int tracingPaper() const { return m_tracingPaperPercent; }
+
+    /// In annotate mode the left button / pen tip draws instead of doing
+    /// nothing; middle-drag pan and wheel zoom keep working.
+    void setAnnotateMode(bool enabled);
+    bool annotateMode() const { return m_annotateMode; }
+    void setAnnotationTool(const annotation::AnnotationToolSettings& settings);
+    const annotation::AnnotationToolSettings& annotationTool() const { return m_tool; }
+
+    /// Maps a widget point to normalised source-image coordinates (0..1 over
+    /// the picture, unflipped), and back. Outside the picture gives values
+    /// outside 0..1.
+    QPointF widgetToNormalized(const QPointF& point) const;
+    QPointF normalizedToWidget(const QPointF& normalized) const;
+
+    bool isDrawing() const { return m_stroke.has_value(); }
+    /// The in-progress item, for tests and the live preview.
+    std::optional<annotation::AnnotationItem> strokePreview() const;
+
+    /// Item picked by the Select tool on the displayed frame, or 0.
+    quint64 selectedItemId() const { return m_selectedItemId; }
+    void clearSelection();
+
+    /// In-place text editing (Text tool, or double-click on text with Select).
+    /// The editor is a child text field over the picture; committing emits
+    /// annotationItemDrawn (new text) or annotationItemChanged (edited text).
+    bool isEditingText() const { return m_textEdit.has_value(); }
+    QTextEdit* textEditor() const { return m_textEditor; }
+    void commitTextEdit();
+    void cancelTextEdit();
+
 signals:
     void zoomChanged(qreal percent, bool fitMode);
     void activated();
+
+    /// A stroke, shape or text anchor was completed on `frameIndex` (the
+    /// zero-based index of the frame displayed when the stroke started).
+    void annotationItemDrawn(qint64 frameIndex, const atk::annotation::AnnotationItem& item);
+    /// An eraser swipe begins / ends on `frameIndex`; the owner groups the
+    /// erase requests in between into one undo step.
+    void annotationEraseStarted(qint64 frameIndex);
+    void annotationEraseFinished();
+    /// Erase discs of `radius` image pixels at `centers` (normalised) on
+    /// `frameIndex`. `imageSize` is the picture's size in image pixels.
+    void annotationEraseRequested(qint64 frameIndex, const QVector<QPointF>& centers, qreal radius,
+                                  const QSizeF& imageSize);
+    /// An existing item (same id) was moved or its text edited.
+    void annotationItemChanged(qint64 frameIndex, const atk::annotation::AnnotationItem& item);
+    /// The selected item should be deleted (Delete / Backspace with Select).
+    void annotationItemDeleteRequested(qint64 frameIndex, quint64 itemId);
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -104,6 +186,10 @@ protected:
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
     void mouseDoubleClickEvent(QMouseEvent* event) override;
+    void tabletEvent(QTabletEvent* event) override;
+    void leaveEvent(QEvent* event) override;
+    void keyPressEvent(QKeyEvent* event) override;
+    bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
     /// Where the picture lands inside the widget for the current fit mode.
@@ -112,6 +198,61 @@ private:
     void notifyNavigationChanged();
     void paintEmptyState(QPainter& painter);
     void paintMessage(QPainter& painter, const QString& headline, const QString& detail);
+
+    // Annotation input and painting.
+    struct ActiveStroke {
+        enum class Kind { Draw, Erase, Move, TextBox, TextFrame };
+        Kind kind = Kind::Draw;
+        qint64 frameIndex = -1;
+        bool fromTablet = false;
+        annotation::AnnotationItem item;                    // Draw: the item; Move: the original
+        std::shared_ptr<annotation::StrokeBuilder> builder; // freehand only
+        QPointF pressWidgetPosition;
+        QPointF lastWidgetPosition; // eraser: previous sample, to sweep the gap
+        QPointF pressNormalized;    // Move / TextBox
+        QPointF currentNormalized;  // Move / TextBox
+        int handle = -1;            // TextFrame: 0..7 resize handle, 8 = move by the border
+        bool isEraser() const { return kind == Kind::Erase; }
+    };
+    struct TextEditState {
+        qint64 frameIndex = -1;
+        annotation::AnnotationItem item; // id 0 for new text
+        bool existing = false;
+    };
+    void cancelStroke();
+    quint64 itemAt(const QPointF& widgetPosition, bool textOnly) const;
+    std::optional<annotation::AnnotationItem> findItem(quint64 id) const;
+    std::optional<annotation::AnnotationItem> movePreview() const;
+    void beginTextEdit(qint64 frameIndex, const annotation::AnnotationItem& item, bool existing);
+    void finishTextEdit(bool commit);
+    void positionTextEditor();
+    void applyTextEditStyle();
+    /// Frame drawn around the text being typed, in widget pixels; its border
+    /// and handles sit just outside the text field so the viewer receives them.
+    QRectF textEditFrame() const;
+    /// 0..7: resize handle (clockwise from top-left), 8: border, -1: neither.
+    int textFrameHandleAt(const QPointF& position) const;
+    QPointF unflippedNormalized(const QPointF& position) const;
+    bool isDoublePress(const QPointF& position, quint64 itemId);
+    bool canAnnotate() const;
+    bool beginStroke(const QPointF& position, float pressure, float tiltX, float tiltY,
+                     bool eraserPointer, bool fromTablet);
+    void continueStroke(const QPointF& position, float pressure, float tiltX, float tiltY);
+    void finishStroke();
+    void eraseAlong(const QPointF& from, const QPointF& to, float pressure);
+    qreal widgetPixelsPerSourcePixel() const;
+    qreal sourceImageHeight() const;
+    void updateAnnotateCursor();
+    void setHoverPosition(std::optional<QPointF> position);
+    void paintAnnotations(QPainter& painter, const QRectF& target);
+    void paintBrushCursor(QPainter& painter);
+    /// Draws the picture (and tracing paper) through a widget-sized cache, so
+    /// a repaint while drawing is one blit instead of a scaled draw and blend.
+    void paintCachedPicture(QPainter& painter, const QRectF& target, const QColor& background);
+    /// Widget area the brush cursor occupies at `position`.
+    QRect brushCursorRect(const QPointF& position) const;
+    /// Widget area the newest part of a freehand stroke occupies.
+    QRect freehandDirtyRect() const;
 
     media::VideoFrame m_frame;
     State m_state = State::Empty;
@@ -125,6 +266,46 @@ private:
     QString m_placeholderText;
     QString m_placeholderSubtext;
     QString m_cornerLabel;
+
+    annotation::FrameAnnotation m_annotationFrame;
+    bool m_annotationsVisible = true;
+    bool m_annotateMode = false;
+    annotation::AnnotationToolSettings m_tool;
+    std::optional<ActiveStroke> m_stroke;
+    std::optional<QPointF> m_hoverPosition;
+    bool m_hoverIsEraser = false; // stylus flipped to its eraser end
+    quint64 m_selectedItemId = 0;
+    quint64 m_hiddenItemId = 0; // drawn by a preview (move) or the editor instead
+    std::optional<TextEditState> m_textEdit;
+    QTextEdit* m_textEditor = nullptr; // child; deleted when editing ends
+    QElapsedTimer m_lastPressTimer; // double-press detection that also works for pens
+    QPointF m_lastPressPosition;
+    quint64 m_lastPressItemId = 0;
+    // Committed annotations rendered once per change of data or geometry, so
+    // drawing a new stroke does not re-render every earlier one per event.
+    QImage m_annotationCache;
+    QRectF m_annotationCacheTarget;
+    bool m_annotationCacheFlipped = false;
+    quint64 m_annotationGeneration = 0;
+    quint64 m_annotationCacheGeneration = ~quint64(0);
+    // Ghosts, composited once per change like the annotation cache.
+    QVector<annotation::GhostFrame> m_ghosts;
+    qint64 m_ghostCenterFrame = -1;
+    QImage m_ghostCache;
+    QRectF m_ghostCacheTarget;
+    bool m_ghostCacheFlipped = false;
+    quint64 m_ghostGeneration = 0;
+    quint64 m_ghostCacheGeneration = ~quint64(0);
+    int m_tracingPaperPercent = 0;
+    // Picture + tracing paper at widget resolution (see paintCachedPicture).
+    QImage m_pictureCache;
+    qint64 m_pictureCacheKey = 0;
+    QRectF m_pictureCacheTarget;
+    bool m_pictureCacheFlipped = false;
+    int m_pictureCacheTrace = -1;
+    bool m_pictureCacheSmooth = false;
+    QRgb m_pictureCacheBackground = 0;
+    QRect m_lastStrokeDirty; // repainted again on the next move
 };
 
 } // namespace atk::ui

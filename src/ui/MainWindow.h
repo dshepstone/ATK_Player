@@ -1,5 +1,7 @@
 #pragma once
 
+#include "annotation/AnnotationGhosting.h"
+#include "annotation/AnnotationToolSettings.h"
 #include "core/commands/CommandDefinitions.h"
 #include "core/commands/CommandId.h"
 #include "export/ExportSpec.h"
@@ -27,16 +29,20 @@ class QSplitter;
 class QProgressDialog;
 class QJsonObject;
 
+namespace atk::annotation { class AnnotationStore; class BrushLibrary; }
 namespace atk::api { class ApiServer; }
 namespace atk::api { struct ApiResponse; }
 namespace atk::playback { class CompareSession; class CompareVideoLane; enum class CompareLayout; enum class CompareAudioMode; }
 namespace atk::project { class Project; }
 namespace atk::media { class PlaylistProbeWorker; }
-namespace atk::exporter { class ExportJob; }
+namespace atk::exporter { class ExportJob; class ReviewNotesJob; }
 namespace atk::timeline { class TimelineModel; }
 
 namespace atk::ui {
 
+class AnnotationToolbar;
+class NotesPanel;
+class ExportProgressDialog;
 class CommandRegistry;
 class ApplicationSettings;
 class BookmarkPanel;
@@ -115,6 +121,11 @@ public:
     ComparisonCompositeWidget* comparisonComposite() const { return m_compareComposite; }
     exporter::ExportSpec exportSnapshot(const QString& outputPath = {}) const;
     bool exportInProgress() const;
+    /// The last export handed to the system viewer (for tests).
+    QString lastOpenedExport() const { return m_lastOpenedExport; }
+    /// Opens a finished PDF or video in the system viewer once the file is
+    /// free (a sync app such as Google Drive may hold it for a moment).
+    void openExportedFile(const QString& path);
     api::ApiServer* apiServer() const { return m_apiServer.get(); }
 
 protected:
@@ -186,14 +197,34 @@ private:
     void applyComparisonAudioMode(playback::CompareAudioMode mode);
     void loadExternalAudio();
     void clearExternalAudio();
-    void exportReview();
+    /// Export Review; `withNotes` turns on the drawings and note captions
+    /// (Export Notes Video).
+    void exportReview(bool withNotes = false);
     void exportCurrentFrame();
     void exportImageSequence();
+    void exportReviewNotes();
+    bool notesPdfInProgress() const;
     void startExport(exporter::ExportSpec spec, bool showProgressUi = true);
     api::ApiResponse handleApiApplicationCommand(const QString& command,
                                                  const QJsonObject& params);
     bool cancelExportForProjectChange();
     ViewerWidget* activeViewer() const;
+
+    // Drawing on frames. The store holds the active source's annotations; the
+    // viewer only displays the displayed frame's and reports new strokes.
+    void setAnnotateMode(bool enabled);
+    void bindAnnotationsToActiveSource();
+    void refreshViewerAnnotations();
+    void applyAnnotationTool(const annotation::AnnotationToolSettings& settings);
+    /// View aids: tracing paper (percent, 0 = off) and ghosting. Each updates
+    /// the viewer, the toolbar, the menu check and the saved settings.
+    void applyTracingPaper(int percent);
+    void applyGhostSettings(const annotation::GhostSettings& settings);
+    void seekAnnotatedFrame(int direction);
+    void importBrushSet();
+    void refreshNotesPanel();
+    void removeBrushSet(const QString& name);
+    void updateAnnotationActions();
 
 
     std::unique_ptr<ApplicationSettings> m_settings;
@@ -207,9 +238,29 @@ private:
     std::unique_ptr<playback::CompareVideoLane> m_compareLane;
     std::unique_ptr<api::ApiServer> m_apiServer;
     std::unique_ptr<exporter::ExportJob> m_exportJob;
+    std::unique_ptr<exporter::ReviewNotesJob> m_notesPdfJob;
+    std::unique_ptr<annotation::AnnotationStore> m_annotations;
+    /// Imported brush sets. Kept beside the settings file when one is given
+    /// (tests), otherwise in the per-user application data folder.
+    std::unique_ptr<annotation::BrushLibrary> m_brushLibrary;
+    QString m_settingsIniPath;
+    /// Source the annotation store is bound to; edits are written back to it.
+    QUuid m_annotationSourceId;
+    /// The frame on screen in viewer A, and its picture height in pixels.
+    qint64 m_displayedFrameIndex = -1;
+    int m_displayedImageHeight = 0;
+    /// Decoded presentation time of that frame; stored with new drawings.
+    qint64 m_displayedFramePtsUs = 0;
+    qint64 annotationMediaTimeUs(qint64 frameIndex) const;
 
     CommandRegistry* m_commands = nullptr;
     BookmarkPanel* m_bookmarks = nullptr;
+    AnnotationToolbar* m_annotationToolbar = nullptr;
+    int m_tracingPaper = 0;
+    int m_tracingPaperLevel = 50;
+    annotation::GhostSettings m_ghostSettings;
+    NotesPanel* m_notesPanel = nullptr;
+    QDockWidget* m_notesDock = nullptr;
 
     ViewerWidget* m_viewer = nullptr;
     ViewerWidget* m_viewerB = nullptr;
@@ -239,7 +290,10 @@ private:
     QDockWidget* m_sourcesDock = nullptr;
     QDockWidget* m_bookmarksDock = nullptr;
     QMenu* m_recentProjectsMenu = nullptr;
-    QProgressDialog* m_exportProgress = nullptr;
+    ExportProgressDialog* m_exportProgress = nullptr;
+    ExportProgressDialog* m_notesPdfProgress = nullptr;
+    bool m_openExportWhenDone = false; // set per Export Review run
+    QString m_lastOpenedExport;
     bool m_skipLayoutSaveOnce = false;
     bool m_restoringSourceState = false;
     bool m_playAfterSourceOpen = false;

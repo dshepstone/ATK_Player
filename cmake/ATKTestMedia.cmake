@@ -68,9 +68,10 @@ function(atk_add_test_media)
     set(external32 "${ATK_TEST_MEDIA_DIR}/atk_external_32k.wav")
     set(export120 "${ATK_TEST_MEDIA_DIR}/atk_export_120f.mkv")
     set(export23976 "${ATK_TEST_MEDIA_DIR}/atk_export_23976_120f.mkv")
+    set(longgop "${ATK_TEST_MEDIA_DIR}/atk_longgop_96f.mp4")
 
     add_custom_command(
-        OUTPUT "${lossless}" "${lossy}" "${sync}" "${review}" "${compare30}" "${compare60}" "${external32}" "${export120}" "${export23976}"
+        OUTPUT "${lossless}" "${lossy}" "${sync}" "${review}" "${compare30}" "${compare60}" "${external32}" "${export120}" "${export23976}" "${longgop}"
         COMMAND "${CMAKE_COMMAND}" -E make_directory "${ATK_TEST_MEDIA_DIR}"
 
         # Lossless fixture: FFV1 video, PCM audio, Matroska.
@@ -156,6 +157,14 @@ function(atk_add_test_media)
                 -frames:v 120 -c:v ffv1 -pix_fmt yuv420p -an
                 "${export23976}"
 
+        # One keyframe for 96 frames (a long GOP, like many camera and web
+        # files): proves forward decoding replaces needless seeks.
+        COMMAND "${ATK_FFMPEG_EXECUTABLE}"
+                -hide_banner -loglevel error -y
+                -f lavfi -i "testsrc2=size=320x180:rate=24"
+                -frames:v 96 -c:v mpeg4 -g 1000 -bf 0 -q:v 3 -pix_fmt yuv420p -an
+                "${longgop}"
+
         COMMENT "Generating deterministic test media fixtures"
         VERBATIM
     )
@@ -212,7 +221,7 @@ function(atk_add_test_media)
         VERBATIM
     )
 
-    add_custom_target(atk_test_media DEPENDS "${lossless}" "${lossy}" "${sync}" "${review}" "${compare30}" "${compare60}" "${external32}" "${export120}" "${export23976}" ${still_outputs})
+    add_custom_target(atk_test_media DEPENDS "${lossless}" "${lossy}" "${sync}" "${review}" "${compare30}" "${compare60}" "${external32}" "${export120}" "${export23976}" "${longgop}" ${still_outputs})
     set_target_properties(atk_test_media PROPERTIES FOLDER "Tests")
 
     # Validate what was produced rather than trusting the recipe. If a future

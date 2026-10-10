@@ -1,5 +1,7 @@
 #pragma once
 
+#include "annotation/AnnotationGhosting.h"
+#include "annotation/AnnotationToolSettings.h"
 #include "media/ImageSource.h"
 
 #include <QByteArray>
@@ -64,6 +66,19 @@ public:
     /// Version string the welcome dialog was last shown for. Empty until the
     /// first launch after installation has shown it.
     QString welcomeShownVersion() const;
+    /// The drawing tool, colour, size and options last used. Invalid or
+    /// missing values fall back to the defaults field by field.
+    annotation::AnnotationToolSettings annotationTool() const;
+    /// Name written on review notes; defaults to the operating-system user.
+    QString reviewerName() const;
+    /// Tracing paper opacity in percent (0 = off), and the level the toggle
+    /// turns it on at (25, 50, 75 or 100; default 50).
+    int tracingPaper() const;
+    int tracingPaperLevel() const;
+    /// Open a finished PDF or video export in the system viewer (default on).
+    bool openExportsWhenDone() const;
+    /// Ghosting (onion skin) of nearby frames' drawings.
+    annotation::GhostSettings ghostSettings() const;
 
     void setRestoreWindowLayout(bool value);
     void setAudioScrubEnabled(bool value);
@@ -80,6 +95,12 @@ public:
     void setStillImageHoldFrames(int value);
     void setImageSequenceFrameRate(const media::FrameRate& rate);
     void setWelcomeShownVersion(const QString& version);
+    void setAnnotationTool(const annotation::AnnotationToolSettings& settings);
+    void setReviewerName(const QString& name);
+    void setTracingPaper(int percent);
+    void setTracingPaperLevel(int percent);
+    void setOpenExportsWhenDone(bool open);
+    void setGhostSettings(const annotation::GhostSettings& settings);
 
     QByteArray windowGeometry() const;
     QByteArray windowState() const;

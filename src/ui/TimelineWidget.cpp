@@ -249,6 +249,7 @@ void TimelineWidget::paintEvent(QPaintEvent* event)
     paintWaveform(painter);
     paintTrack(painter);
     paintBookmarks(painter);
+    paintAnnotatedFrames(painter);
     paintFrameLabels(painter);
     paintPlayhead(painter);
     paintScrubFrameLabel(painter);
@@ -420,6 +421,33 @@ void TimelineWidget::paintBookmarks(QPainter& painter)
                                kBookmarkMarkerWidth, 6),
                          color);
     }
+}
+
+void TimelineWidget::setAnnotatedFrames(QVector<int64_t> frames)
+{
+    if (frames == m_annotatedFrames) return;
+    m_annotatedFrames = std::move(frames);
+    update();
+}
+
+void TimelineWidget::paintAnnotatedFrames(QPainter& painter)
+{
+    if (m_model == nullptr || m_annotatedFrames.isEmpty()) return;
+    // A small pen-coloured wedge under the track: distinct from bookmark
+    // markers above it, so "has a drawing" and "has a bookmark" never blur.
+    static const QColor kDrawnFrame(255, 96, 64);
+    const QRect track = trackRect();
+    painter.save();
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(kDrawnFrame);
+    for (const int64_t frame : m_annotatedFrames) {
+        const int x = xForFrame(frame);
+        if (x < 0) continue;
+        const QPointF tip(x + 0.5, track.bottom() + 1.0);
+        painter.drawPolygon(QPolygonF{tip, tip + QPointF(-3.5, 5.0), tip + QPointF(3.5, 5.0)});
+    }
+    painter.restore();
 }
 
 void TimelineWidget::paintPlayhead(QPainter& painter)

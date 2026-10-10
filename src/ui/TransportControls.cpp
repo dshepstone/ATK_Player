@@ -8,6 +8,8 @@
 #include <QToolButton>
 #include <QStyle>
 #include <QMenu>
+#include <QPainter>
+#include <QPainterPath>
 #include <QSlider>
 #include <QLabel>
 #include <QWidgetAction>
@@ -15,6 +17,38 @@
 #include <algorithm>
 
 namespace atk::ui {
+namespace {
+/// A pencil, drawn in code so it needs no image plugin.
+QIcon pencilIcon()
+{
+    QIcon icon;
+    for (int size : {18, 36}) {
+        QPixmap pixmap(size, size);
+        pixmap.fill(Qt::transparent);
+        QPainter p(&pixmap);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        p.scale(size / 24.0, size / 24.0);
+        QPainterPath body;
+        body.moveTo(4, 20);
+        body.lineTo(5, 15.5);
+        body.lineTo(15.5, 5);
+        body.quadTo(17, 3.5, 18.5, 5);
+        body.lineTo(19, 5.5);
+        body.quadTo(20.5, 7, 19, 8.5);
+        body.lineTo(8.5, 19);
+        body.closeSubpath();
+        p.setPen(QPen(QColor(0xC7, 0xD0, 0xDC), 1.8, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        p.drawPath(body);
+        p.setPen(QPen(QColor(0x57, 0xA6, 0xFF), 1.8, Qt::SolidLine, Qt::RoundCap));
+        p.drawLine(QPointF(13.5, 7), QPointF(17, 10.5));
+        p.drawLine(QPointF(4, 20), QPointF(10, 20));
+        p.end();
+        icon.addPixmap(pixmap);
+    }
+    return icon;
+}
+} // namespace
+
 TransportControls::TransportControls(CommandRegistry* registry, QWidget* parent)
     : QWidget(parent)
     , m_registry(registry)
@@ -25,6 +59,13 @@ TransportControls::TransportControls(CommandRegistry* registry, QWidget* parent)
 
     m_playIcon = style()->standardIcon(QStyle::SP_MediaPlay);
     m_pauseIcon = style()->standardIcon(QStyle::SP_MediaPause);
+
+    // Drawing tools: on the left, apart from the transport, like SyncSketch.
+    QToolButton* draw = makeCommandButton(commands::CommandId::ToggleAnnotateMode,
+        pencilIcon(), tr("Draw on frame: show the drawing tools"));
+    draw->setObjectName(QStringLiteral("TransportDrawButton"));
+    draw->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    layout->addWidget(draw);
 
     layout->addStretch(1);
     layout->addWidget(makeCommandButton(commands::CommandId::FirstFrame,

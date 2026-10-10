@@ -35,4 +35,12 @@ bool PlatformInfo::setDisplaySleepInhibited(bool inhibited)
     return false;
 }
 
+bool PlatformInfo::isFileOpenElsewhere(const QString& path)
+{
+    // Open files do not stop a file being replaced here, and a viewer that
+    // has it open keeps reading its own copy safely.
+    Q_UNUSED(path);
+    return false;
+}
+
 } // namespace atk::platform

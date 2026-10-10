@@ -40,6 +40,17 @@ set(ATK_CORE_SOURCES
     playback/PlaybackController.cpp
     playback/ComparisonCompositor.cpp
 
+    annotation/AnnotationTypes.cpp
+    annotation/AnnotationGhosting.cpp
+    annotation/AnnotationStore.cpp
+    annotation/AnnotationEraser.cpp
+    annotation/AbrReader.cpp
+    annotation/BrushLibrary.cpp
+    annotation/BrushTip.cpp
+    annotation/AnnotationRenderer.cpp
+    annotation/AnnotationToolSettings.cpp
+    annotation/StrokeBuilder.cpp
+
     timeline/Bookmark.cpp
     timeline/Timecode.cpp
     timeline/TimelineModel.cpp
@@ -52,6 +63,7 @@ set(ATK_CORE_SOURCES
     export/ExportBurnInRenderer.cpp
     export/ExportRenderer.cpp
     export/ExportJob.cpp
+    export/ReviewNotesPdf.cpp
     export/FFmpegExporter.cpp
 
     api/ApiCommands.cpp
@@ -94,6 +106,17 @@ set(ATK_CORE_HEADERS
     playback/PlaybackController.h
     playback/ComparisonCompositor.h
 
+    annotation/AnnotationTypes.h
+    annotation/AnnotationGhosting.h
+    annotation/AnnotationStore.h
+    annotation/AnnotationEraser.h
+    annotation/AbrReader.h
+    annotation/BrushLibrary.h
+    annotation/BrushTip.h
+    annotation/AnnotationRenderer.h
+    annotation/AnnotationToolSettings.h
+    annotation/StrokeBuilder.h
+
     timeline/Bookmark.h
     timeline/PlaybackRange.h
     timeline/Timecode.h
@@ -107,6 +130,7 @@ set(ATK_CORE_HEADERS
     export/ExportBurnInRenderer.h
     export/ExportRenderer.h
     export/ExportJob.h
+    export/ReviewNotesPdf.h
     export/FFmpegExporter.h
 
     api/ApiCommands.h

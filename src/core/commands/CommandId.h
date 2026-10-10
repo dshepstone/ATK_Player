@@ -19,11 +19,26 @@ enum class CommandId {
     ExportReview,
     ExportCurrentFrame,
     ExportImageSequence,
+    ExportReviewNotes,
+    ExportNotesVideo,
     CloseSource,
     Quit,
 
     // Edit
     Preferences,
+
+    // Drawing (Edit menu)
+    ToggleAnnotateMode,
+    UndoAnnotation,
+    RedoAnnotation,
+    ClearFrameAnnotations,
+    IncreaseBrushSize,
+    DecreaseBrushSize,
+    ToggleAnnotationsVisible,
+    ToggleTracingPaper,
+    ToggleGhosting,
+    NextAnnotatedFrame,
+    PreviousAnnotatedFrame,
 
     // Playback transport
     PlayPause,
@@ -85,6 +100,7 @@ enum class CommandId {
     ResetCompareBOffset,
     ToggleSourcesPanel,
     ToggleBookmarksPanel,
+    ToggleNotesPanel,
     TimelineZoomIn,
     TimelineZoomOut,
     TimelineZoomFit,
