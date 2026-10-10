@@ -17,6 +17,37 @@ The project owner approved this as a new annotation/notes milestone (suggested n
 OS-specific code. `ROADMAP.md` still lists "Drawn annotations over frames" under
 *Not scheduled*; update it when the milestone lands.
 
+### Resume here (handoff, 2026-10-10)
+
+- **Where the code is:** branch `claude/loving-cerf-57c6zt`, PR
+  https://github.com/dshepstone/ATK_Player/pull/28, head `ad060f9` (phases A–C). Not merged.
+- **Verified:**
+  - Windows Debug and Release 34/34 at `42a51bb` (A–B), run by the owner.
+  - Linux full build and `ctest` at `ad060f9`: 34/37. The same 3 tests fail without
+    these changes in that environment: `tst_export` (no H.264 encoder),
+    `tst_stillimage` (EXR decode) and `tst_audioreview` (Qt 6.4 testlib assert).
+- **Waiting on the owner:**
+  1. Windows Debug and Release build plus `ctest` at `ad060f9`.
+  2. Tablet acceptance on Wacom/Cintiq: pressure on Pencil/Pen/Brush, latency, the
+     hover brush cursor, the stylus eraser end, barrel-button pan, and which pressure
+     curve (Soft/Linear/Firm) should be the default.
+  3. The basics: `D`, `Ctrl+Z`, `[` `]`, `Alt+Shift+←/→`, and save and reopen.
+- **Open decisions:**
+  - Stylus barrel button: eraser or colour picker? Barrel buttons currently fall
+    through to mouse handling (pan).
+  - Pre-frame cue in the annotated MP4: default on, or option only?
+- **Next:** tune brushes from the tablet feedback, then Phase D (notes panel: bookmark
+  status/author, "add note at frame", thumbnails), then E (MP4, play-through default),
+  then F (PDF).
+- **Practical notes:**
+  - The owner's clone once had a corrupt loose ref `.git/refs/tags/v0.3.0` that broke
+    `git fetch`. Removing that file fixed it.
+  - A stale `build/<preset>/bin` with mixed FFmpeg DLLs caused a `tst_mediadecoder`
+    segfault. Deleting `bin` fixed it.
+  - Linux scratch builds need Qt 6.4 allowed, `qt_generate_deploy_app_script` removed,
+    a pkg-config `FindFFMPEG.cmake`, and `-fpermissive` (because `int64_t` and
+    `qint64` differ on Linux). Do not commit any of that.
+
 ### Phase C notes (as built)
 
 - Freehand strokes are rendered per item into a layer, one segment at a time with
