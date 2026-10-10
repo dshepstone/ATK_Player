@@ -98,6 +98,7 @@ private slots:
     void drawButtonAndCtrlAngleBracketsJumpBetweenDrawings();
     void fileMenuHasTheNotesExports();
     void exportsOpenOnlyOnceTheFileIsReady();
+    void watchingASavedProjectNeverAsksToSave();
 };
 
 void TestAnnotationWorkflow::drawModeNeedsMedia()
@@ -659,6 +660,41 @@ void TestAnnotationWorkflow::exportsOpenOnlyOnceTheFileIsReady()
     second.close();
     window.openExportedFile(ready);
     QCOMPARE(window.lastOpenedExport(), ready);
+}
+
+// Opening a project or a video and just watching, scrubbing or zooming the
+// timeline must not lead to a "save changes?" question.
+void TestAnnotationWorkflow::watchingASavedProjectNeverAsksToSave()
+{
+    QTemporaryDir directory;
+    const QString projectPath = writeProject(directory);
+    atk::ui::MainWindow window(directory.filePath(QStringLiteral("settings.ini")));
+    window.resize(1400, 800);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    QVERIFY(openAt(window, projectPath, 30));
+    window.playbackController()->seekFrame(120);
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->currentFrame(), qint64(120), 5000);
+    command(window, "view.timelineZoomIn")->trigger();
+    command(window, "view.timelineZoomIn")->trigger();
+    command(window, "playback.nextFrame")->trigger();
+    QVERIFY(!window.project()->needsSavePrompt());
+
+    // A drawing is review work: now it asks.
+    command(window, "draw.annotateMode")->trigger();
+    drawStroke(window.findChild<atk::ui::ViewerWidget*>(), {0.3, 0.4}, {0.6, 0.5});
+    QVERIFY(window.project()->needsSavePrompt());
+    command(window, "draw.undo")->trigger(); // and stops asking once it is gone
+    QVERIFY(!window.project()->needsSavePrompt());
+
+    // A single video opened on its own: watching it never asks either.
+    const QString clip = window.project()->entries().at(0).source->filePath();
+    window.openMediaFile(clip);
+    QTRY_VERIFY_WITH_TIMEOUT(window.playbackController()->state() == PlayerState::Ready, 10000);
+    window.playbackController()->seekFrame(60);
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->currentFrame(), qint64(60), 5000);
+    command(window, "view.timelineZoomIn")->trigger();
+    QVERIFY(!window.project()->needsSavePrompt());
 }
 
 QTEST_MAIN(TestAnnotationWorkflow)

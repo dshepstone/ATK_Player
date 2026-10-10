@@ -226,6 +226,12 @@ private:
     std::deque<AudioChunk> m_pendingAudio;
 
     int64_t m_nextVideoFrameIndex = 0;
+    /// Keyframe spacing seen so far (frames): the longest run from one
+    /// keyframe to the next, or since the last keyframe. A seek costs up to
+    /// this much decoding, so decoding forward over a gap no longer than it
+    /// is never slower (frameAtIndex uses it for its forward window).
+    int64_t m_lastKeyframeIndex = -1;
+    int64_t m_keyframeInterval = 0;
     int64_t m_seekOperationCount = 0;
     /// PTS of the next audio sample to be emitted, in output-format terms.
     int64_t m_nextAudioPtsUs = 0;

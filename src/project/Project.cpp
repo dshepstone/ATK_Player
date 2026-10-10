@@ -32,6 +32,8 @@ void Project::setFilePath(const QString& path)
 
 void Project::setModified(bool modified)
 {
+    // Not modified means "matches its file": remember that content.
+    if (!modified) m_savedContent = reviewContent();
     if (m_modified == modified) {
         return;
     }
@@ -39,15 +41,27 @@ void Project::setModified(bool modified)
     emit modifiedChanged(m_modified);
 }
 
+QVector<Project::ReviewContent> Project::reviewContent() const
+{
+    QVector<ReviewContent> content;
+    content.reserve(m_entries.size());
+    for (const SourceEntry& entry : m_entries)
+        content.append({entry.source ? entry.source->filePath() : entry.storedPath, entry.bookmarks,
+                        entry.annotations, entry.frameOffset});
+    return content;
+}
+
 bool Project::needsSavePrompt() const
 {
+    // Only ask when there is something of the user's to lose. Watching,
+    // scrubbing or zooming the timeline never counts.
     if (!m_modified) return false;
-    if (!m_filePath.isEmpty()) return true;
-    if (m_entries.size() > 1) return true;
-    return std::any_of(m_entries.cbegin(), m_entries.cend(),
-                       [](const SourceEntry& entry) {
-                           return !entry.bookmarks.isEmpty() || !entry.annotations.isEmpty();
-                       });
+    const QVector<ReviewContent> now = reviewContent();
+    if (!m_filePath.isEmpty()) return now != m_savedContent; // differs from the file
+    if (now.size() > 1) return true; // a playlist
+    return std::any_of(now.cbegin(), now.cend(), [](const ReviewContent& entry) {
+        return !entry.bookmarks.isEmpty() || !entry.annotations.isEmpty() || entry.frameOffset != 0;
+    });
 }
 
 bool Project::isValidIndex(int index) const

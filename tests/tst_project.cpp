@@ -1,4 +1,5 @@
 #include "media/MediaSource.h"
+#include "annotation/AnnotationTypes.h"
 #include "project/Project.h"
 #include "project/ProjectSerializer.h"
 
@@ -523,11 +524,25 @@ void TestProject::savePromptOnlyForReviewWork()
     project.removeSourceAt(1);
     QVERIFY(!project.needsSavePrompt());
 
-    // A saved project asks about any change, and nothing when clean.
+    // A saved project asks only when its content differs from the file.
     project.setFilePath(QStringLiteral("review.atkproj"));
-    QVERIFY(project.needsSavePrompt());
-    project.setModified(false);
+    QVERIFY(project.needsSavePrompt()); // never actually saved yet
+    project.setModified(false);         // saved: matches the file now
     QVERIFY(!project.needsSavePrompt());
+    project.mutableEntries()[0].playbackRange = {0, 40, true}; // watching / zooming
+    project.setModified(true);
+    QVERIFY(!project.needsSavePrompt());
+    project.mutableEntries()[0].bookmarks = {note};            // real review work
+    QVERIFY(project.needsSavePrompt());
+    project.mutableEntries()[0].bookmarks.clear();             // back to what is saved
+    QVERIFY(!project.needsSavePrompt());
+    annotation::FrameAnnotation drawn;
+    drawn.frame = 3;
+    drawn.notes = {{1, QStringLiteral("note"), QString(), 0, false}};
+    annotation::SourceAnnotations annotations;
+    annotations.setFrame(drawn);
+    project.mutableEntries()[0].annotations = annotations;     // notes count too
+    QVERIFY(project.needsSavePrompt());
 }
 
 QTEST_MAIN(TestProject)

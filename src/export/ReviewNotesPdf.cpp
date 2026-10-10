@@ -227,10 +227,12 @@ public:
             pair(QStringLiteral("TIMECODE"), row.timecode);
             const bool allResolved = !row.notes.isEmpty()
                 && std::all_of(row.notes.cbegin(), row.notes.cend(), [](const auto& n) { return n.resolved; });
-            p.setFont(label);
-            p.setPen(allResolved ? kMuted : kAccent);
-            p.drawText(QRectF(x, ty + 3, g.textWidth, 12), Qt::AlignRight | Qt::AlignVCenter,
-                       allResolved ? QStringLiteral("RESOLVED") : QStringLiteral("OPEN"));
+            if (allResolved) { // only resolved frames are marked; open is the norm
+                p.setFont(label);
+                p.setPen(kMuted);
+                p.drawText(QRectF(x, ty + 3, g.textWidth, 12), Qt::AlignRight | Qt::AlignVCenter,
+                           QStringLiteral("RESOLVED"));
+            }
             ty += 22;
             const QFont body = fontPt(9.5);
             if (row.notes.isEmpty()) {

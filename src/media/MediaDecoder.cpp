@@ -763,6 +763,8 @@ void MediaDecoder::close()
 void MediaDecoder::resetStreamState()
 {
     m_nextVideoFrameIndex = 0;
+    m_lastKeyframeIndex = -1;
+    m_keyframeInterval = 0;
     m_seekOperationCount = 0;
     m_nextAudioPtsUs = 0;
     m_demuxEof = false;
@@ -1027,6 +1029,16 @@ bool MediaDecoder::convertVideoFrame(const AVFrame* source, VideoFrame& out, QSt
         out.ptsUs = ffmpeg::ptsToMicroseconds(pts - m_metadata.videoStartTime, timeBase);
     }
 
+    // Learn the keyframe spacing, for frameAtIndex's forward window.
+#ifdef AV_FRAME_FLAG_KEY
+    const bool keyframe = (source->flags & AV_FRAME_FLAG_KEY) != 0;
+#else
+    const bool keyframe = source->key_frame != 0;
+#endif
+    if (m_lastKeyframeIndex >= 0 && out.frameIndex > m_lastKeyframeIndex)
+        m_keyframeInterval = std::max(m_keyframeInterval, out.frameIndex - m_lastKeyframeIndex);
+    if (keyframe) m_lastKeyframeIndex = out.frameIndex;
+
     m_nextVideoFrameIndex = out.frameIndex + 1;
     return true;
 }
@@ -1284,6 +1296,7 @@ bool MediaDecoder::seekToFrameIndex(int64_t index, QString* error)
     m_audioEof = false;
     m_draining = false;
     m_nextVideoFrameIndex = target;
+    m_lastKeyframeIndex = -1; // decoding restarts at a keyframe; the gap since the old one means nothing
     m_nextAudioPtsUs = ffmpeg::frameIndexToMicroseconds(target, rate);
 
     qCDebug(log::media) << "Seek to frame" << target << "pts" << targetPts;
@@ -1327,12 +1340,20 @@ bool MediaDecoder::frameAtIndex(int64_t index, VideoFrame& out, QString* error,
     // Timeline movement commonly advances several source frames between its
     // 30 Hz preview events. Keep nearby forward requests on the live decoder
     // position instead of flushing and seeking for every small gap.
+    // Beyond that, decoding forward is still cheaper than a seek whenever the
+    // gap is within the keyframe spacing (a seek would decode that far anyway),
+    // which matters for long-GOP files and for exports visiting frames in order.
+    constexpr int64_t kMaxForwardDecode = 600;
     const int64_t sequentialWindow = std::max<int64_t>(
-        2, static_cast<int64_t>(std::ceil(m_metadata.frameRate.toDouble())));
+        std::max<int64_t>(2, static_cast<int64_t>(std::ceil(m_metadata.frameRate.toDouble()))),
+        std::min(m_keyframeInterval, kMaxForwardDecode));
     if (target >= m_nextVideoFrameIndex
         && target - m_nextVideoFrameIndex <= sequentialWindow) {
+        // Walk the frames as they come rather than by m_nextVideoFrameIndex:
+        // draining at the end of a file decodes several frames at once and
+        // moves that counter past frames still waiting to be taken.
         VideoFrame next;
-        while (m_nextVideoFrameIndex <= target) {
+        for (int64_t taken = 0; taken <= sequentialWindow + 16; ++taken) {
             if (cancelled(isCancelled)) {
                 if (error) {
                     *error = QStringLiteral("Decode cancelled.");

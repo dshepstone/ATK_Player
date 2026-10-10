@@ -125,6 +125,18 @@ signals:
 private:
     bool isValidIndex(int index) const;
 
+    /// What a save would keep that is worth asking about: the videos and
+    /// their order, bookmarks, drawings and notes, comparison offsets. Not the
+    /// timeline zoom or the frame on screen, which change just by watching.
+    struct ReviewContent {
+        QString path;
+        QVector<timeline::Bookmark> bookmarks;
+        annotation::SourceAnnotations annotations;
+        int64_t frameOffset = 0;
+        friend bool operator==(const ReviewContent&, const ReviewContent&) = default;
+    };
+    QVector<ReviewContent> reviewContent() const;
+
     QString m_name;
     QString m_filePath;
     QVector<SourceEntry> m_entries;
@@ -132,6 +144,9 @@ private:
     int m_compareA = -1;
     int m_compareB = -1;
     bool m_modified = false;
+    /// reviewContent() when the project last matched its file (saved, loaded
+    /// or new), so a save prompt only appears when something real changed.
+    QVector<ReviewContent> m_savedContent;
 };
 
 } // namespace atk::project

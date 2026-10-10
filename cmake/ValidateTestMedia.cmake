@@ -131,6 +131,9 @@ expect_decoded_frames("${export120}" "120")
 expect_field("${export23976}" "v:0" "stream=avg_frame_rate" "24000/1001")
 expect_decoded_frames("${export23976}" "120")
 
+set(longgop "${MEDIA_DIR}/atk_longgop_96f.mp4")
+expect_decoded_frames("${longgop}" "96")
+
 # --- Still images -----------------------------------------------------------
 # One picture each; the decoder synthesizes the held extent, so only codec and
 # size are properties of the file.
