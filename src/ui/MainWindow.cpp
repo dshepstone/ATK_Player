@@ -13,6 +13,7 @@
 #include "media/PlaylistProbeWorker.h"
 #include "export/ExportJob.h"
 #include "export/FFmpegExporter.h"
+#include "export/ReviewNotesPdf.h"
 #include "project/Project.h"
 #include "project/ProjectSerializer.h"
 #include "timeline/Timecode.h"
@@ -30,6 +31,7 @@
 #include "ui/NotesPanel.h"
 #include "ui/PreferencesDialog.h"
 #include "ui/Resources.h"
+#include "ui/ReviewNotesDialog.h"
 #include "ui/SourcesPanel.h"
 #include "ui/StatusInfoBar.h"
 #include "ui/Theme.h"
@@ -76,6 +78,8 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QDateTime>
+#include <QDesktopServices>
+#include <QLocale>
 #include <QFile>
 #include <QMessageBox>
 #include <QStandardPaths>
@@ -636,6 +640,8 @@ void MainWindow::connectSignals()
     });
     connect(m_notesPanel, &NotesPanel::reviewerNameChanged, this,
             [this](const QString& name) { m_settings->setReviewerName(name); });
+    connect(m_notesPanel, &NotesPanel::exportPdfRequested, this, &MainWindow::exportReviewNotes);
+    connect(m_notesPanel, &NotesPanel::exportVideoRequested, this, &MainWindow::exportReview);
     connect(m_notesDock, &QDockWidget::visibilityChanged, this, [this](bool visible) {
         if (QAction* action = m_commands->action(CommandId::ToggleNotesPanel)) {
             QSignalBlocker blocker(action);
@@ -1201,6 +1207,7 @@ void MainWindow::onCommand(CommandId id, bool checked)
     case CommandId::ExportReview: exportReview(); return;
     case CommandId::ExportCurrentFrame: exportCurrentFrame(); return;
     case CommandId::ExportImageSequence: exportImageSequence(); return;
+    case CommandId::ExportReviewNotes: exportReviewNotes(); return;
     }
 }
 
@@ -1431,6 +1438,8 @@ void MainWindow::updateTransportEnabled()
     for (CommandId id : {CommandId::ExportCurrentFrame, CommandId::ExportImageSequence})
         if (QAction* action = m_commands->action(id))
             action->setEnabled(m_playback->hasMedia() && !exportInProgress());
+    if (QAction* action = m_commands->action(CommandId::ExportReviewNotes))
+        action->setEnabled(m_playback->hasMedia() && !notesPdfInProgress());
 
     if (QAction* action = m_commands->action(CommandId::ToggleVideoFullScreen)) {
         action->setEnabled(m_playback->hasMedia());
@@ -2193,15 +2202,109 @@ void MainWindow::startExport(exporter::ExportSpec spec, bool showProgressUi)
     m_exportJob->start();
 }
 
+bool MainWindow::notesPdfInProgress() const
+{
+    return m_notesPdfJob && m_notesPdfJob->isRunning();
+}
+
+void MainWindow::exportReviewNotes()
+{
+    if (notesPdfInProgress() || !m_playback->hasMedia()) return;
+    exporter::ExportSpec spec = exportSnapshot();
+    // Notes belong to one source: the PDF always lists the annotated source
+    // on its own, over the whole clip, whatever the comparison or range.
+    spec.comparison = false;
+    spec.sourceB = {};
+    spec.burnIns = {};
+    spec.annotations = spec.sourceA.id == m_annotationSourceId ? m_annotations->annotations()
+                                                              : annotation::SourceAnnotations{};
+    spec.sourceA.rangeStartFrame = 0;
+    spec.sourceA.rangeEndFrame = std::max<qint64>(0, spec.sourceA.metadata.effectiveFrameCount() - 1);
+    const QString suggested = QDir(QFileInfo(spec.outputPath).absolutePath())
+        .filePath(exportBaseName(spec.sourceA) + QStringLiteral("_review_notes.pdf"));
+    ReviewNotesDialog dialog(spec.annotations, suggested, this);
+    if (dialog.exec() != QDialog::Accepted) return;
+    const exporter::ReviewNotesOptions options = dialog.options();
+    if (options.outputPath.isEmpty()) return;
+    if (QFileInfo::exists(options.outputPath)
+        && QMessageBox::question(this, tr("Export Review Notes"),
+            tr("Replace the existing file?\n%1").arg(QDir::toNativeSeparators(options.outputPath)),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes) return;
+
+    // Header text, decided now on the UI thread.
+    exporter::ReviewNotesDocument header;
+    header.projectName = m_project->filePath().isEmpty() ? tr("Untitled project")
+                                                         : QFileInfo(m_project->filePath()).completeBaseName();
+    header.clipName = QFileInfo(spec.sourceA.path).fileName();
+    QStringList reviewers;
+    for (const annotation::FrameAnnotation& frame : spec.annotations.frames())
+        for (const annotation::FrameNote& note : frame.notes)
+            if ((options.includeResolved || !note.resolved) && !note.author.trimmed().isEmpty()
+                && !reviewers.contains(note.author.trimmed()))
+                reviewers.append(note.author.trimmed());
+    header.reviewers = reviewers.join(QStringLiteral(", "));
+    header.generatedText = tr("from %1").arg(QLocale().toString(QDateTime::currentDateTime(), QLocale::LongFormat));
+    header.footerLeft = QStringLiteral("ATK Player %1").arg(QString::fromLatin1(version::kString));
+
+    m_notesPdfJob = std::make_unique<exporter::ReviewNotesJob>(std::move(spec), std::move(header), options, this);
+    m_notesPdfProgress = new QProgressDialog(tr("Rendering annotated frames…"), tr("Cancel"), 0, 100, this);
+    m_notesPdfProgress->setWindowTitle(tr("Export Review Notes"));
+    m_notesPdfProgress->setWindowModality(Qt::NonModal);
+    m_notesPdfProgress->setMinimumDuration(0);
+    m_notesPdfProgress->setAutoClose(false);
+    m_notesPdfProgress->setAutoReset(false);
+    connect(m_notesPdfProgress, &QProgressDialog::canceled, m_notesPdfJob.get(), &exporter::ReviewNotesJob::cancel);
+    connect(m_notesPdfJob.get(), &exporter::ReviewNotesJob::progress, m_notesPdfProgress, [this](int percent) {
+        if (!m_notesPdfProgress) return;
+        m_notesPdfProgress->setValue(percent);
+        if (percent >= 90) m_notesPdfProgress->setLabelText(tr("Writing PDF…"));
+    });
+    const auto finish = [this] {
+        m_notesPdfJob->wait(); // the worker has reported; join it
+        if (m_notesPdfProgress) {
+            m_notesPdfProgress->close();
+            m_notesPdfProgress->deleteLater();
+            m_notesPdfProgress = nullptr;
+        }
+        updateTransportEnabled();
+    };
+    connect(m_notesPdfJob.get(), &exporter::ReviewNotesJob::completed, this,
+            [this, finish](const QString& path, int pages) {
+        finish();
+        statusBar()->showMessage(tr("Exported %1 (%n page(s))", nullptr, pages).arg(QDir::toNativeSeparators(path)), 8000);
+        QMessageBox box(QMessageBox::Information, tr("Export Review Notes"),
+                        tr("Saved %1.").arg(QDir::toNativeSeparators(path)), QMessageBox::Close, this);
+        QPushButton* open = box.addButton(tr("Open PDF"), QMessageBox::AcceptRole);
+        QPushButton* folder = box.addButton(tr("Show in Folder"), QMessageBox::ActionRole);
+        box.exec();
+        if (box.clickedButton() == open) QDesktopServices::openUrl(QUrl::fromLocalFile(path));
+        else if (box.clickedButton() == folder)
+            QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(path).absolutePath()));
+    });
+    connect(m_notesPdfJob.get(), &exporter::ReviewNotesJob::cancelled, this, [this, finish] {
+        finish();
+        statusBar()->showMessage(tr("Export cancelled"), 4000);
+    });
+    connect(m_notesPdfJob.get(), &exporter::ReviewNotesJob::failed, this, [this, finish](const QString& message) {
+        finish();
+        QMessageBox::critical(this, tr("Export Review Notes"), message);
+    });
+    m_notesPdfProgress->show();
+    m_notesPdfJob->start();
+    updateTransportEnabled();
+}
+
 bool MainWindow::cancelExportForProjectChange()
 {
-    if (!exportInProgress()) return true;
+    if (!exportInProgress() && !notesPdfInProgress()) return true;
     if (QMessageBox::question(this, tr("Export in Progress"),
         tr("Cancel the export before changing projects?"), QMessageBox::Yes | QMessageBox::No,
         QMessageBox::No) != QMessageBox::Yes) return false;
-    m_exportJob->cancel();
-    m_exportJob->wait();
+    // Stop work, then join the worker, before the UI state it reports to goes.
+    if (m_exportJob) { m_exportJob->cancel(); m_exportJob->wait(); }
+    if (m_notesPdfJob) { m_notesPdfJob->cancel(); m_notesPdfJob->wait(); }
     if (m_exportProgress) { m_exportProgress->close(); m_exportProgress->deleteLater(); m_exportProgress = nullptr; }
+    if (m_notesPdfProgress) { m_notesPdfProgress->close(); m_notesPdfProgress->deleteLater(); m_notesPdfProgress = nullptr; }
     updateTransportEnabled();
     return true;
 }

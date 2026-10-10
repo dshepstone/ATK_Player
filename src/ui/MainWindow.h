@@ -34,7 +34,7 @@ namespace atk::api { struct ApiResponse; }
 namespace atk::playback { class CompareSession; class CompareVideoLane; enum class CompareLayout; enum class CompareAudioMode; }
 namespace atk::project { class Project; }
 namespace atk::media { class PlaylistProbeWorker; }
-namespace atk::exporter { class ExportJob; }
+namespace atk::exporter { class ExportJob; class ReviewNotesJob; }
 namespace atk::timeline { class TimelineModel; }
 
 namespace atk::ui {
@@ -193,6 +193,8 @@ private:
     void exportReview();
     void exportCurrentFrame();
     void exportImageSequence();
+    void exportReviewNotes();
+    bool notesPdfInProgress() const;
     void startExport(exporter::ExportSpec spec, bool showProgressUi = true);
     api::ApiResponse handleApiApplicationCommand(const QString& command,
                                                  const QJsonObject& params);
@@ -223,6 +225,7 @@ private:
     std::unique_ptr<playback::CompareVideoLane> m_compareLane;
     std::unique_ptr<api::ApiServer> m_apiServer;
     std::unique_ptr<exporter::ExportJob> m_exportJob;
+    std::unique_ptr<exporter::ReviewNotesJob> m_notesPdfJob;
     std::unique_ptr<annotation::AnnotationStore> m_annotations;
     /// Imported brush sets. Kept beside the settings file when one is given
     /// (tests), otherwise in the per-user application data folder.
@@ -272,6 +275,7 @@ private:
     QDockWidget* m_bookmarksDock = nullptr;
     QMenu* m_recentProjectsMenu = nullptr;
     QProgressDialog* m_exportProgress = nullptr;
+    QProgressDialog* m_notesPdfProgress = nullptr;
     bool m_skipLayoutSaveOnce = false;
     bool m_restoringSourceState = false;
     bool m_playAfterSourceOpen = false;

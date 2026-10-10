@@ -33,6 +33,7 @@ constexpr std::array kCommands{
     CommandDefinition{ CommandId::ExportReview,       "file.exportReview",     QT_TRANSLATE_NOOP("Command", "Export Review..."),     C::File,     nullptr,        false },
     CommandDefinition{ CommandId::ExportCurrentFrame, "file.exportCurrentFrame",QT_TRANSLATE_NOOP("Command", "Export Current Frame..."),C::File,   nullptr,        false },
     CommandDefinition{ CommandId::ExportImageSequence,"file.exportImageSequence",QT_TRANSLATE_NOOP("Command", "Export Image Sequence..."),C::File,  nullptr,        false },
+    CommandDefinition{ CommandId::ExportReviewNotes,  "file.exportReviewNotes", QT_TRANSLATE_NOOP("Command", "Export Review Notes (PDF)..."),C::File, nullptr,      false },
     CommandDefinition{ CommandId::CloseSource,        "file.closeSource",      QT_TRANSLATE_NOOP("Command", "Close Source"),         C::File,     "Ctrl+W",       false },
     CommandDefinition{ CommandId::Quit,               "file.quit",             QT_TRANSLATE_NOOP("Command", "Quit"),                 C::File,     "Ctrl+Q",       false },
 

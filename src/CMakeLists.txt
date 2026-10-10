@@ -62,6 +62,7 @@ set(ATK_CORE_SOURCES
     export/ExportBurnInRenderer.cpp
     export/ExportRenderer.cpp
     export/ExportJob.cpp
+    export/ReviewNotesPdf.cpp
     export/FFmpegExporter.cpp
 
     api/ApiCommands.cpp
@@ -127,6 +128,7 @@ set(ATK_CORE_HEADERS
     export/ExportBurnInRenderer.h
     export/ExportRenderer.h
     export/ExportJob.h
+    export/ReviewNotesPdf.h
     export/FFmpegExporter.h
 
     api/ApiCommands.h

@@ -57,6 +57,9 @@ signals:
     void deleteNoteRequested(qint64 frame, quint64 noteId);
     void noteActivated(qint64 frame);
     void reviewerNameChanged(const QString& name);
+    /// The panel's export shortcuts: a Review Notes PDF, or the annotated video.
+    void exportPdfRequested();
+    void exportVideoRequested();
 
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
@@ -77,6 +80,8 @@ private:
     QCheckBox* m_showResolved = nullptr;
     QListWidget* m_list = nullptr;
     QLabel* m_emptyHint = nullptr;
+    QPushButton* m_exportPdf = nullptr;
+    QPushButton* m_exportVideo = nullptr;
 
     QVector<NoteRow> m_rows;
     qint64 m_currentFrame = -1;

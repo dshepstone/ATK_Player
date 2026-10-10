@@ -94,6 +94,20 @@ NotesPanel::NotesPanel(QWidget* parent) : QWidget(parent)
     m_emptyHint->setObjectName(QStringLiteral("NotesEmptyHint"));
     layout->addWidget(m_emptyHint);
 
+    // One click to hand the review on, like SyncSketch's export menu.
+    auto* exportRow = new QHBoxLayout;
+    m_exportPdf = new QPushButton(tr("Export PDF…"), this);
+    m_exportPdf->setObjectName(QStringLiteral("NotesExportPdf"));
+    m_exportPdf->setToolTip(tr("Save a Review Notes PDF: each drawn or noted frame with its notes"));
+    m_exportVideo = new QPushButton(tr("Export Video…"), this);
+    m_exportVideo->setObjectName(QStringLiteral("NotesExportVideo"));
+    m_exportVideo->setToolTip(tr("Save an MP4 with the drawings and notes burned in on their frames"));
+    exportRow->addWidget(m_exportPdf, 1);
+    exportRow->addWidget(m_exportVideo, 1);
+    layout->addLayout(exportRow);
+    connect(m_exportPdf, &QPushButton::clicked, this, &NotesPanel::exportPdfRequested);
+    connect(m_exportVideo, &QPushButton::clicked, this, &NotesPanel::exportVideoRequested);
+
     setCurrentFrame(-1, QString(), false);
     rebuildList();
 }
@@ -111,6 +125,8 @@ void NotesPanel::setCurrentFrame(qint64 frame, const QString& timecode, bool ava
         m_frameLabel->setText(tr("Frame %1  ·  %2").arg(frame + 1).arg(timecode));
     else
         m_frameLabel->setText(tr("Open a clip to add notes"));
+    m_exportPdf->setEnabled(m_available);
+    m_exportVideo->setEnabled(m_available);
     refreshComposer();
     if (changed) rebuildList(); // highlight the notes on this frame
 }

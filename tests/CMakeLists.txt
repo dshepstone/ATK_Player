@@ -44,6 +44,7 @@ set(ATK_FFMPEG_TEST_SOURCES
     tst_export.cpp
     tst_stillimage.cpp
     tst_annotationexport.cpp
+    tst_reviewnotespdf.cpp
 )
 
 set(ATK_UI_TEST_SOURCES

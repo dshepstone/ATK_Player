@@ -7,11 +7,18 @@
 #include "ui/AnnotationToolbar.h"
 #include "ui/MainWindow.h"
 #include "ui/NotesPanel.h"
+#include "ui/ReviewNotesDialog.h"
 #include "ui/TimelineWidget.h"
 #include "ui/ViewerWidget.h"
 
 #include <QAction>
 #include <QApplication>
+#include <QFile>
+#include <QLabel>
+#include <QLineEdit>
+#include <QMessageBox>
+#include <QPushButton>
+#include <QTimer>
 #include <QMouseEvent>
 #include <QTemporaryDir>
 #include <QTest>
@@ -75,6 +82,7 @@ private slots:
     void typeEditMoveAndDeleteText();
     void importedBrushesAppearInTheToolbar();
     void notesPanelWritesNotesWhileDrawing();
+    void notesPanelExportsAReviewNotesPdf();
 };
 
 void TestAnnotationWorkflow::drawModeNeedsMedia()
@@ -350,6 +358,55 @@ void TestAnnotationWorkflow::notesPanelWritesNotesWhileDrawing()
     QVERIFY(!panel->isVisible());
     command(window, "view.toggleNotes")->trigger();
     QVERIFY(panel->isVisible());
+}
+
+void TestAnnotationWorkflow::notesPanelExportsAReviewNotesPdf()
+{
+    QTemporaryDir directory;
+    const QString projectPath = writeProject(directory);
+    atk::ui::MainWindow window(directory.filePath(QStringLiteral("settings.ini")));
+    window.resize(1400, 800);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    auto* panel = window.findChild<atk::ui::NotesPanel*>();
+    auto* exportPdf = panel->findChild<QPushButton*>(QStringLiteral("NotesExportPdf"));
+    QVERIFY(exportPdf && !exportPdf->isEnabled()); // nothing to export without a clip
+    QVERIFY(openAt(window, projectPath, 30));
+    QTRY_VERIFY(exportPdf->isEnabled());
+    command(window, "draw.annotateMode")->trigger();
+    drawStroke(window.findChild<atk::ui::ViewerWidget*>(), {0.3, 0.4}, {0.6, 0.5});
+    QTest::keyClicks(panel->composer(), QStringLiteral("hold this pose"));
+    QTest::keyClick(panel->composer(), Qt::Key_Return, Qt::ControlModifier);
+
+    // Click "Export PDF…", accept the dialog, then close the "Saved" message.
+    const QString pdf = directory.filePath(QStringLiteral("review_notes.pdf"));
+    bool sawDialog = false;
+    bool sawSaved = false;
+    QString summary;
+    QTimer driver;
+    driver.setInterval(20);
+    connect(&driver, &QTimer::timeout, this, [&] {
+        QWidget* modal = QApplication::activeModalWidget();
+        if (auto* dialog = qobject_cast<atk::ui::ReviewNotesDialog*>(modal)) {
+            sawDialog = true;
+            summary = dialog->findChild<QLabel*>(QStringLiteral("ReviewNotesSummary"))->text();
+            dialog->findChild<QLineEdit*>(QStringLiteral("ReviewNotesDestination"))->setText(pdf);
+            dialog->findChild<QPushButton*>(QStringLiteral("ReviewNotesExport"))->click();
+        } else if (auto* box = qobject_cast<QMessageBox*>(modal)) {
+            sawSaved = box->text().contains(QStringLiteral("review_notes.pdf"));
+            box->button(QMessageBox::Close)->click();
+        }
+    });
+    driver.start();
+    exportPdf->click();
+    QTRY_VERIFY_WITH_TIMEOUT(sawSaved, 20000);
+    driver.stop();
+    QVERIFY(sawDialog);
+    QCOMPARE(summary, QStringLiteral("1 frame(s) will be listed."));
+    QFile file(pdf);
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    QVERIFY(file.read(4) == "%PDF");
+    QVERIFY(!QFile::exists(pdf + QStringLiteral(".partial")));
 }
 
 QTEST_MAIN(TestAnnotationWorkflow)

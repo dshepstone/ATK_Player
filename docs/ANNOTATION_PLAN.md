@@ -10,7 +10,9 @@ Status:
     show drawings, next/previous drawn frame, plus `MainWindow` integration.
   - **Timeline:** markers on drawn frames.
   - **Tests:** `tst_annotationrenderer`, `tst_annotationviewer`, `tst_annotationworkflow`.
-- **Phases D–G:** not started.
+- **Phase C additions:** area eraser, in-place text and Select, Photoshop `.abr` brush import.
+- **Phase D (notes panel), E (annotated MP4) and F (Review Notes PDF): implemented**, pending
+  the owner's Windows run. Phase G (polish) not started.
 
 The project owner approved this as a new annotation/notes milestone (suggested name:
 **M9 — Annotation and Review Notes**). It can land before or after M7/M8 because it has no
@@ -23,28 +25,22 @@ OS-specific code. `ROADMAP.md` still lists "Drawn annotations over frames" under
   https://github.com/dshepstone/ATK_Player/pull/28 (phases A–C, area eraser, in-place
   text and Select tool). Not merged. See `git log` for the head.
 - **Verified:**
-  - Windows Debug and Release 34/34 at `42a51bb` (A–B), run by the owner.
-  - Linux full build and `ctest` at the current head: 34/37. The same 3 tests fail without
+  - Windows Debug and Release 34/34 at `42a51bb` (A–B), run by the owner. Tablet pressure,
+    the stylus eraser end, the area eraser and in-place text were accepted on a Cintiq.
+  - Linux full build and `ctest` at the current head: 37/40. The same 3 tests fail without
     these changes in that environment: `tst_export` (no H.264 encoder),
     `tst_stillimage` (EXR decode) and `tst_audioreview` (Qt 6.4 testlib assert).
 - **Waiting on the owner:**
   1. Windows Debug and Release build plus `ctest` at the current head.
-  1a. The area eraser is accepted. Try the new Text and Select tools: click to type,
-      drag a box, Ctrl+Enter / click away, Esc, edit by clicking, move, Delete,
-      double-click to edit with the pen.
-  1b. Possible follow-ups the owner may want: a text size separate from the brush
-      size; a narrower toolbar (it overflows at 1200 px wide).
-  2. Tablet acceptance on Wacom/Cintiq: pressure on Pencil/Pen/Brush, latency, the
-     hover brush cursor, the stylus eraser end, barrel-button pan, and which pressure
-     curve (Soft/Linear/Firm) should be the default.
-  3. The basics: `D`, `Ctrl+Z`, `[` `]`, `Alt+Shift+←/→`, and save and reopen.
+  2. Import a real Photoshop brush set (`.abr`); only generated files were testable here.
+  3. Notes panel: write notes while drawing, then **Export PDF…** and **Export Video…**
+     from the panel. Check the PDF layout against the SyncSketch sample and that the MP4
+     shows each drawing and note on its own frame while playing through.
 - **Open decisions:**
   - Stylus barrel button: eraser or colour picker? Barrel buttons currently fall
     through to mouse handling (pan).
   - Pre-frame cue in the annotated MP4: default on, or option only?
-- **Next:** tune brushes from the tablet feedback, then Phase D (notes panel: bookmark
-  status/author, "add note at frame", thumbnails), then E (MP4, play-through default),
-  then F (PDF).
+- **Next:** fixes from the owner's review of D–F, then Phase G (polish).
 - **Practical notes:**
   - The owner's clone once had a corrupt loose ref `.git/refs/tags/v0.3.0` that broke
     `git fetch`. Removing that file fixed it.
@@ -53,6 +49,33 @@ OS-specific code. `ROADMAP.md` still lists "Drawn annotations over frames" under
   - Linux scratch builds need Qt 6.4 allowed, `qt_generate_deploy_app_script` removed,
     a pkg-config `FindFFMPEG.cmake`, and `-fpermissive` (because `int64_t` and
     `qint64` differ on Linux). Do not commit any of that.
+
+### Review Notes PDF (Phase F, as built)
+
+- **Entry points:** File → Export Review Notes (PDF)… (`file.exportReviewNotes`) and the
+  Notes panel's **Export PDF…** button. The panel's **Export Video…** opens Export Review
+  with drawings and notes burned in.
+- **Dialog (`ReviewNotesDialog`):** destination (default `<clip>_review_notes.pdf` beside
+  the project or clip), paper A4 or US Letter (Letter for US/Canada/Mexico locales),
+  include resolved notes, and a live count of frames to be listed.
+- **Rows:** every frame with drawings, or with notes that pass the resolved filter, in
+  frame order, over the whole clip (not the review range) of the annotated source.
+- **Job (`exporter::ReviewNotesJob`, `atk_core`):** on its own thread, decodes each row's
+  frame with its own `ExportRenderer` (drawings burned in, no other burn-ins), scales the
+  picture to at most 1280 px wide, then writes with `ReviewNotesPdfWriter`. It writes
+  `<path>.partial` and renames it on success, so a failure never leaves a broken PDF.
+  Progress, completion (path and page count), cancel and failure come back as queued
+  signals. `MainWindow` cancels and joins it before a project change or close.
+- **Layout (`ReviewNotesPdfWriter`, points):** "REVIEW NOTES" title with the generation
+  date, project name, a dark bar with the clip name and "Notes by <authors>"; then one row
+  per frame: picture on the left (45% of the width), FRAME / TIMECODE / OPEN or RESOLVED
+  on the right, then "Author: note" wrapped. Rows never split across pages
+  (`paginate`); the footer has the app version, "Page N of M" and the project name. Text is
+  real text, so the PDF is searchable. Fonts are sized and measured against the PDF device
+  (144 dpi) so wrapping matches what is drawn.
+- **Tests:** `tst_reviewnotespdf` (pagination, row selection, page counts, job output and
+  cancel) and `tst_annotationworkflow::notesPanelExportsAReviewNotesPdf` (panel button →
+  dialog → PDF on disk).
 
 ### Notes panel (Phase D, as built)
 
