@@ -4,6 +4,7 @@
 #include <QWidget>
 
 class QCheckBox;
+class QSpinBox;
 
 namespace atk::ui {
 
@@ -17,6 +18,9 @@ private:
     QCheckBox* m_frameNumber = nullptr;
     QCheckBox* m_bookmarkLabels = nullptr;
     QCheckBox* m_bookmarkNotes = nullptr;
+    QCheckBox* m_annotations = nullptr;
+    QCheckBox* m_annotationNotes = nullptr;
+    QSpinBox* m_holdFrames = nullptr;
 };
 
 } // namespace atk::ui

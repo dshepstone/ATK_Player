@@ -1,5 +1,7 @@
 #include "export/ExportBurnInRenderer.h"
+#include "annotation/AnnotationRenderer.h"
 #include "timeline/Bookmark.h"
+#include "timeline/Timecode.h"
 #include <QFontMetrics>
 #include <QPainter>
 #include <algorithm>
@@ -58,6 +60,31 @@ QRect ExportBurnInRenderer::bookmarkBounds(const QSize& size)
             std::max(1, size.height() / 3 - margin)};
 }
 
+const annotation::FrameAnnotation* ExportBurnInRenderer::annotationFor(const ExportSpec& spec, qint64 frame)
+{
+    if ((!spec.burnIns.annotations && !spec.burnIns.annotationNotes) || spec.comparison) return nullptr;
+    const auto& frames = spec.annotations.frames();
+    // The latest annotated frame at or before this one...
+    auto it = frames.upperBound(frame);
+    if (it == frames.cbegin()) return nullptr;
+    --it;
+    // ...counts if it is this frame, or still within the hold.
+    const qint64 hold = std::max(0, spec.burnIns.annotationHoldFrames);
+    if (frame - it.key() > hold) return nullptr;
+    const annotation::FrameAnnotation& found = it.value();
+    const bool shows = (spec.burnIns.annotations && found.hasDrawings())
+        || (spec.burnIns.annotationNotes && !found.notes.isEmpty());
+    return shows ? &found : nullptr;
+}
+
+QRect ExportBurnInRenderer::noteBounds(const QSize& size)
+{
+    // Bottom right, beside the bookmark cards (bottom left), so both fit.
+    const int margin = std::max(8, size.height() / 54);
+    const int width = std::min(std::max(1, size.width() - margin * 2), std::max(280, size.width() * 2 / 5));
+    return {size.width() - margin - width, size.height() / 2, width, std::max(1, size.height() / 2 - margin)};
+}
+
 void ExportBurnInRenderer::apply(QImage& image, const ExportSpec& spec, qint64 frame)
 {
     if (!spec.burnIns.enabled() || image.isNull()) return;
@@ -67,6 +94,42 @@ void ExportBurnInRenderer::apply(QImage& image, const ExportSpec& spec, qint64 f
     QFont font = painter.font();
     font.setPixelSize(std::max(14, image.height() / 42));
     painter.setFont(font);
+
+    // Drawings go on the picture first, so labels stay readable on top. The
+    // content rect excludes the even-size padding of video output.
+    const annotation::FrameAnnotation* drawn = annotationFor(spec, frame);
+    if (drawn && spec.burnIns.annotations && drawn->hasDrawings()) {
+        const QSize content = spec.contentSize().isEmpty() ? image.size() : spec.contentSize();
+        painter.save();
+        annotation::AnnotationRenderer::paintFrame(painter, QRectF(QPointF(0, 0), QSizeF(content)), *drawn);
+        painter.restore();
+        painter.setFont(font);
+    }
+    if (drawn && spec.burnIns.annotationNotes && !drawn->notes.isEmpty()) {
+        // SyncSketch-style caption: frame and timecode, then each note.
+        const QRect safe = noteBounds(image.size());
+        QStringList lines;
+        lines << QStringLiteral("Frame %1  ·  %2").arg(drawn->frame + 1)
+                     .arg(timeline::timecode::fromFrame(drawn->frame, spec.sourceA.metadata.frameRate));
+        for (const annotation::FrameNote& note : drawn->notes) {
+            const QString author = note.author.trimmed();
+            lines << (author.isEmpty() ? note.text.trimmed() : author + QStringLiteral(": ") + note.text.trimmed())
+                     + (note.resolved ? QStringLiteral("  ✓") : QString());
+        }
+        const QString text = lines.join(QLatin1Char('\n'));
+        const QRect measure = QFontMetrics(font).boundingRect(
+            QRect(0, 0, safe.width() - unit * 8, safe.height()), Qt::TextWordWrap, text);
+        const int cardHeight = std::min(safe.height(), measure.height() + unit * 6);
+        const QRect card(safe.left(), safe.bottom() - cardHeight + 1, safe.width(), cardHeight);
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(QColor(0, 0, 0, 190));
+        painter.drawRoundedRect(card, unit * 2, unit * 2);
+        painter.fillRect(QRect(card.left(), card.top() + unit * 2, unit, card.height() - unit * 4),
+                         QColor(255, 96, 64)); // the timeline's drawn-frame colour
+        painter.setPen(Qt::white);
+        painter.drawText(card.adjusted(unit * 4, unit * 2, -unit * 3, -unit * 2),
+                         Qt::AlignLeft | Qt::AlignVCenter | Qt::TextWordWrap, text);
+    }
     if (spec.burnIns.frameNumber) {
         const QRect badge = frameNumberBounds(image.size());
         painter.setPen(Qt::NoPen); painter.setBrush(QColor(0, 0, 0, 185));

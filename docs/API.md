@@ -55,4 +55,14 @@ use a snapshot of Source A review bookmarks: points apply only on their exact
 frame and ranges apply inclusively. The Python wrappers expose matching trailing
 `frame_number`, `bookmark_labels`, and `bookmark_notes` keyword arguments.
 
+Two more boolean fields burn in review annotations: `annotations` adds the
+drawings made on frames, and `annotationNotes` adds the frame notes from the
+Notes panel as a caption. Both default to false over the API. They apply to
+single-source exports only. An optional integer `annotationHoldFrames` (0–240,
+default 0) keeps each annotated frame's drawings and notes on screen for that
+many following frames, or until the next annotated frame. With 0, the video
+plays through and each annotation appears only on its own frame. In the desktop
+Export Review dialog, both annotation options start checked when the clip has
+drawings or notes.
+
 The standard-library reference client is in [`integrations/python`](../integrations/python/). Maya support in [`integrations/maya`](../integrations/maya/) maps scene frames to zero-based playblast frames rather than changing the protocol.

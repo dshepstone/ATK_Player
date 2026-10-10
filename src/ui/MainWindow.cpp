@@ -2032,6 +2032,15 @@ exporter::ExportSpec MainWindow::exportSnapshot(const QString& outputPath) const
             bookmark.name, bookmark.note, bookmark.colorIndex});
     }
     spec.comparison = isComparisonActive();
+    // Drawings and notes of Source A. On by default when there are any, so
+    // "Export Review" gives the SyncSketch-style annotated video in one step.
+    if (!spec.comparison && a.id == m_annotationSourceId) {
+        spec.annotations = m_annotations->annotations();
+        if (!spec.annotations.isEmpty()) {
+            spec.burnIns.annotations = true;
+            spec.burnIns.annotationNotes = true;
+        }
+    }
     if (spec.comparison) {
         const int bIndex = m_project->indexForId(m_compare->sourceBId());
         if (bIndex >= 0) {
@@ -2688,9 +2697,20 @@ api::ApiResponse MainWindow::handleApiApplicationCommand(
             if (!object.value(key).isBool()) { *error = key + QStringLiteral(" must be a boolean"); return false; }
             *target = object.value(key).toBool(); return true;
         };
+        if (object.contains(QStringLiteral("annotationHoldFrames"))) {
+            const QJsonValue hold = object.value(QStringLiteral("annotationHoldFrames"));
+            if (!hold.isDouble() || hold.toDouble() < 0 || hold.toDouble() > 240
+                || hold.toDouble() != std::floor(hold.toDouble())) {
+                *error = QStringLiteral("annotationHoldFrames must be an integer from 0 to 240");
+                return false;
+            }
+            out->annotationHoldFrames = hold.toInt();
+        }
         return read(QStringLiteral("frameNumber"), &out->frameNumber)
             && read(QStringLiteral("bookmarkLabels"), &out->bookmarkLabels)
-            && read(QStringLiteral("bookmarkNotes"), &out->bookmarkNotes);
+            && read(QStringLiteral("bookmarkNotes"), &out->bookmarkNotes)
+            && read(QStringLiteral("annotations"), &out->annotations)
+            && read(QStringLiteral("annotationNotes"), &out->annotationNotes);
     };
     const auto mayDiscard = [&] {
         return !m_project->needsSavePrompt()
@@ -2995,6 +3015,7 @@ api::ApiResponse MainWindow::handleApiApplicationCommand(
             return fail(QStringLiteral("destination exists; set overwrite=true to replace it"));
         exporter::ExportSpec spec = exportSnapshot(path);
         QString burnInError;
+        spec.burnIns = {}; // API contract: clean output unless burn-ins are requested
         if (!readBurnIns(&spec.burnIns, &burnInError)) return fail(burnInError);
         const QString validation = spec.validate();
         if (!validation.isEmpty()) return fail(validation);
@@ -3020,6 +3041,7 @@ api::ApiResponse MainWindow::handleApiApplicationCommand(
         exporter::ExportSpec spec = exportSnapshot(path);
         spec.kind = exporter::ExportKind::CurrentFrame;
         QString burnInError;
+        spec.burnIns = {}; // API contract: clean output unless burn-ins are requested
         if (!readBurnIns(&spec.burnIns, &burnInError)) return fail(burnInError);
         qint64 frame = m_timeline->currentFrame();
         if (params.contains(QStringLiteral("frame"))) {
@@ -3052,6 +3074,7 @@ api::ApiResponse MainWindow::handleApiApplicationCommand(
         exporter::ExportSpec spec = exportSnapshot(destination.absoluteFilePath());
         spec.kind = exporter::ExportKind::ImageSequence;
         QString burnInError;
+        spec.burnIns = {}; // API contract: clean output unless burn-ins are requested
         if (!readBurnIns(&spec.burnIns, &burnInError)) return fail(burnInError);
         spec.imagePrefix = safeImagePrefix(params.value(QStringLiteral("prefix")).toString(
             exportBaseName(spec.sourceA)));
