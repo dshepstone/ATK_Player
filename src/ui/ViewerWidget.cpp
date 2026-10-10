@@ -355,6 +355,15 @@ void ViewerWidget::mouseMoveEvent(QMouseEvent* event)
     }
     if (m_annotateMode) {
         if (!(m_stroke && m_stroke->fromTablet)) m_hoverIsEraser = false;
+        if (m_textEdit && !m_stroke) {
+            static const Qt::CursorShape shapes[9] = {
+                Qt::SizeFDiagCursor, Qt::SizeVerCursor, Qt::SizeBDiagCursor, Qt::SizeHorCursor,
+                Qt::SizeFDiagCursor, Qt::SizeVerCursor, Qt::SizeBDiagCursor, Qt::SizeHorCursor,
+                Qt::SizeAllCursor};
+            const int handle = textFrameHandleAt(event->position());
+            if (handle >= 0) setCursor(shapes[handle]);
+            else updateAnnotateCursor();
+        }
         setHoverPosition(event->position());
         if (m_stroke && !m_stroke->fromTablet)
             continueStroke(event->position(), 1.0f, 0.0f, 0.0f);
@@ -515,6 +524,15 @@ void ViewerWidget::setAnnotationTool(const annotation::AnnotationToolSettings& s
     if (toolChanged) {
         commitTextEdit();
         if (m_tool.tool != annotation::AnnotationTool::Select) clearSelection();
+    } else if (m_textEdit) {
+        // Size, colour and opacity changes apply to the text being typed, so
+        // what is on screen is what will be committed.
+        const annotation::AnnotationItem styled = m_tool.makeItem(sourceImageHeight());
+        m_textEdit->item.size = styled.size;
+        m_textEdit->item.color = styled.color;
+        m_textEdit->item.opacity = styled.opacity;
+        applyTextEditStyle();
+        positionTextEditor();
     }
     updateAnnotateCursor();
     update();
@@ -617,10 +635,25 @@ bool ViewerWidget::beginStroke(const QPointF& position, float pressure, float ti
     using annotation::AnnotationTool;
     using Kind = ActiveStroke::Kind;
     if (!canAnnotate()) return false;
-    // A press on the picture while typing finishes the text, like clicking
-    // away from a text box in a design tool. That press does nothing else.
+    // While typing, the frame's handles resize the box and its border moves
+    // it; a press anywhere else finishes the text, like clicking away from a
+    // text box in a design tool, and does nothing else.
     if (m_textEdit) {
-        commitTextEdit();
+        const int handle = textFrameHandleAt(position);
+        if (handle < 0) {
+            commitTextEdit();
+            return true;
+        }
+        ActiveStroke frame;
+        frame.kind = ActiveStroke::Kind::TextFrame;
+        frame.frameIndex = m_textEdit->frameIndex;
+        frame.fromTablet = fromTablet;
+        frame.handle = handle;
+        frame.item = m_textEdit->item;
+        frame.pressWidgetPosition = position;
+        frame.pressNormalized = unflippedNormalized(position);
+        frame.currentNormalized = frame.pressNormalized;
+        m_stroke = frame;
         return true;
     }
     const QPointF n = widgetToNormalized(position);
@@ -719,6 +752,35 @@ void ViewerWidget::continueStroke(const QPointF& position, float pressure, float
     case Kind::TextBox:
         m_stroke->currentNormalized = QPointF(std::clamp(n.x(), 0.0, 1.0), std::clamp(n.y(), 0.0, 1.0));
         break;
+    case Kind::TextFrame: {
+        if (!m_textEdit) break;
+        const QPointF u = unflippedNormalized(position);
+        const QPointF delta = u - m_stroke->pressNormalized;
+        const annotation::AnnotationItem& start = m_stroke->item;
+        annotation::AnnotationItem next = start;
+        if (m_stroke->handle == 8 || !annotation::isBoxText(start)) {
+            next = annotation::translatedItem(start, delta);
+        } else {
+            // Resize: move the edges the handle owns, keeping a usable minimum.
+            const QRectF target = m_transform.imageRect();
+            const double minW = 24.0 / std::max(1.0, target.width());
+            const double minH = 12.0 / std::max(1.0, target.height());
+            double left = start.points[0].x, top = start.points[0].y;
+            double right = start.points[1].x, bottom = start.points[1].y;
+            const int h = m_stroke->handle;
+            if (h == 0 || h == 6 || h == 7) left = std::clamp(left + delta.x(), 0.0, right - minW);
+            if (h == 2 || h == 3 || h == 4) right = std::clamp(right + delta.x(), left + minW, 1.0);
+            if (h == 0 || h == 1 || h == 2) top = std::clamp(top + delta.y(), 0.0, bottom - minH);
+            if (h == 4 || h == 5 || h == 6) bottom = std::clamp(bottom + delta.y(), top + minH, 1.0);
+            next.points[0].x = float(left);
+            next.points[0].y = float(top);
+            next.points[1].x = float(right);
+            next.points[1].y = float(bottom);
+        }
+        m_textEdit->item.points = next.points;
+        positionTextEditor();
+        break;
+    }
     case Kind::Draw:
         if (m_stroke->builder) {
             m_stroke->builder->addSample(n, pressure, tiltX, tiltY);
@@ -752,6 +814,10 @@ void ViewerWidget::finishStroke()
         }
         break;
     }
+    case Kind::TextFrame:
+        // Keep typing where the reviewer left off.
+        if (m_textEditor) m_textEditor->setFocus(Qt::OtherFocusReason);
+        break;
     case Kind::TextBox: {
         // A click places point text; a drag defines a box the text wraps in.
         annotation::AnnotationItem item = m_tool.makeItem(sourceImageHeight());
@@ -844,11 +910,6 @@ void ViewerWidget::beginTextEdit(qint64 frameIndex, const annotation::Annotation
     editor->document()->setDocumentMargin(0.0);
     editor->viewport()->setAutoFillBackground(false);
     editor->setAutoFillBackground(false);
-    editor->setStyleSheet(QStringLiteral("QTextEdit { background: transparent; border: none; }"));
-    QPalette palette = editor->palette();
-    palette.setColor(QPalette::Text, item.color.isValid() ? item.color : QColor(Qt::white));
-    palette.setColor(QPalette::Base, Qt::transparent);
-    editor->setPalette(palette);
     if (annotation::isBoxText(item)) {
         editor->setLineWrapMode(QTextEdit::FixedPixelWidth);
         editor->setWordWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
@@ -863,10 +924,32 @@ void ViewerWidget::beginTextEdit(qint64 frameIndex, const annotation::Annotation
         update(); // the dashed frame follows the text
     });
     m_textEditor = editor;
+    applyTextEditStyle();
     positionTextEditor();
     editor->show();
     editor->setFocus(Qt::OtherFocusReason);
     update();
+}
+
+void ViewerWidget::applyTextEditStyle()
+{
+    if (!m_textEdit || !m_textEditor) return;
+    const annotation::AnnotationItem& item = m_textEdit->item;
+    const QFont font = annotation::AnnotationRenderer::textFont(m_transform.imageRect(), item);
+    QColor color = item.color.isValid() ? item.color : QColor(Qt::white);
+    color.setAlphaF(std::clamp(item.opacity, 0.05, 1.0));
+    // The application stylesheet sets a pixel font size on every widget, which
+    // would override setFont(); the editor's own stylesheet must carry the
+    // size so typed text is shown at exactly the size it will be drawn.
+    m_textEditor->setStyleSheet(QStringLiteral(
+        "QTextEdit { background: transparent; border: none; padding: 0px; margin: 0px;"
+        " font-family: \"%1\"; font-size: %2px; font-weight: %3; color: %4; }")
+        .arg(font.family())
+        .arg(font.pixelSize())
+        .arg(font.bold() ? QStringLiteral("bold") : QStringLiteral("normal"))
+        .arg(color.name(QColor::HexArgb)));
+    m_textEditor->setFont(font);
+    m_textEditor->document()->setDefaultFont(font);
 }
 
 void ViewerWidget::positionTextEditor()
@@ -875,22 +958,65 @@ void ViewerWidget::positionTextEditor()
     const QRectF target = m_transform.imageRect();
     const annotation::AnnotationItem& item = m_textEdit->item;
     const QFont font = annotation::AnnotationRenderer::textFont(target, item);
-    m_textEditor->setFont(font);
+    if (m_textEditor->font().pixelSize() != font.pixelSize()) applyTextEditStyle(); // zoom changed
     // Placed unmirrored even when the view is flipped, so it stays readable.
     const QPointF anchor(target.left() + item.points[0].x * target.width(),
                          target.top() + item.points[0].y * target.height());
     QTextDocument* document = m_textEditor->document();
     qreal width = 0.0;
+    qreal minimumHeight = QFontMetricsF(font).lineSpacing();
     if (annotation::isBoxText(item)) {
         width = std::max<qreal>(16.0, (item.points[1].x - item.points[0].x) * target.width());
+        minimumHeight = std::max(minimumHeight, qreal(item.points[1].y - item.points[0].y) * target.height());
         m_textEditor->setLineWrapColumnOrWidth(int(std::ceil(width)));
         document->setTextWidth(width);
     } else {
         document->setTextWidth(-1);
         width = document->idealWidth() + QFontMetricsF(font).averageCharWidth() * 2.0;
     }
-    const qreal height = std::max<qreal>(document->size().height(), QFontMetricsF(font).lineSpacing());
+    const qreal height = std::max<qreal>(document->size().height(), minimumHeight);
     m_textEditor->setGeometry(QRectF(anchor, QSizeF(width + 2.0, height + 2.0)).toAlignedRect());
+    update();
+}
+
+QPointF ViewerWidget::unflippedNormalized(const QPointF& position) const
+{
+    const QRectF target = m_transform.imageRect();
+    if (target.width() <= 0.0 || target.height() <= 0.0) return {};
+    return {(position.x() - target.left()) / target.width(), (position.y() - target.top()) / target.height()};
+}
+
+namespace {
+constexpr qreal kTextFrameMargin = 6.0; // frame sits this far outside the text field
+constexpr qreal kHandleSize = 8.0;
+}
+
+QRectF ViewerWidget::textEditFrame() const
+{
+    if (!m_textEdit || !m_textEditor) return {};
+    return QRectF(m_textEditor->geometry())
+        .adjusted(-kTextFrameMargin, -kTextFrameMargin, kTextFrameMargin, kTextFrameMargin);
+}
+
+int ViewerWidget::textFrameHandleAt(const QPointF& position) const
+{
+    const QRectF frame = textEditFrame();
+    if (frame.isEmpty()) return -1;
+    if (annotation::isBoxText(m_textEdit->item)) {
+        const QPointF points[8] = {frame.topLeft(),     QPointF(frame.center().x(), frame.top()),
+                                   frame.topRight(),    QPointF(frame.right(), frame.center().y()),
+                                   frame.bottomRight(), QPointF(frame.center().x(), frame.bottom()),
+                                   frame.bottomLeft(),  QPointF(frame.left(), frame.center().y())};
+        for (int i = 0; i < 8; ++i) {
+            const QPointF d = position - points[i];
+            if (std::abs(d.x()) <= kHandleSize && std::abs(d.y()) <= kHandleSize) return i;
+        }
+    }
+    // The band between the frame and the text field moves the text.
+    const QRectF outer = frame.adjusted(-2, -2, 2, 2);
+    const QRectF inner = QRectF(m_textEditor->geometry());
+    if (outer.contains(position) && !inner.contains(position)) return 8;
+    return -1;
 }
 
 void ViewerWidget::commitTextEdit() { finishTextEdit(true); }
@@ -1057,7 +1183,21 @@ void ViewerWidget::paintAnnotations(QPainter& painter, const QRectF& target)
         dashed(QRectF(a, b).normalized());
     }
     painter.restore();
-    if (m_textEditor && m_textEditor->isVisible()) dashed(QRectF(m_textEditor->geometry()).adjusted(-3, -3, 2, 2));
+    if (m_textEditor && m_textEditor->isVisible()) {
+        const QRectF frame = textEditFrame();
+        dashed(frame);
+        if (annotation::isBoxText(m_textEdit->item)) {
+            // Resize handles: the box can be sized before or while typing.
+            const QPointF handles[8] = {frame.topLeft(),     QPointF(frame.center().x(), frame.top()),
+                                        frame.topRight(),    QPointF(frame.right(), frame.center().y()),
+                                        frame.bottomRight(), QPointF(frame.center().x(), frame.bottom()),
+                                        frame.bottomLeft(),  QPointF(frame.left(), frame.center().y())};
+            painter.setPen(QPen(QColor(0, 0, 0, 200), 1.0));
+            painter.setBrush(QColor(255, 255, 255, 235));
+            for (const QPointF& h : handles)
+                painter.drawRect(QRectF(h - QPointF(3.5, 3.5), QSizeF(7.0, 7.0)));
+        }
+    }
 }
 
 void ViewerWidget::paintBrushCursor(QPainter& painter)

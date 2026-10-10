@@ -275,7 +275,9 @@ AnnotationRenderer::TextBlock AnnotationRenderer::layoutText(const QRectF& image
         y += line.height();
     }
     layout.endLayout();
-    block.bounds = QRectF(anchor, QSizeF(box ? boxWidth : widest, y));
+    // A box keeps the size it was drawn at, even before it is filled.
+    const qreal boxHeight = box ? (item.points[1].y - item.points[0].y) * imageRect.height() : 0.0;
+    block.bounds = QRectF(anchor, QSizeF(box ? boxWidth : widest, std::max(y, boxHeight)));
     return block;
 }
 

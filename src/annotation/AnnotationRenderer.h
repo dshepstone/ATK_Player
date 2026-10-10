@@ -71,7 +71,7 @@ public:
     };
     struct TextBlock {
         QFont font;
-        QRectF bounds; // painter space; box text is the box width wide
+        QRectF bounds; // painter space; box text covers its box, or its text if taller
         QVector<TextLine> lines;
     };
     static QFont textFont(const QRectF& imageRect, const AnnotationItem& item);

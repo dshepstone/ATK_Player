@@ -9,6 +9,7 @@
 #include <QSignalSpy>
 #include <QTabletEvent>
 #include <QTest>
+#include <QTextDocument>
 #include <QTextEdit>
 
 #include <memory>
@@ -124,6 +125,8 @@ private slots:
     void deleteKeyRemovesTheSelection();
     void doublePressOnTextWithSelectEdits();
     void changingFrameFinishesText();
+    void typedTextShowsAtItsFinalSize();
+    void textBoxResizesAndMovesWhileTyping();
     void leavingAnnotateModeCancelsAStroke();
     void doubleClickDoesNotFitWhileAnnotating();
     void annotationsPaintOnlyOnTheirFrame();
@@ -597,6 +600,87 @@ void TestAnnotationViewer::changingFrameFinishesText()
     QVERIFY(!f.viewer.isEditingText());
     QCOMPARE(drawn.count(), 1);
     QCOMPARE(drawn.at(0).at(0).toLongLong(), qint64(12)); // landed on the frame it was typed on
+}
+
+void TestAnnotationViewer::typedTextShowsAtItsFinalSize()
+{
+    // The application stylesheet sets a small pixel font on every widget, as
+    // ATK Player's theme does; the editor must still show the real size.
+    const QString previousStyle = qApp->styleSheet();
+    qApp->setStyleSheet(QStringLiteral("QWidget { font-size: 12px; }"));
+    Fixture f;
+    annotation::AnnotationToolSettings tool;
+    tool.tool = AnnotationTool::Text;
+    tool.sizePixels = 9;
+    f.viewer.setAnnotationTool(tool);
+    f.viewer.setAnnotateMode(true);
+    QSignalSpy drawn(&f.viewer, &ViewerWidget::annotationItemDrawn);
+    QTest::mouseClick(&f.viewer, Qt::LeftButton, {}, f.at(0.2, 0.2));
+    QTextEdit* editor = f.viewer.textEditor();
+    QTest::keyClicks(editor, QStringLiteral("Big"));
+
+    const QRectF target = f.viewer.transform().imageRect();
+    auto expectedPx = [&](qreal sizePixels) {
+        AnnotationItem probe;
+        probe.size = sizePixels / 100.0; // 100 px tall source image
+        return annotation::AnnotationRenderer::textFont(target, probe).pixelSize();
+    };
+    QVERIFY(expectedPx(9) > 40); // far from the 12 px the stylesheet asks for
+    QCOMPARE(QFontInfo(editor->font()).pixelSize(), expectedPx(9));
+    QCOMPARE(QFontInfo(editor->document()->defaultFont()).pixelSize(), expectedPx(9));
+
+    // Changing the size while typing updates the text on screen immediately...
+    tool.sizePixels = 5;
+    f.viewer.setAnnotationTool(tool);
+    QVERIFY(f.viewer.isEditingText());
+    QCOMPARE(QFontInfo(editor->font()).pixelSize(), expectedPx(5));
+    // ...and is what gets committed.
+    f.viewer.commitTextEdit();
+    QCOMPARE(drawn.count(), 1);
+    QVERIFY(std::abs(drawn.at(0).at(1).value<AnnotationItem>().size - 0.05) < 1e-9);
+    qApp->setStyleSheet(previousStyle);
+}
+
+void TestAnnotationViewer::textBoxResizesAndMovesWhileTyping()
+{
+    Fixture f;
+    annotation::AnnotationToolSettings tool;
+    tool.tool = AnnotationTool::Text;
+    tool.sizePixels = 2; // one line is shorter than the box, so the box sets the height
+    f.viewer.setAnnotationTool(tool);
+    f.viewer.setAnnotateMode(true);
+    QSignalSpy drawn(&f.viewer, &ViewerWidget::annotationItemDrawn);
+    drag(f.viewer, f.at(0.2, 0.2), f.at(0.5, 0.4));
+    QVERIFY(f.viewer.isEditingText());
+    QTextEdit* editor = f.viewer.textEditor();
+    const QRect before = editor->geometry();
+    // The box keeps the height that was dragged out, not just one line.
+    QVERIFY(std::abs(before.height() - (f.at(0.5, 0.4).y() - f.at(0.2, 0.2).y())) <= 4);
+
+    // Bottom-right handle: just outside the text field's corner.
+    const QPoint corner = before.bottomRight() + QPoint(7, 7);
+    drag(f.viewer, corner, corner + QPoint(40, 30));
+    QVERIFY(f.viewer.isEditingText()); // resizing does not finish the text
+    QVERIFY(std::abs(editor->width() - (before.width() + 40)) <= 3);
+    QVERIFY(std::abs(editor->height() - (before.height() + 30)) <= 3);
+
+    // The border band moves the whole box.
+    const QRect resized = editor->geometry();
+    const QPoint border(resized.left() + resized.width() / 4, resized.top() - 4); // between handles
+    drag(f.viewer, border, border + QPoint(-30, 20));
+    QVERIFY(f.viewer.isEditingText());
+    QVERIFY(std::abs(editor->x() - (resized.x() - 30)) <= 3);
+    QVERIFY(std::abs(editor->y() - (resized.y() + 20)) <= 3);
+    QCOMPARE(editor->size(), resized.size());
+
+    QTest::keyClicks(editor, QStringLiteral("note"));
+    QTest::keyClick(editor, Qt::Key_Return, Qt::ControlModifier);
+    QCOMPARE(drawn.count(), 1);
+    const auto item = drawn.at(0).at(1).value<AnnotationItem>();
+    QVERIFY(annotation::isBoxText(item));
+    const QRectF box = annotation::AnnotationRenderer::itemBounds(f.viewer.transform().imageRect(), item);
+    QVERIFY(std::abs(box.width() - editor->width()) <= 4 || std::abs(box.width() - (resized.width() - 2)) <= 4);
+    QVERIFY(std::abs(box.height() - (resized.height() - 2)) <= 4);
 }
 
 void TestAnnotationViewer::leavingAnnotateModeCancelsAStroke()

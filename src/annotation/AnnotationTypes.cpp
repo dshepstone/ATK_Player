@@ -73,7 +73,8 @@ bool isValidItem(const AnnotationItem& item)
         if (count != 2 || !item.text.isEmpty()) return false;
     } else { // Text: an anchor, or a box whose right edge is right of its left
         if ((count != 1 && count != 2) || item.text.isEmpty()) return false;
-        if (count == 2 && !(item.points[1].x > item.points[0].x)) return false;
+        if (count == 2 && (!(item.points[1].x > item.points[0].x) || item.points[1].y < item.points[0].y))
+            return false;
     }
     for (const StrokePoint& p : item.points) {
         if (!unit(p.x) || !unit(p.y) || !unit(p.pressure)) return false;

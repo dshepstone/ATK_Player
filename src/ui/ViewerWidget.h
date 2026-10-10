@@ -190,7 +190,7 @@ private:
 
     // Annotation input and painting.
     struct ActiveStroke {
-        enum class Kind { Draw, Erase, Move, TextBox };
+        enum class Kind { Draw, Erase, Move, TextBox, TextFrame };
         Kind kind = Kind::Draw;
         qint64 frameIndex = -1;
         bool fromTablet = false;
@@ -200,6 +200,7 @@ private:
         QPointF lastWidgetPosition; // eraser: previous sample, to sweep the gap
         QPointF pressNormalized;    // Move / TextBox
         QPointF currentNormalized;  // Move / TextBox
+        int handle = -1;            // TextFrame: 0..7 resize handle, 8 = move by the border
         bool isEraser() const { return kind == Kind::Erase; }
     };
     struct TextEditState {
@@ -214,6 +215,13 @@ private:
     void beginTextEdit(qint64 frameIndex, const annotation::AnnotationItem& item, bool existing);
     void finishTextEdit(bool commit);
     void positionTextEditor();
+    void applyTextEditStyle();
+    /// Frame drawn around the text being typed, in widget pixels; its border
+    /// and handles sit just outside the text field so the viewer receives them.
+    QRectF textEditFrame() const;
+    /// 0..7: resize handle (clockwise from top-left), 8: border, -1: neither.
+    int textFrameHandleAt(const QPointF& position) const;
+    QPointF unflippedNormalized(const QPointF& position) const;
     bool isDoublePress(const QPointF& position, quint64 itemId);
     bool canAnnotate() const;
     bool beginStroke(const QPointF& position, float pressure, float tiltX, float tiltY,

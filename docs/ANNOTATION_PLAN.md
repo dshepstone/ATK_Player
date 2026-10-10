@@ -88,6 +88,14 @@ OS-specific code. `ROADMAP.md` still lists "Drawn annotations over frames" under
   - Clicking existing text with the Text tool edits it.
   - `AnnotationRenderer::layoutText` is the one layout (`QTextLayout`) used to paint,
     hit-test and size the editor.
+  - The editor shows text at its final drawn size and colour. The app theme's
+    `font-size` on every widget would override `setFont()`, so the editor carries its
+    own stylesheet. Changing the size, colour or opacity while typing updates the text
+    live.
+  - A box keeps the size it was dragged out at (its second point stores both width
+    and height). While typing, its frame has eight handles to resize it, and the border
+    band between the frame and the text moves it. These are owner requests from
+    Cintiq testing.
 - **Select tool:** picks the topmost item, drags to move it (`translatedItem` clamps to
   the picture), Delete/Backspace removes it, and a double-click (mouse, or two quick pen
   taps) on text edits it. `AnnotationStore::replaceItem` keeps the id and order; each
