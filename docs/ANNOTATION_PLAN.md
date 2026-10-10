@@ -54,6 +54,26 @@ OS-specific code. `ROADMAP.md` still lists "Drawn annotations over frames" under
     a pkg-config `FindFFMPEG.cmake`, and `-fpermissive` (because `int64_t` and
     `qint64` differ on Linux). Do not commit any of that.
 
+### Notes panel (Phase D, as built)
+
+- **Data model:** notes live with the drawings, as `FrameAnnotation::notes`
+  (`FrameNote`: id, text, author, created time, resolved). They therefore share undo,
+  project saving, timeline markers and export with drawings. Earlier plans proposed
+  extending `Bookmark`; that was dropped.
+  - A frame can have notes without drawings.
+  - "Clear Drawings on Frame" and the eraser leave notes alone.
+  - Note ids are shared with drawing ids, so they are unique per source.
+- **`NotesPanel`:** a right-side dock, like SyncSketch, toggled with View → Notes Panel
+  (`F6`) and shown by default.
+  - **Composer:** writes to the frame on screen, so drawing and typing need no mode
+    switch. Ctrl+Enter adds the note.
+  - **List:** every note on the clip in frame order, with the frame, timecode, author,
+    ✎ for frames with drawings, and resolved state.
+  - **Interaction:** click to jump; double-click or Edit to change; Mark Resolved /
+    Reopen; Delete. "Show resolved" filters the list.
+  - The reviewer name persists, defaulting to the OS user.
+- Next/Previous Drawn Frame are now "Next/Previous Note or Drawing".
+
 ### Photoshop brush sets (as built)
 
 - **Import:** `annotation::readAbr` reads `.abr` versions 1/2 (Photoshop ≤ 6) and 6/7/10

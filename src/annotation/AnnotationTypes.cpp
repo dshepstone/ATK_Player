@@ -84,6 +84,12 @@ bool isValidItem(const AnnotationItem& item)
     return true;
 }
 
+bool isValidNote(const FrameNote& note)
+{
+    return !note.text.trimmed().isEmpty() && note.text.size() <= AnnotationLimits::kMaxNoteLength
+        && note.author.size() <= 200;
+}
+
 bool isBoxText(const AnnotationItem& item)
 {
     return item.tool == AnnotationTool::Text && item.points.size() == 2;
@@ -163,6 +169,8 @@ quint64 SourceAnnotations::maxItemId() const
     quint64 highest = 0;
     for (const FrameAnnotation& frame : m_frames)
         for (const AnnotationItem& item : frame.items) highest = std::max(highest, item.id);
+    for (const FrameAnnotation& frame : m_frames)
+        for (const FrameNote& note : frame.notes) highest = std::max(highest, note.id);
     return highest;
 }
 

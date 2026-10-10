@@ -85,6 +85,8 @@ struct AnnotationLimits {
     static constexpr int kMaxItemsPerFrame = 2000;
     static constexpr int kMaxTextLength = 2000;
     static constexpr int kMaxAnnotatedFrames = 100000;
+    static constexpr int kMaxNotesPerFrame = 200;
+    static constexpr int kMaxNoteLength = 10000;
     static constexpr qreal kMinSize = 0.0005;
     static constexpr qreal kMaxSize = 0.5;
 };
@@ -102,7 +104,21 @@ bool isBoxText(const AnnotationItem& item);
 /// stays on the picture. Used by the Select tool.
 AnnotationItem translatedItem(const AnnotationItem& item, const QPointF& delta);
 
-/// Everything drawn on one frame.
+/// A written review note attached to one frame, like a SyncSketch frame note.
+struct FrameNote {
+    quint64 id = 0;
+    QString text;
+    QString author;
+    qint64 createdMsUtc = 0; // milliseconds since the epoch, UTC
+    bool resolved = false;
+
+    friend bool operator==(const FrameNote&, const FrameNote&) = default;
+};
+
+/// True for a storable note: non-blank text and fields within limits.
+bool isValidNote(const FrameNote& note);
+
+/// Everything drawn or written on one frame.
 struct FrameAnnotation {
     /// Zero-based source frame index -- the same index the status bar reports
     /// minus one and that bookmarks use.
@@ -111,8 +127,10 @@ struct FrameAnnotation {
     /// re-resolved by timestamp. Informational; `frame` is authoritative.
     int64_t mediaTimeUs = 0;
     QVector<AnnotationItem> items;
+    QVector<FrameNote> notes;
 
-    bool isEmpty() const { return items.isEmpty(); }
+    bool isEmpty() const { return items.isEmpty() && notes.isEmpty(); }
+    bool hasDrawings() const { return !items.isEmpty(); }
 
     friend bool operator==(const FrameAnnotation&, const FrameAnnotation&) = default;
 };
@@ -127,7 +145,7 @@ public:
     /// Returns an empty annotation (frame set, no items) when none exists.
     FrameAnnotation frame(int64_t frame) const;
     const FrameAnnotation* find(int64_t frame) const;
-    /// Ascending zero-based indices of frames that have items.
+    /// Ascending zero-based indices of frames that have drawings or notes.
     QVector<int64_t> annotatedFrames() const;
     const QMap<int64_t, FrameAnnotation>& frames() const { return m_frames; }
 
@@ -139,7 +157,7 @@ public:
     /// Drops frames beyond `lastFrame` (inclusive). Returns true if any went.
     bool trimTo(int64_t lastFrame);
 
-    /// Highest item id in use, so a loaded set can seed id allocation.
+    /// Highest item or note id in use, so a loaded set can seed id allocation.
     quint64 maxItemId() const;
 
     friend bool operator==(const SourceAnnotations&, const SourceAnnotations&) = default;

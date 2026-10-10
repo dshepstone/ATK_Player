@@ -129,6 +129,7 @@ private slots:
     void annotationsFollowSourceIdentityAcrossReorder();
     void relinkTrimsAnnotationsBeyondNewExtent();
     void usedBrushTipsTravelWithTheProject();
+    void notesRoundTripIncludingNoteOnlyFrames();
 };
 
 void TestAnnotationProject::roundTripPreservesEveryField()
@@ -404,6 +405,58 @@ void TestAnnotationProject::usedBrushTipsTravelWithTheProject()
     plain.addSource(std::make_shared<media::MediaSource>(fx.mediaPath));
     QVERIFY(project::ProjectSerializer::save(plain, fx.projectPath).ok);
     QVERIFY(!readProject(fx.projectPath).contains(QStringLiteral("brushTips")));
+}
+
+void TestAnnotationProject::notesRoundTripIncludingNoteOnlyFrames()
+{
+    Fixture fx;
+    project::Project original;
+    original.addSource(std::make_shared<media::MediaSource>(fx.mediaPath));
+    annotation::SourceAnnotations set = sampleAnnotations(); // drawings on frames 0 and 132
+    annotation::FrameAnnotation withNote = set.frame(132);
+    withNote.notes = {{50, QStringLiteral("fix the nose\nand chin"), QStringLiteral("David"), 1700000000000, false},
+                      {51, QStringLiteral("better"), QStringLiteral("Selena"), 1700000005000, true}};
+    set.setFrame(withNote);
+    annotation::FrameAnnotation noteOnly;
+    noteOnly.frame = 60;
+    noteOnly.notes = {{52, QStringLiteral("timing feels slow here"), QString(), 0, false}};
+    set.setFrame(noteOnly);
+    QVERIFY(original.setAnnotations(original.entries()[0].id, set));
+    QVERIFY(project::ProjectSerializer::save(original, fx.projectPath).ok);
+
+    project::Project loaded;
+    const auto result = project::ProjectSerializer::load(loaded, fx.projectPath);
+    QVERIFY2(result.ok, qPrintable(result.errorMessage));
+    QCOMPARE(loaded.entries()[0].annotations, set);
+    QCOMPARE(loaded.entries()[0].annotations.annotatedFrames(), QVector<int64_t>({0, 60, 132}));
+
+    // A note id clashing with a drawing id, or a blank note, rejects the file.
+    for (const QString& bad : {QStringLiteral("dup"), QStringLiteral("blank")}) {
+        QJsonObject root = readProject(fx.projectPath);
+        QJsonArray sources = root.value(QStringLiteral("sources")).toArray();
+        QJsonObject source = sources[0].toObject();
+        QJsonObject review = source.value(QStringLiteral("review")).toObject();
+        QJsonArray frames = review.value(QStringLiteral("annotations")).toArray();
+        for (int i = 0; i < frames.size(); ++i) {
+            QJsonObject f = frames[i].toObject();
+            if (f.value(QStringLiteral("frame")).toInt() != 60) continue;
+            QJsonArray notes = f.value(QStringLiteral("notes")).toArray();
+            QJsonObject n = notes[0].toObject();
+            if (bad == QStringLiteral("dup")) n[QStringLiteral("id")] = QStringLiteral("1");
+            else n[QStringLiteral("text")] = QStringLiteral("  ");
+            notes[0] = n;
+            f[QStringLiteral("notes")] = notes;
+            frames[i] = f;
+        }
+        review[QStringLiteral("annotations")] = frames;
+        source[QStringLiteral("review")] = review;
+        sources[0] = source;
+        root[QStringLiteral("sources")] = sources;
+        Fixture other;
+        writeProject(other.projectPath, root);
+        project::Project rejected;
+        QVERIFY2(!project::ProjectSerializer::load(rejected, other.projectPath).ok, qPrintable(bad));
+    }
 }
 
 QTEST_MAIN(TestAnnotationProject)

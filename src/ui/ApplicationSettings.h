@@ -68,6 +68,8 @@ public:
     /// The drawing tool, colour, size and options last used. Invalid or
     /// missing values fall back to the defaults field by field.
     annotation::AnnotationToolSettings annotationTool() const;
+    /// Name written on review notes; defaults to the operating-system user.
+    QString reviewerName() const;
 
     void setRestoreWindowLayout(bool value);
     void setAudioScrubEnabled(bool value);
@@ -85,6 +87,7 @@ public:
     void setImageSequenceFrameRate(const media::FrameRate& rate);
     void setWelcomeShownVersion(const QString& version);
     void setAnnotationTool(const annotation::AnnotationToolSettings& settings);
+    void setReviewerName(const QString& name);
 
     QByteArray windowGeometry() const;
     QByteArray windowState() const;

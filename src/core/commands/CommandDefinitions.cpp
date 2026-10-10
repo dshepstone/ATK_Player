@@ -47,8 +47,8 @@ constexpr std::array kCommands{
     CommandDefinition{ CommandId::IncreaseBrushSize,  "draw.brushSizeUp",      QT_TRANSLATE_NOOP("Command", "Increase Brush Size"),  C::Edit,     "]",            false },
     CommandDefinition{ CommandId::DecreaseBrushSize,  "draw.brushSizeDown",    QT_TRANSLATE_NOOP("Command", "Decrease Brush Size"),  C::Edit,     "[",            false },
     CommandDefinition{ CommandId::ToggleAnnotationsVisible,"draw.showAnnotations",QT_TRANSLATE_NOOP("Command", "Show Drawings"),   C::Edit,     nullptr,        true  },
-    CommandDefinition{ CommandId::NextAnnotatedFrame, "draw.nextFrame",        QT_TRANSLATE_NOOP("Command", "Next Drawn Frame"),     C::Edit,     "Alt+Shift+Right",false },
-    CommandDefinition{ CommandId::PreviousAnnotatedFrame,"draw.previousFrame", QT_TRANSLATE_NOOP("Command", "Previous Drawn Frame"), C::Edit,     "Alt+Shift+Left",false },
+    CommandDefinition{ CommandId::NextAnnotatedFrame, "draw.nextFrame",        QT_TRANSLATE_NOOP("Command", "Next Note or Drawing"),     C::Edit,     "Alt+Shift+Right",false },
+    CommandDefinition{ CommandId::PreviousAnnotatedFrame,"draw.previousFrame", QT_TRANSLATE_NOOP("Command", "Previous Note or Drawing"), C::Edit,     "Alt+Shift+Left",false },
 
     // Playback
     CommandDefinition{ CommandId::PlayPause,          "playback.playPause",    QT_TRANSLATE_NOOP("Command", "Play / Pause"),         C::Playback, "Space",        false },
@@ -108,6 +108,7 @@ constexpr std::array kCommands{
     CommandDefinition{ CommandId::ResetCompareBOffset, "view.compareBOffsetReset", QT_TRANSLATE_NOOP("Command", "Reset B Offset"), C::View, nullptr, false },
     CommandDefinition{ CommandId::ToggleSourcesPanel, "view.toggleSources",    QT_TRANSLATE_NOOP("Command", "Sources Panel"),        C::View,     "F4",           true  },
     CommandDefinition{ CommandId::ToggleBookmarksPanel,"view.toggleBookmarks", QT_TRANSLATE_NOOP("Command", "Bookmarks Panel"),      C::View,     "F5",           true  },
+    CommandDefinition{ CommandId::ToggleNotesPanel,   "view.toggleNotes",      QT_TRANSLATE_NOOP("Command", "Notes Panel"),          C::View,     "F6",           true  },
     CommandDefinition{ CommandId::TimelineZoomIn,     "view.timelineZoomIn",   QT_TRANSLATE_NOOP("Command", "Timeline Zoom In"),     C::View,     "=",            false },
     CommandDefinition{ CommandId::TimelineZoomOut,    "view.timelineZoomOut",  QT_TRANSLATE_NOOP("Command", "Timeline Zoom Out"),    C::View,     "-",            false },
     CommandDefinition{ CommandId::TimelineZoomFit,    "view.timelineZoomFit",  QT_TRANSLATE_NOOP("Command", "Fit Entire Timeline"), C::View,     "F",            false },

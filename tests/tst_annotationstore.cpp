@@ -43,6 +43,8 @@ private slots:
     void storeEraseAssignsIdsAndGroupsUndo();
     void boxTextValidityAndTranslation();
     void replaceItemKeepsIdOrderAndUndo();
+    void notesAddUpdateRemoveAndUndo();
+    void clearFrameKeepsNotes();
 };
 
 void TestAnnotationStore::toolNamesRoundTripAndRejectUnknown()
@@ -467,6 +469,69 @@ void TestAnnotationStore::replaceItemKeepsIdOrderAndUndo()
     QVERIFY(store.undo());
     QCOMPARE(store.frame(4).items[0].points, stroke(0.2f, 0.2f).points);
     QVERIFY(!store.canUndo());
+}
+
+void TestAnnotationStore::notesAddUpdateRemoveAndUndo()
+{
+    AnnotationStore store;
+    const quint64 drawing = store.addItem(7, 0, stroke());
+    FrameNote note;
+    note.text = QStringLiteral("fix the nose");
+    note.author = QStringLiteral("David");
+    note.createdMsUtc = 1000;
+    const quint64 id = store.addNote(7, 0, note);
+    QVERIFY(id != 0 && id != drawing); // ids are unique across drawings and notes
+    QCOMPARE(store.frame(7).notes.size(), 1);
+    QCOMPARE(store.frame(7).notes[0].text, QStringLiteral("fix the nose"));
+
+    // A note alone makes a frame annotated.
+    const quint64 lone = store.addNote(20, 0, note);
+    QVERIFY(lone != 0);
+    QCOMPARE(store.annotatedFrames(), QVector<int64_t>({7, 20}));
+    QVERIFY(!store.frame(20).hasDrawings());
+
+    FrameNote blank = note;
+    blank.text = QStringLiteral("   ");
+    QCOMPARE(store.addNote(7, 0, blank), quint64(0));
+    QCOMPARE(store.addNote(-1, 0, note), quint64(0));
+
+    FrameNote edited = store.frame(7).notes[0];
+    edited.resolved = true;
+    edited.text = QStringLiteral("fix the nose and chin");
+    QVERIFY(store.updateNote(7, edited));
+    QVERIFY(!store.updateNote(7, edited)); // no change
+    QCOMPARE(store.frame(7).notes[0], edited);
+    QVERIFY(store.undo());
+    QVERIFY(!store.frame(7).notes[0].resolved);
+    QVERIFY(store.redo());
+
+    QVERIFY(store.removeNote(20, lone));
+    QVERIFY(!store.hasAnnotations(20)); // nothing left on the frame
+    QVERIFY(!store.removeNote(20, lone));
+    QVERIFY(store.undo());
+    QVERIFY(store.hasAnnotations(20));
+
+    // Loaded data seeds ids past notes too.
+    AnnotationStore reloaded;
+    reloaded.setAnnotations(store.annotations());
+    QVERIFY(reloaded.addItem(1, 0, stroke()) > std::max(id, lone));
+}
+
+void TestAnnotationStore::clearFrameKeepsNotes()
+{
+    AnnotationStore store;
+    store.addItem(3, 0, stroke());
+    FrameNote note;
+    note.text = QStringLiteral("keep me");
+    store.addNote(3, 0, note);
+    QVERIFY(store.clearFrame(3));
+    QVERIFY(store.frame(3).items.isEmpty());
+    QCOMPARE(store.frame(3).notes.size(), 1);
+    QVERIFY(!store.clearFrame(3)); // no drawings left to clear
+    // Erasing everything on the frame also keeps the note.
+    store.addItem(3, 0, stroke());
+    QVERIFY(store.eraseDiscs(3, {{0.55, 0.55}}, 5000, QSizeF(100, 100), EraserMode::Area));
+    QCOMPARE(store.frame(3).notes.size(), 1);
 }
 
 QTEST_APPLESS_MAIN(TestAnnotationStore)

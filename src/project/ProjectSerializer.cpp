@@ -160,9 +160,20 @@ QJsonArray annotationsJson(const annotation::SourceAnnotations& annotations)
     for (const annotation::FrameAnnotation& frame : annotations.frames()) {
         QJsonArray items;
         for (const annotation::AnnotationItem& item : frame.items) items.append(annotationItemJson(item));
-        frames.append(QJsonObject{{QStringLiteral("frame"), static_cast<double>(frame.frame)},
-                                  {QStringLiteral("mediaTimeUs"), static_cast<double>(frame.mediaTimeUs)},
-                                  {QStringLiteral("items"), items}});
+        QJsonObject object{{QStringLiteral("frame"), static_cast<double>(frame.frame)},
+                           {QStringLiteral("mediaTimeUs"), static_cast<double>(frame.mediaTimeUs)},
+                           {QStringLiteral("items"), items}};
+        if (!frame.notes.isEmpty()) {
+            QJsonArray notes;
+            for (const annotation::FrameNote& note : frame.notes)
+                notes.append(QJsonObject{{QStringLiteral("id"), QString::number(note.id)},
+                                         {QStringLiteral("text"), note.text},
+                                         {QStringLiteral("author"), note.author},
+                                         {QStringLiteral("createdMsUtc"), static_cast<double>(note.createdMsUtc)},
+                                         {QStringLiteral("resolved"), note.resolved}});
+            object.insert(QStringLiteral("notes"), notes);
+        }
+        frames.append(object);
     }
     return frames;
 }
@@ -233,7 +244,11 @@ bool readAnnotations(const QJsonValue& value, annotation::SourceAnnotations* out
         integer(object.value(QStringLiteral("mediaTimeUs")), &mediaTime);
         if (result.hasFrame(index) || !object.value(QStringLiteral("items")).isArray()) return false;
         const QJsonArray items = object.value(QStringLiteral("items")).toArray();
-        if (items.isEmpty() || items.size() > annotation::AnnotationLimits::kMaxItemsPerFrame)
+        const QJsonValue notesValue = object.value(QStringLiteral("notes"));
+        if (!notesValue.isUndefined() && !notesValue.isArray()) return false;
+        const QJsonArray notes = notesValue.toArray();
+        if ((items.isEmpty() && notes.isEmpty()) || items.size() > annotation::AnnotationLimits::kMaxItemsPerFrame
+            || notes.size() > annotation::AnnotationLimits::kMaxNotesPerFrame)
             return false;
         frame.frame = index;
         frame.mediaTimeUs = mediaTime;
@@ -242,6 +257,23 @@ bool readAnnotations(const QJsonValue& value, annotation::SourceAnnotations* out
             if (!readAnnotationItem(itemValue, &item) || ids.contains(item.id)) return false;
             ids.insert(item.id);
             frame.items.append(std::move(item));
+        }
+        for (const QJsonValue& noteValue : notes) {
+            const QJsonObject n = noteValue.toObject();
+            annotation::FrameNote note;
+            bool idOk = false;
+            note.id = n.value(QStringLiteral("id")).toString().toULongLong(&idOk);
+            note.text = n.value(QStringLiteral("text")).toString();
+            note.author = n.value(QStringLiteral("author")).toString();
+            qint64 created = 0;
+            integer(n.value(QStringLiteral("createdMsUtc")), &created);
+            note.createdMsUtc = created;
+            note.resolved = n.value(QStringLiteral("resolved")).toBool(false);
+            if (!noteValue.isObject() || !idOk || note.id == 0 || ids.contains(note.id)
+                || !annotation::isValidNote(note))
+                return false;
+            ids.insert(note.id);
+            frame.notes.append(std::move(note));
         }
         result.setFrame(std::move(frame));
     }

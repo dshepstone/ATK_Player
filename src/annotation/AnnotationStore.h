@@ -73,8 +73,16 @@ public:
     void endEditGroup();
     bool inEditGroup() const { return m_groupDepth > 0; }
 
-    /// Removes every item on one frame. Returns false if it had none.
+    /// Removes every drawing on one frame; its written notes stay. Returns
+    /// false if it had no drawings.
     bool clearFrame(int64_t frame);
+
+    /// Written notes. Each is one undo step. addNote assigns the id (shared
+    /// with drawings, so ids are unique per source) and returns it, or 0 for
+    /// an invalid note or a full frame.
+    quint64 addNote(int64_t frame, int64_t mediaTimeUs, FrameNote note);
+    bool updateNote(int64_t frame, const FrameNote& note);
+    bool removeNote(int64_t frame, quint64 noteId);
     /// Removes everything for the source. Returns false if already empty.
     bool clearAll();
 

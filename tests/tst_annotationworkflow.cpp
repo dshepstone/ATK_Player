@@ -6,6 +6,7 @@
 #include "project/ProjectSerializer.h"
 #include "ui/AnnotationToolbar.h"
 #include "ui/MainWindow.h"
+#include "ui/NotesPanel.h"
 #include "ui/TimelineWidget.h"
 #include "ui/ViewerWidget.h"
 
@@ -14,6 +15,8 @@
 #include <QMouseEvent>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QListWidget>
+#include <QPlainTextEdit>
 #include <QTextEdit>
 
 using atk::playback::PlayerState;
@@ -71,6 +74,7 @@ private slots:
     void brushSizeKeysStepTheToolbar();
     void typeEditMoveAndDeleteText();
     void importedBrushesAppearInTheToolbar();
+    void notesPanelWritesNotesWhileDrawing();
 };
 
 void TestAnnotationWorkflow::drawModeNeedsMedia()
@@ -282,6 +286,70 @@ void TestAnnotationWorkflow::importedBrushesAppearInTheToolbar()
     // The choice is remembered.
     atk::ui::MainWindow next(directory.filePath(QStringLiteral("settings.ini")));
     QCOMPARE(next.findChild<atk::ui::ViewerWidget*>()->annotationTool().brushTipId, tip.id);
+}
+
+void TestAnnotationWorkflow::notesPanelWritesNotesWhileDrawing()
+{
+    QTemporaryDir directory;
+    const QString projectPath = writeProject(directory);
+    atk::ui::MainWindow window(directory.filePath(QStringLiteral("settings.ini")));
+    window.resize(1400, 800);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    auto* panel = window.findChild<atk::ui::NotesPanel*>();
+    QVERIFY(panel && panel->isVisible()); // on the right by default
+    QVERIFY(!panel->composer()->isEnabled()); // no clip yet
+    QVERIFY(openAt(window, projectPath, 30));
+    auto* viewer = window.findChild<atk::ui::ViewerWidget*>();
+    QTRY_COMPARE(panel->currentFrame(), qint64(30));
+    QVERIFY(panel->composer()->isEnabled());
+
+    // Draw on the frame and write its note, SyncSketch style.
+    command(window, "draw.annotateMode")->trigger();
+    drawStroke(viewer, {0.3, 0.4}, {0.6, 0.5});
+    panel->setReviewerName(QStringLiteral("David"));
+    panel->composer()->setFocus();
+    QTest::keyClicks(panel->composer(), QStringLiteral("fix the nose"));
+    QTest::keyClick(panel->composer(), Qt::Key_Return, Qt::ControlModifier);
+    QVERIFY(panel->composer()->toPlainText().isEmpty());
+    const auto frame30 = window.project()->entries().at(0).annotations.frame(30);
+    QCOMPARE(frame30.items.size(), 1);
+    QCOMPARE(frame30.notes.size(), 1);
+    QCOMPARE(frame30.notes[0].text, QStringLiteral("fix the nose"));
+    QCOMPARE(frame30.notes[0].author, QStringLiteral("David"));
+    QVERIFY(frame30.notes[0].createdMsUtc > 0);
+    QCOMPARE(panel->notes().size(), 1);
+    QVERIFY(panel->notes()[0].frameHasDrawing);
+    QCOMPARE(panel->list()->count(), 1);
+    QVERIFY(panel->list()->item(0)->text().contains(QStringLiteral("fix the nose")));
+
+    // A note on another frame; clicking a note jumps to its frame.
+    window.playbackController()->seekFrame(45);
+    QTRY_COMPARE(panel->currentFrame(), qint64(45));
+    QTest::keyClicks(panel->composer(), QStringLiteral("timing"));
+    QTest::keyClick(panel->composer(), Qt::Key_Return, Qt::ControlModifier);
+    QCOMPARE(panel->list()->count(), 2);
+    QListWidgetItem* first = panel->list()->item(0);
+    QTest::mouseClick(panel->list()->viewport(), Qt::LeftButton, {},
+                      panel->list()->visualItemRect(first).center());
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->currentFrame(), qint64(30), 5000);
+
+    // Notes undo like drawings, and save with the project.
+    command(window, "draw.undo")->trigger();
+    QCOMPARE(panel->notes().size(), 1);
+    command(window, "draw.redo")->trigger();
+    QCOMPARE(panel->notes().size(), 2);
+    const QString saved = directory.filePath(QStringLiteral("notes.atkproj"));
+    QVERIFY(atk::project::ProjectSerializer::save(*window.project(), saved).ok);
+    atk::project::Project loaded;
+    QVERIFY(atk::project::ProjectSerializer::load(loaded, saved).ok);
+    QCOMPARE(loaded.entries().at(0).annotations.frame(45).notes.size(), 1);
+
+    // F6 hides and shows the panel.
+    command(window, "view.toggleNotes")->trigger();
+    QVERIFY(!panel->isVisible());
+    command(window, "view.toggleNotes")->trigger();
+    QVERIFY(panel->isVisible());
 }
 
 QTEST_MAIN(TestAnnotationWorkflow)

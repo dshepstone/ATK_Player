@@ -15,6 +15,7 @@
 #include "export/FFmpegExporter.h"
 #include "project/Project.h"
 #include "project/ProjectSerializer.h"
+#include "timeline/Timecode.h"
 #include "timeline/TimelineModel.h"
 #include "ui/AnnotationToolbar.h"
 #include "ui/ApplicationSettings.h"
@@ -26,6 +27,7 @@
 #include "ui/FrameFieldStyle.h"
 #include "ui/FrameNumberInput.h"
 #include "ui/MediaInformationDialog.h"
+#include "ui/NotesPanel.h"
 #include "ui/PreferencesDialog.h"
 #include "ui/Resources.h"
 #include "ui/SourcesPanel.h"
@@ -73,6 +75,7 @@
 #include <QDialogButtonBox>
 #include <QMenu>
 #include <QMenuBar>
+#include <QDateTime>
 #include <QFile>
 #include <QMessageBox>
 #include <QStandardPaths>
@@ -431,6 +434,16 @@ void MainWindow::buildWidgets()
     m_bookmarksDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetClosable);
     addDockWidget(Qt::RightDockWidgetArea, m_bookmarksDock);
 
+    // --- Notes (right side, like SyncSketch) -------------------------------
+    m_notesPanel = new NotesPanel(this);
+    m_notesPanel->setReviewerName(m_settings->reviewerName());
+    m_notesDock = new QDockWidget(tr("Notes"), this);
+    m_notesDock->setObjectName(QStringLiteral("NotesDock"));
+    m_notesDock->setWidget(m_notesPanel);
+    m_notesDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+    m_notesDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetClosable);
+    addDockWidget(Qt::RightDockWidgetArea, m_notesDock);
+
     // --- Drawing toolbar --------------------------------------------------
     // Shown only while Draw on Frame is on.
     m_annotationToolbar = new AnnotationToolbar(this);
@@ -511,6 +524,9 @@ void MainWindow::buildMenus()
     if (QAction* showDrawings = m_commands->action(CommandId::ToggleAnnotationsVisible)) {
         showDrawings->setChecked(true);
     }
+    if (QAction* notesAction = m_commands->action(CommandId::ToggleNotesPanel)) {
+        notesAction->setChecked(true);
+    }
     if (QAction* scrubAction = m_commands->action(CommandId::ToggleAudioScrub)) {
         scrubAction->setChecked(m_settings->audioScrubEnabled());
     }
@@ -566,6 +582,9 @@ void MainWindow::connectSignals()
                     m_displayedImageHeight = frame.image.height();
                     m_displayedFramePtsUs = frame.ptsUs;
                     refreshViewerAnnotations();
+                    m_notesPanel->setCurrentFrame(
+                        frame.frameIndex, timeline::timecode::fromFrame(frame.frameIndex, m_timeline->frameRate()),
+                        !m_annotationSourceId.isNull());
                 }
                 m_compareComposite->setFrameA(frame);
                 synchronizeComparison(frame);
@@ -596,6 +615,35 @@ void MainWindow::connectSignals()
             [this](qint64 frameIndex, quint64 id) { m_annotations->removeItem(frameIndex, id); });
     connect(m_annotationToolbar, &AnnotationToolbar::settingsChanged, this, &MainWindow::applyAnnotationTool);
     connect(m_annotationToolbar, &AnnotationToolbar::importBrushesRequested, this, &MainWindow::importBrushSet);
+
+    // Notes panel: writes go through the same store as drawings, so they
+    // share undo, saving and export.
+    connect(m_notesPanel, &NotesPanel::addNoteRequested, this, [this](qint64 frame, const QString& text) {
+        if (m_annotationSourceId.isNull() || frame < 0) return;
+        annotation::FrameNote note;
+        note.text = text;
+        note.author = m_notesPanel->reviewerName();
+        note.createdMsUtc = QDateTime::currentMSecsSinceEpoch();
+        if (m_annotations->addNote(frame, annotationMediaTimeUs(frame), note) == 0)
+            statusBar()->showMessage(tr("The note could not be added."), 4000);
+    });
+    connect(m_notesPanel, &NotesPanel::updateNoteRequested, this,
+            [this](qint64 frame, const annotation::FrameNote& note) { m_annotations->updateNote(frame, note); });
+    connect(m_notesPanel, &NotesPanel::deleteNoteRequested, this,
+            [this](qint64 frame, quint64 id) { m_annotations->removeNote(frame, id); });
+    connect(m_notesPanel, &NotesPanel::noteActivated, this, [this](qint64 frame) {
+        if (frame != m_displayedFrameIndex) m_playback->seekFrame(frame);
+    });
+    connect(m_notesPanel, &NotesPanel::reviewerNameChanged, this,
+            [this](const QString& name) { m_settings->setReviewerName(name); });
+    connect(m_notesDock, &QDockWidget::visibilityChanged, this, [this](bool visible) {
+        if (QAction* action = m_commands->action(CommandId::ToggleNotesPanel)) {
+            QSignalBlocker blocker(action);
+            action->setChecked(visible);
+        }
+    });
+    connect(m_annotations.get(), &annotation::AnnotationStore::annotationsEdited, this, &MainWindow::refreshNotesPanel);
+    connect(m_annotations.get(), &annotation::AnnotationStore::annotationsReset, this, &MainWindow::refreshNotesPanel);
     connect(m_annotationToolbar, &AnnotationToolbar::removeBrushSetRequested, this, &MainWindow::removeBrushSet);
     connect(m_annotations.get(), &annotation::AnnotationStore::annotationsEdited, this, [this] {
         if (!m_annotationSourceId.isNull())
@@ -975,6 +1023,10 @@ void MainWindow::onCommand(CommandId id, bool checked)
                                      : tr("Brush size %1 px").arg(settings.sizePixels), 1500);
         return;
     }
+    case CommandId::ToggleNotesPanel:
+        m_notesDock->setVisible(checked);
+        if (checked) m_notesDock->raise();
+        return;
     case CommandId::ToggleAnnotationsVisible:
         m_viewer->setAnnotationsVisible(checked);
         return;
@@ -3117,6 +3169,21 @@ qint64 MainWindow::annotationMediaTimeUs(qint64 frameIndex) const
     // ends on the frame it started on (drawing pauses playback); if not, the
     // index alone is authoritative and the time is left unknown.
     return frameIndex == m_displayedFrameIndex ? m_displayedFramePtsUs : 0;
+}
+
+void MainWindow::refreshNotesPanel()
+{
+    QVector<NoteRow> rows;
+    for (const annotation::FrameAnnotation& frame : m_annotations->annotations().frames()) {
+        const QString timecode = timeline::timecode::fromFrame(frame.frame, m_timeline->frameRate());
+        for (const annotation::FrameNote& note : frame.notes)
+            rows.append({frame.frame, timecode, note, frame.hasDrawings()});
+    }
+    m_notesPanel->setNotes(rows);
+    m_notesPanel->setCurrentFrame(m_displayedFrameIndex,
+                                  timeline::timecode::fromFrame(std::max<qint64>(0, m_displayedFrameIndex),
+                                                                m_timeline->frameRate()),
+                                  !m_annotationSourceId.isNull() && m_displayedFrameIndex >= 0);
 }
 
 void MainWindow::refreshViewerAnnotations()

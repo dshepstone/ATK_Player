@@ -40,6 +40,7 @@ namespace atk::timeline { class TimelineModel; }
 namespace atk::ui {
 
 class AnnotationToolbar;
+class NotesPanel;
 class CommandRegistry;
 class ApplicationSettings;
 class BookmarkPanel;
@@ -206,6 +207,7 @@ private:
     void applyAnnotationTool(const annotation::AnnotationToolSettings& settings);
     void seekAnnotatedFrame(int direction);
     void importBrushSet();
+    void refreshNotesPanel();
     void removeBrushSet(const QString& name);
     void updateAnnotationActions();
 
@@ -238,6 +240,8 @@ private:
     CommandRegistry* m_commands = nullptr;
     BookmarkPanel* m_bookmarks = nullptr;
     AnnotationToolbar* m_annotationToolbar = nullptr;
+    NotesPanel* m_notesPanel = nullptr;
+    QDockWidget* m_notesDock = nullptr;
 
     ViewerWidget* m_viewer = nullptr;
     ViewerWidget* m_viewerB = nullptr;

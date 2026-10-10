@@ -96,6 +96,7 @@ enum class CommandId {
     ResetCompareBOffset,
     ToggleSourcesPanel,
     ToggleBookmarksPanel,
+    ToggleNotesPanel,
     TimelineZoomIn,
     TimelineZoomOut,
     TimelineZoomFit,

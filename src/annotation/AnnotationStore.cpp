@@ -86,10 +86,53 @@ quint64 AnnotationStore::removeLastItemAmong(int64_t frame, const QVector<quint6
 bool AnnotationStore::clearFrame(int64_t frame)
 {
     const FrameAnnotation* found = m_annotations.find(frame);
-    if (!found) return false;
+    if (!found || found->items.isEmpty()) return false;
     FrameAnnotation before = *found;
-    FrameAnnotation after;
-    after.frame = frame;
+    FrameAnnotation after = before;
+    after.items.clear();
+    commit({{frame, std::move(before), std::move(after)}});
+    return true;
+}
+
+quint64 AnnotationStore::addNote(int64_t frame, int64_t mediaTimeUs, FrameNote note)
+{
+    if (frame < 0 || !isValidNote(note)) return 0;
+    FrameAnnotation before = m_annotations.frame(frame);
+    if (before.notes.size() >= AnnotationLimits::kMaxNotesPerFrame) return 0;
+    if (before.isEmpty() && m_annotations.frameCount() >= AnnotationLimits::kMaxAnnotatedFrames) return 0;
+    FrameAnnotation after = before;
+    if (after.isEmpty()) after.mediaTimeUs = mediaTimeUs;
+    note.id = allocateId();
+    const quint64 id = note.id;
+    after.notes.append(std::move(note));
+    commit({{frame, std::move(before), std::move(after)}});
+    return id;
+}
+
+bool AnnotationStore::updateNote(int64_t frame, const FrameNote& note)
+{
+    const FrameAnnotation* found = m_annotations.find(frame);
+    if (!found || !isValidNote(note)) return false;
+    const auto it = std::find_if(found->notes.cbegin(), found->notes.cend(),
+                                 [&](const FrameNote& n) { return n.id == note.id; });
+    if (it == found->notes.cend() || *it == note) return false;
+    FrameAnnotation before = *found;
+    FrameAnnotation after = before;
+    after.notes[int(it - found->notes.cbegin())] = note;
+    commit({{frame, std::move(before), std::move(after)}});
+    return true;
+}
+
+bool AnnotationStore::removeNote(int64_t frame, quint64 noteId)
+{
+    const FrameAnnotation* found = m_annotations.find(frame);
+    if (!found) return false;
+    const auto it = std::find_if(found->notes.cbegin(), found->notes.cend(),
+                                 [&](const FrameNote& n) { return n.id == noteId; });
+    if (it == found->notes.cend()) return false;
+    FrameAnnotation before = *found;
+    FrameAnnotation after = before;
+    after.notes.remove(int(it - found->notes.cbegin()));
     commit({{frame, std::move(before), std::move(after)}});
     return true;
 }

@@ -39,6 +39,7 @@ constexpr auto kDrawStabilizer = "draw/stabilizer";
 constexpr auto kDrawEraserSize = "draw/eraserSizePixels";
 constexpr auto kDrawEraserMode = "draw/eraserMode";
 constexpr auto kDrawBrushTip = "draw/brushTip";
+constexpr auto kReviewerName = "review/reviewerName";
 
 QString curveName(annotation::PressureCurve curve)
 {
@@ -235,6 +236,20 @@ annotation::AnnotationToolSettings ApplicationSettings::annotationTool() const
         result.eraserMode = annotation::EraserMode::WholeStroke;
     result.brushTipId = m_settings->value(QString::fromLatin1(kDrawBrushTip)).toString().left(200);
     return result;
+}
+
+QString ApplicationSettings::reviewerName() const
+{
+    const QVariant stored = m_settings->value(QString::fromLatin1(kReviewerName));
+    if (stored.isValid()) return stored.toString().left(200);
+    QString user = qEnvironmentVariable("USERNAME");
+    if (user.isEmpty()) user = qEnvironmentVariable("USER");
+    return user.left(200);
+}
+
+void ApplicationSettings::setReviewerName(const QString& name)
+{
+    m_settings->setValue(QString::fromLatin1(kReviewerName), name.left(200));
 }
 
 void ApplicationSettings::setAnnotationTool(const annotation::AnnotationToolSettings& settings)
