@@ -34,6 +34,8 @@ enum class CommandId {
     IncreaseBrushSize,
     DecreaseBrushSize,
     ToggleAnnotationsVisible,
+    ToggleTracingPaper,
+    ToggleGhosting,
     NextAnnotatedFrame,
     PreviousAnnotatedFrame,
 

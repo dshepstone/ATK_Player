@@ -48,6 +48,8 @@ constexpr std::array kCommands{
     CommandDefinition{ CommandId::IncreaseBrushSize,  "draw.brushSizeUp",      QT_TRANSLATE_NOOP("Command", "Increase Brush Size"),  C::Edit,     "]",            false },
     CommandDefinition{ CommandId::DecreaseBrushSize,  "draw.brushSizeDown",    QT_TRANSLATE_NOOP("Command", "Decrease Brush Size"),  C::Edit,     "[",            false },
     CommandDefinition{ CommandId::ToggleAnnotationsVisible,"draw.showAnnotations",QT_TRANSLATE_NOOP("Command", "Show Drawings"),   C::Edit,     nullptr,        true  },
+    CommandDefinition{ CommandId::ToggleTracingPaper, "draw.tracingPaper",     QT_TRANSLATE_NOOP("Command", "Tracing Paper"),        C::Edit,     "T",            true  },
+    CommandDefinition{ CommandId::ToggleGhosting,     "draw.ghosting",         QT_TRANSLATE_NOOP("Command", "Ghost Drawings"),       C::Edit,     "G",            true  },
     CommandDefinition{ CommandId::NextAnnotatedFrame, "draw.nextFrame",        QT_TRANSLATE_NOOP("Command", "Next Note or Drawing"),     C::Edit,     "Alt+Shift+Right",false },
     CommandDefinition{ CommandId::PreviousAnnotatedFrame,"draw.previousFrame", QT_TRANSLATE_NOOP("Command", "Previous Note or Drawing"), C::Edit,     "Alt+Shift+Left",false },
 

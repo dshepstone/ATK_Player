@@ -258,6 +258,10 @@ void ViewerWidget::paintEvent(QPaintEvent* event)
             if (m_flipHorizontal) {
                 painter.restore();
             }
+            if (m_tracingPaperPercent > 0) {
+                // Tracing paper sits over the picture and under the drawings.
+                painter.fillRect(target, QColor(255, 255, 255, m_tracingPaperPercent * 255 / 100));
+            }
             paintAnnotations(painter, target);
             paintBrushCursor(painter);
         }
@@ -489,6 +493,23 @@ void ViewerWidget::setAnnotationFrame(const annotation::FrameAnnotation& frame)
     if (!m_textEdit || !m_textEdit->existing) m_hiddenItemId = 0;
     if (m_selectedItemId && !findItem(m_selectedItemId)) m_selectedItemId = 0;
     ++m_annotationGeneration;
+    update();
+}
+
+void ViewerWidget::setGhostFrames(qint64 centerFrame, const QVector<annotation::GhostFrame>& ghosts)
+{
+    if (ghosts.isEmpty() && m_ghosts.isEmpty()) return;
+    m_ghosts = ghosts;
+    m_ghostCenterFrame = centerFrame;
+    ++m_ghostGeneration;
+    update();
+}
+
+void ViewerWidget::setTracingPaper(int opacityPercent)
+{
+    opacityPercent = std::clamp(opacityPercent, 0, 100);
+    if (m_tracingPaperPercent == opacityPercent) return;
+    m_tracingPaperPercent = opacityPercent;
     update();
 }
 
@@ -1134,10 +1155,45 @@ void ViewerWidget::paintAnnotations(QPainter& painter, const QRectF& target)
             p.scale(-1.0, 1.0);
         }
     };
+    const qreal dpr = devicePixelRatioF();
+    const QSize pixelSize = (QSizeF(size()) * dpr).toSize();
+    // Ghosts of nearby frames' drawings, under this frame's own.
+    if (!m_ghosts.isEmpty() && m_ghostCenterFrame == m_frame.frameIndex) {
+        if (m_ghostCacheGeneration != m_ghostGeneration || m_ghostCacheTarget != target
+            || m_ghostCacheFlipped != m_flipHorizontal || m_ghostCache.size() != pixelSize
+            || !qFuzzyCompare(m_ghostCache.devicePixelRatio(), dpr)) {
+            m_ghostCache = QImage(pixelSize, QImage::Format_ARGB32_Premultiplied);
+            m_ghostCache.setDevicePixelRatio(dpr);
+            m_ghostCache.fill(Qt::transparent);
+            QImage layer(pixelSize, QImage::Format_ARGB32_Premultiplied);
+            layer.setDevicePixelRatio(dpr);
+            QPainter ghostPainter(&m_ghostCache);
+            for (const annotation::GhostFrame& ghost : m_ghosts) {
+                // Each ghost is flattened first, so overlapping strokes of one
+                // frame fade together instead of building up.
+                layer.fill(Qt::transparent);
+                QPainter layerPainter(&layer);
+                applyFlip(layerPainter);
+                for (const annotation::AnnotationItem& item : ghost.frame.items)
+                    annotation::AnnotationRenderer::paintItem(layerPainter, target, item);
+                if (ghost.tint.isValid()) {
+                    layerPainter.resetTransform();
+                    layerPainter.setCompositionMode(QPainter::CompositionMode_SourceIn);
+                    layerPainter.fillRect(QRectF(QPointF(0, 0), QSizeF(size())), ghost.tint);
+                }
+                layerPainter.end();
+                ghostPainter.setOpacity(ghost.opacity);
+                ghostPainter.drawImage(QPointF(0.0, 0.0), layer);
+            }
+            ghostPainter.end();
+            m_ghostCacheGeneration = m_ghostGeneration;
+            m_ghostCacheTarget = target;
+            m_ghostCacheFlipped = m_flipHorizontal;
+        }
+        painter.drawImage(QPointF(0.0, 0.0), m_ghostCache);
+    }
     // Only draw annotations that belong to the frame on screen.
     if (!m_annotationFrame.isEmpty() && m_annotationFrame.frame == m_frame.frameIndex) {
-        const qreal dpr = devicePixelRatioF();
-        const QSize pixelSize = (QSizeF(size()) * dpr).toSize();
         if (m_annotationCacheGeneration != m_annotationGeneration || m_annotationCacheTarget != target
             || m_annotationCacheFlipped != m_flipHorizontal || m_annotationCache.size() != pixelSize
             || !qFuzzyCompare(m_annotationCache.devicePixelRatio(), dpr)) {

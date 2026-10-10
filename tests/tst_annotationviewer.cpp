@@ -130,6 +130,8 @@ private slots:
     void leavingAnnotateModeCancelsAStroke();
     void doubleClickDoesNotFitWhileAnnotating();
     void annotationsPaintOnlyOnTheirFrame();
+    void tracingPaperWashesThePictureButNotTheDrawings();
+    void ghostsPaintTintedAndFadedUnderTheFrame();
 };
 
 void TestAnnotationViewer::mouseStrokeOutsideAnnotateModeDoesNothing()
@@ -728,6 +730,87 @@ void TestAnnotationViewer::annotationsPaintOnlyOnTheirFrame()
     f.viewer.setFrame(frame(12));
     f.viewer.setAnnotationsVisible(false);
     QCOMPARE(f.viewer.grab().toImage().pixelColor(centre * f.viewer.devicePixelRatioF()).green(), 0);
+}
+
+void TestAnnotationViewer::tracingPaperWashesThePictureButNotTheDrawings()
+{
+    Fixture f; // black picture
+    annotation::FrameAnnotation existing;
+    existing.frame = 12;
+    AnnotationItem dot;
+    dot.id = 1;
+    dot.tool = AnnotationTool::Marker;
+    dot.color = QColor(0, 0, 255);
+    dot.size = 0.2;
+    dot.opacity = 1.0;
+    dot.points = {{0.7f, 0.5f, 1, 0, 0}};
+    existing.items = {dot};
+    f.viewer.setAnnotationFrame(existing);
+    const qreal dpr = f.viewer.devicePixelRatioF();
+    const QPoint picture = f.at(0.2, 0.5) * dpr;
+    const QPoint ink = f.at(0.7, 0.5) * dpr;
+    QCOMPARE(f.viewer.grab().toImage().pixelColor(picture).red(), 0);
+
+    f.viewer.setTracingPaper(50);
+    QImage shot = f.viewer.grab().toImage();
+    QVERIFY(qAbs(shot.pixelColor(picture).red() - 128) <= 2); // half-white over black
+    QCOMPARE(shot.pixelColor(ink).blue(), 255); // drawings sit on the paper, unfaded
+    QVERIFY(shot.pixelColor(ink).red() < 60);
+
+    f.viewer.setTracingPaper(100);
+    QCOMPARE(f.viewer.grab().toImage().pixelColor(picture).red(), 255); // blank paper
+    f.viewer.setTracingPaper(0);
+    QCOMPARE(f.viewer.grab().toImage().pixelColor(picture).red(), 0);
+}
+
+void TestAnnotationViewer::ghostsPaintTintedAndFadedUnderTheFrame()
+{
+    Fixture f; // frame 12, black
+    auto drawingAt = [](int64_t frameIndex, float x) {
+        annotation::FrameAnnotation a;
+        a.frame = frameIndex;
+        AnnotationItem dot;
+        dot.id = quint64(frameIndex + 1);
+        dot.tool = AnnotationTool::Marker;
+        dot.color = QColor(255, 255, 255);
+        dot.size = 0.15;
+        dot.opacity = 1.0;
+        dot.points = {{x, 0.5f, 1, 0, 0}};
+        a.items = {dot};
+        return a;
+    };
+    annotation::SourceAnnotations set;
+    set.setFrame(drawingAt(10, 0.2f)); // two frames earlier
+    set.setFrame(drawingAt(11, 0.4f)); // one frame earlier
+    set.setFrame(drawingAt(13, 0.8f)); // one frame later
+    annotation::GhostSettings ghost;
+    ghost.enabled = true;
+    ghost.before = 2;
+    ghost.after = 2;
+    f.viewer.setGhostFrames(12, annotation::ghostFramesFor(set, 12, ghost));
+
+    const qreal dpr = f.viewer.devicePixelRatioF();
+    QImage shot = f.viewer.grab().toImage();
+    const QColor far = shot.pixelColor(f.at(0.2, 0.5) * dpr);
+    const QColor near = shot.pixelColor(f.at(0.4, 0.5) * dpr);
+    const QColor later = shot.pixelColor(f.at(0.8, 0.5) * dpr);
+    // Earlier frames ghost red, later green; nearer ghosts are stronger.
+    QVERIFY2(near.red() > near.green() + 40, qPrintable(near.name()));
+    QVERIFY2(later.green() > later.red() + 40, qPrintable(later.name()));
+    QVERIFY2(near.red() > far.red() + 20, qPrintable(near.name() + far.name()));
+    QVERIFY(near.red() < 230); // faded, never full strength
+    QCOMPARE(shot.pixelColor(f.at(0.6, 0.5) * dpr).red(), 0); // nothing drawn there
+
+    // Untinted ghosts keep their own colour; ghosts only show on their frame.
+    ghost.tint = false;
+    f.viewer.setGhostFrames(12, annotation::ghostFramesFor(set, 12, ghost));
+    const QColor plain = f.viewer.grab().toImage().pixelColor(f.at(0.4, 0.5) * dpr);
+    QVERIFY(qAbs(plain.red() - plain.green()) <= 3 && plain.red() > 60);
+    f.viewer.setFrame(frame(20));
+    QCOMPARE(f.viewer.grab().toImage().pixelColor(f.at(0.4, 0.5) * dpr).red(), 0);
+    f.viewer.setFrame(frame(12));
+    f.viewer.setGhostFrames(12, {});
+    QCOMPARE(f.viewer.grab().toImage().pixelColor(f.at(0.4, 0.5) * dpr).red(), 0);
 }
 
 QTEST_MAIN(TestAnnotationViewer)

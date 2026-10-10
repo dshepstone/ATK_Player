@@ -41,6 +41,7 @@ set(ATK_CORE_SOURCES
     playback/ComparisonCompositor.cpp
 
     annotation/AnnotationTypes.cpp
+    annotation/AnnotationGhosting.cpp
     annotation/AnnotationStore.cpp
     annotation/AnnotationEraser.cpp
     annotation/AbrReader.cpp
@@ -106,6 +107,7 @@ set(ATK_CORE_HEADERS
     playback/ComparisonCompositor.h
 
     annotation/AnnotationTypes.h
+    annotation/AnnotationGhosting.h
     annotation/AnnotationStore.h
     annotation/AnnotationEraser.h
     annotation/AbrReader.h

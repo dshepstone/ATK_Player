@@ -1,6 +1,7 @@
 #include "ui/MainWindow.h"
 
 #include "annotation/AbrReader.h"
+#include "annotation/AnnotationGhosting.h"
 #include "annotation/AnnotationStore.h"
 #include "annotation/BrushLibrary.h"
 #include "api/ApiServer.h"
@@ -528,6 +529,9 @@ void MainWindow::buildMenus()
     if (QAction* showDrawings = m_commands->action(CommandId::ToggleAnnotationsVisible)) {
         showDrawings->setChecked(true);
     }
+    m_tracingPaperLevel = m_settings->tracingPaperLevel();
+    applyTracingPaper(m_settings->tracingPaper());
+    applyGhostSettings(m_settings->ghostSettings());
     if (QAction* notesAction = m_commands->action(CommandId::ToggleNotesPanel)) {
         notesAction->setChecked(true);
     }
@@ -651,12 +655,15 @@ void MainWindow::connectSignals()
     connect(m_annotations.get(), &annotation::AnnotationStore::annotationsEdited, this, &MainWindow::refreshNotesPanel);
     connect(m_annotations.get(), &annotation::AnnotationStore::annotationsReset, this, &MainWindow::refreshNotesPanel);
     connect(m_annotationToolbar, &AnnotationToolbar::removeBrushSetRequested, this, &MainWindow::removeBrushSet);
+    connect(m_annotationToolbar, &AnnotationToolbar::tracingPaperRequested, this, &MainWindow::applyTracingPaper);
+    connect(m_annotationToolbar, &AnnotationToolbar::ghostSettingsRequested, this, &MainWindow::applyGhostSettings);
     connect(m_annotations.get(), &annotation::AnnotationStore::annotationsEdited, this, [this] {
         if (!m_annotationSourceId.isNull())
             m_project->setAnnotations(m_annotationSourceId, m_annotations->annotations());
     });
     connect(m_annotations.get(), &annotation::AnnotationStore::frameChanged, this, [this](qint64 frame) {
-        if (frame == m_displayedFrameIndex) refreshViewerAnnotations();
+        // Ghosts show nearby frames too, so any edit may change what is on screen.
+        if (frame == m_displayedFrameIndex || m_ghostSettings.enabled) refreshViewerAnnotations();
     });
     connect(m_annotations.get(), &annotation::AnnotationStore::annotationsReset, this,
             &MainWindow::refreshViewerAnnotations);
@@ -1036,6 +1043,18 @@ void MainWindow::onCommand(CommandId id, bool checked)
     case CommandId::ToggleAnnotationsVisible:
         m_viewer->setAnnotationsVisible(checked);
         return;
+    case CommandId::ToggleTracingPaper:
+        applyTracingPaper(checked ? m_tracingPaperLevel : 0);
+        statusBar()->showMessage(checked ? tr("Tracing paper %1%").arg(m_tracingPaperLevel) : tr("Tracing paper off"), 1500);
+        return;
+    case CommandId::ToggleGhosting: {
+        auto ghost = m_ghostSettings;
+        ghost.enabled = checked;
+        applyGhostSettings(ghost);
+        statusBar()->showMessage(checked ? tr("Ghosting %1 frames back, %2 forward").arg(ghost.before).arg(ghost.after)
+                                         : tr("Ghosting off"), 1500);
+        return;
+    }
     case CommandId::NextAnnotatedFrame:
         seekAnnotatedFrame(1);
         return;
@@ -3316,6 +3335,37 @@ void MainWindow::refreshViewerAnnotations()
 {
     m_viewer->setAnnotationFrame(m_displayedFrameIndex >= 0 ? m_annotations->frame(m_displayedFrameIndex)
                                                             : annotation::FrameAnnotation{});
+    m_viewer->setGhostFrames(m_displayedFrameIndex,
+                             annotation::ghostFramesFor(m_annotations->annotations(), m_displayedFrameIndex,
+                                                        m_ghostSettings));
+}
+
+void MainWindow::applyTracingPaper(int percent)
+{
+    m_tracingPaper = std::clamp(percent, 0, 100);
+    if (m_tracingPaper > 0) m_tracingPaperLevel = m_tracingPaper;
+    m_viewer->setTracingPaper(m_tracingPaper);
+    m_annotationToolbar->setTracingPaper(m_tracingPaper, m_tracingPaperLevel);
+    if (QAction* action = m_commands->action(CommandId::ToggleTracingPaper)) {
+        QSignalBlocker blocker(action);
+        action->setChecked(m_tracingPaper > 0);
+    }
+    m_settings->setTracingPaper(m_tracingPaper);
+    m_settings->setTracingPaperLevel(m_tracingPaperLevel);
+}
+
+void MainWindow::applyGhostSettings(const annotation::GhostSettings& settings)
+{
+    m_ghostSettings = settings;
+    m_ghostSettings.before = std::clamp(m_ghostSettings.before, 0, annotation::GhostSettings::kMaxRange);
+    m_ghostSettings.after = std::clamp(m_ghostSettings.after, 0, annotation::GhostSettings::kMaxRange);
+    m_annotationToolbar->setGhostSettings(m_ghostSettings);
+    if (QAction* action = m_commands->action(CommandId::ToggleGhosting)) {
+        QSignalBlocker blocker(action);
+        action->setChecked(m_ghostSettings.enabled);
+    }
+    m_settings->setGhostSettings(m_ghostSettings);
+    refreshViewerAnnotations();
 }
 
 void MainWindow::applyAnnotationTool(const annotation::AnnotationToolSettings& settings)

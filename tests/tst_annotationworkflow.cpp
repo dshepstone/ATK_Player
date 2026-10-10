@@ -19,7 +19,9 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QSignalSpy>
+#include <QSpinBox>
 #include <QTimer>
+#include <QToolButton>
 #include <QMouseEvent>
 #include <QTemporaryDir>
 #include <QTest>
@@ -85,6 +87,7 @@ private slots:
     void notesPanelWritesNotesWhileDrawing();
     void notesPanelExportsAReviewNotesPdf();
     void notesComposerBelongsToTheFrame();
+    void tracingPaperAndGhostingToggleAndPersist();
 };
 
 void TestAnnotationWorkflow::drawModeNeedsMedia()
@@ -460,6 +463,69 @@ void TestAnnotationWorkflow::notesComposerBelongsToTheFrame()
     panel.setFilter(atk::ui::NotesPanel::Filter::Resolved);
     QCOMPARE(panel.list()->count(), 1);
     QCOMPARE(panel.list()->item(0)->text(), QStringLiteral("frame 25 note"));
+}
+
+void TestAnnotationWorkflow::tracingPaperAndGhostingToggleAndPersist()
+{
+    QTemporaryDir directory;
+    const QString projectPath = writeProject(directory);
+    const QString settings = directory.filePath(QStringLiteral("settings.ini"));
+    {
+        atk::ui::MainWindow window(settings);
+        window.resize(1400, 800);
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        QVERIFY(openAt(window, projectPath, 20));
+        auto* viewer = window.findChild<atk::ui::ViewerWidget*>();
+        auto* toolbar = window.findChild<atk::ui::AnnotationToolbar*>();
+        QCOMPARE(viewer->tracingPaper(), 0);
+
+        // T toggles tracing paper at the default 50%; the arrow menu picks a level.
+        command(window, "draw.tracingPaper")->trigger();
+        QCOMPARE(viewer->tracingPaper(), 50);
+        QVERIFY(toolbar->tracingPaperButton()->isChecked());
+        emit toolbar->tracingPaperRequested(75);
+        QCOMPARE(viewer->tracingPaper(), 75);
+        QVERIFY(command(window, "draw.tracingPaper")->isChecked());
+        toolbar->tracingPaperButton()->click(); // off
+        QCOMPARE(viewer->tracingPaper(), 0);
+        QVERIFY(!command(window, "draw.tracingPaper")->isChecked());
+        command(window, "draw.tracingPaper")->trigger(); // back on at the last level
+        QCOMPARE(viewer->tracingPaper(), 75);
+
+        // Draw on frames 18 and 22, then ghost them from frame 20.
+        command(window, "draw.annotateMode")->trigger();
+        for (qint64 f : {18, 22}) {
+            window.playbackController()->seekFrame(f);
+            QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->currentFrame(), f, 5000);
+            QTRY_VERIFY(viewer->state() == atk::ui::ViewerWidget::State::Loaded);
+            drawStroke(viewer, {0.3, 0.4}, {0.6, 0.5});
+        }
+        window.playbackController()->seekFrame(20);
+        QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->currentFrame(), qint64(20), 5000);
+        QVERIFY(viewer->ghostFrames().isEmpty());
+        command(window, "draw.ghosting")->trigger(); // G, default 3 back / 3 forward
+        QTRY_COMPARE(viewer->ghostFrames().size(), 2);
+        QVERIFY(toolbar->ghostButton()->isChecked());
+        auto* before = toolbar->findChild<QSpinBox*>(QStringLiteral("GhostBefore"));
+        QVERIFY(before);
+        before->setValue(1); // frame 18 is now out of reach
+        QCOMPARE(viewer->ghostFrames().size(), 1);
+        QCOMPARE(viewer->ghostFrames()[0].offset, 2);
+        // Moving to another frame re-centres the ghosts.
+        window.playbackController()->seekFrame(19);
+        QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->currentFrame(), qint64(19), 5000);
+        QTRY_COMPARE(viewer->ghostFrames().size(), 2); // 18 is 1 back, 22 is 3 forward
+        QCOMPARE(viewer->ghostFrames()[0].offset, 3);
+        QCOMPARE(viewer->ghostFrames()[1].offset, -1);
+    }
+    // Both survive a restart.
+    atk::ui::MainWindow again(settings);
+    auto* viewer = again.findChild<atk::ui::ViewerWidget*>();
+    QCOMPARE(viewer->tracingPaper(), 75);
+    QVERIFY(command(again, "draw.ghosting")->isChecked());
+    QCOMPARE(again.findChild<QSpinBox*>(QStringLiteral("GhostBefore"))->value(), 1);
+    QCOMPARE(again.findChild<QSpinBox*>(QStringLiteral("GhostAfter"))->value(), 3);
 }
 
 QTEST_MAIN(TestAnnotationWorkflow)

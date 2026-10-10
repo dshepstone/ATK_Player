@@ -1,5 +1,6 @@
 #pragma once
 
+#include "annotation/AnnotationGhosting.h"
 #include "annotation/AnnotationToolSettings.h"
 #include "core/commands/CommandDefinitions.h"
 #include "core/commands/CommandId.h"
@@ -207,6 +208,10 @@ private:
     void bindAnnotationsToActiveSource();
     void refreshViewerAnnotations();
     void applyAnnotationTool(const annotation::AnnotationToolSettings& settings);
+    /// View aids: tracing paper (percent, 0 = off) and ghosting. Each updates
+    /// the viewer, the toolbar, the menu check and the saved settings.
+    void applyTracingPaper(int percent);
+    void applyGhostSettings(const annotation::GhostSettings& settings);
     void seekAnnotatedFrame(int direction);
     void importBrushSet();
     void refreshNotesPanel();
@@ -243,6 +248,9 @@ private:
     CommandRegistry* m_commands = nullptr;
     BookmarkPanel* m_bookmarks = nullptr;
     AnnotationToolbar* m_annotationToolbar = nullptr;
+    int m_tracingPaper = 0;
+    int m_tracingPaperLevel = 50;
+    annotation::GhostSettings m_ghostSettings;
     NotesPanel* m_notesPanel = nullptr;
     QDockWidget* m_notesDock = nullptr;
 

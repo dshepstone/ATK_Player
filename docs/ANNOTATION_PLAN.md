@@ -50,6 +50,27 @@ OS-specific code. `ROADMAP.md` still lists "Drawn annotations over frames" under
     a pkg-config `FindFFMPEG.cmake`, and `-fpermissive` (because `int64_t` and
     `qint64` differ on Linux). Do not commit any of that.
 
+### Tracing paper and ghosting (as built)
+
+- **Tracing paper** (`draw.tracingPaper`, **T**; toolbar **Trace ▾**): a white wash over
+  the picture and under the drawings, like SyncSketch's trace opacity. Levels 100 / 75 /
+  50 / 25 % / Off from the arrow menu; T and the button toggle at the last level used
+  (default 50 %). View only: never exported.
+- **Ghosting / onion skin** (`draw.ghosting`, **G**; toolbar **Ghost ▾**): drawings from
+  nearby frames shown faintly under the current frame's, earlier frames tinted red and
+  later frames green (tint can be turned off to keep their own colours). The arrow menu
+  sets **frames before** and **frames after** (0–30), and whether they count timeline
+  frames (every drawing within N frames) or drawn frames (the N nearest drawings each
+  way, however far apart). Nearer ghosts are stronger (opacity 0.55 fading to 0.15).
+  Frames with only notes never ghost. View only: never exported.
+- **Code:** `annotation::GhostSettings` / `ghostFramesFor` (`atk_core`, pure);
+  `ViewerWidget::setGhostFrames` composites each ghost frame flattened, tinted with
+  `SourceIn`, at its opacity, into a cached layer under the frame's own drawings;
+  `ViewerWidget::setTracingPaper`. Settings persist (`draw/tracingPaper*`, `draw/ghost*`).
+- **Tests:** `tst_annotationghosting` (selection, modes, order, fade, tint, clamping),
+  `tst_annotationviewer` (tracing paper and ghost pixels),
+  `tst_annotationworkflow::tracingPaperAndGhostingToggleAndPersist`.
+
 ### Review Notes PDF (Phase F, as built)
 
 - **Entry points:** File → Export Review Notes (PDF)… (`file.exportReviewNotes`) and the

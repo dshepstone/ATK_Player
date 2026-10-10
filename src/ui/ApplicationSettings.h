@@ -1,5 +1,6 @@
 #pragma once
 
+#include "annotation/AnnotationGhosting.h"
 #include "annotation/AnnotationToolSettings.h"
 #include "media/ImageSource.h"
 
@@ -70,6 +71,12 @@ public:
     annotation::AnnotationToolSettings annotationTool() const;
     /// Name written on review notes; defaults to the operating-system user.
     QString reviewerName() const;
+    /// Tracing paper opacity in percent (0 = off), and the level the toggle
+    /// turns it on at (25, 50, 75 or 100; default 50).
+    int tracingPaper() const;
+    int tracingPaperLevel() const;
+    /// Ghosting (onion skin) of nearby frames' drawings.
+    annotation::GhostSettings ghostSettings() const;
 
     void setRestoreWindowLayout(bool value);
     void setAudioScrubEnabled(bool value);
@@ -88,6 +95,9 @@ public:
     void setWelcomeShownVersion(const QString& version);
     void setAnnotationTool(const annotation::AnnotationToolSettings& settings);
     void setReviewerName(const QString& name);
+    void setTracingPaper(int percent);
+    void setTracingPaperLevel(int percent);
+    void setGhostSettings(const annotation::GhostSettings& settings);
 
     QByteArray windowGeometry() const;
     QByteArray windowState() const;

@@ -40,6 +40,13 @@ constexpr auto kDrawEraserSize = "draw/eraserSizePixels";
 constexpr auto kDrawEraserMode = "draw/eraserMode";
 constexpr auto kDrawBrushTip = "draw/brushTip";
 constexpr auto kReviewerName = "review/reviewerName";
+constexpr auto kTracingPaper = "draw/tracingPaper";
+constexpr auto kTracingPaperLevel = "draw/tracingPaperLevel";
+constexpr auto kGhostEnabled = "draw/ghostEnabled";
+constexpr auto kGhostBefore = "draw/ghostBefore";
+constexpr auto kGhostAfter = "draw/ghostAfter";
+constexpr auto kGhostMode = "draw/ghostMode";
+constexpr auto kGhostTint = "draw/ghostTint";
 
 QString curveName(annotation::PressureCurve curve)
 {
@@ -245,6 +252,56 @@ QString ApplicationSettings::reviewerName() const
     QString user = qEnvironmentVariable("USERNAME");
     if (user.isEmpty()) user = qEnvironmentVariable("USER");
     return user.left(200);
+}
+
+int ApplicationSettings::tracingPaper() const
+{
+    bool ok = false;
+    const int value = m_settings->value(QString::fromLatin1(kTracingPaper)).toInt(&ok);
+    return ok && value >= 0 && value <= 100 ? value : 0;
+}
+
+int ApplicationSettings::tracingPaperLevel() const
+{
+    bool ok = false;
+    const int value = m_settings->value(QString::fromLatin1(kTracingPaperLevel)).toInt(&ok);
+    return ok && value > 0 && value <= 100 ? value : 50;
+}
+
+annotation::GhostSettings ApplicationSettings::ghostSettings() const
+{
+    annotation::GhostSettings result;
+    result.enabled = readBool(kGhostEnabled, result.enabled);
+    bool ok = false;
+    const int before = m_settings->value(QString::fromLatin1(kGhostBefore)).toInt(&ok);
+    if (ok && before >= 0 && before <= annotation::GhostSettings::kMaxRange) result.before = before;
+    const int after = m_settings->value(QString::fromLatin1(kGhostAfter)).toInt(&ok);
+    if (ok && after >= 0 && after <= annotation::GhostSettings::kMaxRange) result.after = after;
+    if (m_settings->value(QString::fromLatin1(kGhostMode)).toString() == QStringLiteral("drawings"))
+        result.mode = annotation::GhostSettings::Mode::Drawings;
+    result.tint = readBool(kGhostTint, result.tint);
+    return result;
+}
+
+void ApplicationSettings::setTracingPaper(int percent)
+{
+    m_settings->setValue(QString::fromLatin1(kTracingPaper), std::clamp(percent, 0, 100));
+}
+
+void ApplicationSettings::setTracingPaperLevel(int percent)
+{
+    if (percent > 0) m_settings->setValue(QString::fromLatin1(kTracingPaperLevel), std::clamp(percent, 1, 100));
+}
+
+void ApplicationSettings::setGhostSettings(const annotation::GhostSettings& settings)
+{
+    m_settings->setValue(QString::fromLatin1(kGhostEnabled), settings.enabled);
+    m_settings->setValue(QString::fromLatin1(kGhostBefore), settings.before);
+    m_settings->setValue(QString::fromLatin1(kGhostAfter), settings.after);
+    m_settings->setValue(QString::fromLatin1(kGhostMode),
+                         settings.mode == annotation::GhostSettings::Mode::Drawings ? QStringLiteral("drawings")
+                                                                                    : QStringLiteral("frames"));
+    m_settings->setValue(QString::fromLatin1(kGhostTint), settings.tint);
 }
 
 void ApplicationSettings::setReviewerName(const QString& name)

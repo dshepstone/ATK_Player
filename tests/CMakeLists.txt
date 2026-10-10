@@ -23,6 +23,7 @@ set(ATK_TEST_SOURCES
     tst_apiserver.cpp
     tst_project.cpp
     tst_annotationstore.cpp
+    tst_annotationghosting.cpp
     tst_annotationproject.cpp
     tst_annotationrenderer.cpp
     tst_abrreader.cpp

@@ -5,6 +5,7 @@
 #include <QCheckBox>
 #include <QColorDialog>
 #include <QComboBox>
+#include <QHBoxLayout>
 #include <QLabel>
 #include <QMenu>
 #include <QPainter>
@@ -13,6 +14,7 @@
 #include <QSlider>
 #include <QSpinBox>
 #include <QToolButton>
+#include <QWidgetAction>
 
 #include <cmath>
 
@@ -186,8 +188,131 @@ AnnotationToolbar::AnnotationToolbar(QWidget* parent) : QToolBar(tr("Drawing"), 
         apply(next, true);
     });
 
+    addSeparator();
+
+    // Tracing paper: a white wash under the drawings, like SyncSketch's.
+    m_traceButton = new QToolButton(this);
+    m_traceButton->setObjectName(QStringLiteral("TracingPaperButton"));
+    m_traceButton->setText(tr("Trace"));
+    m_traceButton->setCheckable(true);
+    m_traceButton->setPopupMode(QToolButton::MenuButtonPopup);
+    m_traceButton->setToolTip(tr("Tracing paper: fade the picture so drawings stand out (T). "
+                                 "The arrow sets how strong it is."));
+    auto* traceMenu = new QMenu(m_traceButton);
+    traceMenu->addSection(tr("Trace opacity"));
+    m_traceLevels = new QActionGroup(traceMenu);
+    m_traceLevels->setExclusive(true);
+    for (int level : {100, 75, 50, 25, 0}) {
+        QAction* action = traceMenu->addAction(level == 0 ? tr("Off") : QStringLiteral("%1%").arg(level));
+        action->setCheckable(true);
+        action->setData(level);
+        m_traceLevels->addAction(action);
+        connect(action, &QAction::triggered, this, [this, level] { emit tracingPaperRequested(level); });
+    }
+    m_traceButton->setMenu(traceMenu);
+    addWidget(m_traceButton);
+    connect(m_traceButton, &QToolButton::clicked, this,
+            [this](bool on) { emit tracingPaperRequested(on ? m_traceLevel : 0); });
+
+    // Ghosting: drawings from nearby frames, faintly (onion skin).
+    m_ghostButton = new QToolButton(this);
+    m_ghostButton->setObjectName(QStringLiteral("GhostButton"));
+    m_ghostButton->setText(tr("Ghost"));
+    m_ghostButton->setCheckable(true);
+    m_ghostButton->setPopupMode(QToolButton::MenuButtonPopup);
+    m_ghostButton->setToolTip(tr("Ghost drawings from earlier frames (red) and later frames (green) (G). "
+                                 "The arrow sets how many frames each way."));
+    auto* ghostMenu = new QMenu(m_ghostButton);
+    ghostMenu->addSection(tr("Ghost drawings"));
+    auto spinRow = [&](const QString& label, QSpinBox*& spin, const QString& objectName) {
+        auto* row = new QWidget(ghostMenu);
+        auto* layout = new QHBoxLayout(row);
+        layout->setContentsMargins(22, 3, 10, 3);
+        layout->addWidget(new QLabel(label, row), 1);
+        spin = new QSpinBox(row);
+        spin->setObjectName(objectName);
+        spin->setRange(0, annotation::GhostSettings::kMaxRange);
+        layout->addWidget(spin);
+        auto* action = new QWidgetAction(ghostMenu);
+        action->setDefaultWidget(row);
+        ghostMenu->addAction(action);
+        connect(spin, &QSpinBox::valueChanged, this, [this] {
+            if (m_updating) return;
+            auto next = m_ghost;
+            next.before = m_ghostBefore->value();
+            next.after = m_ghostAfter->value();
+            next.enabled = true; // changing the reach means "show me"
+            emit ghostSettingsRequested(next);
+        });
+    };
+    spinRow(tr("Frames before"), m_ghostBefore, QStringLiteral("GhostBefore"));
+    spinRow(tr("Frames after"), m_ghostAfter, QStringLiteral("GhostAfter"));
+    ghostMenu->addSeparator();
+    auto* countGroup = new QActionGroup(ghostMenu);
+    m_ghostCountFrames = ghostMenu->addAction(tr("Count timeline frames"));
+    m_ghostCountFrames->setToolTip(tr("Ghost every drawing within that many frames"));
+    m_ghostCountDrawings = ghostMenu->addAction(tr("Count drawn frames"));
+    m_ghostCountDrawings->setToolTip(tr("Ghost that many drawn frames each way, however far apart"));
+    for (QAction* action : {m_ghostCountFrames, m_ghostCountDrawings}) {
+        action->setCheckable(true);
+        countGroup->addAction(action);
+        connect(action, &QAction::triggered, this, [this] {
+            auto next = m_ghost;
+            next.mode = m_ghostCountDrawings->isChecked() ? annotation::GhostSettings::Mode::Drawings
+                                                          : annotation::GhostSettings::Mode::Frames;
+            emit ghostSettingsRequested(next);
+        });
+    }
+    ghostMenu->addSeparator();
+    m_ghostTint = ghostMenu->addAction(tr("Tint (red before, green after)"));
+    m_ghostTint->setCheckable(true);
+    connect(m_ghostTint, &QAction::triggered, this, [this](bool on) {
+        auto next = m_ghost;
+        next.tint = on;
+        emit ghostSettingsRequested(next);
+    });
+    m_ghostButton->setMenu(ghostMenu);
+    addWidget(m_ghostButton);
+    connect(m_ghostButton, &QToolButton::clicked, this, [this](bool on) {
+        auto next = m_ghost;
+        next.enabled = on;
+        emit ghostSettingsRequested(next);
+    });
+
     setBrushSets({});
     apply(m_settings, false);
+    setTracingPaper(0, m_traceLevel);
+    setGhostSettings(m_ghost);
+}
+
+void AnnotationToolbar::setTracingPaper(int percent, int level)
+{
+    m_traceLevel = level > 0 ? level : 50;
+    QSignalBlocker blocker(m_traceButton);
+    m_traceButton->setChecked(percent > 0);
+    m_traceButton->setToolTip(percent > 0 ? tr("Tracing paper on at %1% (T). The arrow sets how strong it is.").arg(percent)
+                                          : tr("Tracing paper: fade the picture so drawings stand out (T). "
+                                               "The arrow sets how strong it is."));
+    for (QAction* action : m_traceLevels->actions()) action->setChecked(action->data().toInt() == percent);
+}
+
+void AnnotationToolbar::setGhostSettings(const annotation::GhostSettings& settings)
+{
+    m_ghost = settings;
+    const bool wasUpdating = m_updating;
+    m_updating = true;
+    {
+        QSignalBlocker blocker(m_ghostButton);
+        m_ghostButton->setChecked(settings.enabled);
+    }
+    m_ghostButton->setToolTip(tr("Ghost drawings from %1 frame(s) before (red) and %2 after (green) (G). "
+                                 "The arrow sets how many.").arg(settings.before).arg(settings.after));
+    m_ghostBefore->setValue(settings.before);
+    m_ghostAfter->setValue(settings.after);
+    m_ghostCountFrames->setChecked(settings.mode == annotation::GhostSettings::Mode::Frames);
+    m_ghostCountDrawings->setChecked(settings.mode == annotation::GhostSettings::Mode::Drawings);
+    m_ghostTint->setChecked(settings.tint);
+    m_updating = wasUpdating;
 }
 
 void AnnotationToolbar::setBrushSets(const QVector<annotation::BrushSet>& sets)

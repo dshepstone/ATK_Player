@@ -1,5 +1,6 @@
 #pragma once
 
+#include "annotation/AnnotationGhosting.h"
 #include "annotation/AnnotationToolSettings.h"
 #include "annotation/AnnotationTypes.h"
 #include "media/VideoFrame.h"
@@ -117,6 +118,16 @@ public:
     const annotation::FrameAnnotation& annotationFrame() const { return m_annotationFrame; }
     void setAnnotationsVisible(bool visible);
     bool annotationsVisible() const { return m_annotationsVisible; }
+
+    /// Drawings from nearby frames to show faintly under this frame's
+    /// (onion skin), for the frame `centerFrame`. Empty = no ghosts.
+    void setGhostFrames(qint64 centerFrame, const QVector<annotation::GhostFrame>& ghosts);
+    const QVector<annotation::GhostFrame>& ghostFrames() const { return m_ghosts; }
+
+    /// Tracing paper: a white wash over the picture, under the drawings, so
+    /// strokes read clearly (0 = off, 100 = blank paper). View only.
+    void setTracingPaper(int opacityPercent);
+    int tracingPaper() const { return m_tracingPaperPercent; }
 
     /// In annotate mode the left button / pen tip draws instead of doing
     /// nothing; middle-drag pan and wheel zoom keep working.
@@ -270,6 +281,15 @@ private:
     bool m_annotationCacheFlipped = false;
     quint64 m_annotationGeneration = 0;
     quint64 m_annotationCacheGeneration = ~quint64(0);
+    // Ghosts, composited once per change like the annotation cache.
+    QVector<annotation::GhostFrame> m_ghosts;
+    qint64 m_ghostCenterFrame = -1;
+    QImage m_ghostCache;
+    QRectF m_ghostCacheTarget;
+    bool m_ghostCacheFlipped = false;
+    quint64 m_ghostGeneration = 0;
+    quint64 m_ghostCacheGeneration = ~quint64(0);
+    int m_tracingPaperPercent = 0;
 };
 
 } // namespace atk::ui

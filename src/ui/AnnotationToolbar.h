@@ -1,5 +1,6 @@
 #pragma once
 
+#include "annotation/AnnotationGhosting.h"
 #include "annotation/AnnotationToolSettings.h"
 #include "annotation/BrushLibrary.h"
 
@@ -38,10 +39,20 @@ public:
     /// Rebuilds the Brushes menu from the imported sets.
     void setBrushSets(const QVector<annotation::BrushSet>& sets);
 
+    /// Shows the tracing paper state (0 = off) and the level its toggle uses,
+    /// and the ghosting settings, without emitting.
+    void setTracingPaper(int percent, int level);
+    void setGhostSettings(const annotation::GhostSettings& settings);
+    QToolButton* tracingPaperButton() const { return m_traceButton; }
+    QToolButton* ghostButton() const { return m_ghostButton; }
+
 signals:
     void settingsChanged(const atk::annotation::AnnotationToolSettings& settings);
     void importBrushesRequested();
     void removeBrushSetRequested(const QString& setName);
+    /// Tracing paper turned on/off or set to a level (percent, 0 = off).
+    void tracingPaperRequested(int percent);
+    void ghostSettingsRequested(const atk::annotation::GhostSettings& settings);
 
 private:
     void addToolAction(annotation::AnnotationTool tool, const QString& label, const QString& tip);
@@ -63,6 +74,16 @@ private:
     QComboBox* m_eraserModeCombo = nullptr;
     QToolButton* m_brushButton = nullptr;
     QVector<annotation::BrushSet> m_brushSets;
+    QToolButton* m_traceButton = nullptr;
+    QActionGroup* m_traceLevels = nullptr;
+    int m_traceLevel = 50;
+    QToolButton* m_ghostButton = nullptr;
+    QSpinBox* m_ghostBefore = nullptr;
+    QSpinBox* m_ghostAfter = nullptr;
+    QAction* m_ghostCountFrames = nullptr;
+    QAction* m_ghostCountDrawings = nullptr;
+    QAction* m_ghostTint = nullptr;
+    annotation::GhostSettings m_ghost;
     bool m_updating = false;
 };
 
