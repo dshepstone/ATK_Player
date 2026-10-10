@@ -13,8 +13,9 @@ namespace atk::annotation {
 
 /// What an item is. Pencil, Pen, Brush and Marker are freehand strokes that
 /// differ only in how the renderer shapes them; Line..Ellipse are two-point
-/// shapes; Text is one anchor point plus text. Eraser never appears in stored
-/// data -- it removes items rather than being one -- but the tool enum is
+/// shapes; Text is an anchor point (point text) or a box (paragraph text that
+/// wraps to the box width) plus text. Eraser and Select never appear in stored
+/// data -- they act on items rather than being one -- but the tool enum is
 /// shared with the UI so a tool choice maps to one value.
 enum class AnnotationTool {
     Pencil,
@@ -27,6 +28,7 @@ enum class AnnotationTool {
     Rectangle,
     Ellipse,
     Text,
+    Select,
 };
 
 /// Stable names used by the project file. Never reorder or rename: they are
@@ -34,7 +36,7 @@ enum class AnnotationTool {
 QString toolName(AnnotationTool tool);
 bool toolFromName(const QString& name, AnnotationTool* out);
 
-/// Whether items of this tool are stored (everything but Eraser).
+/// Whether items of this tool are stored (everything but Eraser and Select).
 bool isStoredTool(AnnotationTool tool);
 bool isFreehandTool(AnnotationTool tool);
 bool isShapeTool(AnnotationTool tool);
@@ -87,6 +89,14 @@ struct AnnotationLimits {
 /// in-range points for its kind, a valid colour, size and opacity within
 /// limits, and text only where the tool uses it.
 bool isValidItem(const AnnotationItem& item);
+
+/// True for paragraph text: a Text item with a box, whose lines wrap to the
+/// box width. Point text (one anchor) never wraps.
+bool isBoxText(const AnnotationItem& item);
+
+/// `item` moved by `delta` (normalised), with the delta clamped so every point
+/// stays on the picture. Used by the Select tool.
+AnnotationItem translatedItem(const AnnotationItem& item, const QPointF& delta);
 
 /// Everything drawn on one frame.
 struct FrameAnnotation {

@@ -41,6 +41,8 @@ private slots:
     void eraseDiscCutsOnlyWhatItCovers();
     void eraseDiscModesAndShapes();
     void storeEraseAssignsIdsAndGroupsUndo();
+    void boxTextValidityAndTranslation();
+    void replaceItemKeepsIdOrderAndUndo();
 };
 
 void TestAnnotationStore::toolNamesRoundTripAndRejectUnknown()
@@ -48,7 +50,7 @@ void TestAnnotationStore::toolNamesRoundTripAndRejectUnknown()
     for (AnnotationTool tool : {AnnotationTool::Pencil, AnnotationTool::Pen, AnnotationTool::Brush,
                                 AnnotationTool::Marker, AnnotationTool::Eraser, AnnotationTool::Line,
                                 AnnotationTool::Arrow, AnnotationTool::Rectangle,
-                                AnnotationTool::Ellipse, AnnotationTool::Text}) {
+                                AnnotationTool::Ellipse, AnnotationTool::Text, AnnotationTool::Select}) {
         AnnotationTool parsed = AnnotationTool::Text;
         QVERIFY2(toolFromName(toolName(tool), &parsed), qPrintable(toolName(tool)));
         QCOMPARE(parsed, tool);
@@ -57,6 +59,7 @@ void TestAnnotationStore::toolNamesRoundTripAndRejectUnknown()
     QVERIFY(!toolFromName(QStringLiteral("laser"), &untouched));
     QCOMPARE(untouched, AnnotationTool::Pen);
     QVERIFY(!isStoredTool(AnnotationTool::Eraser));
+    QVERIFY(!isStoredTool(AnnotationTool::Select));
 }
 
 void TestAnnotationStore::validityRulesPerKind()
@@ -412,6 +415,58 @@ void TestAnnotationStore::storeEraseAssignsIdsAndGroupsUndo()
     QVERIFY(store.undo());
     QVERIFY(!store.inEditGroup());
     QCOMPARE(store.frame(3).items.size(), 4);
+}
+
+void TestAnnotationStore::boxTextValidityAndTranslation()
+{
+    AnnotationItem text;
+    text.tool = AnnotationTool::Text;
+    text.text = QStringLiteral("note");
+    text.points = {{0.2f, 0.2f, 1, 0, 0}};
+    QVERIFY(isValidItem(text));
+    QVERIFY(!isBoxText(text));
+    text.points.append({0.6f, 0.4f, 1, 0, 0});
+    QVERIFY(isValidItem(text));
+    QVERIFY(isBoxText(text));
+    text.points[1].x = 0.1f; // a box must have width
+    QVERIFY(!isValidItem(text));
+    AnnotationItem selectItem = text;
+    selectItem.tool = AnnotationTool::Select;
+    QVERIFY(!isValidItem(selectItem));
+
+    const AnnotationItem item = line(0.5f); // x 0.1..0.9
+    const AnnotationItem moved = translatedItem(item, {0.05, -0.1});
+    QVERIFY(std::abs(moved.points[0].x - 0.15f) < 1e-6f && std::abs(moved.points[0].y - 0.4f) < 1e-6f);
+    QCOMPARE(moved.id, item.id);
+    // Clamped as a whole: the shape is kept, only the move is limited.
+    const AnnotationItem far = translatedItem(item, {0.5, 0.0});
+    QVERIFY(std::abs(far.points.constLast().x - 1.0f) < 1e-6f);
+    QVERIFY(std::abs((far.points.constLast().x - far.points.constFirst().x)
+                     - (item.points.constLast().x - item.points.constFirst().x)) < 1e-5f);
+    QVERIFY(isValidItem(far));
+}
+
+void TestAnnotationStore::replaceItemKeepsIdOrderAndUndo()
+{
+    AnnotationStore store;
+    const quint64 a = store.addItem(4, 0, stroke(0.2f, 0.2f));
+    const quint64 b = store.addItem(4, 0, stroke(0.5f, 0.5f));
+    store.clearHistory();
+    AnnotationItem moved = translatedItem(store.frame(4).items[0], {0.1, 0.1});
+    QVERIFY(store.replaceItem(4, moved));
+    QCOMPARE(store.frame(4).items[0].id, a); // still first, still the same id
+    QCOMPARE(store.frame(4).items[1].id, b);
+    QCOMPARE(store.frame(4).items[0], moved);
+    QVERIFY(!store.replaceItem(4, moved)); // no change, no undo step
+    AnnotationItem unknown = moved;
+    unknown.id = 999;
+    QVERIFY(!store.replaceItem(4, unknown));
+    AnnotationItem invalid = moved;
+    invalid.points.clear();
+    QVERIFY(!store.replaceItem(4, invalid));
+    QVERIFY(store.undo());
+    QCOMPARE(store.frame(4).items[0].points, stroke(0.2f, 0.2f).points);
+    QVERIFY(!store.canUndo());
 }
 
 QTEST_APPLESS_MAIN(TestAnnotationStore)

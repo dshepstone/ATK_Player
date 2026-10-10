@@ -41,6 +41,20 @@ quint64 AnnotationStore::addItem(int64_t frame, int64_t mediaTimeUs, AnnotationI
     return id;
 }
 
+bool AnnotationStore::replaceItem(int64_t frame, const AnnotationItem& item)
+{
+    const FrameAnnotation* found = m_annotations.find(frame);
+    if (!found || !isValidItem(item)) return false;
+    const auto it = std::find_if(found->items.cbegin(), found->items.cend(),
+                                 [&](const AnnotationItem& i) { return i.id == item.id; });
+    if (it == found->items.cend() || *it == item) return false;
+    FrameAnnotation before = *found;
+    FrameAnnotation after = before;
+    after.items[int(it - found->items.cbegin())] = item;
+    commit({{frame, std::move(before), std::move(after)}});
+    return true;
+}
+
 bool AnnotationStore::removeItem(int64_t frame, quint64 itemId)
 {
     const FrameAnnotation* found = m_annotations.find(frame);

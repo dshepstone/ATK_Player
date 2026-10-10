@@ -5,6 +5,7 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QPainterPathStroker>
+#include <QTextLayout>
 #include <QtMath>
 
 #include <algorithm>
@@ -74,20 +75,9 @@ qreal distanceToSegment(const QPointF& p, const QPointF& a, const QPointF& b)
     return std::hypot(p.x() - closest.x(), p.y() - closest.y());
 }
 
-QFont textFont(const QRectF& rect, const AnnotationItem& item)
-{
-    QFont font;
-    font.setPixelSize(std::max(6, qRound(item.size * 5.0 * rect.height())));
-    font.setBold(true);
-    return font;
-}
-
 QRectF textRect(const QRectF& rect, const AnnotationItem& item)
 {
-    const QFont font = textFont(rect, item);
-    const QFontMetricsF metrics(font);
-    const QPointF anchor = toPainter(rect, item.points.constFirst());
-    return QRectF(anchor, metrics.size(0, item.text));
+    return AnnotationRenderer::layoutText(rect, item).bounds;
 }
 
 void paintFreehand(QPainter& painter, const QRectF& rect, const AnnotationItem& item)
@@ -228,15 +218,15 @@ void paintShape(QPainter& painter, const QRectF& rect, const AnnotationItem& ite
 
 void paintText(QPainter& painter, const QRectF& rect, const AnnotationItem& item)
 {
-    const QFont font = textFont(rect, item);
-    const QPointF anchor = toPainter(rect, item.points.constFirst());
+    const AnnotationRenderer::TextBlock block = AnnotationRenderer::layoutText(rect, item);
     QPainterPath path;
-    path.addText(anchor + QPointF(0, QFontMetricsF(font).ascent()), font, item.text);
+    for (const AnnotationRenderer::TextLine& line : block.lines)
+        if (!line.text.isEmpty()) path.addText(line.baseline, block.font, line.text);
     painter.save();
     painter.setRenderHint(QPainter::Antialiasing, true);
     painter.setOpacity(painter.opacity() * item.opacity);
     // A thin dark outline keeps text readable over any picture.
-    const qreal outline = std::max<qreal>(1.0, font.pixelSize() / 10.0);
+    const qreal outline = std::max<qreal>(1.0, block.font.pixelSize() / 10.0);
     painter.strokePath(path, QPen(QColor(0, 0, 0, 160), outline * 2, Qt::SolidLine, Qt::RoundCap,
                                   Qt::RoundJoin));
     painter.fillPath(path, item.color);
@@ -244,6 +234,50 @@ void paintText(QPainter& painter, const QRectF& rect, const AnnotationItem& item
 }
 
 } // namespace
+
+QFont AnnotationRenderer::textFont(const QRectF& imageRect, const AnnotationItem& item)
+{
+    QFont font;
+    font.setPixelSize(std::max(6, qRound(item.size * 5.0 * imageRect.height())));
+    font.setBold(true);
+    return font;
+}
+
+AnnotationRenderer::TextBlock AnnotationRenderer::layoutText(const QRectF& imageRect, const AnnotationItem& item)
+{
+    TextBlock block;
+    block.font = textFont(imageRect, item);
+    if (item.points.isEmpty()) return block;
+    const QPointF anchor = toPainter(imageRect, item.points.constFirst());
+    const bool box = isBoxText(item);
+    const qreal boxWidth = box ? std::max<qreal>(1.0, (item.points[1].x - item.points[0].x) * imageRect.width()) : 0.0;
+
+    QString text = item.text;
+    text.replace(QLatin1Char('\n'), QChar::LineSeparator);
+    QTextLayout layout(text, block.font);
+    QTextOption option;
+    option.setWrapMode(box ? QTextOption::WrapAtWordBoundaryOrAnywhere : QTextOption::NoWrap);
+    layout.setTextOption(option);
+    layout.setCacheEnabled(true);
+    layout.beginLayout();
+    qreal y = 0.0;
+    qreal widest = 0.0;
+    for (;;) {
+        QTextLine line = layout.createLine();
+        if (!line.isValid()) break;
+        line.setLineWidth(box ? boxWidth : 1.0e7);
+        line.setPosition(QPointF(0.0, y));
+        QString segment = text.mid(line.textStart(), line.textLength());
+        while (!segment.isEmpty() && (segment.back() == QChar::LineSeparator || segment.back().isSpace()))
+            segment.chop(1);
+        block.lines.append({segment, anchor + QPointF(0.0, y + line.ascent()), line.naturalTextWidth()});
+        widest = std::max(widest, line.naturalTextWidth());
+        y += line.height();
+    }
+    layout.endLayout();
+    block.bounds = QRectF(anchor, QSizeF(box ? boxWidth : widest, y));
+    return block;
+}
 
 qreal AnnotationRenderer::inkRadius(const QRectF& imageRect, const AnnotationItem& item, qreal pressure)
 {

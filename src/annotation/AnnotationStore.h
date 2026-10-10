@@ -46,6 +46,11 @@ public:
     /// that case nothing changes.
     quint64 addItem(int64_t frame, int64_t mediaTimeUs, AnnotationItem item);
 
+    /// Replaces the item with `item.id` on `frame` (a move or a text edit),
+    /// keeping its id and stacking order. One undo step. Returns false for an
+    /// unknown id, an invalid item, or no actual change.
+    bool replaceItem(int64_t frame, const AnnotationItem& item);
+
     /// Removes one item. Returns false if the frame or id is unknown.
     bool removeItem(int64_t frame, quint64 itemId);
 

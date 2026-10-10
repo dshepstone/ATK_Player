@@ -5,7 +5,13 @@
 #include "core/Logging.h"
 #include "ui/Theme.h"
 
+#include <QApplication>
 #include <QElapsedTimer>
+#include <QFocusEvent>
+#include <QKeyEvent>
+#include <QTextDocument>
+#include <QTextEdit>
+#include <QTimer>
 #include <QFontMetrics>
 #include <QMouseEvent>
 #include <QPaintEvent>
@@ -46,6 +52,11 @@ void ViewerWidget::setFrame(const media::VideoFrame& frame)
         clear();
         return;
     }
+    if (frame.frameIndex != m_frame.frameIndex) {
+        // Text being typed belongs to the frame it started on; finish it there.
+        commitTextEdit();
+        m_selectedItemId = 0;
+    }
     m_frame = frame;
     m_state = State::Loaded;
     m_errorMessage.clear();
@@ -56,6 +67,8 @@ void ViewerWidget::setFrame(const media::VideoFrame& frame)
 
 void ViewerWidget::clear()
 {
+    commitTextEdit();
+    m_selectedItemId = 0;
     m_frame = media::VideoFrame{};
     m_state = State::Empty;
     cancelStroke();
@@ -214,6 +227,7 @@ void ViewerWidget::syncTransformSource(bool resetToFit)
 
 void ViewerWidget::notifyNavigationChanged()
 {
+    positionTextEditor();
     emit zoomChanged(m_transform.zoomRatio() * 100.0, m_transform.isFit());
 }
 
@@ -369,7 +383,25 @@ void ViewerWidget::mouseReleaseEvent(QMouseEvent* event)
 void ViewerWidget::mouseDoubleClickEvent(QMouseEvent* event)
 {
     if (event->button() == Qt::LeftButton && m_annotateMode) {
-        // While drawing, a quick double tap is two dots, not "fit".
+        // While drawing, a double click is a second press (two dots, or a
+        // double-click on text with Select), never "fit". Platforms differ in
+        // whether a plain press precedes this event; if that press already
+        // opened the text editor, leave it open.
+        if (m_textEdit || (m_stroke && m_stroke->fromTablet)) {
+            event->accept();
+            return;
+        }
+        // The system has already decided this is a double click: on text with
+        // the Select tool, that means "edit".
+        if (m_tool.tool == annotation::AnnotationTool::Select && canAnnotate()) {
+            if (const auto text = findItem(itemAt(event->position(), true))) {
+                m_selectedItemId = text->id;
+                beginTextEdit(m_frame.frameIndex, *text, true);
+                event->accept();
+                return;
+            }
+        }
+        beginStroke(event->position(), 1.0f, 0.0f, 0.0f, false, false);
         event->accept();
         return;
     }
@@ -444,6 +476,9 @@ void ViewerWidget::leaveEvent(QEvent* event)
 void ViewerWidget::setAnnotationFrame(const annotation::FrameAnnotation& frame)
 {
     m_annotationFrame = frame;
+    // Any hidden item has now been replaced by the owner's updated data.
+    if (!m_textEdit || !m_textEdit->existing) m_hiddenItemId = 0;
+    if (m_selectedItemId && !findItem(m_selectedItemId)) m_selectedItemId = 0;
     ++m_annotationGeneration;
     update();
 }
@@ -461,8 +496,10 @@ void ViewerWidget::setAnnotateMode(bool enabled)
     m_annotateMode = enabled;
     if (!enabled) {
         // Leaving the mode abandons an unfinished stroke rather than committing
-        // something the reviewer did not finish.
+        // something the reviewer did not finish; typed text is kept.
         cancelStroke();
+        commitTextEdit();
+        clearSelection();
         m_hoverPosition.reset();
     }
     setMouseTracking(enabled);
@@ -473,8 +510,20 @@ void ViewerWidget::setAnnotateMode(bool enabled)
 
 void ViewerWidget::setAnnotationTool(const annotation::AnnotationToolSettings& settings)
 {
+    const bool toolChanged = settings.tool != m_tool.tool;
     m_tool = settings;
+    if (toolChanged) {
+        commitTextEdit();
+        if (m_tool.tool != annotation::AnnotationTool::Select) clearSelection();
+    }
     updateAnnotateCursor();
+    update();
+}
+
+void ViewerWidget::clearSelection()
+{
+    if (m_selectedItemId == 0) return;
+    m_selectedItemId = 0;
     update();
 }
 
@@ -500,10 +549,49 @@ QPointF ViewerWidget::normalizedToWidget(const QPointF& normalized) const
 
 std::optional<annotation::AnnotationItem> ViewerWidget::strokePreview() const
 {
-    if (!m_stroke || m_stroke->eraser) return std::nullopt;
+    if (!m_stroke || m_stroke->kind != ActiveStroke::Kind::Draw) return std::nullopt;
     annotation::AnnotationItem item = m_stroke->item;
     if (m_stroke->builder) item.points = m_stroke->builder->points();
     return item;
+}
+
+std::optional<annotation::AnnotationItem> ViewerWidget::movePreview() const
+{
+    if (!m_stroke || m_stroke->kind != ActiveStroke::Kind::Move) return std::nullopt;
+    return annotation::translatedItem(m_stroke->item, m_stroke->currentNormalized - m_stroke->pressNormalized);
+}
+
+std::optional<annotation::AnnotationItem> ViewerWidget::findItem(quint64 id) const
+{
+    if (id == 0 || m_annotationFrame.frame != m_frame.frameIndex) return std::nullopt;
+    for (const annotation::AnnotationItem& item : m_annotationFrame.items)
+        if (item.id == id) return item;
+    return std::nullopt;
+}
+
+quint64 ViewerWidget::itemAt(const QPointF& widgetPosition, bool textOnly) const
+{
+    if (m_annotationFrame.isEmpty() || m_annotationFrame.frame != m_frame.frameIndex) return 0;
+    const QRectF target = m_transform.imageRect();
+    QPointF p = widgetPosition;
+    if (m_flipHorizontal) p.setX(target.left() + target.right() - p.x());
+    // Topmost first: the last drawn item is on top.
+    for (auto it = m_annotationFrame.items.crbegin(); it != m_annotationFrame.items.crend(); ++it) {
+        if (textOnly && it->tool != annotation::AnnotationTool::Text) continue;
+        if (annotation::AnnotationRenderer::hitTest(target, *it, p, 4.0)) return it->id;
+    }
+    return 0;
+}
+
+bool ViewerWidget::isDoublePress(const QPointF& position, quint64 itemId)
+{
+    const bool isDouble = itemId != 0 && itemId == m_lastPressItemId && m_lastPressTimer.isValid()
+        && m_lastPressTimer.elapsed() <= QApplication::doubleClickInterval()
+        && std::hypot(position.x() - m_lastPressPosition.x(), position.y() - m_lastPressPosition.y()) <= 6.0;
+    m_lastPressTimer.restart();
+    m_lastPressPosition = position;
+    m_lastPressItemId = isDouble ? 0 : itemId; // a third press starts over
+    return isDouble;
 }
 
 bool ViewerWidget::canAnnotate() const
@@ -527,7 +615,14 @@ bool ViewerWidget::beginStroke(const QPointF& position, float pressure, float ti
                                bool eraserPointer, bool fromTablet)
 {
     using annotation::AnnotationTool;
+    using Kind = ActiveStroke::Kind;
     if (!canAnnotate()) return false;
+    // A press on the picture while typing finishes the text, like clicking
+    // away from a text box in a design tool. That press does nothing else.
+    if (m_textEdit) {
+        commitTextEdit();
+        return true;
+    }
     const QPointF n = widgetToNormalized(position);
     const bool inside = n.x() >= 0.0 && n.x() <= 1.0 && n.y() >= 0.0 && n.y() <= 1.0;
 
@@ -535,9 +630,11 @@ bool ViewerWidget::beginStroke(const QPointF& position, float pressure, float ti
     stroke.frameIndex = m_frame.frameIndex;
     stroke.fromTablet = fromTablet;
     stroke.pressWidgetPosition = position;
+    stroke.pressNormalized = n;
+    stroke.currentNormalized = n;
 
     if (eraserPointer || m_tool.tool == AnnotationTool::Eraser) {
-        stroke.eraser = true;
+        stroke.kind = Kind::Erase;
         stroke.lastWidgetPosition = position;
         m_stroke = stroke;
         emit annotationEraseStarted(stroke.frameIndex);
@@ -545,14 +642,42 @@ bool ViewerWidget::beginStroke(const QPointF& position, float pressure, float ti
         update();
         return true;
     }
-    // Drawing starts on the picture; a press on the letterbox does nothing.
-    if (!inside) return false;
 
-    if (m_tool.tool == AnnotationTool::Text) {
-        emit annotationTextRequested(stroke.frameIndex, n);
+    if (m_tool.tool == AnnotationTool::Select) {
+        const quint64 hit = itemAt(position, false);
+        const auto item = findItem(hit);
+        if (isDoublePress(position, hit) && item && item->tool == AnnotationTool::Text) {
+            m_selectedItemId = hit;
+            beginTextEdit(stroke.frameIndex, *item, true);
+            return true;
+        }
+        m_selectedItemId = hit;
+        if (item) {
+            stroke.kind = Kind::Move;
+            stroke.item = *item;
+            m_stroke = stroke;
+        }
+        update();
         return true;
     }
 
+    if (m_tool.tool == AnnotationTool::Text) {
+        // Clicking existing text edits it; anywhere else starts new text.
+        if (const auto text = findItem(itemAt(position, true))) {
+            beginTextEdit(stroke.frameIndex, *text, true);
+            return true;
+        }
+        if (!inside) return false;
+        stroke.kind = Kind::TextBox;
+        m_stroke = stroke;
+        update();
+        return true;
+    }
+
+    // Drawing starts on the picture; a press on the letterbox does nothing.
+    if (!inside) return false;
+
+    stroke.kind = Kind::Draw;
     stroke.item = m_tool.makeItem(sourceImageHeight());
     if (annotation::isShapeTool(m_tool.tool)) {
         const annotation::StrokePoint p{float(n.x()), float(n.y()), 1.0f, 0.0f, 0.0f};
@@ -574,29 +699,77 @@ bool ViewerWidget::beginStroke(const QPointF& position, float pressure, float ti
 
 void ViewerWidget::continueStroke(const QPointF& position, float pressure, float tiltX, float tiltY)
 {
+    using Kind = ActiveStroke::Kind;
     if (!m_stroke) return;
-    if (m_stroke->eraser) {
+    const QPointF n = widgetToNormalized(position);
+    switch (m_stroke->kind) {
+    case Kind::Erase:
         eraseAlong(m_stroke->lastWidgetPosition, position, pressure);
         m_stroke->lastWidgetPosition = position;
-        update();
-        return;
-    }
-    const QPointF n = widgetToNormalized(position);
-    if (m_stroke->builder) {
-        m_stroke->builder->addSample(n, pressure, tiltX, tiltY);
-    } else if (m_stroke->item.points.size() == 2) {
-        m_stroke->item.points[1].x = float(std::clamp(n.x(), 0.0, 1.0));
-        m_stroke->item.points[1].y = float(std::clamp(n.y(), 0.0, 1.0));
+        break;
+    case Kind::Move:
+        m_stroke->currentNormalized = n;
+        // Hide the original only once it actually moves, so a plain click to
+        // select never flickers.
+        if (m_hiddenItemId != m_stroke->item.id && n != m_stroke->pressNormalized) {
+            m_hiddenItemId = m_stroke->item.id;
+            ++m_annotationGeneration;
+        }
+        break;
+    case Kind::TextBox:
+        m_stroke->currentNormalized = QPointF(std::clamp(n.x(), 0.0, 1.0), std::clamp(n.y(), 0.0, 1.0));
+        break;
+    case Kind::Draw:
+        if (m_stroke->builder) {
+            m_stroke->builder->addSample(n, pressure, tiltX, tiltY);
+        } else if (m_stroke->item.points.size() == 2) {
+            m_stroke->item.points[1].x = float(std::clamp(n.x(), 0.0, 1.0));
+            m_stroke->item.points[1].y = float(std::clamp(n.y(), 0.0, 1.0));
+        }
+        break;
     }
     update();
 }
 
 void ViewerWidget::finishStroke()
 {
+    using Kind = ActiveStroke::Kind;
     if (!m_stroke) return;
     ActiveStroke stroke = std::move(*m_stroke);
     m_stroke.reset();
-    if (!stroke.eraser) {
+    switch (stroke.kind) {
+    case Kind::Erase:
+        emit annotationEraseFinished();
+        break;
+    case Kind::Move: {
+        const annotation::AnnotationItem moved =
+            annotation::translatedItem(stroke.item, stroke.currentNormalized - stroke.pressNormalized);
+        if (moved != stroke.item) emit annotationItemChanged(stroke.frameIndex, moved);
+        // Whether or not the owner applied it, show the real data again.
+        if (m_hiddenItemId == stroke.item.id) {
+            m_hiddenItemId = 0;
+            ++m_annotationGeneration;
+        }
+        break;
+    }
+    case Kind::TextBox: {
+        // A click places point text; a drag defines a box the text wraps in.
+        annotation::AnnotationItem item = m_tool.makeItem(sourceImageHeight());
+        item.tool = annotation::AnnotationTool::Text;
+        const QPointF a = stroke.pressNormalized;
+        const QPointF b = stroke.currentNormalized;
+        const QPointF wa = normalizedToWidget(a);
+        const QPointF wb = normalizedToWidget(b);
+        const bool box = std::abs(wb.x() - wa.x()) >= 12.0;
+        const float left = float(std::clamp(std::min(a.x(), b.x()), 0.0, 1.0));
+        const float top = float(std::clamp(box ? std::min(a.y(), b.y()) : a.y(), 0.0, 1.0));
+        item.points = {{box ? left : float(std::clamp(a.x(), 0.0, 1.0)), top, 1.0f, 0.0f, 0.0f}};
+        if (box) item.points.append({float(std::clamp(std::max(a.x(), b.x()), 0.0, 1.0)),
+                                     float(std::clamp(std::max(a.y(), b.y()), 0.0, 1.0)), 1.0f, 0.0f, 0.0f});
+        beginTextEdit(stroke.frameIndex, item, false);
+        break;
+    }
+    case Kind::Draw:
         if (stroke.builder) {
             stroke.item.points = stroke.builder->finish();
         } else if (stroke.item.points.size() == 2) {
@@ -607,8 +780,7 @@ void ViewerWidget::finishStroke()
         }
         if (annotation::isValidItem(stroke.item))
             emit annotationItemDrawn(stroke.frameIndex, stroke.item);
-    } else {
-        emit annotationEraseFinished();
+        break;
     }
     update();
 }
@@ -616,10 +788,14 @@ void ViewerWidget::finishStroke()
 void ViewerWidget::cancelStroke()
 {
     if (!m_stroke) return;
-    const bool eraser = m_stroke->eraser;
+    const ActiveStroke stroke = std::move(*m_stroke);
     m_stroke.reset();
+    if (stroke.kind == ActiveStroke::Kind::Move && m_hiddenItemId == stroke.item.id) {
+        m_hiddenItemId = 0;
+        ++m_annotationGeneration;
+    }
     // Erasing already applied stays applied; only the undo group is closed.
-    if (eraser) emit annotationEraseFinished();
+    if (stroke.isEraser()) emit annotationEraseFinished();
 }
 
 void ViewerWidget::eraseAlong(const QPointF& from, const QPointF& to, float pressure)
@@ -647,6 +823,156 @@ void ViewerWidget::eraseAlong(const QPointF& from, const QPointF& to, float pres
     emit annotationEraseRequested(frameIndex, centers, radius, imageSize);
 }
 
+// --- In-place text editing -----------------------------------------------
+
+void ViewerWidget::beginTextEdit(qint64 frameIndex, const annotation::AnnotationItem& item, bool existing)
+{
+    finishTextEdit(true);
+    m_textEdit = TextEditState{frameIndex, item, existing};
+    if (existing) {
+        // The editor shows the text while it is edited; hide the drawn copy.
+        m_hiddenItemId = item.id;
+        ++m_annotationGeneration;
+    }
+
+    auto* editor = new QTextEdit(this);
+    editor->setObjectName(QStringLiteral("annotationTextEditor"));
+    editor->setAcceptRichText(false);
+    editor->setFrameShape(QFrame::NoFrame);
+    editor->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    editor->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    editor->document()->setDocumentMargin(0.0);
+    editor->viewport()->setAutoFillBackground(false);
+    editor->setAutoFillBackground(false);
+    editor->setStyleSheet(QStringLiteral("QTextEdit { background: transparent; border: none; }"));
+    QPalette palette = editor->palette();
+    palette.setColor(QPalette::Text, item.color.isValid() ? item.color : QColor(Qt::white));
+    palette.setColor(QPalette::Base, Qt::transparent);
+    editor->setPalette(palette);
+    if (annotation::isBoxText(item)) {
+        editor->setLineWrapMode(QTextEdit::FixedPixelWidth);
+        editor->setWordWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
+    } else {
+        editor->setLineWrapMode(QTextEdit::NoWrap);
+    }
+    editor->setPlainText(item.text);
+    editor->moveCursor(QTextCursor::End);
+    editor->installEventFilter(this);
+    connect(editor, &QTextEdit::textChanged, this, [this] {
+        positionTextEditor();
+        update(); // the dashed frame follows the text
+    });
+    m_textEditor = editor;
+    positionTextEditor();
+    editor->show();
+    editor->setFocus(Qt::OtherFocusReason);
+    update();
+}
+
+void ViewerWidget::positionTextEditor()
+{
+    if (!m_textEdit || !m_textEditor) return;
+    const QRectF target = m_transform.imageRect();
+    const annotation::AnnotationItem& item = m_textEdit->item;
+    const QFont font = annotation::AnnotationRenderer::textFont(target, item);
+    m_textEditor->setFont(font);
+    // Placed unmirrored even when the view is flipped, so it stays readable.
+    const QPointF anchor(target.left() + item.points[0].x * target.width(),
+                         target.top() + item.points[0].y * target.height());
+    QTextDocument* document = m_textEditor->document();
+    qreal width = 0.0;
+    if (annotation::isBoxText(item)) {
+        width = std::max<qreal>(16.0, (item.points[1].x - item.points[0].x) * target.width());
+        m_textEditor->setLineWrapColumnOrWidth(int(std::ceil(width)));
+        document->setTextWidth(width);
+    } else {
+        document->setTextWidth(-1);
+        width = document->idealWidth() + QFontMetricsF(font).averageCharWidth() * 2.0;
+    }
+    const qreal height = std::max<qreal>(document->size().height(), QFontMetricsF(font).lineSpacing());
+    m_textEditor->setGeometry(QRectF(anchor, QSizeF(width + 2.0, height + 2.0)).toAlignedRect());
+}
+
+void ViewerWidget::commitTextEdit() { finishTextEdit(true); }
+void ViewerWidget::cancelTextEdit() { finishTextEdit(false); }
+
+void ViewerWidget::finishTextEdit(bool commit)
+{
+    if (!m_textEdit) return;
+    const TextEditState state = std::move(*m_textEdit);
+    m_textEdit.reset();
+    QString text;
+    if (m_textEditor) {
+        text = m_textEditor->toPlainText();
+        m_textEditor->removeEventFilter(this);
+        m_textEditor->hide();
+        m_textEditor->deleteLater();
+        m_textEditor = nullptr;
+    }
+    if (state.existing && m_hiddenItemId == state.item.id) {
+        m_hiddenItemId = 0;
+        ++m_annotationGeneration;
+    }
+    // Trailing blank lines are a slip of the Enter key, not content.
+    while (text.endsWith(QLatin1Char('\n')) || text.endsWith(QLatin1Char(' '))) text.chop(1);
+    if (commit) {
+        annotation::AnnotationItem item = state.item;
+        item.text = text.left(annotation::AnnotationLimits::kMaxTextLength);
+        if (text.trimmed().isEmpty()) {
+            // Emptying existing text deletes it; empty new text is simply dropped.
+            if (state.existing) emit annotationItemDeleteRequested(state.frameIndex, state.item.id);
+        } else if (state.existing) {
+            if (item != state.item) emit annotationItemChanged(state.frameIndex, item);
+        } else if (annotation::isValidItem(item)) {
+            emit annotationItemDrawn(state.frameIndex, item);
+        }
+    }
+    if (m_annotateMode) setFocus(Qt::OtherFocusReason);
+    update();
+}
+
+bool ViewerWidget::eventFilter(QObject* watched, QEvent* event)
+{
+    if (m_textEditor && watched == m_textEditor) {
+        if (event->type() == QEvent::KeyPress) {
+            auto* key = static_cast<QKeyEvent*>(event);
+            if (key->key() == Qt::Key_Escape) {
+                cancelTextEdit();
+                return true;
+            }
+            if ((key->key() == Qt::Key_Return || key->key() == Qt::Key_Enter)
+                && (key->modifiers() & Qt::ControlModifier)) {
+                commitTextEdit();
+                return true;
+            }
+        } else if (event->type() == QEvent::FocusOut) {
+            // Clicking anywhere else (another panel, the timeline) finishes the text.
+            const auto reason = static_cast<QFocusEvent*>(event)->reason();
+            if (reason != Qt::PopupFocusReason && reason != Qt::ActiveWindowFocusReason)
+                QTimer::singleShot(0, this, [this] { commitTextEdit(); });
+        }
+    }
+    return QWidget::eventFilter(watched, event);
+}
+
+void ViewerWidget::keyPressEvent(QKeyEvent* event)
+{
+    if (m_annotateMode && m_selectedItemId != 0 && findItem(m_selectedItemId)
+        && (event->key() == Qt::Key_Delete || event->key() == Qt::Key_Backspace)) {
+        const quint64 id = m_selectedItemId;
+        m_selectedItemId = 0;
+        emit annotationItemDeleteRequested(m_frame.frameIndex, id);
+        event->accept();
+        return;
+    }
+    if (m_annotateMode && m_selectedItemId != 0 && event->key() == Qt::Key_Escape) {
+        clearSelection();
+        event->accept();
+        return;
+    }
+    QWidget::keyPressEvent(event);
+}
+
 void ViewerWidget::updateAnnotateCursor()
 {
     if (m_middlePanning) return;
@@ -655,9 +981,15 @@ void ViewerWidget::updateAnnotateCursor()
         return;
     }
     using annotation::AnnotationTool;
-    const bool brush = annotation::isFreehandTool(m_tool.tool) || m_tool.tool == AnnotationTool::Eraser;
-    // Freehand tools draw their own size circle, so the arrow would only hide it.
-    setCursor(brush ? Qt::BlankCursor : Qt::CrossCursor);
+    if (m_tool.tool == AnnotationTool::Select) {
+        setCursor(Qt::ArrowCursor);
+    } else if (m_tool.tool == AnnotationTool::Text) {
+        setCursor(Qt::IBeamCursor);
+    } else {
+        const bool brush = annotation::isFreehandTool(m_tool.tool) || m_tool.tool == AnnotationTool::Eraser;
+        // Freehand tools draw their own size circle, so the arrow would only hide it.
+        setCursor(brush ? Qt::BlankCursor : Qt::CrossCursor);
+    }
 }
 
 void ViewerWidget::setHoverPosition(std::optional<QPointF> position)
@@ -688,26 +1020,51 @@ void ViewerWidget::paintAnnotations(QPainter& painter, const QRectF& target)
             m_annotationCache.fill(Qt::transparent);
             QPainter cachePainter(&m_annotationCache);
             applyFlip(cachePainter);
-            annotation::AnnotationRenderer::paintFrame(cachePainter, target, m_annotationFrame);
+            for (const annotation::AnnotationItem& item : m_annotationFrame.items)
+                if (item.id != m_hiddenItemId)
+                    annotation::AnnotationRenderer::paintItem(cachePainter, target, item);
             m_annotationCacheGeneration = m_annotationGeneration;
             m_annotationCacheTarget = target;
             m_annotationCacheFlipped = m_flipHorizontal;
         }
         painter.drawImage(QPointF(0.0, 0.0), m_annotationCache);
     }
-    if (const auto preview = strokePreview(); preview && annotation::isValidItem(*preview)) {
-        painter.save();
-        applyFlip(painter);
+    painter.save();
+    applyFlip(painter);
+    if (const auto preview = strokePreview(); preview && annotation::isValidItem(*preview))
         annotation::AnnotationRenderer::paintItem(painter, target, *preview);
-        painter.restore();
+    const auto moving = movePreview();
+    if (moving && m_hiddenItemId == moving->id) annotation::AnnotationRenderer::paintItem(painter, target, *moving);
+
+    // Selection frame, the text box being dragged out, and the frame around
+    // text being typed: dashed, light over dark, readable on any picture.
+    auto dashed = [&](const QRectF& rect) {
+        painter.setBrush(Qt::NoBrush);
+        painter.setPen(QPen(QColor(0, 0, 0, 170), 1.0));
+        painter.drawRect(rect.adjusted(-1, -1, 1, 1));
+        QPen light(QColor(255, 255, 255, 230), 1.0, Qt::DashLine);
+        painter.setPen(light);
+        painter.drawRect(rect);
+    };
+    std::optional<annotation::AnnotationItem> selected = moving ? moving : findItem(m_selectedItemId);
+    if (selected && m_tool.tool == annotation::AnnotationTool::Select && !m_textEdit)
+        dashed(annotation::AnnotationRenderer::itemBounds(target, *selected).adjusted(-3, -3, 3, 3));
+    if (m_stroke && m_stroke->kind == ActiveStroke::Kind::TextBox) {
+        const QPointF a(target.left() + m_stroke->pressNormalized.x() * target.width(),
+                        target.top() + m_stroke->pressNormalized.y() * target.height());
+        const QPointF b(target.left() + m_stroke->currentNormalized.x() * target.width(),
+                        target.top() + m_stroke->currentNormalized.y() * target.height());
+        dashed(QRectF(a, b).normalized());
     }
+    painter.restore();
+    if (m_textEditor && m_textEditor->isVisible()) dashed(QRectF(m_textEditor->geometry()).adjusted(-3, -3, 2, 2));
 }
 
 void ViewerWidget::paintBrushCursor(QPainter& painter)
 {
     using annotation::AnnotationTool;
     if (!m_annotateMode || !m_hoverPosition || m_middlePanning) return;
-    const bool erasing = m_hoverIsEraser || m_tool.tool == AnnotationTool::Eraser || (m_stroke && m_stroke->eraser);
+    const bool erasing = m_hoverIsEraser || m_tool.tool == AnnotationTool::Eraser || (m_stroke && m_stroke->isEraser());
     if (!annotation::isFreehandTool(m_tool.tool) && !erasing) return;
     const qreal imagePixels = erasing ? m_tool.eraserRadius(1.0f) : 0.5 * m_tool.sizePixels;
     const qreal radius = std::max<qreal>(1.5, imagePixels * widgetPixelsPerSourcePixel());

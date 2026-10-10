@@ -1,3 +1,4 @@
+#include "annotation/AnnotationRenderer.h"
 #include "annotation/AnnotationStore.h"
 #include "annotation/AnnotationTypes.h"
 #include "media/VideoFrame.h"
@@ -8,6 +9,7 @@
 #include <QSignalSpy>
 #include <QTabletEvent>
 #include <QTest>
+#include <QTextEdit>
 
 #include <memory>
 
@@ -114,7 +116,14 @@ private slots:
     void flippedViewStoresUnflippedCoordinates();
     void zoomedViewMapsToTheSameImagePoint();
     void shapeNeedsADrag();
-    void textToolAsksForText();
+    void textClickTypesInPlaceAndCommits();
+    void textDragMakesAWrappingBox();
+    void textEscapeAndEmptyTextAddNothing();
+    void clickingExistingTextEditsIt();
+    void selectDragMovesAnItem();
+    void deleteKeyRemovesTheSelection();
+    void doublePressOnTextWithSelectEdits();
+    void changingFrameFinishesText();
     void leavingAnnotateModeCancelsAStroke();
     void doubleClickDoesNotFitWhileAnnotating();
     void annotationsPaintOnlyOnTheirFrame();
@@ -360,19 +369,234 @@ void TestAnnotationViewer::shapeNeedsADrag()
     QVERIFY(std::abs(item.points[1].x - 0.6f) < 0.02f && std::abs(item.points[1].y - 0.7f) < 0.02f);
 }
 
-void TestAnnotationViewer::textToolAsksForText()
+namespace {
+void useTool(ViewerWidget& viewer, AnnotationTool tool)
+{
+    annotation::AnnotationToolSettings settings = viewer.annotationTool();
+    settings.tool = tool;
+    viewer.setAnnotationTool(settings);
+}
+
+void drag(ViewerWidget& viewer, QPoint from, QPoint to)
+{
+    QTest::mousePress(&viewer, Qt::LeftButton, {}, from);
+    for (int i = 1; i <= 4; ++i) {
+        const QPoint p = from + (to - from) * i / 4;
+        QMouseEvent move(QEvent::MouseMove, p, viewer.mapToGlobal(p), Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(&viewer, &move);
+    }
+    QTest::mouseRelease(&viewer, Qt::LeftButton, {}, to);
+}
+
+AnnotationItem textItem(quint64 id, const QString& text, float x = 0.3f, float y = 0.3f)
+{
+    AnnotationItem item;
+    item.id = id;
+    item.tool = AnnotationTool::Text;
+    item.size = 0.03;
+    item.text = text;
+    item.points = {{x, y, 1, 0, 0}};
+    return item;
+}
+} // namespace
+
+void TestAnnotationViewer::textClickTypesInPlaceAndCommits()
 {
     Fixture f;
-    annotation::AnnotationToolSettings tool;
-    tool.tool = AnnotationTool::Text;
-    f.viewer.setAnnotationTool(tool);
+    useTool(f.viewer, AnnotationTool::Text);
     f.viewer.setAnnotateMode(true);
-    QSignalSpy asked(&f.viewer, &ViewerWidget::annotationTextRequested);
+    QSignalSpy drawn(&f.viewer, &ViewerWidget::annotationItemDrawn);
+
     QTest::mouseClick(&f.viewer, Qt::LeftButton, {}, f.at(0.4, 0.3));
-    QCOMPARE(asked.count(), 1);
-    QCOMPARE(asked.at(0).at(0).toLongLong(), qint64(12));
-    const QPointF n = asked.at(0).at(1).toPointF();
-    QVERIFY(std::abs(n.x() - 0.4) < 0.02 && std::abs(n.y() - 0.3) < 0.02);
+    QVERIFY(f.viewer.isEditingText());
+    QTextEdit* editor = f.viewer.textEditor();
+    QVERIFY(editor && editor->isVisible());
+    // The caret sits where the reviewer clicked.
+    QVERIFY((editor->geometry().topLeft() - f.at(0.4, 0.3)).manhattanLength() <= 2);
+    QTRY_VERIFY(editor->hasFocus());
+
+    QTest::keyClicks(editor, QStringLiteral("fix the nose"));
+    QTest::keyClick(editor, Qt::Key_Return); // Enter is a new line, not "done"
+    QTest::keyClicks(editor, QStringLiteral("and the chin"));
+    QVERIFY(f.viewer.isEditingText());
+    QTest::keyClick(editor, Qt::Key_Return, Qt::ControlModifier); // Ctrl+Enter finishes
+
+    QVERIFY(!f.viewer.isEditingText());
+    QCOMPARE(drawn.count(), 1);
+    QCOMPARE(drawn.at(0).at(0).toLongLong(), qint64(12));
+    const auto item = drawn.at(0).at(1).value<AnnotationItem>();
+    QCOMPARE(item.tool, AnnotationTool::Text);
+    QCOMPARE(item.text, QStringLiteral("fix the nose\nand the chin"));
+    QCOMPARE(item.points.size(), 1); // point text
+    QVERIFY(std::abs(item.points[0].x - 0.4f) < 0.02f && std::abs(item.points[0].y - 0.3f) < 0.02f);
+}
+
+void TestAnnotationViewer::textDragMakesAWrappingBox()
+{
+    Fixture f;
+    useTool(f.viewer, AnnotationTool::Text);
+    f.viewer.setAnnotateMode(true);
+    QSignalSpy drawn(&f.viewer, &ViewerWidget::annotationItemDrawn);
+
+    drag(f.viewer, f.at(0.2, 0.2), f.at(0.6, 0.5));
+    QVERIFY(f.viewer.isEditingText());
+    const int boxWidth = f.at(0.6, 0.2).x() - f.at(0.2, 0.2).x();
+    QVERIFY(std::abs(f.viewer.textEditor()->width() - boxWidth) <= 4);
+    QTest::keyClicks(f.viewer.textEditor(), QStringLiteral("a long note that should wrap inside the box"));
+    // Clicking elsewhere on the picture finishes the text (and does nothing else).
+    QTest::mouseClick(&f.viewer, Qt::LeftButton, {}, f.at(0.9, 0.9));
+    QVERIFY(!f.viewer.isEditingText());
+    QCOMPARE(drawn.count(), 1);
+    const auto item = drawn.at(0).at(1).value<AnnotationItem>();
+    QVERIFY(annotation::isBoxText(item));
+    QVERIFY(std::abs(item.points[0].x - 0.2f) < 0.02f && std::abs(item.points[1].x - 0.6f) < 0.02f);
+}
+
+void TestAnnotationViewer::textEscapeAndEmptyTextAddNothing()
+{
+    Fixture f;
+    useTool(f.viewer, AnnotationTool::Text);
+    f.viewer.setAnnotateMode(true);
+    QSignalSpy drawn(&f.viewer, &ViewerWidget::annotationItemDrawn);
+    QTest::mouseClick(&f.viewer, Qt::LeftButton, {}, f.at(0.4, 0.3));
+    QTest::keyClicks(f.viewer.textEditor(), QStringLiteral("never mind"));
+    QTest::keyClick(f.viewer.textEditor(), Qt::Key_Escape);
+    QVERIFY(!f.viewer.isEditingText());
+    QTest::mouseClick(&f.viewer, Qt::LeftButton, {}, f.at(0.5, 0.5));
+    f.viewer.commitTextEdit(); // nothing typed
+    QCOMPARE(drawn.count(), 0);
+}
+
+void TestAnnotationViewer::clickingExistingTextEditsIt()
+{
+    Fixture f;
+    annotation::FrameAnnotation existing;
+    existing.frame = 12;
+    existing.items = {textItem(9, QStringLiteral("old note"))};
+    f.viewer.setAnnotationFrame(existing);
+    useTool(f.viewer, AnnotationTool::Text);
+    f.viewer.setAnnotateMode(true);
+    QSignalSpy changed(&f.viewer, &ViewerWidget::annotationItemChanged);
+    QSignalSpy deleted(&f.viewer, &ViewerWidget::annotationItemDeleteRequested);
+
+    const QRectF bounds = annotation::AnnotationRenderer::itemBounds(f.viewer.transform().imageRect(),
+                                                                     existing.items[0]);
+    QTest::mouseClick(&f.viewer, Qt::LeftButton, {}, bounds.center().toPoint());
+    QVERIFY(f.viewer.isEditingText());
+    QCOMPARE(f.viewer.textEditor()->toPlainText(), QStringLiteral("old note"));
+    f.viewer.textEditor()->setPlainText(QStringLiteral("new note"));
+    f.viewer.commitTextEdit();
+    QCOMPARE(changed.count(), 1);
+    const auto item = changed.at(0).at(1).value<AnnotationItem>();
+    QCOMPARE(item.id, quint64(9));
+    QCOMPARE(item.text, QStringLiteral("new note"));
+    QCOMPARE(item.points, existing.items[0].points); // edited in place
+
+    // Emptying the text deletes the label.
+    QTest::mouseClick(&f.viewer, Qt::LeftButton, {}, bounds.center().toPoint());
+    f.viewer.textEditor()->clear();
+    f.viewer.commitTextEdit();
+    QCOMPARE(deleted.count(), 1);
+    QCOMPARE(deleted.at(0).at(1).toULongLong(), quint64(9));
+}
+
+void TestAnnotationViewer::selectDragMovesAnItem()
+{
+    Fixture f;
+    annotation::FrameAnnotation existing;
+    existing.frame = 12;
+    AnnotationItem line = horizontalLine();
+    line.id = 5;
+    existing.items = {line};
+    f.viewer.setAnnotationFrame(existing);
+    useTool(f.viewer, AnnotationTool::Select);
+    f.viewer.setAnnotateMode(true);
+    QSignalSpy changed(&f.viewer, &ViewerWidget::annotationItemChanged);
+
+    drag(f.viewer, f.at(0.5, 0.5), f.at(0.5, 0.7));
+    QCOMPARE(f.viewer.selectedItemId(), quint64(5));
+    QCOMPARE(changed.count(), 1);
+    const auto moved = changed.at(0).at(1).value<AnnotationItem>();
+    QCOMPARE(moved.id, quint64(5));
+    for (int i = 0; i < moved.points.size(); ++i) {
+        QVERIFY(std::abs(moved.points[i].y - 0.7f) < 0.02f);
+        QVERIFY(std::abs(moved.points[i].x - line.points[i].x) < 0.01f);
+    }
+
+    // Dragging far off the picture stops at its edge.
+    drag(f.viewer, f.at(0.5, 0.5), QPoint(f.viewer.width() - 1, f.at(0.5, 0.5).y()));
+    const auto clamped = changed.last().at(1).value<AnnotationItem>();
+    for (const auto& p : clamped.points) QVERIFY(p.x <= 1.0f);
+    QVERIFY(std::abs(clamped.points[1].x - 1.0f) < 0.001f);
+
+    // A click on empty picture clears the selection; a plain click selects without moving.
+    QTest::mouseClick(&f.viewer, Qt::LeftButton, {}, f.at(0.5, 0.1));
+    QCOMPARE(f.viewer.selectedItemId(), quint64(0));
+    const int before = changed.count();
+    QTest::mouseClick(&f.viewer, Qt::LeftButton, {}, f.at(0.5, 0.5));
+    QCOMPARE(f.viewer.selectedItemId(), quint64(5));
+    QCOMPARE(changed.count(), before);
+}
+
+void TestAnnotationViewer::deleteKeyRemovesTheSelection()
+{
+    Fixture f;
+    annotation::FrameAnnotation existing;
+    existing.frame = 12;
+    AnnotationItem line = horizontalLine();
+    line.id = 5;
+    existing.items = {line};
+    f.viewer.setAnnotationFrame(existing);
+    useTool(f.viewer, AnnotationTool::Select);
+    f.viewer.setAnnotateMode(true);
+    QSignalSpy deleted(&f.viewer, &ViewerWidget::annotationItemDeleteRequested);
+    QTest::keyClick(&f.viewer, Qt::Key_Delete); // nothing selected
+    QCOMPARE(deleted.count(), 0);
+    QTest::mouseClick(&f.viewer, Qt::LeftButton, {}, f.at(0.5, 0.5));
+    QTest::keyClick(&f.viewer, Qt::Key_Delete);
+    QCOMPARE(deleted.count(), 1);
+    QCOMPARE(deleted.at(0).at(1).toULongLong(), quint64(5));
+}
+
+void TestAnnotationViewer::doublePressOnTextWithSelectEdits()
+{
+    Fixture f;
+    annotation::FrameAnnotation existing;
+    existing.frame = 12;
+    existing.items = {textItem(9, QStringLiteral("note"))};
+    f.viewer.setAnnotationFrame(existing);
+    useTool(f.viewer, AnnotationTool::Select);
+    f.viewer.setAnnotateMode(true);
+    const QPoint on = annotation::AnnotationRenderer::itemBounds(f.viewer.transform().imageRect(),
+                                                                 existing.items[0]).center().toPoint();
+    // Mouse double-click.
+    QTest::mouseDClick(&f.viewer, Qt::LeftButton, {}, on);
+    QVERIFY(f.viewer.isEditingText());
+    f.viewer.cancelTextEdit();
+
+    // Two quick pen taps (tablets do not produce mouse double-clicks).
+    auto pen = makeStylus(QPointingDevice::PointerType::Pen);
+    QTest::qWait(QApplication::doubleClickInterval() + 50); // start a fresh double-press window
+    sendTablet(&f.viewer, pen.get(), QEvent::TabletPress, on, 0.5);
+    sendTablet(&f.viewer, pen.get(), QEvent::TabletRelease, on, 0.0);
+    QVERIFY(!f.viewer.isEditingText());
+    sendTablet(&f.viewer, pen.get(), QEvent::TabletPress, on, 0.5);
+    sendTablet(&f.viewer, pen.get(), QEvent::TabletRelease, on, 0.0);
+    QVERIFY(f.viewer.isEditingText());
+}
+
+void TestAnnotationViewer::changingFrameFinishesText()
+{
+    Fixture f;
+    useTool(f.viewer, AnnotationTool::Text);
+    f.viewer.setAnnotateMode(true);
+    QSignalSpy drawn(&f.viewer, &ViewerWidget::annotationItemDrawn);
+    QTest::mouseClick(&f.viewer, Qt::LeftButton, {}, f.at(0.4, 0.3));
+    QTest::keyClicks(f.viewer.textEditor(), QStringLiteral("keep me"));
+    f.viewer.setFrame(frame(13));
+    QVERIFY(!f.viewer.isEditingText());
+    QCOMPARE(drawn.count(), 1);
+    QCOMPARE(drawn.at(0).at(0).toLongLong(), qint64(12)); // landed on the frame it was typed on
 }
 
 void TestAnnotationViewer::leavingAnnotateModeCancelsAStroke()

@@ -57,6 +57,10 @@ AnnotationToolbar::AnnotationToolbar(QWidget* parent) : QToolBar(tr("Drawing"), 
 
     m_toolGroup = new QActionGroup(this);
     m_toolGroup->setExclusive(true);
+    addToolAction(AnnotationTool::Select, tr("Select"),
+                  tr("Select: click a drawing or text to select it, drag to move it, Delete to remove it, "
+                     "double-click text to edit it"));
+    addSeparator();
     addToolAction(AnnotationTool::Pencil, tr("Pencil"), tr("Pencil: grainy, pressure sets width and darkness"));
     addToolAction(AnnotationTool::Pen, tr("Pen"), tr("Pen: smooth ink, pressure sets width"));
     addToolAction(AnnotationTool::Brush, tr("Brush"), tr("Brush: soft edge, pressure sets width and opacity"));
@@ -79,7 +83,8 @@ AnnotationToolbar::AnnotationToolbar(QWidget* parent) : QToolBar(tr("Drawing"), 
     addToolAction(AnnotationTool::Arrow, tr("Arrow"), tr("Arrow"));
     addToolAction(AnnotationTool::Rectangle, tr("Rect"), tr("Rectangle"));
     addToolAction(AnnotationTool::Ellipse, tr("Ellipse"), tr("Ellipse"));
-    addToolAction(AnnotationTool::Text, tr("Text"), tr("Text label: click where it should go"));
+    addToolAction(AnnotationTool::Text, tr("Text"), tr("Text: click to type at a point, or drag a box for text that wraps. "
+                                                   "Ctrl+Enter or click away to finish, Esc to cancel"));
     addSeparator();
 
     m_colorButton = new QToolButton(this);

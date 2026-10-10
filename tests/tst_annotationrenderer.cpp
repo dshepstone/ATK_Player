@@ -56,6 +56,7 @@ private slots:
     void opacityAppliesOnce();
     void shapesLandWhereDrawn();
     void textRendersInsideItsBounds();
+    void textLinesAndBoxWrapping();
     void hitTestPerKind();
     void invalidItemsAndEmptyFramesPaintNothing();
     void flippedPainterMirrorsAnnotation();
@@ -207,6 +208,39 @@ void TestAnnotationRenderer::textRendersInsideItsBounds()
             if (qAlpha(image.pixel(x, y)) > 0) (bounds.adjusted(-3, -3, 3, 3).contains(x, y) ? inside : outside)++;
     QVERIFY(inside > 50);
     QCOMPARE(outside, 0);
+}
+
+void TestAnnotationRenderer::textLinesAndBoxWrapping()
+{
+    const QRectF rect(0, 0, 800, 400);
+    AnnotationItem text;
+    text.tool = AnnotationTool::Text;
+    text.size = 0.01;
+    text.points = {{0.1f, 0.1f, 1, 0, 0}};
+    text.text = QStringLiteral("first line\nsecond line");
+    const auto pointBlock = AnnotationRenderer::layoutText(rect, text);
+    QCOMPARE(pointBlock.lines.size(), 2);
+    QCOMPARE(pointBlock.lines[0].text, QStringLiteral("first line"));
+    QCOMPARE(pointBlock.lines[1].text, QStringLiteral("second line"));
+    QVERIFY(pointBlock.lines[1].baseline.y() > pointBlock.lines[0].baseline.y());
+
+    // A long single line wraps to the box width when the text has a box.
+    text.text = QStringLiteral("this sentence is far too long to fit on one line of a narrow box");
+    const auto unwrapped = AnnotationRenderer::layoutText(rect, text);
+    QCOMPARE(unwrapped.lines.size(), 1);
+    text.points.append({0.35f, 0.5f, 1, 0, 0}); // a 200 px wide box
+    const auto wrapped = AnnotationRenderer::layoutText(rect, text);
+    QVERIFY(wrapped.lines.size() > 2);
+    QVERIFY(std::abs(wrapped.bounds.width() - 200.0) < 0.5);
+    for (const auto& line : wrapped.lines) QVERIFY(line.width <= 200.5);
+
+    // Painted text stays inside the laid-out bounds.
+    QImage image = blank(800, 400);
+    AnnotationRenderer::renderOnto(image, frameWith(text));
+    const QRect allowed = wrapped.bounds.toAlignedRect().adjusted(-4, -4, 4, 4);
+    for (int y = 0; y < 400; ++y)
+        for (int x = 0; x < 800; ++x)
+            if (qAlpha(image.pixel(x, y)) > 0) QVERIFY2(allowed.contains(x, y), qPrintable(QStringLiteral("%1,%2").arg(x).arg(y)));
 }
 
 void TestAnnotationRenderer::hitTestPerKind()

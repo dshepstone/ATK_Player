@@ -204,7 +204,6 @@ private:
     void bindAnnotationsToActiveSource();
     void refreshViewerAnnotations();
     void applyAnnotationTool(const annotation::AnnotationToolSettings& settings);
-    void addAnnotationText(qint64 frameIndex, const QPointF& normalized);
     void seekAnnotatedFrame(int direction);
     void updateAnnotationActions();
 

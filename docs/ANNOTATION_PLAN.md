@@ -20,17 +20,20 @@ OS-specific code. `ROADMAP.md` still lists "Drawn annotations over frames" under
 ### Resume here (handoff, 2026-10-10)
 
 - **Where the code is:** branch `claude/loving-cerf-57c6zt`, PR
-  https://github.com/dshepstone/ATK_Player/pull/28, head `76b5691` (phases A–C plus the
-  area eraser). Not merged.
+  https://github.com/dshepstone/ATK_Player/pull/28 (phases A–C, area eraser, in-place
+  text and Select tool). Not merged. See `git log` for the head.
 - **Verified:**
   - Windows Debug and Release 34/34 at `42a51bb` (A–B), run by the owner.
-  - Linux full build and `ctest` at `76b5691`: 34/37. The same 3 tests fail without
+  - Linux full build and `ctest` at the current head: 34/37. The same 3 tests fail without
     these changes in that environment: `tst_export` (no H.264 encoder),
     `tst_stillimage` (EXR decode) and `tst_audioreview` (Qt 6.4 testlib assert).
 - **Waiting on the owner:**
   1. Windows Debug and Release build plus `ctest` at the current head.
-  1a. Try the area eraser on the Cintiq: precision, size (`[` / `]` with the Eraser
-      selected) and pressure scaling.
+  1a. The area eraser is accepted. Try the new Text and Select tools: click to type,
+      drag a box, Ctrl+Enter / click away, Esc, edit by clicking, move, Delete,
+      double-click to edit with the pen.
+  1b. Possible follow-ups the owner may want: a text size separate from the brush
+      size; a narrower toolbar (it overflows at 1200 px wide).
   2. Tablet acceptance on Wacom/Cintiq: pressure on Pencil/Pen/Brush, latency, the
      hover brush cursor, the stylus eraser end, barrel-button pan, and which pressure
      curve (Soft/Linear/Firm) should be the default.
@@ -74,7 +77,21 @@ OS-specific code. `ROADMAP.md` still lists "Drawn annotations over frames" under
     jump a line.
   - `AnnotationStore::beginEditGroup` / `endEditGroup` make one swipe a single undo step.
 - Owner acceptance on a Wacom Cintiq (2026-10-10): pressure works and the stylus eraser
-  end works. Their request for a precise (area) eraser led to the eraser above.
+  end works. Their request for a precise (area) eraser led to the eraser above. The
+  owner has since confirmed the area eraser works well.
+- **Text (Photoshop/Illustrator style):** the Text tool types in place, in a child
+  `QTextEdit` laid over the picture at the click point. There is no dialog.
+  - Click gives point text. Dragging a box gives paragraph text: a Text item with a
+    second point, wrapping at the box width.
+  - Enter adds a new line. Ctrl+Enter, clicking away or changing frame commits. Esc
+    cancels. Committing empty text deletes the label being edited.
+  - Clicking existing text with the Text tool edits it.
+  - `AnnotationRenderer::layoutText` is the one layout (`QTextLayout`) used to paint,
+    hit-test and size the editor.
+- **Select tool:** picks the topmost item, drags to move it (`translatedItem` clamps to
+  the picture), Delete/Backspace removes it, and a double-click (mouse, or two quick pen
+  taps) on text edits it. `AnnotationStore::replaceItem` keeps the id and order; each
+  move or edit is one undo step.
 - Entering Draw on Frame pauses playback, and a stroke always lands on the frame it
   started on. Draw mode is unavailable during A/B comparison and when no clip is open.
 - New drawings store the displayed frame's decoded `ptsUs` as `mediaTimeUs`. The frame

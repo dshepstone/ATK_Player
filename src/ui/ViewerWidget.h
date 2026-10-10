@@ -5,6 +5,7 @@
 #include "media/VideoFrame.h"
 #include "ui/ViewerTransform.h"
 
+#include <QElapsedTimer>
 #include <QImage>
 #include <QWidget>
 
@@ -12,6 +13,7 @@
 #include <optional>
 
 class QTabletEvent;
+class QTextEdit;
 
 namespace atk::annotation { class StrokeBuilder; }
 
@@ -133,6 +135,18 @@ public:
     /// The in-progress item, for tests and the live preview.
     std::optional<annotation::AnnotationItem> strokePreview() const;
 
+    /// Item picked by the Select tool on the displayed frame, or 0.
+    quint64 selectedItemId() const { return m_selectedItemId; }
+    void clearSelection();
+
+    /// In-place text editing (Text tool, or double-click on text with Select).
+    /// The editor is a child text field over the picture; committing emits
+    /// annotationItemDrawn (new text) or annotationItemChanged (edited text).
+    bool isEditingText() const { return m_textEdit.has_value(); }
+    QTextEdit* textEditor() const { return m_textEditor; }
+    void commitTextEdit();
+    void cancelTextEdit();
+
 signals:
     void zoomChanged(qreal percent, bool fitMode);
     void activated();
@@ -148,8 +162,10 @@ signals:
     /// `frameIndex`. `imageSize` is the picture's size in image pixels.
     void annotationEraseRequested(qint64 frameIndex, const QVector<QPointF>& centers, qreal radius,
                                   const QSizeF& imageSize);
-    /// The text tool was clicked at `normalized`; the owner asks for the text.
-    void annotationTextRequested(qint64 frameIndex, const QPointF& normalized);
+    /// An existing item (same id) was moved or its text edited.
+    void annotationItemChanged(qint64 frameIndex, const atk::annotation::AnnotationItem& item);
+    /// The selected item should be deleted (Delete / Backspace with Select).
+    void annotationItemDeleteRequested(qint64 frameIndex, quint64 itemId);
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -161,6 +177,8 @@ protected:
     void mouseDoubleClickEvent(QMouseEvent* event) override;
     void tabletEvent(QTabletEvent* event) override;
     void leaveEvent(QEvent* event) override;
+    void keyPressEvent(QKeyEvent* event) override;
+    bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
     /// Where the picture lands inside the widget for the current fit mode.
@@ -172,15 +190,31 @@ private:
 
     // Annotation input and painting.
     struct ActiveStroke {
+        enum class Kind { Draw, Erase, Move, TextBox };
+        Kind kind = Kind::Draw;
         qint64 frameIndex = -1;
-        bool eraser = false;
         bool fromTablet = false;
-        annotation::AnnotationItem item;
+        annotation::AnnotationItem item;                    // Draw: the item; Move: the original
         std::shared_ptr<annotation::StrokeBuilder> builder; // freehand only
         QPointF pressWidgetPosition;
         QPointF lastWidgetPosition; // eraser: previous sample, to sweep the gap
+        QPointF pressNormalized;    // Move / TextBox
+        QPointF currentNormalized;  // Move / TextBox
+        bool isEraser() const { return kind == Kind::Erase; }
+    };
+    struct TextEditState {
+        qint64 frameIndex = -1;
+        annotation::AnnotationItem item; // id 0 for new text
+        bool existing = false;
     };
     void cancelStroke();
+    quint64 itemAt(const QPointF& widgetPosition, bool textOnly) const;
+    std::optional<annotation::AnnotationItem> findItem(quint64 id) const;
+    std::optional<annotation::AnnotationItem> movePreview() const;
+    void beginTextEdit(qint64 frameIndex, const annotation::AnnotationItem& item, bool existing);
+    void finishTextEdit(bool commit);
+    void positionTextEditor();
+    bool isDoublePress(const QPointF& position, quint64 itemId);
     bool canAnnotate() const;
     bool beginStroke(const QPointF& position, float pressure, float tiltX, float tiltY,
                      bool eraserPointer, bool fromTablet);
@@ -214,6 +248,13 @@ private:
     std::optional<ActiveStroke> m_stroke;
     std::optional<QPointF> m_hoverPosition;
     bool m_hoverIsEraser = false; // stylus flipped to its eraser end
+    quint64 m_selectedItemId = 0;
+    quint64 m_hiddenItemId = 0; // drawn by a preview (move) or the editor instead
+    std::optional<TextEditState> m_textEdit;
+    QTextEdit* m_textEditor = nullptr; // child; deleted when editing ends
+    QElapsedTimer m_lastPressTimer; // double-press detection that also works for pens
+    QPointF m_lastPressPosition;
+    quint64 m_lastPressItemId = 0;
     // Committed annotations rendered once per change of data or geometry, so
     // drawing a new stroke does not re-render every earlier one per event.
     QImage m_annotationCache;

@@ -1,3 +1,4 @@
+#include "annotation/AnnotationRenderer.h"
 #include "annotation/AnnotationTypes.h"
 #include "media/MediaSource.h"
 #include "project/Project.h"
@@ -12,6 +13,7 @@
 #include <QMouseEvent>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QTextEdit>
 
 using atk::playback::PlayerState;
 
@@ -66,6 +68,7 @@ private slots:
     void drawModeNeedsMedia();
     void drawUndoRedoNavigateAndPersist();
     void brushSizeKeysStepTheToolbar();
+    void typeEditMoveAndDeleteText();
 };
 
 void TestAnnotationWorkflow::drawModeNeedsMedia()
@@ -175,6 +178,76 @@ void TestAnnotationWorkflow::brushSizeKeysStepTheToolbar()
     const qreal remembered = toolbar->settings().sizePixels;
     atk::ui::MainWindow next(directory.filePath(QStringLiteral("settings.ini")));
     QCOMPARE(next.findChild<atk::ui::AnnotationToolbar*>()->settings().sizePixels, remembered);
+}
+
+namespace {
+void chooseTool(atk::ui::AnnotationToolbar* toolbar, const QString& label)
+{
+    for (QAction* action : toolbar->actions())
+        if (action->text() == label) {
+            action->trigger();
+            return;
+        }
+    QFAIL(qPrintable(QStringLiteral("no toolbar action %1").arg(label)));
+}
+} // namespace
+
+void TestAnnotationWorkflow::typeEditMoveAndDeleteText()
+{
+    QTemporaryDir directory;
+    const QString projectPath = writeProject(directory);
+    atk::ui::MainWindow window(directory.filePath(QStringLiteral("settings.ini")));
+    window.resize(1200, 800);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    QVERIFY(openAt(window, projectPath, 30));
+    auto* viewer = window.findChild<atk::ui::ViewerWidget*>();
+    auto* toolbar = window.findChild<atk::ui::AnnotationToolbar*>();
+    command(window, "draw.annotateMode")->trigger();
+    auto frameItems = [&] { return window.project()->entries().at(0).annotations.frame(30).items; };
+
+    // Type in place.
+    chooseTool(toolbar, QStringLiteral("Text"));
+    QCOMPARE(viewer->annotationTool().tool, atk::annotation::AnnotationTool::Text);
+    QTest::mouseClick(viewer, Qt::LeftButton, {}, viewer->normalizedToWidget({0.3, 0.3}).toPoint());
+    QVERIFY(viewer->isEditingText());
+    QTest::keyClicks(viewer->textEditor(), QStringLiteral("fix the nose"));
+    QTest::keyClick(viewer->textEditor(), Qt::Key_Return, Qt::ControlModifier);
+    QCOMPARE(frameItems().size(), 1);
+    QCOMPARE(frameItems()[0].text, QStringLiteral("fix the nose"));
+    const auto placed = frameItems()[0];
+
+    // Click it again with the Text tool to edit it.
+    const QRectF target = viewer->transform().imageRect();
+    const QPoint onText = atk::annotation::AnnotationRenderer::itemBounds(target, placed).center().toPoint();
+    QTest::mouseClick(viewer, Qt::LeftButton, {}, onText);
+    QVERIFY(viewer->isEditingText());
+    viewer->textEditor()->setPlainText(QStringLiteral("fix the nose and chin"));
+    QTest::keyClick(viewer->textEditor(), Qt::Key_Return, Qt::ControlModifier);
+    QCOMPARE(frameItems()[0].text, QStringLiteral("fix the nose and chin"));
+    QCOMPARE(frameItems()[0].id, placed.id);
+
+    // Select and drag it somewhere else; undo puts it back.
+    chooseTool(toolbar, QStringLiteral("Select"));
+    const QPoint from = atk::annotation::AnnotationRenderer::itemBounds(target, frameItems()[0]).center().toPoint();
+    const QPoint to = from + QPoint(120, 80);
+    QTest::mousePress(viewer, Qt::LeftButton, {}, from);
+    QMouseEvent move(QEvent::MouseMove, to, viewer->mapToGlobal(to), Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+    QApplication::sendEvent(viewer, &move);
+    QTest::mouseRelease(viewer, Qt::LeftButton, {}, to);
+    QVERIFY(frameItems()[0].points[0].x > placed.points[0].x + 0.05f);
+    QVERIFY(frameItems()[0].points[0].y > placed.points[0].y + 0.05f);
+    QCOMPARE(viewer->selectedItemId(), placed.id);
+    command(window, "draw.undo")->trigger();
+    QCOMPARE(frameItems()[0].points, placed.points);
+
+    // Delete removes it; undo restores it.
+    QTest::mouseClick(viewer, Qt::LeftButton, {}, onText);
+    QCOMPARE(viewer->selectedItemId(), placed.id);
+    QTest::keyClick(viewer, Qt::Key_Delete);
+    QVERIFY(frameItems().isEmpty());
+    command(window, "draw.undo")->trigger();
+    QCOMPARE(frameItems().size(), 1);
 }
 
 QTEST_MAIN(TestAnnotationWorkflow)

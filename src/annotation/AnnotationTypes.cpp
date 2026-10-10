@@ -15,6 +15,7 @@ constexpr ToolNameEntry kToolNames[] = {
     {AnnotationTool::Eraser, "eraser"},       {AnnotationTool::Line, "line"},
     {AnnotationTool::Arrow, "arrow"},         {AnnotationTool::Rectangle, "rectangle"},
     {AnnotationTool::Ellipse, "ellipse"},     {AnnotationTool::Text, "text"},
+    {AnnotationTool::Select, "select"},
 };
 
 bool unit(float value) { return std::isfinite(value) && value >= 0.0f && value <= 1.0f; }
@@ -38,7 +39,10 @@ bool toolFromName(const QString& name, AnnotationTool* out)
     return false;
 }
 
-bool isStoredTool(AnnotationTool tool) { return tool != AnnotationTool::Eraser; }
+bool isStoredTool(AnnotationTool tool)
+{
+    return tool != AnnotationTool::Eraser && tool != AnnotationTool::Select;
+}
 
 bool isFreehandTool(AnnotationTool tool)
 {
@@ -67,14 +71,41 @@ bool isValidItem(const AnnotationItem& item)
         if (count < 1 || !item.text.isEmpty()) return false;
     } else if (isShapeTool(item.tool)) {
         if (count != 2 || !item.text.isEmpty()) return false;
-    } else { // Text
-        if (count != 1 || item.text.isEmpty()) return false;
+    } else { // Text: an anchor, or a box whose right edge is right of its left
+        if ((count != 1 && count != 2) || item.text.isEmpty()) return false;
+        if (count == 2 && !(item.points[1].x > item.points[0].x)) return false;
     }
     for (const StrokePoint& p : item.points) {
         if (!unit(p.x) || !unit(p.y) || !unit(p.pressure)) return false;
         if (!std::isfinite(p.tiltX) || !std::isfinite(p.tiltY)) return false;
     }
     return true;
+}
+
+bool isBoxText(const AnnotationItem& item)
+{
+    return item.tool == AnnotationTool::Text && item.points.size() == 2;
+}
+
+AnnotationItem translatedItem(const AnnotationItem& item, const QPointF& delta)
+{
+    if (item.points.isEmpty()) return item;
+    float minX = 1, minY = 1, maxX = 0, maxY = 0;
+    for (const StrokePoint& p : item.points) {
+        minX = std::min(minX, p.x);
+        minY = std::min(minY, p.y);
+        maxX = std::max(maxX, p.x);
+        maxY = std::max(maxY, p.y);
+    }
+    // The whole item moves together; clamp so no point leaves 0..1.
+    const float dx = std::clamp(float(delta.x()), -minX, 1.0f - maxX);
+    const float dy = std::clamp(float(delta.y()), -minY, 1.0f - maxY);
+    AnnotationItem moved = item;
+    for (StrokePoint& p : moved.points) {
+        p.x = std::clamp(p.x + dx, 0.0f, 1.0f);
+        p.y = std::clamp(p.y + dy, 0.0f, 1.0f);
+    }
+    return moved;
 }
 
 FrameAnnotation SourceAnnotations::frame(int64_t frame) const

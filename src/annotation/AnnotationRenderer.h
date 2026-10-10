@@ -2,6 +2,7 @@
 
 #include "annotation/AnnotationTypes.h"
 
+#include <QFont>
 #include <QImage>
 #include <QPointF>
 #include <QRectF>
@@ -59,6 +60,22 @@ public:
         qreal pressure = 1.0;
     };
     static QVector<PathSample> smoothedPath(const QRectF& imageRect, const AnnotationItem& item);
+
+    /// Text layout shared by painting, hit-testing and the in-place editor, so
+    /// what is typed lines up with what is drawn. Point text keeps its lines as
+    /// typed; box text wraps at the box width (words first, then anywhere).
+    struct TextLine {
+        QString text;
+        QPointF baseline; // painter space
+        qreal width = 0.0;
+    };
+    struct TextBlock {
+        QFont font;
+        QRectF bounds; // painter space; box text is the box width wide
+        QVector<TextLine> lines;
+    };
+    static QFont textFont(const QRectF& imageRect, const AnnotationItem& item);
+    static TextBlock layoutText(const QRectF& imageRect, const AnnotationItem& item);
 
     /// Deterministic grain value in [0,1) for pixel (x,y) and a seed.
     static float grain(int x, int y, quint32 seed);

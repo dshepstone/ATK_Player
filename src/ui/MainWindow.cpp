@@ -38,7 +38,6 @@
 #include "ui/commands/CommandRegistry.h"
 
 #include <QFileDialog>
-#include <QInputDialog>
 #include <QDir>
 #include <QFileInfo>
 #include <QGuiApplication>
@@ -577,7 +576,12 @@ void MainWindow::connectSignals()
                 m_annotations->eraseDiscs(frameIndex, centers, radius, imageSize,
                                           m_annotationToolbar->settings().eraserMode);
             });
-    connect(m_viewer, &ViewerWidget::annotationTextRequested, this, &MainWindow::addAnnotationText);
+    connect(m_viewer, &ViewerWidget::annotationItemChanged, this,
+            [this](qint64 frameIndex, const annotation::AnnotationItem& item) {
+                m_annotations->replaceItem(frameIndex, item);
+            });
+    connect(m_viewer, &ViewerWidget::annotationItemDeleteRequested, this,
+            [this](qint64 frameIndex, quint64 id) { m_annotations->removeItem(frameIndex, id); });
     connect(m_annotationToolbar, &AnnotationToolbar::settingsChanged, this, &MainWindow::applyAnnotationTool);
     connect(m_annotations.get(), &annotation::AnnotationStore::annotationsEdited, this, [this] {
         if (!m_annotationSourceId.isNull())
@@ -3111,22 +3115,6 @@ void MainWindow::applyAnnotationTool(const annotation::AnnotationToolSettings& s
 {
     m_viewer->setAnnotationTool(settings);
     m_settings->setAnnotationTool(settings);
-}
-
-void MainWindow::addAnnotationText(qint64 frameIndex, const QPointF& normalized)
-{
-    if (m_annotationSourceId.isNull() || frameIndex < 0) return;
-    bool ok = false;
-    const QString text = QInputDialog::getText(this, tr("Add Text"), tr("Text:"), QLineEdit::Normal,
-                                               QString(), &ok).trimmed();
-    if (!ok || text.isEmpty()) return;
-    annotation::AnnotationItem item = m_annotationToolbar->settings().makeItem(
-        m_displayedImageHeight > 0 ? m_displayedImageHeight : 1080);
-    item.tool = annotation::AnnotationTool::Text;
-    item.text = text.left(annotation::AnnotationLimits::kMaxTextLength);
-    item.points = {{float(std::clamp(normalized.x(), 0.0, 1.0)), float(std::clamp(normalized.y(), 0.0, 1.0)),
-                    1.0f, 0.0f, 0.0f}};
-    m_annotations->addItem(frameIndex, annotationMediaTimeUs(frameIndex), item);
 }
 
 void MainWindow::seekAnnotatedFrame(int direction)
