@@ -309,13 +309,12 @@ void TestReviewNotesPdf::jobSavesBesideAFileOpenInAViewer()
     }
     QFile viewer(options.outputPath);
     QVERIFY(viewer.open(QIODevice::ReadOnly)); // the "viewer"
-    QCOMPARE(platform::PlatformInfo::isFileOpenElsewhere(options.outputPath),
 #ifdef Q_OS_WIN
-             true
+    const bool lockedWhileOpen = true;  // Windows refuses an exclusive open
 #else
-             false
+    const bool lockedWhileOpen = false; // open files never block replacement here
 #endif
-    );
+    QCOMPARE(platform::PlatformInfo::isFileOpenElsewhere(options.outputPath), lockedWhileOpen);
     exporter::ReviewNotesJob job(spec, {}, options);
     QSignalSpy completed(&job, &exporter::ReviewNotesJob::completed);
     QSignalSpy failed(&job, &exporter::ReviewNotesJob::failed);
