@@ -19,10 +19,12 @@ class ReviewNotesDialog final : public QDialog {
 
 public:
     ReviewNotesDialog(const annotation::SourceAnnotations& annotations, const QString& suggestedPath,
-                      QWidget* parent = nullptr);
+                      int tracingPaperPercent = 0, QWidget* parent = nullptr);
 
     exporter::ReviewNotesOptions options() const;
     QString destination() const;
+    void setOpenWhenDone(bool open);
+    bool openWhenDone() const;
 
 private:
     void browse();
@@ -32,6 +34,8 @@ private:
     QLineEdit* m_destination = nullptr;
     QComboBox* m_paper = nullptr;
     QCheckBox* m_includeResolved = nullptr;
+    QComboBox* m_tracingPaper = nullptr;
+    QCheckBox* m_openWhenDone = nullptr;
     QLabel* m_summary = nullptr;
     QPushButton* m_export = nullptr;
 };

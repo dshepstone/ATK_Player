@@ -71,6 +71,29 @@ OS-specific code. `ROADMAP.md` still lists "Drawn annotations over frames" under
   `tst_annotationviewer` (tracing paper and ghost pixels),
   `tst_annotationworkflow::tracingPaperAndGhostingToggleAndPersist`.
 
+### Export follow-ups (as built)
+
+- **Freeze in video exports:** Export Review's burn-in options offer, for each drawn or
+  noted frame: *Play through* (default), *Keep it on screen for N frames* (the old hold;
+  the video keeps playing) or *Freeze the picture for N frames* (`annotationFreezeFrames`).
+  A freeze repeats the annotated frame N times in the MP4 (rendered once), and
+  `ExportBurnInRenderer::scheduleAudio` splices the same length of silence into the
+  soundtrack so sound stays in sync after each freeze; the video gets longer.
+  `videoSchedule` decides the output frames and is unit-tested, as is the splice (including
+  29.97 fps). Image exports have no freeze.
+- **Tracing paper in exports:** a *Tracing paper* option (Off / 25–100 %) in Export Review,
+  the still-image burn-in dialogs and the Notes PDF dialog, starting at the viewer's current
+  setting. It washes the picture under the drawings exactly as in the viewer
+  (`ExportBurnIns::tracingPaperPercent`, API field `tracingPaper`).
+- **Open when done:** a finished PDF or video opens in the system viewer (a checkbox in both
+  dialogs, remembered as `export/openWhenDone`, default on). Tests set `ATK_NO_OPEN_EXPORTS`.
+- **Notes PDF on Windows:** a run of the previous build reported "the PDF did not come out
+  right (it is incomplete)", so the PDF read back from disk had no end marker. The writer
+  now builds the whole PDF in memory, verifies those bytes, and saves them with one atomic
+  `QSaveFile` write. If the normal (searchable) output fails the check, it writes the pages
+  as pictures instead (no fonts in the file), and only errors if that also fails. Why the
+  Windows output was cut short is not known yet; it never reproduced on Linux.
+
 ### Drawing responsiveness, shortcuts and the Draw button (as built)
 
 - **Faster drawing (most visible with tracing paper):** while Draw on Frame or tracing

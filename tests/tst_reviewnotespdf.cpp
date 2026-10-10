@@ -65,6 +65,7 @@ private slots:
     void jobRendersAnnotatedFramesIntoAPdf();
     void jobCancelLeavesNoFile();
     void verifyCatchesBrokenFiles();
+    void pagePicturesFallbackIsAValidPdfWithoutFonts();
 };
 
 void TestReviewNotesPdf::paginateKeepsRowsWhole()
@@ -214,6 +215,43 @@ void TestReviewNotesPdf::verifyCatchesBrokenFiles()
     shifted.insert(bytes.size() / 3, "garbage ");          // objects moved
     QVERIFY(broken(shifted));
     QVERIFY(!exporter::ReviewNotesPdfWriter::verify(dir.filePath(QStringLiteral("missing.pdf")), &error));
+}
+
+void TestReviewNotesPdf::pagePicturesFallbackIsAValidPdfWithoutFonts()
+{
+    QTemporaryDir dir;
+    exporter::ReviewNotesDocument doc;
+    doc.projectName = QStringLiteral("Project");
+    doc.clipName = QStringLiteral("clip.mov");
+    QImage picture(320, 180, QImage::Format_RGB32);
+    picture.fill(Qt::darkGray);
+    for (int i = 0; i < 12; ++i)
+        doc.rows.append({i, QStringLiteral("00:00:00:00"), picture, {note(quint64(i + 1), QStringLiteral("Note %1").arg(i))}});
+    QString error;
+    int normalPages = 0;
+    bool fallback = true;
+    const QString normal = dir.filePath(QStringLiteral("normal.pdf"));
+    QVERIFY2(exporter::ReviewNotesPdfWriter::write(doc, normal, &error, &normalPages, &fallback), qPrintable(error));
+    QVERIFY(!fallback);
+    int picturePages = 0;
+    const QString pictures = dir.filePath(QStringLiteral("pictures.pdf"));
+    QVERIFY2(exporter::ReviewNotesPdfWriter::write(doc, pictures, &error, &picturePages, &fallback,
+                                                   exporter::ReviewNotesPdfWriter::Mode::PagePictures),
+             qPrintable(error));
+    QVERIFY(fallback);
+    QCOMPARE(picturePages, normalPages); // same layout, page for page
+    QCOMPARE(pdfPageCount(pictures), picturePages);
+    QVERIFY(exporter::ReviewNotesPdfWriter::verify(pictures, &error));
+    QFile file(pictures);
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    QVERIFY(!file.readAll().contains("/FontFile")); // nothing font-related to go wrong
+    QFile normalFile(normal);
+    QVERIFY(normalFile.open(QIODevice::ReadOnly));
+    QVERIFY(normalFile.readAll().contains("/FontFile")); // the normal PDF has real, searchable text
+
+    // Saving replaces an existing file in one step.
+    QVERIFY(exporter::ReviewNotesPdfWriter::write(doc, pictures, &error));
+    QVERIFY(exporter::ReviewNotesPdfWriter::verify(pictures, &error));
 }
 
 QTEST_MAIN(TestReviewNotesPdf)

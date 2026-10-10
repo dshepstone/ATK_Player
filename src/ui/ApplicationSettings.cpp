@@ -42,6 +42,7 @@ constexpr auto kDrawBrushTip = "draw/brushTip";
 constexpr auto kReviewerName = "review/reviewerName";
 constexpr auto kTracingPaper = "draw/tracingPaper";
 constexpr auto kTracingPaperLevel = "draw/tracingPaperLevel";
+constexpr auto kOpenExportsWhenDone = "export/openWhenDone";
 constexpr auto kGhostEnabled = "draw/ghostEnabled";
 constexpr auto kGhostBefore = "draw/ghostBefore";
 constexpr auto kGhostAfter = "draw/ghostAfter";
@@ -281,6 +282,13 @@ annotation::GhostSettings ApplicationSettings::ghostSettings() const
         result.mode = annotation::GhostSettings::Mode::Drawings;
     result.tint = readBool(kGhostTint, result.tint);
     return result;
+}
+
+bool ApplicationSettings::openExportsWhenDone() const { return readBool(kOpenExportsWhenDone, true); }
+
+void ApplicationSettings::setOpenExportsWhenDone(bool open)
+{
+    m_settings->setValue(QString::fromLatin1(kOpenExportsWhenDone), open);
 }
 
 void ApplicationSettings::setTracingPaper(int percent)

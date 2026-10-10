@@ -1,4 +1,5 @@
 #include "export/ExportJob.h"
+#include "export/ExportBurnInRenderer.h"
 #include "export/ExportRenderer.h"
 #include "export/FFmpegExporter.h"
 #include "media/AudioSourceReader.h"
@@ -33,11 +34,15 @@ public slots:
         FFmpegExporter encoder;
         if (!encoder.open(m_spec, wantAudio, &error)) { encoder.discard(); emit failed(cleanError(error)); return; }
         const qint64 total = m_spec.frameCount();
-        for (qint64 n = 0; n < total; ++n) {
+        // Output frames: the range, plus repeats where the picture freezes on
+        // a drawn or noted frame.
+        const QVector<ExportBurnInRenderer::ScheduledFrame> schedule = ExportBurnInRenderer::videoSchedule(m_spec);
+        const qint64 outputTotal = schedule.size();
+        RenderedExportFrame frame;
+        for (qint64 n = 0; n < outputTotal; ++n) {
             if (isCancelled()) { encoder.discard(); emit cancelled(); return; }
-            const qint64 index = m_spec.exportStartFrame() + n;
-            RenderedExportFrame frame;
-            if (!renderer.render(index, frame, &error, [this]{ return isCancelled(); })) {
+            if (!schedule[n].repeat
+                && !renderer.render(schedule[n].sourceFrame, frame, &error, [this]{ return isCancelled(); })) {
                 encoder.discard();
                 if (isCancelled()) emit cancelled(); else emit failed(cleanError(error));
                 return;
@@ -45,8 +50,8 @@ public slots:
             if (!encoder.encodeVideo(frame.image, n, &error)) {
                 encoder.discard(); emit failed(cleanError(error)); return;
             }
-            emit statusChanged(tr("Rendering frame %1 / %2…").arg(n + 1).arg(total));
-            emit progress(static_cast<int>((n + 1) * 90 / total), n + 1, total);
+            emit statusChanged(tr("Rendering frame %1 / %2…").arg(n + 1).arg(outputTotal));
+            emit progress(static_cast<int>((n + 1) * 90 / outputTotal), n + 1, outputTotal);
         }
         if (wantAudio) {
             emit statusChanged(tr("Encoding audio…"));
@@ -59,8 +64,15 @@ public slots:
             const qint64 durationUs = (audioSamples * 1'000'000
                 + m_spec.audioSampleRate / 2) / m_spec.audioSampleRate;
             QByteArray pcm;
-            if (!renderAudio(durationUs, audioSamples, pcm, &error)
-                || !encoder.encodeAudio(pcm, &error)) {
+            if (!renderAudio(durationUs, audioSamples, pcm, &error)) {
+                encoder.discard(); emit failed(cleanError(error)); return;
+            }
+            if (outputTotal != total && !pcm.isEmpty()) {
+                // Silence during each freeze keeps the sound in step after it.
+                pcm = ExportBurnInRenderer::scheduleAudio(pcm, schedule, rate, m_spec.audioSampleRate,
+                                                          m_spec.audioChannels * 2);
+            }
+            if (!encoder.encodeAudio(pcm, &error)) {
                 encoder.discard(); emit failed(cleanError(error)); return;
             }
         }
@@ -69,7 +81,7 @@ public slots:
         if (!encoder.finish(&error) || !replaceFinal(encoder.temporaryPath(), &error)) {
             encoder.discard(); emit failed(cleanError(error)); return;
         }
-        emit progress(100, total, total); emit completed(m_spec.outputPath);
+        emit progress(100, outputTotal, outputTotal); emit completed(m_spec.outputPath);
     }
 signals:
     void started();

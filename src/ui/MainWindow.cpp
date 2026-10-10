@@ -103,6 +103,7 @@ bool chooseBurnIns(QWidget* parent, const QString& title, exporter::ExportBurnIn
     QDialog dialog(parent); dialog.setWindowTitle(title);
     auto* layout = new QVBoxLayout(&dialog);
     auto* options = new BurnInOptionsWidget(&dialog); options->setOptions(result);
+    options->setVideoOptionsVisible(false); // stills: no play-through, hold or freeze
     layout->addWidget(options);
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
     layout->addWidget(buttons);
@@ -2074,6 +2075,8 @@ exporter::ExportSpec MainWindow::exportSnapshot(const QString& outputPath) const
             bookmark.name, bookmark.note, bookmark.colorIndex});
     }
     spec.comparison = isComparisonActive();
+    // Exports keep the viewer's tracing paper unless it is turned off there.
+    if (!spec.comparison) spec.burnIns.tracingPaperPercent = m_tracingPaper;
     // Drawings and notes of Source A. On by default when there are any, so
     // "Export Review" gives the SyncSketch-style annotated video in one step.
     if (!spec.comparison && a.id == m_annotationSourceId) {
@@ -2131,9 +2134,12 @@ void MainWindow::exportReview(bool withNotes)
             QStringLiteral("_review"), QStringLiteral("_notes")) + QStringLiteral(".mp4"));
     }
     ExportDialog dialog(spec, this);
+    dialog.setOpenWhenDone(m_settings->openExportsWhenDone());
     if (dialog.exec() != QDialog::Accepted) return;
     spec.outputPath = dialog.destination();
     spec.burnIns = dialog.burnIns();
+    m_settings->setOpenExportsWhenDone(dialog.openWhenDone());
+    m_openExportWhenDone = dialog.openWhenDone();
     if (QFileInfo::exists(spec.outputPath)
         && QMessageBox::question(this, tr("Export Review"),
             tr("Replace the existing file?\n%1").arg(QDir::toNativeSeparators(spec.outputPath)),
@@ -2225,6 +2231,7 @@ void MainWindow::startExport(exporter::ExportSpec spec, bool showProgressUi)
         m_apiExportState = QStringLiteral("completed");
         m_apiExportProgress = 100;
         closeProgress(); statusBar()->showMessage(tr("Exported %1").arg(QDir::toNativeSeparators(path)), 6000);
+        if (std::exchange(m_openExportWhenDone, false)) openExportedFile(path);
     });
     connect(m_exportJob.get(), &exporter::ExportJob::cancelled, this, [this, closeProgress] {
         m_apiExportState = QStringLiteral("cancelled");
@@ -2240,6 +2247,14 @@ void MainWindow::startExport(exporter::ExportSpec spec, bool showProgressUi)
     updateTransportEnabled();
     if (m_exportProgress) m_exportProgress->show();
     m_exportJob->start();
+}
+
+void MainWindow::openExportedFile(const QString& path)
+{
+    m_lastOpenedExport = path;
+    if (qEnvironmentVariableIsSet("ATK_NO_OPEN_EXPORTS")) return; // tests
+    if (!QDesktopServices::openUrl(QUrl::fromLocalFile(path)))
+        statusBar()->showMessage(tr("Exported %1, but no app could open it.").arg(QDir::toNativeSeparators(path)), 8000);
 }
 
 bool MainWindow::notesPdfInProgress() const
@@ -2262,8 +2277,11 @@ void MainWindow::exportReviewNotes()
     spec.sourceA.rangeEndFrame = std::max<qint64>(0, spec.sourceA.metadata.effectiveFrameCount() - 1);
     const QString suggested = QDir(QFileInfo(spec.outputPath).absolutePath())
         .filePath(exportBaseName(spec.sourceA) + QStringLiteral("_review_notes.pdf"));
-    ReviewNotesDialog dialog(spec.annotations, suggested, this);
+    ReviewNotesDialog dialog(spec.annotations, suggested, m_tracingPaper, this);
+    dialog.setOpenWhenDone(m_settings->openExportsWhenDone());
     if (dialog.exec() != QDialog::Accepted) return;
+    m_settings->setOpenExportsWhenDone(dialog.openWhenDone());
+    const bool openWhenDone = dialog.openWhenDone();
     const exporter::ReviewNotesOptions options = dialog.options();
     if (options.outputPath.isEmpty()) return;
     if (QFileInfo::exists(options.outputPath)
@@ -2309,17 +2327,10 @@ void MainWindow::exportReviewNotes()
         updateTransportEnabled();
     };
     connect(m_notesPdfJob.get(), &exporter::ReviewNotesJob::completed, this,
-            [this, finish](const QString& path, int pages) {
+            [this, finish, openWhenDone](const QString& path, int pages) {
         finish();
         statusBar()->showMessage(tr("Exported %1 (%n page(s))", nullptr, pages).arg(QDir::toNativeSeparators(path)), 8000);
-        QMessageBox box(QMessageBox::Information, tr("Export Review Notes"),
-                        tr("Saved %1.").arg(QDir::toNativeSeparators(path)), QMessageBox::Close, this);
-        QPushButton* open = box.addButton(tr("Open PDF"), QMessageBox::AcceptRole);
-        QPushButton* folder = box.addButton(tr("Show in Folder"), QMessageBox::ActionRole);
-        box.exec();
-        if (box.clickedButton() == open) QDesktopServices::openUrl(QUrl::fromLocalFile(path));
-        else if (box.clickedButton() == folder)
-            QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(path).absolutePath()));
+        if (openWhenDone) openExportedFile(path);
     });
     connect(m_notesPdfJob.get(), &exporter::ReviewNotesJob::cancelled, this, [this, finish] {
         finish();
@@ -2840,15 +2851,20 @@ api::ApiResponse MainWindow::handleApiApplicationCommand(
             if (!object.value(key).isBool()) { *error = key + QStringLiteral(" must be a boolean"); return false; }
             *target = object.value(key).toBool(); return true;
         };
-        if (object.contains(QStringLiteral("annotationHoldFrames"))) {
-            const QJsonValue hold = object.value(QStringLiteral("annotationHoldFrames"));
-            if (!hold.isDouble() || hold.toDouble() < 0 || hold.toDouble() > 240
-                || hold.toDouble() != std::floor(hold.toDouble())) {
-                *error = QStringLiteral("annotationHoldFrames must be an integer from 0 to 240");
+        const auto readInt = [&](const QString& key, int maximum, int* target) {
+            if (!object.contains(key)) return true;
+            const QJsonValue v = object.value(key);
+            if (!v.isDouble() || v.toDouble() < 0 || v.toDouble() > maximum || v.toDouble() != std::floor(v.toDouble())) {
+                *error = key + QStringLiteral(" must be an integer from 0 to %1").arg(maximum);
                 return false;
             }
-            out->annotationHoldFrames = hold.toInt();
-        }
+            *target = v.toInt();
+            return true;
+        };
+        if (!readInt(QStringLiteral("annotationHoldFrames"), 240, &out->annotationHoldFrames)
+            || !readInt(QStringLiteral("annotationFreezeFrames"), 240, &out->annotationFreezeFrames)
+            || !readInt(QStringLiteral("tracingPaper"), 100, &out->tracingPaperPercent))
+            return false;
         return read(QStringLiteral("frameNumber"), &out->frameNumber)
             && read(QStringLiteral("bookmarkLabels"), &out->bookmarkLabels)
             && read(QStringLiteral("bookmarkNotes"), &out->bookmarkNotes)

@@ -77,6 +77,56 @@ const annotation::FrameAnnotation* ExportBurnInRenderer::annotationFor(const Exp
     return shows ? &found : nullptr;
 }
 
+bool ExportBurnInRenderer::freezesOn(const ExportSpec& spec, qint64 frame)
+{
+    if (spec.burnIns.annotationFreezeFrames <= 0) return false;
+    const annotation::FrameAnnotation* shown = annotationFor(spec, frame);
+    return shown && shown->frame == frame;
+}
+
+QVector<ExportBurnInRenderer::ScheduledFrame> ExportBurnInRenderer::videoSchedule(const ExportSpec& spec)
+{
+    QVector<ScheduledFrame> schedule;
+    const qint64 total = spec.frameCount();
+    const qint64 freeze = std::clamp(spec.burnIns.annotationFreezeFrames, 0, 240);
+    schedule.reserve(qsizetype(std::max<qint64>(0, total)));
+    for (qint64 n = 0; n < total; ++n) {
+        const qint64 frame = spec.exportStartFrame() + n;
+        schedule.append({frame, false});
+        if (freeze > 0 && freezesOn(spec, frame))
+            for (qint64 k = 0; k < freeze; ++k) schedule.append({frame, true});
+    }
+    return schedule;
+}
+
+qint64 ExportBurnInRenderer::samplesAtFrame(qint64 n, media::FrameRate rate, int sampleRate)
+{
+    if (rate.numerator <= 0) return 0;
+    return (n * rate.denominator * sampleRate + rate.numerator / 2) / rate.numerator;
+}
+
+QByteArray ExportBurnInRenderer::scheduleAudio(const QByteArray& sourcePcm, const QVector<ScheduledFrame>& schedule,
+                                               media::FrameRate rate, int sampleRate, int bytesPerSample)
+{
+    const qint64 outSamples = samplesAtFrame(schedule.size(), rate, sampleRate);
+    QByteArray out(qsizetype(outSamples * bytesPerSample), '\0');
+    qint64 sourceIndex = 0; // source frames consumed so far
+    for (qsizetype j = 0; j < schedule.size(); ++j) {
+        const qint64 outStart = samplesAtFrame(j, rate, sampleRate);
+        const qint64 outLength = samplesAtFrame(j + 1, rate, sampleRate) - outStart;
+        if (schedule[j].repeat) continue; // silence while the picture is frozen
+        const qint64 srcStart = samplesAtFrame(sourceIndex, rate, sampleRate);
+        const qint64 srcLength = samplesAtFrame(sourceIndex + 1, rate, sampleRate) - srcStart;
+        ++sourceIndex;
+        const qint64 bytes = std::min(outLength, srcLength) * bytesPerSample;
+        const qint64 from = srcStart * bytesPerSample;
+        const qint64 available = std::max<qint64>(0, std::min<qint64>(bytes, sourcePcm.size() - from));
+        if (available > 0)
+            std::copy_n(sourcePcm.constData() + from, available, out.data() + outStart * bytesPerSample);
+    }
+    return out;
+}
+
 QRect ExportBurnInRenderer::noteBounds(const QSize& size)
 {
     // Bottom right, beside the bookmark cards (bottom left), so both fit.
@@ -94,6 +144,12 @@ void ExportBurnInRenderer::apply(QImage& image, const ExportSpec& spec, qint64 f
     QFont font = painter.font();
     font.setPixelSize(std::max(14, image.height() / 42));
     painter.setFont(font);
+
+    // Tracing paper over the picture, under everything drawn on it.
+    const QSize contentSize = spec.contentSize().isEmpty() ? image.size() : spec.contentSize();
+    if (spec.burnIns.tracingPaperPercent > 0 && !spec.comparison)
+        painter.fillRect(QRect(QPoint(0, 0), contentSize),
+                         QColor(255, 255, 255, std::clamp(spec.burnIns.tracingPaperPercent, 0, 100) * 255 / 100));
 
     // Drawings go on the picture first, so labels stay readable on top. The
     // content rect excludes the even-size padding of video output.

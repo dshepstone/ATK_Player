@@ -120,6 +120,8 @@ public:
     ComparisonCompositeWidget* comparisonComposite() const { return m_compareComposite; }
     exporter::ExportSpec exportSnapshot(const QString& outputPath = {}) const;
     bool exportInProgress() const;
+    /// The last export handed to the system viewer (for tests).
+    QString lastOpenedExport() const { return m_lastOpenedExport; }
     api::ApiServer* apiServer() const { return m_apiServer.get(); }
 
 protected:
@@ -198,6 +200,8 @@ private:
     void exportImageSequence();
     void exportReviewNotes();
     bool notesPdfInProgress() const;
+    /// Opens a finished PDF or video in the system viewer.
+    void openExportedFile(const QString& path);
     void startExport(exporter::ExportSpec spec, bool showProgressUi = true);
     api::ApiResponse handleApiApplicationCommand(const QString& command,
                                                  const QJsonObject& params);
@@ -286,6 +290,8 @@ private:
     QMenu* m_recentProjectsMenu = nullptr;
     QProgressDialog* m_exportProgress = nullptr;
     QProgressDialog* m_notesPdfProgress = nullptr;
+    bool m_openExportWhenDone = false; // set per Export Review run
+    QString m_lastOpenedExport;
     bool m_skipLayoutSaveOnce = false;
     bool m_restoringSourceState = false;
     bool m_playAfterSourceOpen = false;

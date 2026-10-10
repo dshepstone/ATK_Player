@@ -3,6 +3,7 @@
 #include "export/ExportRenderer.h"
 #include "timeline/Timecode.h"
 
+#include <QBuffer>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -138,161 +139,257 @@ QVector<int> ReviewNotesPdfWriter::paginate(const QVector<qreal>& rowHeights, qr
     return pages;
 }
 
-bool ReviewNotesPdfWriter::write(const ReviewNotesDocument& doc, const QString& path, QString* error, int* pages)
-{
-    QPdfWriter writer(path);
-    writer.setPageSize(doc.pageSize);
-    writer.setPageMargins(QMarginsF(0, 0, 0, 0));
-    writer.setResolution(kResolution);
-    writer.setTitle(QStringLiteral("Review Notes - %1").arg(doc.clipName));
-    writer.setCreator(doc.footerLeft);
-    QPainter p;
-    if (!p.begin(&writer)) {
-        if (error) *error = QStringLiteral("Could not write %1.").arg(QDir::toNativeSeparators(path));
-        return false;
-    }
-    // Work in points regardless of the writer's resolution.
-    const qreal scale = writer.resolution() / 72.0;
-    p.scale(scale, scale);
-    p.setRenderHint(QPainter::Antialiasing, true);
-    p.setRenderHint(QPainter::SmoothPixmapTransform, true);
-    const QSizeF page = doc.pageSize.size(QPageSize::Point);
-    const qreal contentWidth = page.width() - 2 * kMargin;
-    const qreal bodyTop = kMargin;
-    const qreal bodyBottom = page.height() - kMargin - kFooterHeight;
+namespace {
 
-    QVector<RowGeometry> geometry;
-    QVector<qreal> heights;
-    for (const ReviewNotesRow& row : doc.rows) {
-        geometry.append(measureRow(row, contentWidth, &writer));
-        heights.append(geometry.last().height);
+/// The document laid out once, then painted page by page onto any device
+/// whose resolution is kResolution (the PDF itself, or a page image).
+class PageLayout {
+public:
+    PageLayout(const ReviewNotesDocument& doc, QPaintDevice* metricsDevice)
+        : m_doc(doc), m_device(metricsDevice)
+    {
+        m_page = doc.pageSize.size(QPageSize::Point);
+        m_contentWidth = m_page.width() - 2 * kMargin;
+        for (const ReviewNotesRow& row : doc.rows) m_geometry.append(measureRow(row, m_contentWidth, m_device));
+        QVector<qreal> heights;
+        for (const RowGeometry& g : m_geometry) heights.append(g.height);
+        const qreal bodyHeight = m_page.height() - 2 * kMargin - kFooterHeight;
+        m_rowPages = ReviewNotesPdfWriter::paginate(heights, bodyHeight - kHeaderHeight, bodyHeight);
+        m_pageCount = m_rowPages.isEmpty() ? 1 : m_rowPages.constLast() + 1;
     }
-    const qreal firstSpace = bodyBottom - bodyTop - kHeaderHeight;
-    const qreal pageSpace = bodyBottom - bodyTop;
-    const QVector<int> rowPages = paginate(heights, firstSpace, pageSpace);
-    const int pageCount = rowPages.isEmpty() ? 1 : rowPages.constLast() + 1;
-    auto metrics = [&](const QFont& font) { return QFontMetricsF(font, &writer); };
 
-    auto drawFooter = [&](int index) {
-        const qreal y = page.height() - kMargin - kFooterHeight + 8;
+    int pageCount() const { return m_pageCount; }
+    QSizeF pagePoints() const { return m_page; }
+
+    /// Paints page `index` in points (the painter must already map points to
+    /// the device).
+    void paint(QPainter& p, int index) const
+    {
+        p.setRenderHint(QPainter::Antialiasing, true);
+        p.setRenderHint(QPainter::SmoothPixmapTransform, true);
+        auto metrics = [&](const QFont& font) { return QFontMetricsF(font, m_device); };
+        qreal y = kMargin;
+        if (index == 0) {
+            p.setPen(QColor(120, 128, 140));
+            p.setFont(fontPt(26, false, 300));
+            const QString title = QStringLiteral("REVIEW NOTES");
+            p.drawText(QPointF(kMargin, y + 26), title);
+            const qreal titleWidth = metrics(fontPt(26, false, 300)).horizontalAdvance(title);
+            p.setFont(fontPt(10));
+            p.setPen(kMuted);
+            p.drawText(QPointF(kMargin + titleWidth + 10, y + 26), m_doc.generatedText);
+            p.setFont(fontPt(14));
+            p.setPen(QColor(120, 128, 140));
+            p.drawText(QPointF(kMargin, y + 46), m_doc.projectName);
+            const QRectF bar(kMargin, y + 56, m_contentWidth, 20);
+            p.fillRect(bar, kBar);
+            p.setPen(Qt::white);
+            p.setFont(fontPt(9));
+            p.drawText(bar.adjusted(6, 0, -6, 0), Qt::AlignLeft | Qt::AlignVCenter,
+                       metrics(fontPt(9)).elidedText(m_doc.clipName, Qt::ElideMiddle, m_contentWidth * 0.6));
+            if (!m_doc.reviewers.isEmpty()) {
+                p.setPen(QColor(200, 205, 212));
+                p.drawText(bar.adjusted(6, 0, -6, 0), Qt::AlignRight | Qt::AlignVCenter,
+                           QStringLiteral("Notes by %1").arg(m_doc.reviewers));
+            }
+            y += kHeaderHeight;
+            if (m_doc.rows.isEmpty()) {
+                p.setFont(fontPt(11));
+                p.setPen(kMuted);
+                p.drawText(QPointF(kMargin, y + 20), QStringLiteral("There are no notes or drawings on this clip."));
+            }
+        }
+        for (int i = 0; i < m_doc.rows.size(); ++i) {
+            if (m_rowPages[i] != index) continue;
+            const ReviewNotesRow& row = m_doc.rows[i];
+            const RowGeometry& g = m_geometry[i];
+            const QRectF slot(kMargin, y, g.imageWidth, g.imageHeight);
+            if (!row.image.isNull()) p.drawImage(slot, row.image);
+            else p.fillRect(slot, QColor(230, 232, 235));
+
+            const qreal x = kMargin + g.imageWidth + 14.0;
+            qreal ty = y + 2;
+            const QFont label = fontPt(6.5);
+            const QFont value = fontPt(12);
+            qreal cx = x;
+            auto pair = [&](const QString& l, const QString& v) {
+                p.setFont(label);
+                p.setPen(kAccent);
+                p.drawText(QPointF(cx, ty + 12), l);
+                cx += metrics(label).horizontalAdvance(l) + 4;
+                p.setFont(value);
+                p.setPen(kInk);
+                p.drawText(QPointF(cx, ty + 12), v);
+                cx += metrics(value).horizontalAdvance(v) + 16;
+            };
+            pair(QStringLiteral("FRAME"), QString::number(row.frame + 1));
+            pair(QStringLiteral("TIMECODE"), row.timecode);
+            const bool allResolved = !row.notes.isEmpty()
+                && std::all_of(row.notes.cbegin(), row.notes.cend(), [](const auto& n) { return n.resolved; });
+            p.setFont(label);
+            p.setPen(allResolved ? kMuted : kAccent);
+            p.drawText(QRectF(x, ty + 3, g.textWidth, 12), Qt::AlignRight | Qt::AlignVCenter,
+                       allResolved ? QStringLiteral("RESOLVED") : QStringLiteral("OPEN"));
+            ty += 22;
+            const QFont body = fontPt(9.5);
+            if (row.notes.isEmpty()) {
+                p.setFont(body);
+                p.setPen(kMuted);
+                p.drawText(QPointF(x, ty + 10), QStringLiteral("(drawing only)"));
+            }
+            for (const annotation::FrameNote& note : row.notes) {
+                // Resolved notes are greyed (and the row says RESOLVED); no symbol
+                // glyphs that would pull in a fallback font.
+                const QString text = noteText(note);
+                const qreal h = wrappedHeight(text, body, g.textWidth, m_device);
+                p.setPen(note.resolved ? kMuted : kInk);
+                drawWrapped(p, text, body, QRectF(x, ty, g.textWidth, h));
+                ty += h + 7.0;
+            }
+            y += g.height + kRowGap;
+        }
+        // Footer.
+        const qreal fy = m_page.height() - kMargin - kFooterHeight + 8;
         p.setPen(QPen(QColor(200, 204, 210), 0.6));
-        p.drawLine(QPointF(kMargin, y), QPointF(page.width() - kMargin, y));
+        p.drawLine(QPointF(kMargin, fy), QPointF(m_page.width() - kMargin, fy));
         p.setFont(fontPt(8));
         p.setPen(kMuted);
-        const QRectF band(kMargin, y + 3, contentWidth, 14);
-        p.drawText(band, Qt::AlignLeft | Qt::AlignVCenter, doc.footerLeft);
-        p.drawText(band, Qt::AlignHCenter | Qt::AlignVCenter, QStringLiteral("Page %1 of %2").arg(index + 1).arg(pageCount));
-        p.drawText(band, Qt::AlignRight | Qt::AlignVCenter, doc.projectName);
-    };
-
-    // Header (first page).
-    qreal y = bodyTop;
-    p.setPen(QColor(120, 128, 140));
-    p.setFont(fontPt(26, false, 300));
-    const QString title = QStringLiteral("REVIEW NOTES");
-    p.drawText(QPointF(kMargin, y + 26), title);
-    const qreal titleWidth = metrics(fontPt(26, false, 300)).horizontalAdvance(title);
-    p.setFont(fontPt(10));
-    p.setPen(kMuted);
-    p.drawText(QPointF(kMargin + titleWidth + 10, y + 26), doc.generatedText);
-    p.setFont(fontPt(14));
-    p.setPen(QColor(120, 128, 140));
-    p.drawText(QPointF(kMargin, y + 46), doc.projectName);
-    const QRectF bar(kMargin, y + 56, contentWidth, 20);
-    p.fillRect(bar, kBar);
-    p.setPen(Qt::white);
-    p.setFont(fontPt(9));
-    p.drawText(bar.adjusted(6, 0, -6, 0), Qt::AlignLeft | Qt::AlignVCenter,
-               metrics(fontPt(9)).elidedText(doc.clipName, Qt::ElideMiddle, contentWidth * 0.6));
-    if (!doc.reviewers.isEmpty()) {
-        p.setPen(QColor(200, 205, 212));
-        p.drawText(bar.adjusted(6, 0, -6, 0), Qt::AlignRight | Qt::AlignVCenter,
-                   QStringLiteral("Notes by %1").arg(doc.reviewers));
-    }
-    y = bodyTop + kHeaderHeight;
-    if (doc.rows.isEmpty()) {
-        p.setFont(fontPt(11));
-        p.setPen(kMuted);
-        p.drawText(QPointF(kMargin, y + 20), QStringLiteral("There are no notes or drawings on this clip."));
+        const QRectF band(kMargin, fy + 3, m_contentWidth, 14);
+        p.drawText(band, Qt::AlignLeft | Qt::AlignVCenter, m_doc.footerLeft);
+        p.drawText(band, Qt::AlignHCenter | Qt::AlignVCenter, QStringLiteral("Page %1 of %2").arg(index + 1).arg(m_pageCount));
+        p.drawText(band, Qt::AlignRight | Qt::AlignVCenter, m_doc.projectName);
     }
 
-    int currentPage = 0;
-    for (int i = 0; i < doc.rows.size(); ++i) {
-        if (rowPages[i] != currentPage) {
-            drawFooter(currentPage);
-            writer.newPage();
-            currentPage = rowPages[i];
-            y = bodyTop;
-        }
-        const ReviewNotesRow& row = doc.rows[i];
-        const RowGeometry& g = geometry[i];
-        // Picture (fit inside its slot, keeping aspect).
-        const QRectF slot(kMargin, y, g.imageWidth, g.imageHeight);
-        if (!row.image.isNull()) p.drawImage(slot, row.image);
-        else p.fillRect(slot, QColor(230, 232, 235));
+private:
+    const ReviewNotesDocument& m_doc;
+    QPaintDevice* m_device;
+    QSizeF m_page;
+    qreal m_contentWidth = 0;
+    QVector<RowGeometry> m_geometry;
+    QVector<int> m_rowPages;
+    int m_pageCount = 1;
+};
 
-        // FRAME n   TIMECODE hh:mm:ss:ff                OPEN / RESOLVED
-        const qreal x = kMargin + g.imageWidth + 14.0;
-        qreal ty = y + 2;
-        const QFont label = fontPt(6.5);
-        const QFont value = fontPt(12);
-        qreal cx = x;
-        auto pair = [&](const QString& l, const QString& v) {
-            p.setFont(label);
-            p.setPen(kAccent);
-            p.drawText(QPointF(cx, ty + 12), l);
-            cx += metrics(label).horizontalAdvance(l) + 4;
-            p.setFont(value);
-            p.setPen(kInk);
-            p.drawText(QPointF(cx, ty + 12), v);
-            cx += metrics(value).horizontalAdvance(v) + 16;
-        };
-        pair(QStringLiteral("FRAME"), QString::number(row.frame + 1));
-        pair(QStringLiteral("TIMECODE"), row.timecode);
-        const bool allResolved = !row.notes.isEmpty()
-            && std::all_of(row.notes.cbegin(), row.notes.cend(), [](const auto& n) { return n.resolved; });
-        p.setFont(label);
-        p.setPen(allResolved ? kMuted : kAccent);
-        p.drawText(QRectF(x, ty + 3, g.textWidth, 12), Qt::AlignRight | Qt::AlignVCenter,
-                   allResolved ? QStringLiteral("RESOLVED") : QStringLiteral("OPEN"));
-        ty += 22;
-        const QFont body = fontPt(9.5);
-        if (row.notes.isEmpty()) {
-            p.setFont(body);
-            p.setPen(kMuted);
-            p.drawText(QPointF(x, ty + 10), QStringLiteral("(drawing only)"));
+/// A blank page image at the PDF's resolution, for the raster fallback.
+QImage pageImage(const QSizeF& points)
+{
+    QImage image((points * (kResolution / 72.0)).toSize(), QImage::Format_RGB32);
+    const int dotsPerMeter = qRound(kResolution / 0.0254);
+    image.setDotsPerMeterX(dotsPerMeter);
+    image.setDotsPerMeterY(dotsPerMeter);
+    image.fill(Qt::white);
+    return image;
+}
+
+/// Renders the document into PDF bytes. `rasterPages` draws each page as one
+/// picture (no fonts in the file at all), the fallback if the normal output
+/// does not verify.
+bool renderPdf(const ReviewNotesDocument& doc, bool rasterPages, QByteArray* out, int* pages, QString* error)
+{
+    QBuffer buffer(out);
+    buffer.open(QIODevice::WriteOnly);
+    bool ok = false;
+    int pageCount = 0;
+    {
+        QPdfWriter writer(&buffer);
+        writer.setPageSize(doc.pageSize);
+        writer.setPageMargins(QMarginsF(0, 0, 0, 0));
+        writer.setResolution(kResolution);
+        writer.setTitle(QStringLiteral("Review Notes - %1").arg(doc.clipName));
+        writer.setCreator(doc.footerLeft);
+        QPainter p;
+        if (!p.begin(&writer)) {
+            if (error) *error = QStringLiteral("The PDF could not be started.");
+            return false;
         }
-        for (const annotation::FrameNote& note : row.notes) {
-            // Resolved notes are greyed (and the row says RESOLVED); no symbol
-            // glyphs that would pull in a fallback font.
-            const QString text = noteText(note);
-            const qreal h = wrappedHeight(text, body, g.textWidth, &writer);
-            p.setPen(note.resolved ? kMuted : kInk);
-            drawWrapped(p, text, body, QRectF(x, ty, g.textWidth, h));
-            ty += h + 7.0;
+        const qreal scale = writer.resolution() / 72.0;
+        if (!rasterPages) {
+            const PageLayout layout(doc, &writer);
+            pageCount = layout.pageCount();
+            for (int page = 0; page < pageCount; ++page) {
+                if (page > 0) writer.newPage();
+                p.save();
+                p.scale(scale, scale);
+                layout.paint(p, page);
+                p.restore();
+            }
+        } else {
+            QImage probe = pageImage(doc.pageSize.size(QPageSize::Point));
+            const PageLayout layout(doc, &probe);
+            pageCount = layout.pageCount();
+            for (int page = 0; page < pageCount; ++page) {
+                if (page > 0) writer.newPage();
+                QImage image = pageImage(layout.pagePoints());
+                {
+                    QPainter ip(&image);
+                    ip.scale(scale, scale);
+                    layout.paint(ip, page);
+                }
+                p.drawImage(QRectF(QPointF(0, 0), QSizeF(image.size())), image);
+            }
         }
-        y += g.height + kRowGap;
-    }
-    drawFooter(currentPage);
-    if (!p.end()) {
-        if (error) *error = QStringLiteral("Could not finish writing %1.").arg(QDir::toNativeSeparators(path));
+        ok = p.end();
+    } // the writer finishes the file when it goes away
+    buffer.close();
+    if (!ok) {
+        if (error) *error = QStringLiteral("The PDF could not be finished.");
         return false;
     }
     if (pages) *pages = pageCount;
     return true;
 }
 
+} // namespace
+
+bool ReviewNotesPdfWriter::write(const ReviewNotesDocument& doc, const QString& path, QString* error, int* pages,
+                                 bool* usedFallback, Mode mode)
+{
+    // Build the whole file in memory and check it before anything touches the
+    // disk; if the normal (searchable) output does not check out, fall back to
+    // page pictures, which need no fonts.
+    QByteArray bytes;
+    QString why;
+    bool fallback = false;
+    if (mode == Mode::PagePictures || !renderPdf(doc, false, &bytes, pages, &why) || !verifyBytes(bytes, &why)) {
+        if (mode == Mode::Auto)
+            qWarning("Review notes PDF: normal output failed (%s, %lld bytes); writing page pictures instead",
+                     qPrintable(why), static_cast<long long>(bytes.size()));
+        bytes.clear();
+        fallback = true;
+        if (!renderPdf(doc, true, &bytes, pages, &why) || !verifyBytes(bytes, &why)) {
+            if (error) *error = why;
+            return false;
+        }
+    }
+    if (usedFallback) *usedFallback = fallback;
+    // One atomic write: the destination is either the old file or the new one.
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size() || !file.commit()) {
+        if (error)
+            *error = QStringLiteral("Could not save %1 (%2).").arg(QDir::toNativeSeparators(path), file.errorString());
+        return false;
+    }
+    return true;
+}
+
 bool ReviewNotesPdfWriter::verify(const QString& path, QString* error)
 {
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        if (error) *error = QStringLiteral("The PDF did not come out right (it could not be read back).");
+        return false;
+    }
+    return verifyBytes(file.readAll(), error);
+}
+
+bool ReviewNotesPdfWriter::verifyBytes(const QByteArray& data, QString* error)
+{
     auto fail = [&](const QString& why) {
-        if (error) *error = QStringLiteral("The PDF did not come out right (%1). Nothing was saved; please try again.").arg(why);
+        if (error) *error = QStringLiteral("The PDF did not come out right (%1).").arg(why);
         return false;
     };
-    QFile file(path);
-    if (!file.open(QIODevice::ReadOnly)) return fail(QStringLiteral("it could not be read back"));
-    const QByteArray data = file.readAll();
     if (!data.startsWith("%PDF-")) return fail(QStringLiteral("no PDF header"));
-    if (!data.right(64).contains("%%EOF")) return fail(QStringLiteral("it is incomplete"));
+    if (!data.right(1024).contains("%%EOF")) return fail(QStringLiteral("it is incomplete"));
     // The cross-reference table must be where the trailer says, and every
     // object it lists must start at its recorded offset.
     const qsizetype start = data.lastIndexOf("startxref");
@@ -320,7 +417,7 @@ bool ReviewNotesPdfWriter::verify(const QString& path, QString* error)
             const qint64 offset = entry.left(10).toLongLong(&ok);
             if (!ok || offset <= 0 || offset >= data.size()) return fail(QStringLiteral("an object is missing"));
             const QByteArray expected = QByteArray::number(first + i) + ' ';
-            if (!data.mid(offset, expected.size()) .startsWith(expected) || !data.mid(offset, 32).contains(" obj"))
+            if (!data.mid(offset, expected.size()).startsWith(expected) || !data.mid(offset, 32).contains(" obj"))
                 return fail(QStringLiteral("an object is out of place"));
             ++checked;
         }
@@ -388,6 +485,7 @@ void ReviewNotesJob::run()
     renderSpec.comparison = false;
     renderSpec.burnIns = {};
     renderSpec.burnIns.annotations = true;
+    renderSpec.burnIns.tracingPaperPercent = m_options.tracingPaperPercent;
     renderSpec.firstFrame = -1;
     renderSpec.lastFrame = -1;
     ExportRenderer renderer;
@@ -444,26 +542,10 @@ void ReviewNotesJob::writeDocument(const ReviewNotesDocument& doc)
         emit cancelled();
         return;
     }
-    // Write beside the destination, check it, then replace it, so a failure
-    // never leaves a broken PDF where the old one was.
-    const QString temporary = m_options.outputPath + QStringLiteral(".partial");
-    QFile::remove(temporary);
     int pageCount = 0;
     QString error;
-    if (!ReviewNotesPdfWriter::write(doc, temporary, &error, &pageCount)
-        || !ReviewNotesPdfWriter::verify(temporary, &error)) {
-        QFile::remove(temporary);
-        emit failed(error);
-        return;
-    }
-    if (QFile::exists(m_options.outputPath) && !QFile::remove(m_options.outputPath)) {
-        QFile::remove(temporary);
-        emit failed(QStringLiteral("The existing PDF could not be replaced (is it open in another app?)."));
-        return;
-    }
-    if (!QFile::rename(temporary, m_options.outputPath)) {
-        QFile::remove(temporary);
-        emit failed(QStringLiteral("The PDF could not be saved."));
+    if (!ReviewNotesPdfWriter::write(doc, m_options.outputPath, &error, &pageCount)) {
+        emit failed(error + QStringLiteral(" Nothing was saved."));
         return;
     }
     emit progress(100);

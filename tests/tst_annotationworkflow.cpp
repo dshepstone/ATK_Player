@@ -14,7 +14,9 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QComboBox>
 #include <QFile>
+#include <QFileInfo>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
@@ -82,6 +84,8 @@ bool openAt(atk::ui::MainWindow& window, const QString& project, qint64 frame)
 class TestAnnotationWorkflow : public QObject {
     Q_OBJECT
 private slots:
+    // Finished exports would open in the system viewer; record them instead.
+    void initTestCase() { qputenv("ATK_NO_OPEN_EXPORTS", "1"); }
     void drawModeNeedsMedia();
     void drawUndoRedoNavigateAndPersist();
     void brushSizeKeysStepTheToolbar();
@@ -388,10 +392,11 @@ void TestAnnotationWorkflow::notesPanelExportsAReviewNotesPdf()
     QTest::keyClicks(panel->composer(), QStringLiteral("hold this pose"));
     QTest::keyClick(panel->composer(), Qt::Key_Return, Qt::ControlModifier);
 
-    // Click "Export PDF…", accept the dialog, then close the "Saved" message.
+    // Click "Export PDF…" and accept the dialog; the finished PDF opens.
     const QString pdf = directory.filePath(QStringLiteral("review_notes.pdf"));
     bool sawDialog = false;
-    bool sawSaved = false;
+    bool openOffered = false;
+    bool tracingOffered = false;
     QString summary;
     QTimer driver;
     driver.setInterval(20);
@@ -400,18 +405,19 @@ void TestAnnotationWorkflow::notesPanelExportsAReviewNotesPdf()
         if (auto* dialog = qobject_cast<atk::ui::ReviewNotesDialog*>(modal)) {
             sawDialog = true;
             summary = dialog->findChild<QLabel*>(QStringLiteral("ReviewNotesSummary"))->text();
+            openOffered = dialog->openWhenDone();
+            tracingOffered = dialog->findChild<QComboBox*>(QStringLiteral("ReviewNotesTracingPaper")) != nullptr;
             dialog->findChild<QLineEdit*>(QStringLiteral("ReviewNotesDestination"))->setText(pdf);
             dialog->findChild<QPushButton*>(QStringLiteral("ReviewNotesExport"))->click();
-        } else if (auto* box = qobject_cast<QMessageBox*>(modal)) {
-            sawSaved = box->text().contains(QStringLiteral("review_notes.pdf"));
-            box->button(QMessageBox::Close)->click();
         }
     });
     driver.start();
     exportPdf->click();
-    QTRY_VERIFY_WITH_TIMEOUT(sawSaved, 20000);
+    QTRY_COMPARE_WITH_TIMEOUT(QFileInfo(window.lastOpenedExport()).absoluteFilePath(), QFileInfo(pdf).absoluteFilePath(), 20000);
     driver.stop();
     QVERIFY(sawDialog);
+    QVERIFY(openOffered);   // on by default
+    QVERIFY(tracingOffered);
     QCOMPARE(summary, QStringLiteral("1 frame(s) will be listed."));
     QFile file(pdf);
     QVERIFY(file.open(QIODevice::ReadOnly));

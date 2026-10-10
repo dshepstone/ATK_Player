@@ -14,10 +14,12 @@
 #include <QPushButton>
 #include <QVBoxLayout>
 
+#include <cstdlib>
+
 namespace atk::ui {
 
 ReviewNotesDialog::ReviewNotesDialog(const annotation::SourceAnnotations& annotations,
-                                     const QString& suggestedPath, QWidget* parent)
+                                     const QString& suggestedPath, int tracingPaperPercent, QWidget* parent)
     : QDialog(parent), m_annotations(annotations)
 {
     setObjectName(QStringLiteral("ReviewNotesDialog"));
@@ -54,6 +56,22 @@ ReviewNotesDialog::ReviewNotesDialog(const annotation::SourceAnnotations& annota
     m_includeResolved->setObjectName(QStringLiteral("ReviewNotesIncludeResolved"));
     m_includeResolved->setChecked(true);
     form->addRow(QString(), m_includeResolved);
+    m_tracingPaper = new QComboBox(this);
+    m_tracingPaper->setObjectName(QStringLiteral("ReviewNotesTracingPaper"));
+    for (int level : {0, 25, 50, 75, 100})
+        m_tracingPaper->addItem(level == 0 ? tr("Off") : QStringLiteral("%1%").arg(level), level);
+    m_tracingPaper->setToolTip(tr("Fade the pictures under the drawings, as tracing paper does in the viewer"));
+    int nearest = 0;
+    for (int i = 0; i < m_tracingPaper->count(); ++i)
+        if (std::abs(m_tracingPaper->itemData(i).toInt() - tracingPaperPercent)
+            < std::abs(m_tracingPaper->itemData(nearest).toInt() - tracingPaperPercent))
+            nearest = i;
+    m_tracingPaper->setCurrentIndex(nearest);
+    form->addRow(tr("Tracing paper:"), m_tracingPaper);
+    m_openWhenDone = new QCheckBox(tr("Open the PDF when it is done"), this);
+    m_openWhenDone->setObjectName(QStringLiteral("ReviewNotesOpenWhenDone"));
+    m_openWhenDone->setChecked(true);
+    form->addRow(QString(), m_openWhenDone);
     root->addLayout(form);
 
     m_summary = new QLabel(this);
@@ -86,8 +104,12 @@ exporter::ReviewNotesOptions ReviewNotesDialog::options() const
     options.outputPath = destination();
     options.pageSize = QPageSize(QPageSize::PageSizeId(m_paper->currentData().toInt()));
     options.includeResolved = m_includeResolved->isChecked();
+    options.tracingPaperPercent = m_tracingPaper->currentData().toInt();
     return options;
 }
+
+void ReviewNotesDialog::setOpenWhenDone(bool open) { m_openWhenDone->setChecked(open); }
+bool ReviewNotesDialog::openWhenDone() const { return m_openWhenDone->isChecked(); }
 
 void ReviewNotesDialog::browse()
 {

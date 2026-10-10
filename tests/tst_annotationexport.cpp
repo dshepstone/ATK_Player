@@ -101,6 +101,9 @@ private slots:
     void notesBecomeACaption();
     void annotationsOffOrComparisonLeaveFramesClean();
     void imageSequenceExportBurnsInDrawings();
+    void freezeRepeatsEachAnnotatedFrame();
+    void freezeSplicesSilenceIntoTheSound();
+    void tracingPaperWashesExportedFrames();
 };
 
 void TestAnnotationExport::drawingsAppearOnlyOnTheirFrame()
@@ -182,4 +185,84 @@ void TestAnnotationExport::imageSequenceExportBurnsInDrawings()
 }
 
 QTEST_MAIN(TestAnnotationExport)
+void TestAnnotationExport::freezeRepeatsEachAnnotatedFrame()
+{
+    exporter::ExportSpec spec = specFor(0, 119);
+    spec.annotations = annotationsAt({10, 40}, false);
+    spec.burnIns.annotations = true;
+    using Renderer = exporter::ExportBurnInRenderer;
+    QCOMPARE(Renderer::videoSchedule(spec).size(), 120); // no freeze set: play through
+
+    spec.burnIns.annotationFreezeFrames = 5;
+    const auto schedule = Renderer::videoSchedule(spec);
+    QCOMPARE(schedule.size(), 130);
+    QCOMPARE(schedule[10].sourceFrame, qint64(10));
+    QVERIFY(!schedule[10].repeat);
+    for (int i = 11; i <= 15; ++i) {
+        QCOMPARE(schedule[i].sourceFrame, qint64(10)); // the picture holds still
+        QVERIFY(schedule[i].repeat);
+    }
+    QCOMPARE(schedule[16].sourceFrame, qint64(11)); // then plays on
+    QVERIFY(!schedule[16].repeat);
+    QCOMPARE(schedule.last().sourceFrame, qint64(119));
+
+    // Only frames that are actually burned in freeze.
+    spec.burnIns.annotations = false;
+    QCOMPARE(Renderer::videoSchedule(spec).size(), 120);
+    spec.annotations = annotationsAt({10}, true); // drawing + note
+    spec.burnIns.annotationNotes = true;          // notes still on
+    QCOMPARE(Renderer::videoSchedule(spec).size(), 125);
+    // Frames inside a hold do not freeze again; only the drawn frame does.
+    spec.burnIns.annotationHoldFrames = 12;
+    QCOMPARE(Renderer::videoSchedule(spec).size(), 125);
+    // Nothing outside the export range.
+    spec.sourceA.rangeStartFrame = 20;
+    QCOMPARE(Renderer::videoSchedule(spec).size(), 100);
+}
+
+void TestAnnotationExport::freezeSplicesSilenceIntoTheSound()
+{
+    using Renderer = exporter::ExportBurnInRenderer;
+    const media::FrameRate rate{24, 1};
+    const int sampleRate = 48000; // 2000 samples per frame
+    const int bytesPerSample = 4; // stereo 16-bit
+    const qint64 perFrame = 2000 * bytesPerSample;
+    // Four source frames of sound, each a distinct non-zero byte.
+    QByteArray source;
+    for (char f = 1; f <= 4; ++f) source.append(QByteArray(perFrame, f));
+    const QVector<Renderer::ScheduledFrame> schedule{
+        {0, false}, {1, false}, {1, true}, {1, true}, {2, false}, {3, false}};
+    const QByteArray out = Renderer::scheduleAudio(source, schedule, rate, sampleRate, bytesPerSample);
+    QCOMPARE(out.size(), 6 * perFrame);
+    const char expected[] = {1, 2, 0, 0, 3, 4}; // silence while frozen, then the rest in step
+    for (int j = 0; j < 6; ++j) {
+        const QByteArray slice = out.mid(j * perFrame, perFrame);
+        QCOMPARE(slice, QByteArray(perFrame, expected[j]));
+    }
+    // A fractional rate keeps the exact sample grid (29.97: 1601.6 samples a frame).
+    const media::FrameRate ntsc{30000, 1001};
+    QCOMPARE(Renderer::samplesAtFrame(5, ntsc, sampleRate), qint64(8008));
+    const QByteArray ntscOut = Renderer::scheduleAudio(QByteArray(8008 * bytesPerSample, 7), {{0, false}, {0, true},
+        {1, false}, {2, false}, {3, false}, {4, false}}, ntsc, sampleRate, bytesPerSample);
+    QCOMPARE(ntscOut.size(), qsizetype(Renderer::samplesAtFrame(6, ntsc, sampleRate) * bytesPerSample));
+}
+
+void TestAnnotationExport::tracingPaperWashesExportedFrames()
+{
+    exporter::ExportSpec spec = specFor(0, 119);
+    spec.annotations = annotationsAt({10}, false);
+    spec.burnIns.annotations = true;
+    const QImage plain = renderFrame(spec, 10);
+    spec.burnIns.tracingPaperPercent = 50;
+    const QImage traced = renderFrame(spec, 10);
+    QVERIFY(isGreen(traced)); // drawings sit on top of the paper, unchanged
+    // Elsewhere the picture is half-way to white.
+    const QPoint probe(plain.width() * 3 / 4, plain.height() * 3 / 4);
+    const QColor before = plain.pixelColor(probe);
+    const QColor after = traced.pixelColor(probe);
+    QVERIFY(qAbs(after.red() - (before.red() + 255) / 2) <= 3);
+    QVERIFY(qAbs(after.green() - (before.green() + 255) / 2) <= 3);
+    QVERIFY(qAbs(after.blue() - (before.blue() + 255) / 2) <= 3);
+}
+
 #include "tst_annotationexport.moc"

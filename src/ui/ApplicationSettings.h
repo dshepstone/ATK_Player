@@ -75,6 +75,8 @@ public:
     /// turns it on at (25, 50, 75 or 100; default 50).
     int tracingPaper() const;
     int tracingPaperLevel() const;
+    /// Open a finished PDF or video export in the system viewer (default on).
+    bool openExportsWhenDone() const;
     /// Ghosting (onion skin) of nearby frames' drawings.
     annotation::GhostSettings ghostSettings() const;
 
@@ -97,6 +99,7 @@ public:
     void setReviewerName(const QString& name);
     void setTracingPaper(int percent);
     void setTracingPaperLevel(int percent);
+    void setOpenExportsWhenDone(bool open);
     void setGhostSettings(const annotation::GhostSettings& settings);
 
     QByteArray windowGeometry() const;

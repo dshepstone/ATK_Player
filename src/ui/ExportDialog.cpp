@@ -1,6 +1,7 @@
 #include "ui/ExportDialog.h"
 #include "ui/BurnInOptionsWidget.h"
 #include "export/FFmpegExporter.h"
+#include <QCheckBox>
 #include <QDialogButtonBox>
 #include <QFileDialog>
 #include <QFormLayout>
@@ -47,6 +48,10 @@ ExportDialog::ExportDialog(exporter::ExportSpec spec, QWidget* parent)
     m_burnIns = new BurnInOptionsWidget(this);
     m_burnIns->setOptions(m_spec.burnIns);
     root->addWidget(m_burnIns);
+    m_openWhenDone = new QCheckBox(tr("Open the video when it is done"), this);
+    m_openWhenDone->setObjectName(QStringLiteral("ExportOpenWhenDone"));
+    m_openWhenDone->setChecked(true);
+    root->addWidget(m_openWhenDone);
     if (!exporter::FFmpegExporter::isSupported())
         root->addWidget(new QLabel(tr("No compatible H.264 encoder is available in this FFmpeg build."), this));
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Cancel, this);
@@ -65,6 +70,8 @@ QString ExportDialog::destination() const
     return path;
 }
 exporter::ExportBurnIns ExportDialog::burnIns() const { return m_burnIns->options(); }
+void ExportDialog::setOpenWhenDone(bool open) { m_openWhenDone->setChecked(open); }
+bool ExportDialog::openWhenDone() const { return m_openWhenDone->isChecked(); }
 void ExportDialog::browse()
 {
     const QString path = QFileDialog::getSaveFileName(this, tr("Export Review"), destination(), tr("MP4 Video (*.mp4)"));

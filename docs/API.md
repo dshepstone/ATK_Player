@@ -61,8 +61,14 @@ Notes panel as a caption. Both default to false over the API. They apply to
 single-source exports only. An optional integer `annotationHoldFrames` (0–240,
 default 0) keeps each annotated frame's drawings and notes on screen for that
 many following frames, or until the next annotated frame. With 0, the video
-plays through and each annotation appears only on its own frame. In the desktop
-Export Review dialog, both annotation options start checked when the clip has
-drawings or notes.
+plays through and each annotation appears only on its own frame. An optional
+integer `annotationFreezeFrames` (0–240, default 0, video only) instead stops the
+picture on each burned-in annotated frame for that many extra frames, with
+silence in the soundtrack, so the video gets longer and stays in sync after
+each freeze. An optional integer `tracingPaper` (0–100, default 0) lays a white
+wash of that strength over the picture, under the drawings, like the viewer's
+tracing paper. In the desktop Export Review dialog, both annotation options start
+checked when the clip has drawings or notes, and tracing paper starts at the
+viewer's current setting.
 
 The standard-library reference client is in [`integrations/python`](../integrations/python/). Maya support in [`integrations/maya`](../integrations/maya/) maps scene frames to zero-based playblast frames rather than changing the protocol.

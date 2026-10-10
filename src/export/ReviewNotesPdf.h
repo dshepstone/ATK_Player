@@ -42,13 +42,18 @@ struct ReviewNotesDocument {
 /// searchable and prints sharply.
 class ReviewNotesPdfWriter {
 public:
-    /// `pages` (optional) receives the number of pages written.
+    /// Builds the PDF in memory, checks it (verifyBytes), and saves it in one
+    /// atomic write. If the normal, searchable output fails the check, the
+    /// pages are written as pictures instead (no fonts involved);
+    /// `usedFallback` reports that. `pages` receives the page count.
+    enum class Mode { Auto, PagePictures };
     static bool write(const ReviewNotesDocument& document, const QString& path, QString* error,
-                      int* pages = nullptr);
+                      int* pages = nullptr, bool* usedFallback = nullptr, Mode mode = Mode::Auto);
 
-    /// Structural check of a written PDF: header, end marker, and every
-    /// object where the cross-reference table says it is. Catches truncated
-    /// or scrambled files before they replace a good one.
+    /// Structural check of a PDF: header, end marker, and every object where
+    /// the cross-reference table says it is. Catches truncated or scrambled
+    /// output before it replaces a good file.
+    static bool verifyBytes(const QByteArray& data, QString* error);
     static bool verify(const QString& path, QString* error);
 
     /// Which page each row lands on, given row heights and the space available
@@ -63,6 +68,7 @@ struct ReviewNotesOptions {
     QPageSize pageSize = QPageSize(QPageSize::A4);
     bool includeResolved = true;
     int imageWidth = 1280; // pixels per frame picture in the PDF
+    int tracingPaperPercent = 0; // white wash under the drawings, as in the viewer
 };
 
 /// Builds rows from a source's annotations and writes the PDF: decoding each
