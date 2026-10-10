@@ -27,6 +27,7 @@
 #include "ui/CompareBar.h"
 #include "ui/ComparisonCompositeWidget.h"
 #include "ui/ExportDialog.h"
+#include "ui/ExportUi.h"
 #include "ui/FrameFieldStyle.h"
 #include "ui/FrameNumberInput.h"
 #include "ui/MediaInformationDialog.h"
@@ -99,17 +100,22 @@ namespace atk::ui {
 namespace {
 using commands::CommandId;
 
-bool chooseBurnIns(QWidget* parent, const QString& title, exporter::ExportBurnIns& result)
+bool chooseBurnIns(QWidget* parent, const QString& title, const QString& summary, exporter::ExportBurnIns& result)
 {
-    QDialog dialog(parent); dialog.setWindowTitle(title);
-    auto* layout = new QVBoxLayout(&dialog);
+    QDialog dialog(parent);
+    dialog.setWindowTitle(title);
+    dialog.setStyleSheet(exportui::styleSheet());
+    dialog.setMinimumWidth(520);
+    auto* root = new QVBoxLayout(&dialog);
+    root->setContentsMargins(0, 0, 0, 0);
+    root->setSpacing(0);
+    exportui::addHeader(root, &dialog, QStringLiteral("PNG"), title, summary);
+    auto* body = exportui::addBody(root);
+    auto* card = exportui::addCard(body, &dialog, QObject::tr("Drawings, notes and burn-ins"));
     auto* options = new BurnInOptionsWidget(&dialog); options->setOptions(result);
     options->setVideoOptionsVisible(false); // stills: no play-through, hold or freeze
-    layout->addWidget(options);
-    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
-    layout->addWidget(buttons);
-    QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
-    QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    card->addWidget(options);
+    exportui::addFooter(root, &dialog, QObject::tr("Export"));
     if (dialog.exec() != QDialog::Accepted) return false;
     result = options->options();
     return true;
@@ -2171,7 +2177,7 @@ void MainWindow::exportCurrentFrame()
         && QMessageBox::question(this, tr("Export Current Frame"),
             tr("Replace the existing image?\n%1").arg(QDir::toNativeSeparators(path)),
             QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes) return;
-    if (!chooseBurnIns(this, tr("Export Current Frame"), spec.burnIns)) return;
+    if (!chooseBurnIns(this, tr("Export Current Frame"), QDir::toNativeSeparators(path), spec.burnIns)) return;
     spec.outputPath = QFileInfo(path).absoluteFilePath();
     const QString validation = spec.validate();
     if (!validation.isEmpty()) { QMessageBox::critical(this, tr("Export Current Frame"), validation); return; }
@@ -2188,7 +2194,10 @@ void MainWindow::exportImageSequence()
         this, tr("Choose Parent Folder for Image Sequence"), QFileInfo(spec.outputPath).absolutePath());
     if (parent.isEmpty()) return;
     spec.outputPath = QDir(parent).filePath(spec.imagePrefix + QStringLiteral("_frames"));
-    if (!chooseBurnIns(this, tr("Export Image Sequence"), spec.burnIns)) return;
+    if (!chooseBurnIns(this, tr("Export Image Sequence"),
+                       tr("%n frame(s) as PNG images into %1", nullptr, int(spec.frameCount()))
+                           .arg(QDir::toNativeSeparators(spec.outputPath)),
+                       spec.burnIns)) return;
     const QString validation = spec.validate();
     if (!validation.isEmpty()) { QMessageBox::critical(this, tr("Export Image Sequence"), validation); return; }
     startExport(std::move(spec));
@@ -2199,15 +2208,14 @@ void MainWindow::startExport(exporter::ExportSpec spec, bool showProgressUi)
     if (exportInProgress()) return;
     m_exportJob = std::make_unique<exporter::ExportJob>(std::move(spec), this);
     if (showProgressUi) {
-        m_exportProgress = new QProgressDialog(tr("Preparing…"), tr("Cancel"), 0, 100, this);
-        m_exportProgress->setWindowTitle(m_exportJob->spec().kind == exporter::ExportKind::ReviewVideo
-            ? tr("Export Review") : m_exportJob->spec().kind == exporter::ExportKind::CurrentFrame
-                ? tr("Export Current Frame") : tr("Export Image Sequence"));
+        const exporter::ExportKind kind = m_exportJob->spec().kind;
+        m_exportProgress = new ExportProgressDialog(
+            kind == exporter::ExportKind::ReviewVideo ? QStringLiteral("MP4") : QStringLiteral("PNG"),
+            kind == exporter::ExportKind::ReviewVideo ? tr("Exporting video")
+                : kind == exporter::ExportKind::CurrentFrame ? tr("Exporting frame") : tr("Exporting image sequence"),
+            QDir::toNativeSeparators(m_exportJob->spec().outputPath), this);
         m_exportProgress->setWindowModality(Qt::NonModal);
-        m_exportProgress->setMinimumDuration(0);
-        m_exportProgress->setAutoClose(false);
-        m_exportProgress->setAutoReset(false);
-        connect(m_exportProgress, &QProgressDialog::canceled,
+        connect(m_exportProgress, &ExportProgressDialog::canceled,
                 m_exportJob.get(), &exporter::ExportJob::cancel);
         connect(m_exportJob.get(), &exporter::ExportJob::progress, m_exportProgress,
                 [this](int percent, qint64, qint64) {
@@ -2225,7 +2233,7 @@ void MainWindow::startExport(exporter::ExportSpec spec, bool showProgressUi)
                 m_apiExportTotal = total;
             });
     const auto closeProgress = [this] {
-        if (m_exportProgress) { m_exportProgress->close(); m_exportProgress->deleteLater(); m_exportProgress = nullptr; }
+        if (m_exportProgress) { m_exportProgress->finish(); m_exportProgress->deleteLater(); m_exportProgress = nullptr; }
         updateTransportEnabled();
     };
     connect(m_exportJob.get(), &exporter::ExportJob::completed, this, [this, closeProgress](const QString& path) {
@@ -2336,13 +2344,11 @@ void MainWindow::exportReviewNotes()
     header.footerLeft = QStringLiteral("ATK Player %1").arg(QString::fromLatin1(version::kString));
 
     m_notesPdfJob = std::make_unique<exporter::ReviewNotesJob>(std::move(spec), std::move(header), options, this);
-    m_notesPdfProgress = new QProgressDialog(tr("Rendering annotated frames…"), tr("Cancel"), 0, 100, this);
-    m_notesPdfProgress->setWindowTitle(tr("Export Review Notes"));
+    m_notesPdfProgress = new ExportProgressDialog(QStringLiteral("PDF"), tr("Exporting notes PDF"),
+                                                  QDir::toNativeSeparators(options.outputPath), this);
+    m_notesPdfProgress->setLabelText(tr("Rendering the drawn frames…"));
     m_notesPdfProgress->setWindowModality(Qt::NonModal);
-    m_notesPdfProgress->setMinimumDuration(0);
-    m_notesPdfProgress->setAutoClose(false);
-    m_notesPdfProgress->setAutoReset(false);
-    connect(m_notesPdfProgress, &QProgressDialog::canceled, m_notesPdfJob.get(), &exporter::ReviewNotesJob::cancel);
+    connect(m_notesPdfProgress, &ExportProgressDialog::canceled, m_notesPdfJob.get(), &exporter::ReviewNotesJob::cancel);
     connect(m_notesPdfJob.get(), &exporter::ReviewNotesJob::progress, m_notesPdfProgress, [this](int percent) {
         if (!m_notesPdfProgress) return;
         m_notesPdfProgress->setValue(percent);
@@ -2351,7 +2357,7 @@ void MainWindow::exportReviewNotes()
     const auto finish = [this] {
         m_notesPdfJob->wait(); // the worker has reported; join it
         if (m_notesPdfProgress) {
-            m_notesPdfProgress->close();
+            m_notesPdfProgress->finish();
             m_notesPdfProgress->deleteLater();
             m_notesPdfProgress = nullptr;
         }
@@ -2387,8 +2393,8 @@ bool MainWindow::cancelExportForProjectChange()
     // Stop work, then join the worker, before the UI state it reports to goes.
     if (m_exportJob) { m_exportJob->cancel(); m_exportJob->wait(); }
     if (m_notesPdfJob) { m_notesPdfJob->cancel(); m_notesPdfJob->wait(); }
-    if (m_exportProgress) { m_exportProgress->close(); m_exportProgress->deleteLater(); m_exportProgress = nullptr; }
-    if (m_notesPdfProgress) { m_notesPdfProgress->close(); m_notesPdfProgress->deleteLater(); m_notesPdfProgress = nullptr; }
+    if (m_exportProgress) { m_exportProgress->finish(); m_exportProgress->deleteLater(); m_exportProgress = nullptr; }
+    if (m_notesPdfProgress) { m_notesPdfProgress->finish(); m_notesPdfProgress->deleteLater(); m_notesPdfProgress = nullptr; }
     updateTransportEnabled();
     return true;
 }

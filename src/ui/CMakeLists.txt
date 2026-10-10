@@ -14,6 +14,7 @@ set(ATK_UI_SOURCES
     CompareBar.cpp
     ComparisonCompositeWidget.cpp
     ExportDialog.cpp
+    ExportUi.cpp
     FrameFieldStyle.cpp
     FrameNumberInput.cpp
     MainWindow.cpp
@@ -44,6 +45,7 @@ set(ATK_UI_HEADERS
     CompareBar.h
     ComparisonCompositeWidget.h
     ExportDialog.h
+    ExportUi.h
     FrameFieldStyle.h
     FrameNumberInput.h
     MainWindow.h

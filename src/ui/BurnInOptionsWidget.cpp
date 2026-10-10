@@ -1,7 +1,6 @@
 #include "ui/BurnInOptionsWidget.h"
 #include <QCheckBox>
 #include <QComboBox>
-#include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QSpinBox>
@@ -13,9 +12,12 @@ namespace atk::ui {
 
 BurnInOptionsWidget::BurnInOptionsWidget(QWidget* parent) : QWidget(parent)
 {
-    auto* layout = new QVBoxLayout(this); layout->setContentsMargins(0, 0, 0, 0);
-    auto* group = new QGroupBox(tr("Burn-ins"), this);
-    auto* choices = new QVBoxLayout(group);
+    // Sits inside an export window's card, which supplies the title.
+    setObjectName(QStringLiteral("ExportRow"));
+    auto* group = this;
+    auto* choices = new QVBoxLayout(this);
+    choices->setContentsMargins(0, 0, 0, 0);
+    choices->setSpacing(7);
     m_frameNumber = new QCheckBox(tr("Frame number"), group);
     m_bookmarkLabels = new QCheckBox(tr("Bookmark labels"), group);
     m_bookmarkNotes = new QCheckBox(tr("Bookmark notes"), group);
@@ -30,6 +32,7 @@ BurnInOptionsWidget::BurnInOptionsWidget(QWidget* parent) : QWidget(parent)
     // After each drawing or note: play straight through (SyncSketch's
     // default), keep it on screen while the video plays, or stop the picture.
     m_afterRow = new QWidget(group);
+    m_afterRow->setObjectName(QStringLiteral("ExportRow"));
     auto* after = new QHBoxLayout(m_afterRow);
     after->setContentsMargins(20, 0, 0, 0);
     after->addWidget(new QLabel(tr("At each drawing or note:"), m_afterRow));
@@ -61,7 +64,6 @@ BurnInOptionsWidget::BurnInOptionsWidget(QWidget* parent) : QWidget(parent)
     traceRow->addWidget(m_tracingPaper);
     traceRow->addStretch(1);
     choices->addLayout(traceRow);
-    layout->addWidget(group);
 
     connect(m_annotations, &QCheckBox::toggled, this, &BurnInOptionsWidget::refreshEnabled);
     connect(m_annotationNotes, &QCheckBox::toggled, this, &BurnInOptionsWidget::refreshEnabled);

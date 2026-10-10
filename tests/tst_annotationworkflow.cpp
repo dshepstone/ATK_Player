@@ -6,6 +6,7 @@
 #include "project/ProjectSerializer.h"
 #include "ui/AnnotationToolbar.h"
 #include "ui/ExportDialog.h"
+#include "ui/ExportUi.h"
 #include "ui/MainWindow.h"
 #include "ui/NotesPanel.h"
 #include "ui/ReviewNotesDialog.h"
@@ -99,6 +100,7 @@ private slots:
     void fileMenuHasTheNotesExports();
     void exportsOpenOnlyOnceTheFileIsReady();
     void watchingASavedProjectNeverAsksToSave();
+    void exportProgressWindowCancelsAndCloses();
 };
 
 void TestAnnotationWorkflow::drawModeNeedsMedia()
@@ -419,6 +421,10 @@ void TestAnnotationWorkflow::notesPanelExportsAReviewNotesPdf()
     driver.stop();
     QVERIFY(sawDialog);
     QVERIFY(openOffered);   // on by default
+    // The progress window has closed itself.
+    QTRY_VERIFY(std::none_of(window.findChildren<atk::ui::ExportProgressDialog*>().cbegin(),
+                             window.findChildren<atk::ui::ExportProgressDialog*>().cend(),
+                             [](const QWidget* w) { return w->isVisible(); }));
     QVERIFY(tracingOffered);
     QCOMPARE(summary, QStringLiteral("1 frame(s) will be listed."));
     QFile file(pdf);
@@ -695,6 +701,33 @@ void TestAnnotationWorkflow::watchingASavedProjectNeverAsksToSave()
     QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->currentFrame(), qint64(60), 5000);
     command(window, "view.timelineZoomIn")->trigger();
     QVERIFY(!window.project()->needsSavePrompt());
+}
+
+void TestAnnotationWorkflow::exportProgressWindowCancelsAndCloses()
+{
+    atk::ui::ExportProgressDialog progress(QStringLiteral("MP4"), QStringLiteral("Exporting video"),
+                                           QStringLiteral("C:/out/review.mp4"));
+    progress.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&progress));
+    QSignalSpy cancelled(&progress, &atk::ui::ExportProgressDialog::canceled);
+    progress.setLabelText(QStringLiteral("Rendering frame 12 / 160…"));
+    progress.setValue(40);
+    QCOMPARE(progress.value(), 40);
+    QCOMPARE(progress.findChild<QLabel*>(QStringLiteral("ExportPercent"))->text(), QStringLiteral("40%"));
+    QCOMPARE(progress.findChild<QLabel*>(QStringLiteral("ExportProgressStatus"))->text(),
+             QStringLiteral("Rendering frame 12 / 160…"));
+
+    // Cancel asks once and keeps the window up until the export has stopped.
+    auto* cancel = progress.findChild<QPushButton*>(QStringLiteral("ExportProgressCancel"));
+    cancel->click();
+    QCOMPARE(cancelled.size(), 1);
+    QVERIFY(progress.isVisible());
+    QVERIFY(!cancel->isEnabled());
+    progress.close(); // the title-bar close button asks too, but only once
+    QCOMPARE(cancelled.size(), 1);
+    QVERIFY(progress.isVisible());
+    progress.finish();
+    QVERIFY(!progress.isVisible());
 }
 
 QTEST_MAIN(TestAnnotationWorkflow)

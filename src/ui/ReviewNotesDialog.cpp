@@ -1,12 +1,12 @@
 #include "ui/ReviewNotesDialog.h"
 
+#include "ui/ExportUi.h"
+
 #include <QCheckBox>
 #include <QComboBox>
-#include <QDialogButtonBox>
 #include <QDir>
 #include <QFileDialog>
 #include <QFileInfo>
-#include <QFormLayout>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -24,24 +24,26 @@ ReviewNotesDialog::ReviewNotesDialog(const annotation::SourceAnnotations& annota
 {
     setObjectName(QStringLiteral("ReviewNotesDialog"));
     setWindowTitle(tr("Export Notes PDF"));
+    setStyleSheet(exportui::styleSheet());
+    setMinimumWidth(540);
     auto* root = new QVBoxLayout(this);
-    auto* title = new QLabel(tr("EXPORT REVIEW NOTES"), this);
-    title->setProperty("atkRole", "heading");
-    root->addWidget(title);
-    auto* intro = new QLabel(tr("A PDF with one row per frame that has drawings or notes: the frame with its "
-                                "drawings, its frame number and timecode, and the notes written on it."), this);
-    intro->setWordWrap(true);
-    root->addWidget(intro);
+    root->setContentsMargins(0, 0, 0, 0);
+    root->setSpacing(0);
+    m_summary = exportui::addHeader(root, this, QStringLiteral("PDF"), tr("Export Notes PDF"), QString());
+    m_summary->setObjectName(QStringLiteral("ReviewNotesSummary"));
+    auto* body = exportui::addBody(root);
 
-    auto* form = new QFormLayout;
-    auto* row = new QHBoxLayout;
-    m_destination = new QLineEdit(QDir::toNativeSeparators(suggestedPath), this);
+    auto* output = exportui::addCard(body, this, tr("Output"));
+    auto* where = new QWidget(this);
+    where->setObjectName(QStringLiteral("ExportRow"));
+    auto* whereRow = new QHBoxLayout(where);
+    whereRow->setContentsMargins(0, 0, 0, 0);
+    m_destination = new QLineEdit(QDir::toNativeSeparators(suggestedPath), where);
     m_destination->setObjectName(QStringLiteral("ReviewNotesDestination"));
-    auto* browseButton = new QPushButton(tr("Browse…"), this);
-    row->addWidget(m_destination, 1);
-    row->addWidget(browseButton);
-    form->addRow(tr("Destination:"), row);
-
+    auto* browseButton = new QPushButton(tr("Browse…"), where);
+    whereRow->addWidget(m_destination, 1);
+    whereRow->addWidget(browseButton);
+    exportui::addRow(output, this, tr("Save to"), where);
     m_paper = new QComboBox(this);
     m_paper->setObjectName(QStringLiteral("ReviewNotesPaper"));
     m_paper->addItem(tr("A4"), int(QPageSize::A4));
@@ -50,12 +52,13 @@ ReviewNotesDialog::ReviewNotesDialog(const annotation::SourceAnnotations& annota
     const QLocale::Territory territory = QLocale().territory();
     if (territory == QLocale::UnitedStates || territory == QLocale::Canada || territory == QLocale::Mexico)
         m_paper->setCurrentIndex(1);
-    form->addRow(tr("Paper:"), m_paper);
+    exportui::addRow(output, this, tr("Paper"), m_paper, 0);
 
+    auto* content = exportui::addCard(body, this, tr("Content"));
     m_includeResolved = new QCheckBox(tr("Include resolved notes"), this);
     m_includeResolved->setObjectName(QStringLiteral("ReviewNotesIncludeResolved"));
     m_includeResolved->setChecked(true);
-    form->addRow(QString(), m_includeResolved);
+    content->addWidget(m_includeResolved);
     m_tracingPaper = new QComboBox(this);
     m_tracingPaper->setObjectName(QStringLiteral("ReviewNotesTracingPaper"));
     for (int level : {0, 25, 50, 75, 100})
@@ -67,26 +70,16 @@ ReviewNotesDialog::ReviewNotesDialog(const annotation::SourceAnnotations& annota
             < std::abs(m_tracingPaper->itemData(nearest).toInt() - tracingPaperPercent))
             nearest = i;
     m_tracingPaper->setCurrentIndex(nearest);
-    form->addRow(tr("Tracing paper:"), m_tracingPaper);
+    exportui::addRow(content, this, tr("Tracing paper"), m_tracingPaper, 0);
+
     m_openWhenDone = new QCheckBox(tr("Open the PDF when it is done"), this);
     m_openWhenDone->setObjectName(QStringLiteral("ReviewNotesOpenWhenDone"));
     m_openWhenDone->setChecked(true);
-    form->addRow(QString(), m_openWhenDone);
-    root->addLayout(form);
-
-    m_summary = new QLabel(this);
-    m_summary->setObjectName(QStringLiteral("ReviewNotesSummary"));
-    root->addWidget(m_summary);
-
-    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Cancel, this);
-    m_export = buttons->addButton(tr("Export PDF"), QDialogButtonBox::AcceptRole);
+    m_export = exportui::addFooter(root, this, tr("Export PDF"), m_openWhenDone);
     m_export->setObjectName(QStringLiteral("ReviewNotesExport"));
-    root->addWidget(buttons);
     connect(browseButton, &QPushButton::clicked, this, &ReviewNotesDialog::browse);
     connect(m_includeResolved, &QCheckBox::toggled, this, &ReviewNotesDialog::refreshSummary);
     connect(m_destination, &QLineEdit::textChanged, this, &ReviewNotesDialog::refreshSummary);
-    connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
-    connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
     refreshSummary();
 }
 

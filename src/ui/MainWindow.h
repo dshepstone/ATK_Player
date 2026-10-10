@@ -42,6 +42,7 @@ namespace atk::ui {
 
 class AnnotationToolbar;
 class NotesPanel;
+class ExportProgressDialog;
 class CommandRegistry;
 class ApplicationSettings;
 class BookmarkPanel;
@@ -289,8 +290,8 @@ private:
     QDockWidget* m_sourcesDock = nullptr;
     QDockWidget* m_bookmarksDock = nullptr;
     QMenu* m_recentProjectsMenu = nullptr;
-    QProgressDialog* m_exportProgress = nullptr;
-    QProgressDialog* m_notesPdfProgress = nullptr;
+    ExportProgressDialog* m_exportProgress = nullptr;
+    ExportProgressDialog* m_notesPdfProgress = nullptr;
     bool m_openExportWhenDone = false; // set per Export Review run
     QString m_lastOpenedExport;
     bool m_skipLayoutSaveOnce = false;
