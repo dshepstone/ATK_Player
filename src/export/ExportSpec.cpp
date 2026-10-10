@@ -78,4 +78,16 @@ QString ExportSpec::validate() const
     return {};
 }
 
+QString numberedSibling(const QString& path)
+{
+    const QFileInfo info(path);
+    const QString suffix = info.suffix().isEmpty() ? QString() : QStringLiteral(".") + info.suffix();
+    const QDir dir = info.absoluteDir();
+    for (int n = 2; n < 1000; ++n) {
+        const QString candidate = dir.filePath(QStringLiteral("%1 (%2)%3").arg(info.completeBaseName()).arg(n).arg(suffix));
+        if (!QFileInfo::exists(candidate)) return candidate;
+    }
+    return {};
+}
+
 } // namespace atk::exporter

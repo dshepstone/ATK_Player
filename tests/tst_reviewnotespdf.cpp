@@ -4,6 +4,7 @@
 
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTest>
@@ -66,6 +67,7 @@ private slots:
     void jobCancelLeavesNoFile();
     void verifyCatchesBrokenFiles();
     void pagePicturesFallbackIsAValidPdfWithoutFonts();
+    void jobSavesBesideAFileItCannotReplace();
 };
 
 void TestReviewNotesPdf::paginateKeepsRowsWhole()
@@ -242,16 +244,47 @@ void TestReviewNotesPdf::pagePicturesFallbackIsAValidPdfWithoutFonts()
     QCOMPARE(picturePages, normalPages); // same layout, page for page
     QCOMPARE(pdfPageCount(pictures), picturePages);
     QVERIFY(exporter::ReviewNotesPdfWriter::verify(pictures, &error));
-    QFile file(pictures);
-    QVERIFY(file.open(QIODevice::ReadOnly));
-    QVERIFY(!file.readAll().contains("/FontFile")); // nothing font-related to go wrong
-    QFile normalFile(normal);
-    QVERIFY(normalFile.open(QIODevice::ReadOnly));
-    QVERIFY(normalFile.readAll().contains("/FontFile")); // the normal PDF has real, searchable text
+    {
+        QFile file(pictures);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QVERIFY(!file.readAll().contains("/FontFile")); // nothing font-related to go wrong
+        QFile normalFile(normal);
+        QVERIFY(normalFile.open(QIODevice::ReadOnly));
+        QVERIFY(normalFile.readAll().contains("/FontFile")); // the normal PDF has real, searchable text
+    } // closed: Windows cannot replace a file that is still open
 
     // Saving replaces an existing file in one step.
     QVERIFY(exporter::ReviewNotesPdfWriter::write(doc, pictures, &error));
     QVERIFY(exporter::ReviewNotesPdfWriter::verify(pictures, &error));
+}
+
+// When the chosen PDF cannot be replaced (on Windows: it is open in a viewer,
+// often because the last export opened it), the job saves "name (2).pdf".
+void TestReviewNotesPdf::jobSavesBesideAFileItCannotReplace()
+{
+    exporter::ExportSpec spec = specForFixture();
+    annotation::FrameAnnotation a;
+    a.frame = 10;
+    a.items = {stroke(1)};
+    spec.annotations.setFrame(a);
+    QTemporaryDir dir;
+    exporter::ReviewNotesOptions options;
+    options.outputPath = dir.filePath(QStringLiteral("notes.pdf"));
+    options.imageWidth = 320;
+    // A directory in the way can never be replaced by a file: stands in for a
+    // locked file portably.
+    QVERIFY(QDir(dir.path()).mkpath(QStringLiteral("notes.pdf/inside")));
+    exporter::ReviewNotesJob job(spec, {}, options);
+    QSignalSpy completed(&job, &exporter::ReviewNotesJob::completed);
+    QSignalSpy failed(&job, &exporter::ReviewNotesJob::failed);
+    job.start();
+    QVERIFY(completed.wait(30000) || !failed.isEmpty());
+    QVERIFY2(failed.isEmpty(), failed.isEmpty() ? "" : qPrintable(failed.first().first().toString()));
+    const QString saved = completed.first().at(0).toString();
+    QCOMPARE(QFileInfo(saved).fileName(), QStringLiteral("notes (2).pdf"));
+    QString error;
+    QVERIFY(exporter::ReviewNotesPdfWriter::verify(saved, &error));
+    QCOMPARE(exporter::numberedSibling(options.outputPath), dir.filePath(QStringLiteral("notes (3).pdf")));
 }
 
 QTEST_MAIN(TestReviewNotesPdf)

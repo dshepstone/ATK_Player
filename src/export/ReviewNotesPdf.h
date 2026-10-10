@@ -99,6 +99,8 @@ public:
 
 signals:
     void progress(int percent);
+    /// `outputPath` is where the PDF went: the chosen file, or "name (2).pdf"
+    /// beside it when the chosen file could not be replaced (open elsewhere).
     void completed(const QString& outputPath, int pages);
     void cancelled();
     void failed(const QString& message);

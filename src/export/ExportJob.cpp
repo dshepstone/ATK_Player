@@ -192,7 +192,14 @@ private:
         QFile::remove(backup);
         const bool existed = QFile::exists(m_spec.outputPath);
         if (existed && !QFile::rename(m_spec.outputPath, backup)) {
-            if (error) *error = tr("Unable to preserve the existing destination."); return false;
+            // The old file is in use (on Windows, open in a player): keep it and
+            // install beside it as "name (2).ext" instead.
+            const QString sibling = numberedSibling(m_spec.outputPath);
+            if (!sibling.isEmpty() && QFile::rename(temporary, sibling)) {
+                m_spec.outputPath = sibling;
+                return true;
+            }
+            if (error) *error = tr("The existing file could not be replaced. Is it open in another app?"); return false;
         }
         if (!QFile::rename(temporary, m_spec.outputPath)) {
             if (existed) QFile::rename(backup, m_spec.outputPath);

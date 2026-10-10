@@ -97,4 +97,9 @@ struct ExportSpec {
     QString validate() const;
 };
 
+/// "name (2).ext", "name (3).ext"... beside `path`: the first that does not
+/// exist. Used when the destination cannot be replaced because another app
+/// has it open (Windows locks files a viewer has open).
+QString numberedSibling(const QString& path);
+
 } // namespace atk::exporter

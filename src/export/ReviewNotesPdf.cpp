@@ -544,12 +544,20 @@ void ReviewNotesJob::writeDocument(const ReviewNotesDocument& doc)
     }
     int pageCount = 0;
     QString error;
-    if (!ReviewNotesPdfWriter::write(doc, m_options.outputPath, &error, &pageCount)) {
-        emit failed(error + QStringLiteral(" Nothing was saved."));
-        return;
+    QString saved = m_options.outputPath;
+    if (!ReviewNotesPdfWriter::write(doc, saved, &error, &pageCount)) {
+        // The usual cause: the old PDF is open in a viewer, which on Windows
+        // stops it being replaced. Save beside it instead of failing.
+        const QString sibling = QFileInfo::exists(saved) ? numberedSibling(saved) : QString();
+        QString siblingError;
+        if (sibling.isEmpty() || !ReviewNotesPdfWriter::write(doc, sibling, &siblingError, &pageCount)) {
+            emit failed(error + QStringLiteral(" Nothing was saved."));
+            return;
+        }
+        saved = sibling;
     }
     emit progress(100);
-    emit completed(m_options.outputPath, pageCount);
+    emit completed(saved, pageCount);
 }
 
 } // namespace atk::exporter

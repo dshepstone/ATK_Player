@@ -2230,7 +2230,11 @@ void MainWindow::startExport(exporter::ExportSpec spec, bool showProgressUi)
     connect(m_exportJob.get(), &exporter::ExportJob::completed, this, [this, closeProgress](const QString& path) {
         m_apiExportState = QStringLiteral("completed");
         m_apiExportProgress = 100;
-        closeProgress(); statusBar()->showMessage(tr("Exported %1").arg(QDir::toNativeSeparators(path)), 6000);
+        const bool renamed = m_exportJob && QFileInfo(path) != QFileInfo(m_exportJob->spec().outputPath);
+        closeProgress();
+        statusBar()->showMessage(renamed
+            ? tr("The old file was open in another app, so this export is saved as %1").arg(QDir::toNativeSeparators(path))
+            : tr("Exported %1").arg(QDir::toNativeSeparators(path)), 10000);
         if (std::exchange(m_openExportWhenDone, false)) openExportedFile(path);
     });
     connect(m_exportJob.get(), &exporter::ExportJob::cancelled, this, [this, closeProgress] {
@@ -2327,9 +2331,11 @@ void MainWindow::exportReviewNotes()
         updateTransportEnabled();
     };
     connect(m_notesPdfJob.get(), &exporter::ReviewNotesJob::completed, this,
-            [this, finish, openWhenDone](const QString& path, int pages) {
+            [this, finish, openWhenDone, requested = options.outputPath](const QString& path, int pages) {
         finish();
-        statusBar()->showMessage(tr("Exported %1 (%n page(s))", nullptr, pages).arg(QDir::toNativeSeparators(path)), 8000);
+        statusBar()->showMessage(QFileInfo(path) != QFileInfo(requested)
+            ? tr("The old PDF was open in another app, so this one is saved as %1").arg(QDir::toNativeSeparators(path))
+            : tr("Exported %1 (%n page(s))", nullptr, pages).arg(QDir::toNativeSeparators(path)), 10000);
         if (openWhenDone) openExportedFile(path);
     });
     connect(m_notesPdfJob.get(), &exporter::ReviewNotesJob::cancelled, this, [this, finish] {
