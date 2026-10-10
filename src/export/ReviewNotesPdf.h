@@ -30,7 +30,7 @@ struct ReviewNotesDocument {
     QString clipName;
     QString reviewers;      // shown in the title bar, e.g. "David, Selena"
     QString generatedText;  // e.g. "from Oct 10th, 2026, 09:12"
-    QString footerLeft;     // e.g. "ATK Player 0.3.0"
+    QString footerLeft;     // e.g. "ATK Player 0.4.0"
     QPageSize pageSize = QPageSize(QPageSize::A4);
     QVector<ReviewNotesRow> rows;
 };
