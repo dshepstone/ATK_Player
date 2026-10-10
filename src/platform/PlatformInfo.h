@@ -34,6 +34,14 @@ public:
     ///
     /// TODO(M1): implement per platform once continuous playback exists.
     static bool setDisplaySleepInhibited(bool inhibited);
+
+    /// True when another program has `path` open in a way that replacing it
+    /// would pull the file out from under it (Windows: a PDF viewer or video
+    /// player keeps exported files open; replacing them leaves the viewer on
+    /// a deleted file, which it then reports as "access denied"). Exports
+    /// save beside such a file instead. False when the file does not exist,
+    /// and on platforms where open files do not block replacement.
+    static bool isFileOpenElsewhere(const QString& path);
 };
 
 } // namespace atk::platform

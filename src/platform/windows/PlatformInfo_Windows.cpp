@@ -6,6 +6,11 @@
 #include <QStandardPaths>
 #include <QSysInfo>
 
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+
 // Windows-only implementation. Anything requiring <windows.h> belongs in this
 // file, never in core or UI code.
 
@@ -31,6 +36,18 @@ bool PlatformInfo::setDisplaySleepInhibited(bool inhibited)
     //           while playing, and restore ES_CONTINUOUS when paused/stopped.
     Q_UNUSED(inhibited);
     qCDebug(log::platform) << "Display sleep inhibition not implemented on Windows yet";
+    return false;
+}
+
+bool PlatformInfo::isFileOpenElsewhere(const QString& path)
+{
+    // Ask for the file with no sharing at all: if anyone else holds it open,
+    // Windows refuses with a sharing violation.
+    const std::wstring native = QDir::toNativeSeparators(path).toStdWString();
+    HANDLE handle = CreateFileW(native.c_str(), GENERIC_READ, 0, nullptr, OPEN_EXISTING,
+                                FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (handle == INVALID_HANDLE_VALUE) return GetLastError() == ERROR_SHARING_VIOLATION;
+    CloseHandle(handle);
     return false;
 }
 

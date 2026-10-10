@@ -1,6 +1,7 @@
 #include "export/ReviewNotesPdf.h"
 
 #include "export/ExportRenderer.h"
+#include "platform/PlatformInfo.h"
 #include "timeline/Timecode.h"
 
 #include <QBuffer>
@@ -545,6 +546,12 @@ void ReviewNotesJob::writeDocument(const ReviewNotesDocument& doc)
     int pageCount = 0;
     QString error;
     QString saved = m_options.outputPath;
+    // An earlier PDF still open in a viewer must not be replaced under it
+    // (the viewer would be left on a deleted file): save beside it.
+    if (platform::PlatformInfo::isFileOpenElsewhere(saved)) {
+        const QString sibling = numberedSibling(saved);
+        if (!sibling.isEmpty()) saved = sibling;
+    }
     if (!ReviewNotesPdfWriter::write(doc, saved, &error, &pageCount)) {
         // The usual cause: the old PDF is open in a viewer, which on Windows
         // stops it being replaced. Save beside it instead of failing.

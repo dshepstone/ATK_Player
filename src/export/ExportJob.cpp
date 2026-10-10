@@ -3,6 +3,7 @@
 #include "export/ExportRenderer.h"
 #include "export/FFmpegExporter.h"
 #include "media/AudioSourceReader.h"
+#include "platform/PlatformInfo.h"
 #include "playback/CompareSession.h"
 #include <QFile>
 #include <QDir>
@@ -188,6 +189,15 @@ private:
     }
     bool replaceFinal(const QString& temporary, QString* error)
     {
+        // A file still open in a player must not be replaced under it: save
+        // beside it as "name (2).ext" instead.
+        if (platform::PlatformInfo::isFileOpenElsewhere(m_spec.outputPath)) {
+            const QString sibling = numberedSibling(m_spec.outputPath);
+            if (!sibling.isEmpty() && QFile::rename(temporary, sibling)) {
+                m_spec.outputPath = sibling;
+                return true;
+            }
+        }
         const QString backup = m_spec.outputPath + QStringLiteral(".atkbackup");
         QFile::remove(backup);
         const bool existed = QFile::exists(m_spec.outputPath);

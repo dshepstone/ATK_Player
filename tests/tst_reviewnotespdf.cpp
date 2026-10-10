@@ -1,6 +1,7 @@
 #include "annotation/AnnotationTypes.h"
 #include "export/ReviewNotesPdf.h"
 #include "media/MediaDecoder.h"
+#include "platform/PlatformInfo.h"
 
 #include <QDir>
 #include <QFile>
@@ -68,6 +69,7 @@ private slots:
     void verifyCatchesBrokenFiles();
     void pagePicturesFallbackIsAValidPdfWithoutFonts();
     void jobSavesBesideAFileItCannotReplace();
+    void jobSavesBesideAFileOpenInAViewer();
 };
 
 void TestReviewNotesPdf::paginateKeepsRowsWhole()
@@ -285,6 +287,53 @@ void TestReviewNotesPdf::jobSavesBesideAFileItCannotReplace()
     QString error;
     QVERIFY(exporter::ReviewNotesPdfWriter::verify(saved, &error));
     QCOMPARE(exporter::numberedSibling(options.outputPath), dir.filePath(QStringLiteral("notes (3).pdf")));
+}
+
+// A viewer holding the last PDF open: on Windows the new PDF must not replace
+// it (the viewer would show "access denied"); elsewhere replacing is safe.
+void TestReviewNotesPdf::jobSavesBesideAFileOpenInAViewer()
+{
+    exporter::ExportSpec spec = specForFixture();
+    annotation::FrameAnnotation a;
+    a.frame = 10;
+    a.items = {stroke(1)};
+    spec.annotations.setFrame(a);
+    QTemporaryDir dir;
+    exporter::ReviewNotesOptions options;
+    options.outputPath = dir.filePath(QStringLiteral("open.pdf"));
+    options.imageWidth = 320;
+    {
+        QFile previous(options.outputPath);
+        QVERIFY(previous.open(QIODevice::WriteOnly));
+        previous.write("%PDF-old");
+    }
+    QFile viewer(options.outputPath);
+    QVERIFY(viewer.open(QIODevice::ReadOnly)); // the "viewer"
+    QCOMPARE(platform::PlatformInfo::isFileOpenElsewhere(options.outputPath),
+#ifdef Q_OS_WIN
+             true
+#else
+             false
+#endif
+    );
+    exporter::ReviewNotesJob job(spec, {}, options);
+    QSignalSpy completed(&job, &exporter::ReviewNotesJob::completed);
+    QSignalSpy failed(&job, &exporter::ReviewNotesJob::failed);
+    job.start();
+    QVERIFY(completed.wait(30000) || !failed.isEmpty());
+    QVERIFY2(failed.isEmpty(), failed.isEmpty() ? "" : qPrintable(failed.first().first().toString()));
+    const QString saved = completed.first().at(0).toString();
+#ifdef Q_OS_WIN
+    QCOMPARE(QFileInfo(saved).fileName(), QStringLiteral("open (2).pdf"));
+    QCOMPARE(viewer.readAll(), QByteArray("%PDF-old")); // the open file was left alone
+#else
+    QCOMPARE(QFileInfo(saved).fileName(), QStringLiteral("open.pdf"));
+#endif
+    viewer.close();
+    QString error;
+    QVERIFY(exporter::ReviewNotesPdfWriter::verify(saved, &error));
+    QVERIFY(!platform::PlatformInfo::isFileOpenElsewhere(saved));
+    QVERIFY(!platform::PlatformInfo::isFileOpenElsewhere(dir.filePath(QStringLiteral("missing.pdf"))));
 }
 
 QTEST_MAIN(TestReviewNotesPdf)
