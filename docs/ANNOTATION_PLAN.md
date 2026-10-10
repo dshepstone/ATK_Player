@@ -20,14 +20,17 @@ OS-specific code. `ROADMAP.md` still lists "Drawn annotations over frames" under
 ### Resume here (handoff, 2026-10-10)
 
 - **Where the code is:** branch `claude/loving-cerf-57c6zt`, PR
-  https://github.com/dshepstone/ATK_Player/pull/28, head `ad060f9` (phases A–C). Not merged.
+  https://github.com/dshepstone/ATK_Player/pull/28, head `76b5691` (phases A–C plus the
+  area eraser). Not merged.
 - **Verified:**
   - Windows Debug and Release 34/34 at `42a51bb` (A–B), run by the owner.
-  - Linux full build and `ctest` at `ad060f9`: 34/37. The same 3 tests fail without
+  - Linux full build and `ctest` at `76b5691`: 34/37. The same 3 tests fail without
     these changes in that environment: `tst_export` (no H.264 encoder),
     `tst_stillimage` (EXR decode) and `tst_audioreview` (Qt 6.4 testlib assert).
 - **Waiting on the owner:**
-  1. Windows Debug and Release build plus `ctest` at `ad060f9`.
+  1. Windows Debug and Release build plus `ctest` at the current head.
+  1a. Try the area eraser on the Cintiq: precision, size (`[` / `]` with the Eraser
+      selected) and pressure scaling.
   2. Tablet acceptance on Wacom/Cintiq: pressure on Pencil/Pen/Brush, latency, the
      hover brush cursor, the stylus eraser end, barrel-button pan, and which pressure
      curve (Soft/Linear/Firm) should be the default.
