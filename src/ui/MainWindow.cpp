@@ -5,6 +5,7 @@
 #include "annotation/AnnotationStore.h"
 #include "annotation/BrushLibrary.h"
 #include "api/ApiServer.h"
+#include "platform/PlatformInfo.h"
 #include "playback/CompareSession.h"
 #include "playback/CompareVideoLane.h"
 #include "core/Logging.h"
@@ -2255,10 +2256,36 @@ void MainWindow::startExport(exporter::ExportSpec spec, bool showProgressUi)
 
 void MainWindow::openExportedFile(const QString& path)
 {
-    m_lastOpenedExport = path;
-    if (qEnvironmentVariableIsSet("ATK_NO_OPEN_EXPORTS")) return; // tests
-    if (!QDesktopServices::openUrl(QUrl::fromLocalFile(path)))
-        statusBar()->showMessage(tr("Exported %1, but no app could open it.").arg(QDir::toNativeSeparators(path)), 8000);
+    // A sync client (Google Drive, OneDrive, Dropbox) grabs a new file to
+    // upload it, and a viewer started in that moment gets "Access denied".
+    // Wait until the file is free (readable and held by no other program),
+    // checking a few times a second for up to 30 s, then open it.
+    constexpr int kIntervalMs = 300;
+    constexpr int kMaxAttempts = 100;
+    auto attempt = std::make_shared<std::function<void(int)>>();
+    // The retry holds the function alive; the function itself only refers
+    // to it weakly, so nothing outlives the last retry.
+    *attempt = [this, path, weak = std::weak_ptr<std::function<void(int)>>(attempt)](int tries) {
+        QFile probe(path);
+        const bool free = probe.open(QIODevice::ReadOnly) && probe.size() > 0
+            && !platform::PlatformInfo::isFileOpenElsewhere(path);
+        probe.close();
+        if (!free && tries < kMaxAttempts) {
+            if (tries == 0)
+                statusBar()->showMessage(tr("Saved %1; opening it once it is free (a sync app may be uploading it)…")
+                                             .arg(QDir::toNativeSeparators(path)));
+            if (auto self = weak.lock())
+                QTimer::singleShot(kIntervalMs, this, [self, tries] { (*self)(tries + 1); });
+            return;
+        }
+        m_lastOpenedExport = path;
+        if (qEnvironmentVariableIsSet("ATK_NO_OPEN_EXPORTS")) return; // tests
+        if (!QDesktopServices::openUrl(QUrl::fromLocalFile(path)))
+            statusBar()->showMessage(tr("Exported %1, but no app could open it.").arg(QDir::toNativeSeparators(path)), 8000);
+        else if (tries > 0)
+            statusBar()->showMessage(tr("Opened %1").arg(QDir::toNativeSeparators(path)), 6000);
+    };
+    (*attempt)(0);
 }
 
 bool MainWindow::notesPdfInProgress() const

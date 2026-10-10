@@ -122,6 +122,9 @@ public:
     bool exportInProgress() const;
     /// The last export handed to the system viewer (for tests).
     QString lastOpenedExport() const { return m_lastOpenedExport; }
+    /// Opens a finished PDF or video in the system viewer once the file is
+    /// free (a sync app such as Google Drive may hold it for a moment).
+    void openExportedFile(const QString& path);
     api::ApiServer* apiServer() const { return m_apiServer.get(); }
 
 protected:
@@ -200,8 +203,6 @@ private:
     void exportImageSequence();
     void exportReviewNotes();
     bool notesPdfInProgress() const;
-    /// Opens a finished PDF or video in the system viewer.
-    void openExportedFile(const QString& path);
     void startExport(exporter::ExportSpec spec, bool showProgressUi = true);
     api::ApiResponse handleApiApplicationCommand(const QString& command,
                                                  const QJsonObject& params);

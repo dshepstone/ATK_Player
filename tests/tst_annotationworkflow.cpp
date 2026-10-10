@@ -97,6 +97,7 @@ private slots:
     void tracingPaperAndGhostingToggleAndPersist();
     void drawButtonAndCtrlAngleBracketsJumpBetweenDrawings();
     void fileMenuHasTheNotesExports();
+    void exportsOpenOnlyOnceTheFileIsReady();
 };
 
 void TestAnnotationWorkflow::drawModeNeedsMedia()
@@ -630,6 +631,34 @@ void TestAnnotationWorkflow::fileMenuHasTheNotesExports()
     video->trigger();
     QVERIFY(checked);
     QVERIFY2(destination.endsWith(QStringLiteral("_notes.mp4")), qPrintable(destination));
+}
+
+// A sync app (Google Drive) holds a new file for a moment; opening it then
+// fails. The export opens only once the file is free and readable.
+void TestAnnotationWorkflow::exportsOpenOnlyOnceTheFileIsReady()
+{
+    QTemporaryDir directory;
+    atk::ui::MainWindow window(directory.filePath(QStringLiteral("settings.ini")));
+    const QString path = directory.filePath(QStringLiteral("notes.pdf"));
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly)); // empty: not ready yet
+    file.close();
+    window.openExportedFile(path);
+    QTest::qWait(700);
+    QVERIFY(window.lastOpenedExport().isEmpty()); // still waiting
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("%PDF-1.4 ready");
+    file.close();
+    QTRY_COMPARE_WITH_TIMEOUT(window.lastOpenedExport(), path, 3000);
+
+    // A file that is ready opens straight away.
+    const QString ready = directory.filePath(QStringLiteral("ready.pdf"));
+    QFile second(ready);
+    QVERIFY(second.open(QIODevice::WriteOnly));
+    second.write("%PDF-1.4");
+    second.close();
+    window.openExportedFile(ready);
+    QCOMPARE(window.lastOpenedExport(), ready);
 }
 
 QTEST_MAIN(TestAnnotationWorkflow)
