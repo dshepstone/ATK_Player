@@ -19,7 +19,15 @@
 
 namespace atk::project {
 namespace {
+// Version 2 marks a project carrying drawings or notes. Older builds refuse
+// it ("created by a newer version") instead of opening it, dropping the
+// drawings they do not know, and saving over it. Projects without drawings
+// stay version 1, so they still open in older builds.
 constexpr int kVersion = 1;
+constexpr int kAnnotatedVersion = 2;
+/// Ids above this are refused on load, so allocating the next id can never
+/// wrap round to the reserved 0.
+constexpr quint64 kMaxAnnotationId = quint64(1) << 53;
 
 QString storedMediaPath(const QString& mediaPath, const QString& projectPath)
 {
@@ -185,7 +193,7 @@ bool readAnnotationItem(const QJsonValue& value, annotation::AnnotationItem* out
     annotation::AnnotationItem item;
     bool idOk = false;
     item.id = object.value(QStringLiteral("id")).toString().toULongLong(&idOk);
-    if (!idOk || item.id == 0) return false;
+    if (!idOk || item.id == 0 || item.id > kMaxAnnotationId) return false;
     if (!annotation::toolFromName(object.value(QStringLiteral("tool")).toString(), &item.tool))
         return false;
     item.color = QColor(object.value(QStringLiteral("color")).toString());
@@ -229,7 +237,8 @@ bool readAnnotationItem(const QJsonValue& value, annotation::AnnotationItem* out
 /// rejects the project rather than silently dropping someone's drawings.
 bool readAnnotations(const QJsonValue& value, annotation::SourceAnnotations* out)
 {
-    if (value.isUndefined() || value.isNull()) return true; // no annotations
+    if (value.isUndefined()) return true; // a project from before drawings
+    // The writer never stores null: an explicit null is damage, not "none".
     if (!value.isArray()) return false;
     const QJsonArray frames = value.toArray();
     if (frames.size() > annotation::AnnotationLimits::kMaxAnnotatedFrames) return false;
@@ -269,7 +278,8 @@ bool readAnnotations(const QJsonValue& value, annotation::SourceAnnotations* out
             integer(n.value(QStringLiteral("createdMsUtc")), &created);
             note.createdMsUtc = created;
             note.resolved = n.value(QStringLiteral("resolved")).toBool(false);
-            if (!noteValue.isObject() || !idOk || note.id == 0 || ids.contains(note.id)
+            if (!noteValue.isObject() || !idOk || note.id == 0 || note.id > kMaxAnnotationId
+                || ids.contains(note.id)
                 || !annotation::isValidNote(note))
                 return false;
             ids.insert(note.id);
@@ -303,8 +313,8 @@ static SerializerResult saveWithName(const Project& project, const QString& file
             {QStringLiteral("endFrame"), static_cast<double>(range.endFrame)},
             {QStringLiteral("enabled"), range.enabled}}},
             {QStringLiteral("bookmarks"), bookmarks}};
-        // Additive v1 field, omitted when empty: older readers ignore it, so no
-        // version bump is needed and projects without drawings are unchanged.
+        // Omitted when empty; when present the project is written as version 2
+        // (see kAnnotatedVersion) so older builds cannot strip it.
         if (!entry.annotations.isEmpty())
             review.insert(QStringLiteral("annotations"), annotationsJson(entry.annotations));
         QJsonObject source{{QStringLiteral("id"), entry.id.toString(QUuid::WithoutBraces)},
@@ -319,8 +329,10 @@ static SerializerResult saveWithName(const Project& project, const QString& file
             source.insert(QStringLiteral("still"), stillJson(entry.source->imageOptions()));
         sources.append(source);
     }
+    const bool annotated = std::any_of(project.entries().cbegin(), project.entries().cend(),
+                                       [](const SourceEntry& entry) { return !entry.annotations.isEmpty(); });
     QJsonObject root{{QStringLiteral("format"), QStringLiteral("ATKProject")},
-        {QStringLiteral("version"), kVersion}, {QStringLiteral("name"), projectName},
+        {QStringLiteral("version"), annotated ? kAnnotatedVersion : kVersion}, {QStringLiteral("name"), projectName},
         {QStringLiteral("currentSourceId"), project.currentSourceId().toString(QUuid::WithoutBraces)},
         {QStringLiteral("sources"), sources}};
     // Imported brush tips used by any drawing travel with the project, so it
@@ -376,8 +388,8 @@ SerializerResult ProjectSerializer::load(Project& project, const QString& filePa
     if (!root.value(QStringLiteral("version")).isDouble())
         return SerializerResult::failure(QStringLiteral("The project version is missing."));
     const int version = root.value(QStringLiteral("version")).toInt();
-    if (version != kVersion)
-        return SerializerResult::failure(version > kVersion
+    if (version != kVersion && version != kAnnotatedVersion)
+        return SerializerResult::failure(version > kAnnotatedVersion
             ? QStringLiteral("This project was created by a newer version of ATK Player.")
             : QStringLiteral("This project version is not supported."));
     if (!root.value(QStringLiteral("sources")).isArray())

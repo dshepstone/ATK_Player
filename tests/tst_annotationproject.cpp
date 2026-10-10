@@ -13,6 +13,8 @@
 #include <QTemporaryDir>
 #include <QTest>
 
+#include <limits>
+
 using namespace atk;
 
 namespace {
@@ -130,6 +132,8 @@ private slots:
     void relinkTrimsAnnotationsBeyondNewExtent();
     void usedBrushTipsTravelWithTheProject();
     void notesRoundTripIncludingNoteOnlyFrames();
+    void projectsWithDrawingsAreVersionTwoSoOlderBuildsRefuseThem();
+    void nullAnnotationsAndHugeIdsAreRejected();
 };
 
 void TestAnnotationProject::roundTripPreservesEveryField()
@@ -457,6 +461,55 @@ void TestAnnotationProject::notesRoundTripIncludingNoteOnlyFrames()
         project::Project rejected;
         QVERIFY2(!project::ProjectSerializer::load(rejected, other.projectPath).ok, qPrintable(bad));
     }
+}
+
+void TestAnnotationProject::projectsWithDrawingsAreVersionTwoSoOlderBuildsRefuseThem()
+{
+    // An older build ignores fields it does not know and would drop the
+    // drawings on its next save; version 2 makes it refuse the file instead
+    // ("created by a newer version"), so the drawings are never lost.
+    Fixture fx;
+    project::Project original;
+    original.addSource(std::make_shared<media::MediaSource>(fx.mediaPath));
+    QVERIFY(original.setAnnotations(original.entries()[0].id, sampleAnnotations()));
+    QVERIFY(project::ProjectSerializer::save(original, fx.projectPath).ok);
+    QJsonObject root = readProject(fx.projectPath);
+    QCOMPARE(root.value(QStringLiteral("version")).toInt(), 2);
+    project::Project loaded;
+    QVERIFY(project::ProjectSerializer::load(loaded, fx.projectPath).ok);
+    QCOMPARE(loaded.entries()[0].annotations, sampleAnnotations());
+
+    // Files written as version 1 by development builds, drawings included,
+    // still load.
+    root.insert(QStringLiteral("version"), 1);
+    writeProject(fx.projectPath, root);
+    project::Project fromDevBuild;
+    QVERIFY(project::ProjectSerializer::load(fromDevBuild, fx.projectPath).ok);
+    QCOMPARE(fromDevBuild.entries()[0].annotations, sampleAnnotations());
+
+    // Anything newer than this build is refused, not half-read.
+    root.insert(QStringLiteral("version"), 3);
+    writeProject(fx.projectPath, root);
+    project::Project newer;
+    const auto result = project::ProjectSerializer::load(newer, fx.projectPath);
+    QVERIFY(!result.ok);
+    QVERIFY(result.errorMessage.contains(QStringLiteral("newer")));
+}
+
+void TestAnnotationProject::nullAnnotationsAndHugeIdsAreRejected()
+{
+    Fixture fx;
+    project::Project original;
+    original.addSource(std::make_shared<media::MediaSource>(fx.mediaPath));
+    QVERIFY(project::ProjectSerializer::save(original, fx.projectPath).ok);
+    // The writer never stores null: it means damage, not "no drawings".
+    QVERIFY(!loadWithAnnotations(fx, QJsonValue::Null).ok);
+    // Ids so large that the next allocation could wrap to the reserved 0.
+    QJsonObject item = validItemJson();
+    item.insert(QStringLiteral("id"), QString::number(std::numeric_limits<quint64>::max()));
+    QVERIFY(!loadWithAnnotations(fx, oneFrame(item)).ok);
+    item.insert(QStringLiteral("id"), QStringLiteral("9007199254740992")); // 2^53: the largest allowed
+    QVERIFY(loadWithAnnotations(fx, oneFrame(item)).ok);
 }
 
 QTEST_MAIN(TestAnnotationProject)

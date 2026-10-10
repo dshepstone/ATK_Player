@@ -59,8 +59,11 @@ or a SyncSketch-style notes PDF.
 
 ## For developers and pipeline integrations
 
-- `.atkproj` remains format version 1. Drawings, notes and imported brush tips
-  are optional additions that older versions ignore.
+- `.atkproj` files that contain drawings or notes are written as format
+  version 2. Older versions refuse to open them ("created by a newer
+  version"), so they can't drop the drawings when saving. Projects without
+  drawings stay version 1 and still open in 0.3.0. Version 1 files with
+  drawings from pre-release builds still load.
 - **Local API:** export burn-ins gain `annotations`, `annotationNotes`,
   `annotationHoldFrames`, `annotationFreezeFrames` and `tracingPaper`. All are
   off by default.

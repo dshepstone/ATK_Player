@@ -344,10 +344,13 @@ struct FrameAnnotation { int64_t frame; int64_t mediaTimeUs; QVector<AnnotationI
 - Smoothing: Catmull-Rom / quadratic midpoint smoothing at paint time; store raw
   points decimated by a distance threshold so projects stay small.
 - Persistence: new per-source `review.annotations` array in `.atkproj`, written
-  only when non-empty. **Implemented as an additive v1 field (no version bump)**,
-  the same way still/sequence options were added: older builds ignore it, newer
-  builds read old files unchanged. Malformed data rejects the project rather than
-  silently dropping drawings. No pixels are stored, only vectors.
+  only when non-empty. A project carrying drawings or notes is written as
+  **version 2**, so older builds refuse it rather than open it, ignore the
+  drawings and save them away; projects without drawings stay version 1. The
+  reader accepts both, including version 1 files with drawings from pre-release
+  builds. Malformed data (including an explicit `null` or ids above 2^53)
+  rejects the project rather than silently dropping drawings. No pixels are
+  stored, only vectors.
 - Scoped to **stills and sequences too** (they are sources with frame indices).
   A/B compare: annotations belong to the *active pane's source*; compositor modes
   (wipe/difference) get overlay disabled in v1.
