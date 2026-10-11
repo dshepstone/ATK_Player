@@ -288,6 +288,12 @@ private:
     bool m_annotationCacheFlipped = false;
     quint64 m_annotationGeneration = 0;
     quint64 m_annotationCacheGeneration = ~quint64(0);
+    // When the only change since the cache was drawn is items added on top
+    // (a finished stroke), the cache is extended rather than redrawn: it holds
+    // the first m_annotationCacheItems items, and m_annotationAppendGeneration
+    // names the generation that extending it brings it up to.
+    int m_annotationCacheItems = 0;
+    quint64 m_annotationAppendGeneration = ~quint64(0);
     // Ghosts, composited once per change like the annotation cache.
     QVector<annotation::GhostFrame> m_ghosts;
     qint64 m_ghostCenterFrame = -1;

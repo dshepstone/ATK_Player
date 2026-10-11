@@ -130,6 +130,7 @@ private slots:
     void leavingAnnotateModeCancelsAStroke();
     void doubleClickDoesNotFitWhileAnnotating();
     void annotationsPaintOnlyOnTheirFrame();
+    void addedStrokesExtendTheCacheExactly();
     void tracingPaperWashesThePictureButNotTheDrawings();
     void ghostsPaintTintedAndFadedUnderTheFrame();
 };
@@ -730,6 +731,53 @@ void TestAnnotationViewer::annotationsPaintOnlyOnTheirFrame()
     f.viewer.setFrame(frame(12));
     f.viewer.setAnnotationsVisible(false);
     QCOMPARE(f.viewer.grab().toImage().pixelColor(centre * f.viewer.devicePixelRatioF()).green(), 0);
+}
+
+void TestAnnotationViewer::addedStrokesExtendTheCacheExactly()
+{
+    // A finished stroke is painted on top of the cached drawings instead of
+    // redrawing them all; the result must match a full redraw, and any other
+    // change (an edit, an undo) must still redraw from scratch.
+    auto dot = [](quint64 id, qreal x, QColor color) {
+        AnnotationItem item;
+        item.id = id;
+        item.tool = AnnotationTool::Pencil; // grainy: sensitive to where it is drawn
+        item.color = color;
+        item.size = 0.2;
+        item.points = {{float(x), 0.5f, 1, 0, 0}, {float(x + 0.1), 0.6f, 1, 0, 0}};
+        return item;
+    };
+    annotation::FrameAnnotation one;
+    one.frame = 12;
+    one.items = {dot(1, 0.2, Qt::red)};
+    annotation::FrameAnnotation two = one;
+    two.items.append(dot(2, 0.45, Qt::green));
+    annotation::FrameAnnotation three = two;
+    three.items.append(dot(3, 0.6, Qt::blue));
+
+    Fixture extended;
+    extended.viewer.setAnnotationFrame(one);
+    extended.viewer.grab();
+    extended.viewer.setAnnotationFrame(two);
+    extended.viewer.setAnnotationFrame(three); // two additions before one repaint
+    Fixture redrawn;
+    redrawn.viewer.setAnnotationFrame(three);
+    QCOMPARE(extended.viewer.grab().toImage(), redrawn.viewer.grab().toImage());
+
+    // Editing an earlier stroke is not an addition: the old ink must go.
+    annotation::FrameAnnotation edited = three;
+    edited.items[0].color = Qt::white;
+    extended.viewer.setAnnotationFrame(edited);
+    redrawn.viewer.setAnnotationFrame(edited);
+    QCOMPARE(extended.viewer.grab().toImage(), redrawn.viewer.grab().toImage());
+
+    // Undo removes the newest stroke.
+    edited.items.removeLast();
+    extended.viewer.setAnnotationFrame(edited);
+    redrawn.viewer.setAnnotationFrame(edited);
+    QCOMPARE(extended.viewer.grab().toImage(), redrawn.viewer.grab().toImage());
+    const QPoint gone = extended.at(0.65, 0.55) * extended.viewer.devicePixelRatioF();
+    QCOMPARE(extended.viewer.grab().toImage().pixelColor(gone).blue(), 0);
 }
 
 void TestAnnotationViewer::tracingPaperWashesThePictureButNotTheDrawings()
