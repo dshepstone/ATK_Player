@@ -496,17 +496,30 @@ void ViewerWidget::leaveEvent(QEvent* event)
 
 void ViewerWidget::setAnnotationFrame(const annotation::FrameAnnotation& frame)
 {
+    // A finished stroke only adds items on top of the frame's existing ones.
+    // Then the cache can be extended with just those, instead of redrawing
+    // every earlier stroke, which grows slower with each stroke on the frame.
+    const bool cacheReachable = m_annotationCacheGeneration == m_annotationGeneration
+        || m_annotationAppendGeneration == m_annotationGeneration;
+    const quint64 hiddenBefore = m_hiddenItemId;
+    const bool appendOnly = cacheReachable && frame.frame == m_annotationFrame.frame
+        && frame.items.size() > m_annotationFrame.items.size()
+        && std::equal(m_annotationFrame.items.cbegin(), m_annotationFrame.items.cend(), frame.items.cbegin());
     m_annotationFrame = frame;
     // Any hidden item has now been replaced by the owner's updated data.
     if (!m_textEdit || !m_textEdit->existing) m_hiddenItemId = 0;
     if (m_selectedItemId && !findItem(m_selectedItemId)) m_selectedItemId = 0;
     ++m_annotationGeneration;
+    if (appendOnly && m_hiddenItemId == hiddenBefore) m_annotationAppendGeneration = m_annotationGeneration;
     update();
 }
 
 void ViewerWidget::setGhostFrames(qint64 centerFrame, const QVector<annotation::GhostFrame>& ghosts)
 {
     if (ghosts.isEmpty() && m_ghosts.isEmpty()) return;
+    // Drawing on this frame refreshes the ghosts too; they come from other
+    // frames, so they are usually unchanged and need no redraw.
+    if (centerFrame == m_ghostCenterFrame && ghosts == m_ghosts) return;
     m_ghosts = ghosts;
     m_ghostCenterFrame = centerFrame;
     ++m_ghostGeneration;
@@ -1274,17 +1287,27 @@ void ViewerWidget::paintAnnotations(QPainter& painter, const QRectF& target)
     }
     // Only draw annotations that belong to the frame on screen.
     if (!m_annotationFrame.isEmpty() && m_annotationFrame.frame == m_frame.frameIndex) {
-        if (m_annotationCacheGeneration != m_annotationGeneration || m_annotationCacheTarget != target
+        const bool geometryChanged = m_annotationCacheTarget != target
             || m_annotationCacheFlipped != m_flipHorizontal || m_annotationCache.size() != pixelSize
-            || !qFuzzyCompare(m_annotationCache.devicePixelRatio(), dpr)) {
-            m_annotationCache = QImage(pixelSize, QImage::Format_ARGB32_Premultiplied);
-            m_annotationCache.setDevicePixelRatio(dpr);
-            m_annotationCache.fill(Qt::transparent);
+            || !qFuzzyCompare(m_annotationCache.devicePixelRatio(), dpr);
+        if (m_annotationCacheGeneration != m_annotationGeneration || geometryChanged) {
+            // Strokes were only added since the cache was drawn: paint just those.
+            const bool extend = !geometryChanged && m_annotationAppendGeneration == m_annotationGeneration
+                && m_annotationCacheItems <= m_annotationFrame.items.size();
+            if (!extend) {
+                m_annotationCache = QImage(pixelSize, QImage::Format_ARGB32_Premultiplied);
+                m_annotationCache.setDevicePixelRatio(dpr);
+                m_annotationCache.fill(Qt::transparent);
+                m_annotationCacheItems = 0;
+            }
             QPainter cachePainter(&m_annotationCache);
             applyFlip(cachePainter);
-            for (const annotation::AnnotationItem& item : m_annotationFrame.items)
+            for (qsizetype i = m_annotationCacheItems; i < m_annotationFrame.items.size(); ++i) {
+                const annotation::AnnotationItem& item = m_annotationFrame.items.at(i);
                 if (item.id != m_hiddenItemId)
                     annotation::AnnotationRenderer::paintItem(cachePainter, target, item);
+            }
+            m_annotationCacheItems = int(m_annotationFrame.items.size());
             m_annotationCacheGeneration = m_annotationGeneration;
             m_annotationCacheTarget = target;
             m_annotationCacheFlipped = m_flipHorizontal;

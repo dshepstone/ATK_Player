@@ -34,6 +34,8 @@ struct GhostFrame {
     int rank = 1;         ///< 1 = nearest ghost on its side
     qreal opacity = 0.5;  ///< fades with rank
     QColor tint;          ///< invalid = keep the drawing's own colours
+
+    friend bool operator==(const GhostFrame&, const GhostFrame&) = default;
 };
 
 /// Colours used when tinting is on.
