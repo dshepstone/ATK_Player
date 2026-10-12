@@ -77,6 +77,8 @@ public:
     int tracingPaperLevel() const;
     /// Open a finished PDF or video export in the system viewer (default on).
     bool openExportsWhenDone() const;
+    /// Notes PDF: include the note text (off = images only).
+    bool reviewNotesIncludeText() const;
     /// Ghosting (onion skin) of nearby frames' drawings.
     annotation::GhostSettings ghostSettings() const;
 
@@ -100,6 +102,7 @@ public:
     void setTracingPaper(int percent);
     void setTracingPaperLevel(int percent);
     void setOpenExportsWhenDone(bool open);
+    void setReviewNotesIncludeText(bool include);
     void setGhostSettings(const annotation::GhostSettings& settings);
 
     QByteArray windowGeometry() const;

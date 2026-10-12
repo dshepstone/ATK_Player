@@ -2399,8 +2399,10 @@ void MainWindow::exportReviewNotes()
         .filePath(exportBaseName(spec.sourceA) + QStringLiteral("_review_notes.pdf"));
     ReviewNotesDialog dialog(spec.annotations, suggested, m_tracingPaper, this);
     dialog.setOpenWhenDone(m_settings->openExportsWhenDone());
+    dialog.setIncludeNoteText(m_settings->reviewNotesIncludeText());
     if (dialog.exec() != QDialog::Accepted) return;
     m_settings->setOpenExportsWhenDone(dialog.openWhenDone());
+    m_settings->setReviewNotesIncludeText(dialog.includeNoteText());
     const bool openWhenDone = dialog.openWhenDone();
     const exporter::ReviewNotesOptions options = dialog.options();
     if (options.outputPath.isEmpty()) return;

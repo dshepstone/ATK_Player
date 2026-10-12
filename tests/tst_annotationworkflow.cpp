@@ -418,6 +418,7 @@ void TestAnnotationWorkflow::notesPanelExportsAReviewNotesPdf()
     bool sawDialog = false;
     bool openOffered = false;
     bool tracingOffered = false;
+    bool textSwitchWorks = false;
     QString summary;
     QTimer driver;
     driver.setInterval(20);
@@ -428,6 +429,16 @@ void TestAnnotationWorkflow::notesPanelExportsAReviewNotesPdf()
             summary = dialog->findChild<QLabel*>(QStringLiteral("ReviewNotesSummary"))->text();
             openOffered = dialog->openWhenDone();
             tracingOffered = dialog->findChild<QComboBox*>(QStringLiteral("ReviewNotesTracingPaper")) != nullptr;
+            // "Include text notes" (on by default) switches to an images-only PDF.
+            auto* includeText = dialog->findChild<QCheckBox*>(QStringLiteral("ReviewNotesIncludeText"));
+            auto* includeResolved = dialog->findChild<QCheckBox*>(QStringLiteral("ReviewNotesIncludeResolved"));
+            textSwitchWorks = includeText && includeResolved && includeText->isChecked();
+            if (textSwitchWorks) {
+                includeText->setChecked(false);
+                textSwitchWorks = !includeResolved->isEnabled();
+                includeText->setChecked(true);
+                textSwitchWorks = textSwitchWorks && includeResolved->isEnabled();
+            }
             dialog->findChild<QLineEdit*>(QStringLiteral("ReviewNotesDestination"))->setText(pdf);
             dialog->findChild<QPushButton*>(QStringLiteral("ReviewNotesExport"))->click();
         }
@@ -437,6 +448,7 @@ void TestAnnotationWorkflow::notesPanelExportsAReviewNotesPdf()
     QTRY_COMPARE_WITH_TIMEOUT(QFileInfo(window.lastOpenedExport()).absoluteFilePath(), QFileInfo(pdf).absoluteFilePath(), 20000);
     driver.stop();
     QVERIFY(sawDialog);
+    QVERIFY(textSwitchWorks);
     QVERIFY(openOffered);   // on by default
     // The progress window has closed itself.
     QTRY_VERIFY(std::none_of(window.findChildren<atk::ui::ExportProgressDialog*>().cbegin(),

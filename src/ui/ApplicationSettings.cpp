@@ -43,6 +43,7 @@ constexpr auto kReviewerName = "review/reviewerName";
 constexpr auto kTracingPaper = "draw/tracingPaper";
 constexpr auto kTracingPaperLevel = "draw/tracingPaperLevel";
 constexpr auto kOpenExportsWhenDone = "export/openWhenDone";
+constexpr auto kReviewNotesIncludeText = "export/notesPdfIncludeText";
 constexpr auto kGhostEnabled = "draw/ghostEnabled";
 constexpr auto kGhostBefore = "draw/ghostBefore";
 constexpr auto kGhostAfter = "draw/ghostAfter";
@@ -289,6 +290,13 @@ bool ApplicationSettings::openExportsWhenDone() const { return readBool(kOpenExp
 void ApplicationSettings::setOpenExportsWhenDone(bool open)
 {
     m_settings->setValue(QString::fromLatin1(kOpenExportsWhenDone), open);
+}
+
+bool ApplicationSettings::reviewNotesIncludeText() const { return readBool(kReviewNotesIncludeText, true); }
+
+void ApplicationSettings::setReviewNotesIncludeText(bool include)
+{
+    m_settings->setValue(QString::fromLatin1(kReviewNotesIncludeText), include);
 }
 
 void ApplicationSettings::setTracingPaper(int percent)
