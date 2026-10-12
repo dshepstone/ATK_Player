@@ -97,6 +97,7 @@ private slots:
     void notesPanelWritesNotesWhileDrawing();
     void notesPanelExportsAReviewNotesPdf();
     void notesComposerBelongsToTheFrame();
+    void notesPanelSearchesAndSorts();
     void tracingPaperAndGhostingToggleAndPersist();
     void drawButtonAndCtrlAngleBracketsJumpBetweenDrawings();
     void drawingRowIsIconsWithAFloatingSizePill();
@@ -511,6 +512,57 @@ void TestAnnotationWorkflow::notesComposerBelongsToTheFrame()
     panel.setFilter(atk::ui::NotesPanel::Filter::Resolved);
     QCOMPARE(panel.list()->count(), 1);
     QCOMPARE(panel.list()->item(0)->text(), QStringLiteral("frame 25 note"));
+}
+
+void TestAnnotationWorkflow::notesPanelSearchesAndSorts()
+{
+    atk::ui::NotesPanel panel;
+    auto row = [](qint64 frame, quint64 id, const char* text, const char* author, qint64 when) {
+        atk::ui::NoteRow r;
+        r.frame = frame;
+        r.note.id = id;
+        r.note.text = QString::fromLatin1(text);
+        r.note.author = QString::fromLatin1(author);
+        r.note.createdMsUtc = when;
+        return r;
+    };
+    panel.setCurrentFrame(10, QStringLiteral("00:00:00:10"), true);
+    panel.setNotes({row(30, 1, "Arc on the hand", "Selena", 3000), row(10, 2, "Hold the pose longer", "David", 1000),
+                    row(20, 3, "Hand pops here", "David", 2000)});
+    auto texts = [&] {
+        QStringList shown;
+        for (int i = 0; i < panel.list()->count(); ++i) shown << panel.list()->item(i)->text();
+        return shown;
+    };
+    // Frame order by default.
+    QCOMPARE(texts(), (QStringList{QStringLiteral("Hold the pose longer"), QStringLiteral("Hand pops here"),
+                                   QStringLiteral("Arc on the hand")}));
+    // Newest first from the sort button.
+    auto* sortButton = panel.findChild<QToolButton*>(QStringLiteral("NotesSortButton"));
+    QVERIFY(sortButton);
+    sortButton->click();
+    QCOMPARE(panel.sort(), atk::ui::NotesPanel::Sort::NewestFirst);
+    QCOMPARE(texts().first(), QStringLiteral("Arc on the hand"));
+    sortButton->click();
+    QCOMPARE(texts().first(), QStringLiteral("Hold the pose longer"));
+
+    // Search matches note text or author, any case, and combines with the filter.
+    auto* searchButton = panel.findChild<QToolButton*>(QStringLiteral("NotesSearchButton"));
+    auto* search = panel.findChild<QLineEdit*>(QStringLiteral("NotesSearch"));
+    QVERIFY(searchButton && search && search->isHidden());
+    searchButton->click();
+    QVERIFY(!search->isHidden());
+    search->setText(QStringLiteral("HAND"));
+    QCOMPARE(texts(), (QStringList{QStringLiteral("Hand pops here"), QStringLiteral("Arc on the hand")}));
+    search->setText(QStringLiteral("selena"));
+    QCOMPARE(texts(), QStringList{QStringLiteral("Arc on the hand")});
+    panel.setFilter(atk::ui::NotesPanel::Filter::ThisFrame);
+    QCOMPARE(panel.list()->count(), 0); // Selena's note is not on frame 10
+    panel.setFilter(atk::ui::NotesPanel::Filter::All);
+    // Closing search clears it, so no note stays hidden by an invisible filter.
+    searchButton->click();
+    QVERIFY(panel.searchText().isEmpty());
+    QCOMPARE(panel.list()->count(), 3);
 }
 
 void TestAnnotationWorkflow::tracingPaperAndGhostingToggleAndPersist()

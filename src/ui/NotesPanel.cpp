@@ -1,5 +1,6 @@
 #include "ui/NotesPanel.h"
 
+#include "ui/IconProvider.h"
 #include "ui/Theme.h"
 
 #include <QComboBox>
@@ -20,6 +21,7 @@
 #include <QStackedWidget>
 #include <QStyle>
 #include <QStyledItemDelegate>
+#include <QToolButton>
 #include <QVBoxLayout>
 
 #include <algorithm>
@@ -213,8 +215,44 @@ NotesPanel::NotesPanel(QWidget* parent) : QWidget(parent)
     headerRow->addWidget(m_filter);
     headerRow->addWidget(m_count);
     headerRow->addStretch(1);
+    // Search and sort, as in SyncSketch's notes header.
+    auto headerButton = [header](const QString& icon, const QString& tip, const QString& name) {
+        auto* button = new QToolButton(header);
+        button->setObjectName(name);
+        button->setIcon(icons::icon(icon));
+        button->setIconSize(QSize(theme::metrics::iconMedium, theme::metrics::iconMedium));
+        button->setToolTip(tip);
+        button->setAccessibleName(tip);
+        button->setProperty("atkRole", "iconButton");
+        return button;
+    };
+    m_searchButton = headerButton(QStringLiteral("search"), tr("Search notes"), QStringLiteral("NotesSearchButton"));
+    m_searchButton->setCheckable(true);
+    m_sortButton = headerButton(QStringLiteral("arrow-up-down"), QString(), QStringLiteral("NotesSortButton"));
+    headerRow->addWidget(m_searchButton);
+    headerRow->addWidget(m_sortButton);
     root->addWidget(header);
     connect(m_filter, &QComboBox::currentIndexChanged, this, &NotesPanel::rebuildList);
+
+    m_search = new QLineEdit(this);
+    m_search->setObjectName(QStringLiteral("NotesSearch"));
+    m_search->setPlaceholderText(tr("Search notes and authors"));
+    m_search->setClearButtonEnabled(true);
+    m_search->setVisible(false);
+    auto* searchRow = new QHBoxLayout;
+    searchRow->setContentsMargins(8, 0, 8, 6);
+    searchRow->addWidget(m_search);
+    root->addLayout(searchRow);
+    connect(m_search, &QLineEdit::textChanged, this, &NotesPanel::rebuildList);
+    connect(m_searchButton, &QToolButton::toggled, this, [this](bool on) {
+        m_search->setVisible(on);
+        if (on) m_search->setFocus(Qt::ShortcutFocusReason);
+        else m_search->clear(); // a hidden search must not hide notes
+    });
+    connect(m_sortButton, &QToolButton::clicked, this, [this] {
+        setSort(m_sort == Sort::FrameOrder ? Sort::NewestFirst : Sort::FrameOrder);
+    });
+    refreshSortButton();
 
     // The notes, or a hint when there are none to show.
     m_stack = new QStackedWidget(this);
@@ -361,6 +399,33 @@ void NotesPanel::setCurrentFrame(qint64 frame, const QString& timecode, bool ava
     if (changed) rebuildList(); // highlight this frame's notes, or filter to them
 }
 
+void NotesPanel::setSearchText(const QString& text)
+{
+    if (!text.isEmpty()) m_searchButton->setChecked(true);
+    m_search->setText(text);
+}
+
+QString NotesPanel::searchText() const
+{
+    return m_search->text().trimmed();
+}
+
+void NotesPanel::setSort(Sort sort)
+{
+    if (m_sort == sort) return;
+    m_sort = sort;
+    refreshSortButton();
+    rebuildList();
+}
+
+void NotesPanel::refreshSortButton()
+{
+    const QString tip = m_sort == Sort::FrameOrder ? tr("Sorted by frame. Click for newest first.")
+                                                   : tr("Newest first. Click to sort by frame.");
+    m_sortButton->setToolTip(tip);
+    m_sortButton->setAccessibleName(tip);
+}
+
 void NotesPanel::setNotes(const QVector<NoteRow>& rows)
 {
     m_rows = rows;
@@ -459,13 +524,25 @@ void NotesPanel::rebuildList()
     const quint64 selected = m_list->currentItem() ? m_list->currentItem()->data(kNoteRole).toULongLong() : 0;
     const int scroll = m_list->verticalScrollBar()->value();
     const Filter mode = filter();
+    const QString search = searchText();
     m_list->clear();
     QListWidgetItem* firstOnFrame = nullptr;
     const QLocale locale;
-    for (const NoteRow& row : m_rows) {
+    QVector<const NoteRow*> shown;
+    shown.reserve(m_rows.size());
+    for (const NoteRow& row : m_rows) shown.append(&row);
+    if (m_sort == Sort::NewestFirst)
+        std::stable_sort(shown.begin(), shown.end(), [](const NoteRow* a, const NoteRow* b) {
+            return a->note.createdMsUtc > b->note.createdMsUtc;
+        });
+    for (const NoteRow* rowPointer : shown) {
+        const NoteRow& row = *rowPointer;
         if (mode == Filter::ThisFrame && row.frame != m_currentFrame) continue;
         if (mode == Filter::Open && row.note.resolved) continue;
         if (mode == Filter::Resolved && !row.note.resolved) continue;
+        if (!search.isEmpty() && !row.note.text.contains(search, Qt::CaseInsensitive)
+            && !row.note.author.contains(search, Qt::CaseInsensitive))
+            continue;
         auto* item = new QListWidgetItem(row.note.text, m_list);
         item->setData(kFrameRole, row.frame);
         item->setData(kNoteRole, row.note.id);
@@ -495,6 +572,7 @@ void NotesPanel::rebuildList()
     QString hint;
     if (!m_available && m_rows.isEmpty()) hint = tr("Open a clip to start reviewing.");
     else if (m_rows.isEmpty()) hint = tr("No notes yet!\nLeave the first one below…");
+    else if (!search.isEmpty()) hint = tr("No notes match \"%1\".").arg(search);
     else if (mode == Filter::ThisFrame) hint = tr("No notes on %1 yet.\nWrite one below…").arg(frameLabel(m_currentFrame));
     else if (mode == Filter::Open) hint = tr("No open notes. Everything is resolved.");
     else hint = tr("No resolved notes yet.");
