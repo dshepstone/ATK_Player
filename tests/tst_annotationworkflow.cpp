@@ -326,7 +326,21 @@ void TestAnnotationWorkflow::notesPanelWritesNotesWhileDrawing()
     window.show();
     QVERIFY(QTest::qWaitForWindowExposed(&window));
     auto* panel = window.findChild<atk::ui::NotesPanel*>();
-    QVERIFY(panel && panel->isVisible()); // on the right by default
+    QVERIFY(panel && !panel->isVisible()); // closed at start, so the picture gets the room
+    // The Notes button at the top right opens it, on the right; F6 toggles it.
+    auto* notesButton = window.findChild<QToolButton*>(QStringLiteral("NotesToggleButton"));
+    QVERIFY(notesButton && notesButton->isVisible());
+    QVERIFY(notesButton->mapTo(&window, QPoint(0, 0)).x() > window.width() / 2);
+    notesButton->click();
+    QTRY_VERIFY(panel->isVisible());
+    QVERIFY(notesButton->isChecked());
+    QVERIFY(panel->mapTo(&window, QPoint(0, 0)).x() > window.width() / 2);
+    QCOMPARE(command(window, "view.toggleNotes")->shortcut(), QKeySequence(QStringLiteral("F6")));
+    command(window, "view.toggleNotes")->trigger();
+    QTRY_VERIFY(!panel->isVisible());
+    QVERIFY(!notesButton->isChecked());
+    command(window, "view.toggleNotes")->trigger();
+    QTRY_VERIFY(panel->isVisible());
     QVERIFY(!panel->composer()->isEnabled()); // no clip yet
     QVERIFY(openAt(window, projectPath, 30));
     auto* viewer = window.findChild<atk::ui::ViewerWidget*>();

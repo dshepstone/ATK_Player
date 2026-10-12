@@ -82,6 +82,7 @@
 #include <QDialogButtonBox>
 #include <QMenu>
 #include <QMenuBar>
+#include <QToolButton>
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QLocale>
@@ -471,6 +472,9 @@ void MainWindow::buildWidgets()
     m_notesDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
     m_notesDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetClosable);
     addDockWidget(Qt::RightDockWidgetArea, m_notesDock);
+    // Starts closed so the picture gets the room; F6 or the Notes button at
+    // the top right opens it.
+    m_notesDock->hide();
 
     // --- Drawing toolbar --------------------------------------------------
     // Shown only while Draw on Frame is on.
@@ -570,7 +574,26 @@ void MainWindow::buildMenus()
     applyTracingPaper(m_settings->tracingPaper());
     applyGhostSettings(m_settings->ghostSettings());
     if (QAction* notesAction = m_commands->action(CommandId::ToggleNotesPanel)) {
-        notesAction->setChecked(true);
+        notesAction->setChecked(false);
+        notesAction->setIcon(icons::icon(QStringLiteral("message-square")));
+        // Top right of the menu bar, above where the panel opens.
+        auto* notesButton = new QToolButton(menuBar());
+        notesButton->setObjectName(QStringLiteral("NotesToggleButton"));
+        notesButton->setDefaultAction(notesAction);
+        notesButton->setText(tr("Notes"));
+        notesButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+        notesButton->setIconSize(QSize(theme::metrics::iconSmall, theme::metrics::iconSmall));
+        notesButton->setFocusPolicy(Qt::NoFocus);
+        notesButton->setProperty("atkRole", "iconButton");
+        const auto refreshTip = [notesButton, notesAction] {
+            notesButton->setText(tr("Notes"));
+            const QString shortcut = notesAction->shortcut().toString(QKeySequence::NativeText);
+            notesButton->setToolTip(shortcut.isEmpty() ? tr("Show or hide the notes panel")
+                                                       : tr("Show or hide the notes panel (%1)").arg(shortcut));
+        };
+        connect(notesAction, &QAction::changed, notesButton, refreshTip);
+        refreshTip();
+        menuBar()->setCornerWidget(notesButton, Qt::TopRightCorner);
     }
     if (QAction* scrubAction = m_commands->action(CommandId::ToggleAudioScrub)) {
         scrubAction->setChecked(m_settings->audioScrubEnabled());
@@ -1415,6 +1438,8 @@ void MainWindow::restoreApplicationLayout()
     // The saved layout may record the drawing toolbar as visible; it belongs
     // to Draw on Frame, which always starts off.
     if (m_annotationToolbar) m_annotationToolbar->setVisible(m_viewer->annotateMode());
+    // Notes always start closed, whatever the last session left open.
+    if (m_notesDock) m_notesDock->hide();
 }
 
 void MainWindow::saveApplicationLayout()
