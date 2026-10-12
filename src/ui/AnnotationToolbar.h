@@ -59,6 +59,10 @@ public:
     void setTracingPaper(int percent, int level);
     void setGhostSettings(const annotation::GhostSettings& settings);
     QToolButton* tracingPaperButton() const { return m_traceButton; }
+    /// Tracing paper and ghosts are view settings, useful outside Draw on
+    /// Frame too: the toolbar keeps their state and menus, and the owner shows
+    /// these buttons in the transport row (TransportControls::addViewTools).
+    QList<QWidget*> viewTools() const;
     QToolButton* ghostButton() const { return m_ghostButton; }
 
 signals:

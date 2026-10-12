@@ -607,7 +607,10 @@ void TestAnnotationWorkflow::tracingPaperAndGhostingToggleAndPersist()
         command(window, "draw.ghosting")->trigger(); // G, default 3 back / 3 forward
         QTRY_COMPARE(viewer->ghostFrames().size(), 2);
         QVERIFY(toolbar->ghostButton()->isChecked());
-        auto* before = toolbar->findChild<QSpinBox*>(QStringLiteral("GhostBefore"));
+        // Ghost settings live with the view tools under the timeline.
+        auto* before = window.findChild<QSpinBox*>(QStringLiteral("GhostBefore"));
+        QVERIFY(toolbar->ghostButton()->isVisible() && toolbar->tracingPaperButton()->isVisible());
+        QVERIFY(!toolbar->isAncestorOf(toolbar->ghostButton()));
         QVERIFY(before);
         before->setValue(1); // frame 18 is now out of reach
         QCOMPARE(viewer->ghostFrames().size(), 1);

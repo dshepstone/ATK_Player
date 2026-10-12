@@ -6,6 +6,8 @@
     <qresource prefix="/icons/lucide">
         <file alias="archive.svg">../../assets/icons/lucide/archive.svg</file>
         <file alias="arrow-down.svg">../../assets/icons/lucide/arrow-down.svg</file>
+        <file alias="arrow-left-to-line.svg">../../assets/icons/lucide/arrow-left-to-line.svg</file>
+        <file alias="arrow-right-to-line.svg">../../assets/icons/lucide/arrow-right-to-line.svg</file>
         <file alias="arrow-up-down.svg">../../assets/icons/lucide/arrow-up-down.svg</file>
         <file alias="arrow-up-right.svg">../../assets/icons/lucide/arrow-up-right.svg</file>
         <file alias="arrow-up.svg">../../assets/icons/lucide/arrow-up.svg</file>
@@ -29,6 +31,7 @@
         <file alias="flip-horizontal-2.svg">../../assets/icons/lucide/flip-horizontal-2.svg</file>
         <file alias="folder-open.svg">../../assets/icons/lucide/folder-open.svg</file>
         <file alias="folder.svg">../../assets/icons/lucide/folder.svg</file>
+        <file alias="fullscreen.svg">../../assets/icons/lucide/fullscreen.svg</file>
         <file alias="ghost.svg">../../assets/icons/lucide/ghost.svg</file>
         <file alias="grid-3x3.svg">../../assets/icons/lucide/grid-3x3.svg</file>
         <file alias="hand.svg">../../assets/icons/lucide/hand.svg</file>

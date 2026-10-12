@@ -135,6 +135,13 @@ QToolButton[atkRole="iconButton"]:checked {
     background-color: %ACCENT_FILL%;
     border-color: %ACCENT_FILL%;
 }
+QToolButton[atkRole="iconButton"][popupMode="1"] { padding-right: 12px; }
+QToolButton[atkRole="iconButton"]::menu-button {
+    background: transparent;
+    border: none;
+    width: 12px;
+}
+QToolButton[atkRole="iconButton"]::menu-button:hover { background-color: %CONTROL_HOVER%; }
 
 QPushButton {
     background-color: %CONTROL%;

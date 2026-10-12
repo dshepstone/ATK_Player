@@ -229,7 +229,10 @@ AnnotationToolbar::AnnotationToolbar(QWidget* parent) : QToolBar(tr("Drawing"), 
         connect(action, &QAction::triggered, this, [this, level] { emit tracingPaperRequested(level); });
     }
     m_traceButton->setMenu(traceMenu);
-    addIconButton(m_traceButton, QStringLiteral("layers"));
+    m_traceButton->setIcon(icons::icon(QStringLiteral("layers")));
+    m_traceButton->setIconSize(QSize(theme::metrics::iconMedium, theme::metrics::iconMedium));
+    m_traceButton->setAccessibleName(m_traceButton->text());
+    m_traceButton->hide(); // shown where the owner places it (see viewTools())
     connect(m_traceButton, &QToolButton::clicked, this,
             [this](bool on) { emit tracingPaperRequested(on ? m_traceLevel : 0); });
 
@@ -292,8 +295,10 @@ AnnotationToolbar::AnnotationToolbar(QWidget* parent) : QToolBar(tr("Drawing"), 
         emit ghostSettingsRequested(next);
     });
     m_ghostButton->setMenu(ghostMenu);
-    addIconButton(m_ghostButton, QStringLiteral("ghost"));
-    addSeparator();
+    m_ghostButton->setIcon(icons::icon(QStringLiteral("ghost")));
+    m_ghostButton->setIconSize(QSize(theme::metrics::iconMedium, theme::metrics::iconMedium));
+    m_ghostButton->setAccessibleName(m_ghostButton->text());
+    m_ghostButton->hide();
     addIconButton(m_optionsButton, QStringLiteral("sliders-horizontal"));
     connect(m_ghostButton, &QToolButton::clicked, this, [this](bool on) {
         auto next = m_ghost;
@@ -422,6 +427,11 @@ QToolButton* AnnotationToolbar::addIconButton(QToolButton* button, const QString
     return button;
 }
 
+QList<QWidget*> AnnotationToolbar::viewTools() const
+{
+    return {m_traceButton, m_ghostButton};
+}
+
 void AnnotationToolbar::attachSizePill(BrushSizePill* pill)
 {
     m_pill = pill;
@@ -442,8 +452,9 @@ void AnnotationToolbar::attachSizePill(BrushSizePill* pill)
 
 void AnnotationToolbar::addEditActions(const QList<QAction*>& actions)
 {
-    insertActions(m_editAnchor, actions);
+    // colour | undo, redo, clear | tool options
     insertSeparator(m_editAnchor);
+    insertActions(m_editAnchor, actions);
 }
 
 void AnnotationToolbar::setSettings(const annotation::AnnotationToolSettings& settings)

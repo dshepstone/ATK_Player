@@ -10,6 +10,7 @@
 #include <QToolButton>
 #include <QMenu>
 #include <QSlider>
+#include <QStyle>
 #include <QLabel>
 #include <QWidgetAction>
 
@@ -33,7 +34,25 @@ TransportControls::TransportControls(CommandRegistry* registry, QWidget* parent)
         icons::icon(QStringLiteral("pencil")), tr("Draw on frame: show the drawing tools"));
     draw->setObjectName(QStringLiteral("TransportDrawButton"));
     draw->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    draw->setProperty("atkRole", QVariant()); // a framed button: the way into drawing
     layout->addWidget(draw);
+
+    // In, out and loop: the review range.
+    auto separator = [this, layout] {
+        auto* line = new QWidget(this);
+        line->setFixedSize(1, 20);
+        line->setStyleSheet(QStringLiteral("background-color: %1;").arg(theme::controlHover().name()));
+        layout->addSpacing(6);
+        layout->addWidget(line);
+        layout->addSpacing(6);
+    };
+    separator();
+    layout->addWidget(makeCommandButton(commands::CommandId::SetRangeIn,
+        icons::icon(QStringLiteral("arrow-left-to-line")), tr("Set range in")));
+    layout->addWidget(makeCommandButton(commands::CommandId::SetRangeOut,
+        icons::icon(QStringLiteral("arrow-right-to-line")), tr("Set range out")));
+    layout->addWidget(makeCommandButton(commands::CommandId::ToggleLoop,
+        icons::icon(QStringLiteral("repeat")), tr("Loop playback")));
 
     layout->addStretch(1);
     layout->addWidget(makeCommandButton(commands::CommandId::FirstFrame,
@@ -53,12 +72,23 @@ TransportControls::TransportControls(CommandRegistry* registry, QWidget* parent)
     layout->addWidget(makeCommandButton(commands::CommandId::LastFrame,
         icons::icon(QStringLiteral("skip-forward")), tr("Jump to last frame")));
 
-    // Loop is a mode rather than a transport move, so it sits apart.
-    layout->addSpacing(14);
-    layout->addWidget(makeCommandButton(commands::CommandId::ToggleLoop,
-        icons::icon(QStringLiteral("repeat")), tr("Loop playback")));
+    layout->addStretch(1);
+    // View tools: how the picture is shown.
+    m_viewTools = new QHBoxLayout;
+    m_viewTools->setSpacing(2);
+    layout->addLayout(m_viewTools);
+    m_viewTools->addWidget(makeCommandButton(commands::CommandId::FlipHorizontal,
+        icons::icon(QStringLiteral("flip-horizontal-2")), tr("Flip horizontally")));
+    m_viewTools->addWidget(makeCommandButton(commands::CommandId::ToggleAnnotationsVisible,
+        icons::icon(QStringLiteral("eye")), tr("Show drawings")));
+    separator();
+    layout->addWidget(makeCommandButton(commands::CommandId::ZoomFit,
+        icons::icon(QStringLiteral("scan")), tr("Fit the picture to the viewer")));
+    layout->addWidget(makeCommandButton(commands::CommandId::ToggleVideoFullScreen,
+        icons::icon(QStringLiteral("fullscreen")), tr("Video full screen")));
+    layout->addWidget(makeCommandButton(commands::CommandId::Preferences,
+        icons::icon(QStringLiteral("settings")), tr("Preferences")));
 
-    layout->addSpacing(10);
     m_volumeButton = new QToolButton(this);
     m_volumeButton->setObjectName(QStringLiteral("TransportVolumeButton"));
     m_volumeButton->setIcon(icons::icon(QStringLiteral("volume-2")));
@@ -78,10 +108,22 @@ TransportControls::TransportControls(CommandRegistry* registry, QWidget* parent)
         m_volumeLabel->setText(QStringLiteral("%1%").arg(value)); emit volumeChanged(value);
     });
     m_volumeButton->setMenu(menu); layout->addWidget(m_volumeButton);
-
-    layout->addStretch(1);
+    m_volumeButton->setProperty("atkRole", "iconButton");
 
     setPlaying(false);
+}
+
+void TransportControls::addViewTools(const QList<QWidget*>& widgets)
+{
+    for (int i = 0; i < widgets.size(); ++i) {
+        QWidget* widget = widgets[i];
+        widget->setParent(this);
+        widget->setProperty("atkRole", "iconButton");
+        widget->style()->unpolish(widget);
+        widget->style()->polish(widget);
+        m_viewTools->insertWidget(i, widget);
+        widget->show();
+    }
 }
 
 void TransportControls::setVolumePercent(int percent)
@@ -104,6 +146,8 @@ QToolButton* TransportControls::makeCommandButton(commands::CommandId id,
 {
     auto* button = new QToolButton(this);
     button->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    // Flat until hovered; a filled accent tile when on (loop, flip...).
+    button->setProperty("atkRole", "iconButton");
     button->setIconSize(QSize(theme::metrics::iconMedium, theme::metrics::iconMedium));
     // Transport buttons must not steal focus, or Space would re-trigger the
     // focused button instead of running the Play/Pause command.

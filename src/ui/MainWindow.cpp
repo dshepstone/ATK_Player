@@ -540,6 +540,8 @@ void MainWindow::buildWidgets()
     m_brushSizePill = new BrushSizePill(m_viewer->parentWidget());
     m_brushSizePill->hide();
     m_annotationToolbar->attachSizePill(m_brushSizePill);
+    // Tracing paper and ghosts sit with the other view tools under the timeline.
+    m_transport->addViewTools(m_annotationToolbar->viewTools());
     m_viewer->installEventFilter(this);
     m_annotationToolbar->installEventFilter(this);
 
