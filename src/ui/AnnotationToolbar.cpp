@@ -98,16 +98,18 @@ AnnotationToolbar::AnnotationToolbar(QWidget* parent) : QToolBar(tr("Drawing"), 
     addToolAction(AnnotationTool::Brush, QStringLiteral("brush"), tr("Brush"),
                   tr("Brush: soft edge, pressure sets width and opacity"));
     addToolAction(AnnotationTool::Marker, QStringLiteral("highlighter"), tr("Marker"), tr("Marker: flat, even, translucent"));
-    addToolAction(AnnotationTool::Stamp, QStringLiteral("stamp"), tr("Custom"),
+    addToolAction(AnnotationTool::Stamp, QStringLiteral("paintbrush"), tr("Custom"),
                   tr("Custom brush: paints with an imported brush tip (for example from a Photoshop .abr set)"));
-    // The imported-brush menu sits right after Custom, as its drop-down.
+    // Choose brush: the imported brush library, right after Custom. A fixed
+    // icon, so it always reads as "pick a brush"; the brushes themselves are
+    // previewed in its menu.
     m_brushButton = new QToolButton(this);
     m_brushButton->setObjectName(QStringLiteral("BrushSetButton"));
+    m_brushButton->setText(tr("Choose brush"));
     m_brushButton->setPopupMode(QToolButton::InstantPopup);
     m_brushButton->setToolButtonStyle(Qt::ToolButtonIconOnly);
     m_brushButton->setMenu(new QMenu(m_brushButton));
-    addIconButton(m_brushButton, QStringLiteral("chevron-down"));
-    m_brushButton->setIconSize(QSize(theme::metrics::iconSmall, theme::metrics::iconSmall));
+    addIconButton(m_brushButton, QStringLiteral("library-big"));
     addToolAction(AnnotationTool::Eraser, QStringLiteral("eraser"), tr("Eraser"),
                   tr("Eraser (the pen's eraser end works too). Area or whole-stroke mode is under Tool options."));
     m_eraserModeCombo = new QComboBox;
@@ -340,6 +342,7 @@ void AnnotationToolbar::setBrushSets(const QVector<annotation::BrushSet>& sets)
     m_brushSets = sets;
     QMenu* menu = m_brushButton->menu();
     menu->clear();
+    if (!sets.isEmpty()) menu->addSection(tr("Choose a brush"));
     for (const annotation::BrushSet& set : sets) {
         QMenu* sub = menu->addMenu(QStringLiteral("%1 (%2)").arg(set.name).arg(set.tips.size()));
         for (const annotation::BrushTip& tip : set.tips) {
@@ -379,17 +382,11 @@ void AnnotationToolbar::refreshBrushButton()
     for (const annotation::BrushSet& set : m_brushSets) {
         for (const annotation::BrushTip& tip : set.tips) {
             if (tip.id != m_settings.brushTipId) continue;
-            QImage preview = tip.mask.scaled(20, 20, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-            preview.invertPixels();
-            m_brushButton->setIcon(QIcon(QPixmap::fromImage(preview)));
-            m_brushButton->setText(tip.name.left(18));
-            m_brushButton->setToolTip(tr("Custom brush: %1. Choose another, or import Photoshop brushes (.abr)")
+            m_brushButton->setToolTip(tr("Choose brush (now: %1), or import Photoshop brushes (.abr)")
                                           .arg(tip.name.isEmpty() ? tr("Brush") : tip.name));
             return;
         }
     }
-    m_brushButton->setIcon(icons::icon(QStringLiteral("chevron-down")));
-    m_brushButton->setText(m_brushSets.isEmpty() ? tr("Brushes") : tr("Choose brush"));
     m_brushButton->setToolTip(m_brushSets.isEmpty() ? tr("Import Photoshop brushes (.abr) for the Custom tool")
                                                     : tr("Choose an imported brush, or import Photoshop brushes (.abr)"));
 }

@@ -37,6 +37,7 @@
         <file alias="info.svg">../../assets/icons/lucide/info.svg</file>
         <file alias="layers.svg">../../assets/icons/lucide/layers.svg</file>
         <file alias="layout-grid.svg">../../assets/icons/lucide/layout-grid.svg</file>
+        <file alias="library-big.svg">../../assets/icons/lucide/library-big.svg</file>
         <file alias="list-ordered.svg">../../assets/icons/lucide/list-ordered.svg</file>
         <file alias="list.svg">../../assets/icons/lucide/list.svg</file>
         <file alias="maximize.svg">../../assets/icons/lucide/maximize.svg</file>
@@ -44,6 +45,7 @@
         <file alias="minus.svg">../../assets/icons/lucide/minus.svg</file>
         <file alias="mouse-pointer-2.svg">../../assets/icons/lucide/mouse-pointer-2.svg</file>
         <file alias="move-horizontal.svg">../../assets/icons/lucide/move-horizontal.svg</file>
+        <file alias="paintbrush.svg">../../assets/icons/lucide/paintbrush.svg</file>
         <file alias="pause.svg">../../assets/icons/lucide/pause.svg</file>
         <file alias="pen-tool.svg">../../assets/icons/lucide/pen-tool.svg</file>
         <file alias="pencil.svg">../../assets/icons/lucide/pencil.svg</file>
@@ -61,7 +63,6 @@
         <file alias="skip-forward.svg">../../assets/icons/lucide/skip-forward.svg</file>
         <file alias="sliders-horizontal.svg">../../assets/icons/lucide/sliders-horizontal.svg</file>
         <file alias="square.svg">../../assets/icons/lucide/square.svg</file>
-        <file alias="stamp.svg">../../assets/icons/lucide/stamp.svg</file>
         <file alias="star.svg">../../assets/icons/lucide/star.svg</file>
         <file alias="step-back.svg">../../assets/icons/lucide/step-back.svg</file>
         <file alias="step-forward.svg">../../assets/icons/lucide/step-forward.svg</file>
