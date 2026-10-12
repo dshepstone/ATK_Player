@@ -81,6 +81,9 @@ ReviewHeaderBar::ReviewHeaderBar(QWidget* parent) : QWidget(parent)
     layout->setContentsMargins(theme::metrics::spacingMedium, 2, theme::metrics::spacingMedium, 2);
     layout->setSpacing(theme::metrics::spacingMedium);
 
+    m_home = iconButton(this, QStringLiteral("house"), tr("Review Library (Ctrl+Shift+H)"),
+                        QStringLiteral("ReviewHeaderHome"));
+    connect(m_home, &QToolButton::clicked, this, &ReviewHeaderBar::libraryRequested);
     m_project = new QLabel(this);
     m_project->setObjectName(QStringLiteral("ReviewHeaderProject"));
     m_project->setStyleSheet(QStringLiteral("color: %1;").arg(theme::textSecondary().name()));
@@ -110,6 +113,7 @@ ReviewHeaderBar::ReviewHeaderBar(QWidget* parent) : QWidget(parent)
                           QStringLiteral("ReviewHeaderFolder"));
     connect(m_folder, &QToolButton::clicked, this, &ReviewHeaderBar::showInFolderRequested);
 
+    layout->addWidget(m_home);
     layout->addWidget(m_project);
     layout->addWidget(m_separator);
     layout->addWidget(m_clip, 1);

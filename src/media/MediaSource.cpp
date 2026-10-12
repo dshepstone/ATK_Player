@@ -22,4 +22,21 @@ QString MediaSource::displayName() const
     return QFileInfo(m_filePath).fileName();
 }
 
+const QStringList& videoFileExtensions()
+{
+    static const QStringList extensions{
+        QStringLiteral("mp4"), QStringLiteral("mov"), QStringLiteral("avi"),
+        QStringLiteral("mkv"), QStringLiteral("m4v"), QStringLiteral("webm"),
+        QStringLiteral("mpg"), QStringLiteral("mpeg"), QStringLiteral("wmv"),
+        QStringLiteral("flv"),
+    };
+    return extensions;
+}
+
+bool isSupportedMediaPath(const QString& path)
+{
+    const QString suffix = QFileInfo(path).suffix().toLower();
+    return videoFileExtensions().contains(suffix) || isStillImagePath(path);
+}
+
 } // namespace atk::media

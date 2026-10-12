@@ -60,6 +60,9 @@ set(ATK_CORE_SOURCES
     project/Project.cpp
     project/ProjectSerializer.cpp
 
+    review/FolderScanner.cpp
+    review/ReviewLibrary.cpp
+
     export/ExportSpec.cpp
     export/ExportBurnInRenderer.cpp
     export/ExportRenderer.cpp
@@ -127,6 +130,8 @@ set(ATK_CORE_HEADERS
 
     project/Project.h
     project/ProjectSerializer.h
+    review/FolderScanner.h
+    review/ReviewLibrary.h
 
     export/ExportSpec.h
     export/ExportBurnInRenderer.h

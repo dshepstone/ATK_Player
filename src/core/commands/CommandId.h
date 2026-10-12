@@ -10,6 +10,8 @@ namespace atk::commands {
 /// M2 without touching any widget.
 enum class CommandId {
     // File
+    ShowReviewLibrary,
+    NewReview,
     OpenMedia,
     NewProject,
     AddMediaToPlaylist,

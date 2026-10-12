@@ -21,6 +21,7 @@ constexpr auto kBookmarkSnap = "review/bookmarkSnap";
 constexpr auto kVolume = "review/volume";
 constexpr auto kMuted = "review/muted";
 constexpr auto kReopenLast = "projects/reopenLast";
+constexpr auto kShowLibraryAtStartup = "startup/showReviewLibrary";
 constexpr auto kRecentProjects = "projects/recent";
 constexpr auto kLastProject = "projects/lastPath";
 constexpr auto kApiEnabled = "api/enabled";
@@ -91,6 +92,10 @@ bool ApplicationSettings::frameStepAudioEnabled() const { return readBool(kFrame
 bool ApplicationSettings::bookmarkSnapEnabled() const { return readBool(kBookmarkSnap, defaultBookmarkSnapEnabled()); }
 bool ApplicationSettings::muted() const { return readBool(kMuted, defaultMuted()); }
 bool ApplicationSettings::reopenLastProject() const { return readBool(kReopenLast, defaultReopenLastProject()); }
+bool ApplicationSettings::showLibraryAtStartup() const
+{
+    return readBool(kShowLibraryAtStartup, defaultShowLibraryAtStartup());
+}
 QStringList ApplicationSettings::recentProjects() const { return m_settings->value(QString::fromLatin1(kRecentProjects)).toStringList(); }
 QString ApplicationSettings::lastProjectPath() const { return m_settings->value(QString::fromLatin1(kLastProject)).toString(); }
 bool ApplicationSettings::apiEnabled() const { return readBool(kApiEnabled, defaultApiEnabled()); }
@@ -141,6 +146,10 @@ void ApplicationSettings::setBookmarkSnapEnabled(bool value) { m_settings->setVa
 void ApplicationSettings::setVolume(double value) { m_settings->setValue(QString::fromLatin1(kVolume), std::clamp(value, 0.0, 1.0)); }
 void ApplicationSettings::setMuted(bool value) { m_settings->setValue(QString::fromLatin1(kMuted), value); }
 void ApplicationSettings::setReopenLastProject(bool value) { m_settings->setValue(QString::fromLatin1(kReopenLast), value); }
+void ApplicationSettings::setShowLibraryAtStartup(bool value)
+{
+    m_settings->setValue(QString::fromLatin1(kShowLibraryAtStartup), value);
+}
 void ApplicationSettings::addRecentProject(const QString& path)
 {
     const QString normalized = QDir::cleanPath(QFileInfo(path).absoluteFilePath());

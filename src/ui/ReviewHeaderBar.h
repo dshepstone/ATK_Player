@@ -38,8 +38,11 @@ public:
 signals:
     void statusChosen(atk::project::ClipStatus status);
     void showInFolderRequested();
+    /// The house button: back to the Review Library.
+    void libraryRequested();
 
 private:
+    QToolButton* m_home = nullptr;
     QLabel* m_project = nullptr;
     QLabel* m_separator = nullptr;
     QLabel* m_clip = nullptr;

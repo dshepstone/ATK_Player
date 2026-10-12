@@ -15,6 +15,9 @@
 #include <QStringList>
 #include <QUuid>
 
+#include <QHash>
+#include <QUuid>
+
 #include <memory>
 
 class QDockWidget;
@@ -29,6 +32,7 @@ class QVBoxLayout;
 class QSplitter;
 class QProgressDialog;
 class QJsonObject;
+class QStackedWidget;
 
 namespace atk::annotation { class AnnotationStore; class BrushLibrary; }
 namespace atk::api { class ApiServer; }
@@ -38,6 +42,7 @@ namespace atk::project { class Project; }
 namespace atk::media { class PlaylistProbeWorker; class ThumbnailWorker; }
 namespace atk::exporter { class ExportJob; class ReviewNotesJob; }
 namespace atk::timeline { class TimelineModel; }
+namespace atk::review { class ReviewLibrary; struct FoundClip; }
 
 namespace atk::ui {
 
@@ -49,6 +54,7 @@ class ApplicationSettings;
 class BookmarkPanel;
 class BrushSizePill;
 class ReviewHeaderBar;
+class ReviewLibraryPage;
 class CompareBar;
 class ComparisonCompositeWidget;
 class FrameNumberInput;
@@ -99,7 +105,27 @@ public:
     playback::PlaybackController* playbackController() const { return m_playback.get(); }
     project::Project* project() const { return m_project.get(); }
     bool openProjectFile(const QString& path);
-    void reopenLastProjectIfEnabled();
+    /// Reopens the last project when that preference is on; true if it did.
+    bool reopenLastProjectIfEnabled();
+
+    // --- Review Library (the start screen) -------------------------------
+    /// What a launch without a file shows: the Review Library, unless the
+    /// user turned that off in Preferences (then the empty player).
+    void showStartScreen();
+    void showReviewLibrary();
+    /// Back to the player. Every way of opening a file goes through here, so
+    /// a clip never loads behind the library.
+    void showPlayer();
+    bool isShowingReviewLibrary() const;
+    review::ReviewLibrary* reviewLibrary() const { return m_reviewLibrary.get(); }
+    ReviewLibraryPage* reviewLibraryPage() const { return m_libraryPage; }
+    /// Makes a review: a project of `clips` in this order, saved as
+    /// `projectPath`, added to the library and opened. False (with a message
+    /// unless `interactive` is off) when it cannot be saved.
+    bool createReview(const QString& name, const QString& folder, bool includeSubfolders,
+                      const QVector<review::FoundClip>& clips, const QString& projectPath, bool interactive = true);
+    /// Opens a library review; offers to add clips that appeared in its folder.
+    bool openReview(const QUuid& id, bool interactive = true);
     /// Shows the welcome dialog once per installed version. Called by main()
     /// after the window is up; tests construct the window without it.
     void showWelcomeIfFirstRun();
@@ -267,6 +293,20 @@ private:
     ReviewHeaderBar* m_reviewHeader = nullptr;
     QToolBar* m_reviewHeaderToolbar = nullptr;
     void refreshReviewHeader();
+    std::unique_ptr<review::ReviewLibrary> m_reviewLibrary;
+    QStackedWidget* m_pages = nullptr;
+    QWidget* m_playerPage = nullptr;
+    ReviewLibraryPage* m_libraryPage = nullptr; // built the first time it is shown
+    /// Docks shown before the library hid them, restored by showPlayer().
+    QList<QWidget*> m_hiddenForLibrary;
+    QHash<QUuid, QString> m_previewThumbnailRequests;
+    void newReviewDialog();
+    void saveReviewLibrary();
+    /// Keeps the library's clip count and preview strip in step with the
+    /// open project when it belongs to a review.
+    void syncReviewLibraryEntry();
+    void requestPreviewThumbnail(const QString& clipPath);
+    QString thumbnailCacheDirectory() const;
     // Playlist thumbnails: a worker on its own thread, like the probe worker.
     QThread* m_thumbnailThread = nullptr;
     media::ThumbnailWorker* m_thumbnailWorker = nullptr;

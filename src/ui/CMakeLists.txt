@@ -21,9 +21,11 @@ set(ATK_UI_SOURCES
     IconProvider.cpp
     MainWindow.cpp
     MediaInformationDialog.cpp
+    NewReviewDialog.cpp
     NotesPanel.cpp
     PlaylistCardDelegate.cpp
     ReviewHeaderBar.cpp
+    ReviewLibraryPage.cpp
     ReviewNotesDialog.cpp
     PreferencesDialog.cpp
     Resources.cpp
@@ -56,9 +58,11 @@ set(ATK_UI_HEADERS
     IconProvider.h
     MainWindow.h
     MediaInformationDialog.h
+    NewReviewDialog.h
     NotesPanel.h
     PlaylistCardDelegate.h
     ReviewHeaderBar.h
+    ReviewLibraryPage.h
     ReviewNotesDialog.h
     PreferencesDialog.h
     Resources.h

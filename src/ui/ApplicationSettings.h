@@ -30,6 +30,7 @@ public:
     static constexpr double defaultVolume() { return 1.0; }
     static constexpr bool defaultMuted() { return false; }
     static constexpr bool defaultReopenLastProject() { return false; }
+    static constexpr bool defaultShowLibraryAtStartup() { return true; }
     static constexpr int maximumRecentProjects() { return 10; }
     static constexpr bool defaultApiEnabled() { return false; }
     static constexpr int defaultApiPort() { return 45571; }
@@ -55,6 +56,8 @@ public:
     double volume() const;
     bool muted() const;
     bool reopenLastProject() const;
+    /// A launch without a file opens the Review Library (else the empty player).
+    bool showLibraryAtStartup() const;
     QStringList recentProjects() const;
     QString lastProjectPath() const;
     bool apiEnabled() const;
@@ -89,6 +92,7 @@ public:
     void setVolume(double value);
     void setMuted(bool value);
     void setReopenLastProject(bool value);
+    void setShowLibraryAtStartup(bool value);
     void addRecentProject(const QString& path);
     void clearRecentProjects();
     void setLastProjectPath(const QString& path);

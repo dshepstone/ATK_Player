@@ -48,6 +48,12 @@ PreferencesDialog::PreferencesDialog(const ApplicationSettings& settings,
     m_reopenLast->setObjectName(QStringLiteral("ReopenLastProject"));
     m_reopenLast->setChecked(settings.reopenLastProject());
     generalLayout->addWidget(m_reopenLast);
+    m_showLibrary = new QCheckBox(tr("Show the Review Library when ATK Player starts without a file"), general);
+    m_showLibrary->setObjectName(QStringLiteral("ShowLibraryAtStartup"));
+    m_showLibrary->setToolTip(tr("Files opened by double-click, or sent from Maya or Harmony, always open "
+                                 "straight in the player."));
+    m_showLibrary->setChecked(settings.showLibraryAtStartup());
+    generalLayout->addWidget(m_showLibrary);
     auto* resetPreferences = new QPushButton(tr("Reset Preferences to Defaults"), general);
     resetPreferences->setObjectName(QStringLiteral("ResetPreferences"));
     generalLayout->addWidget(resetPreferences, 0, Qt::AlignLeft);
@@ -175,6 +181,7 @@ bool PreferencesDialog::audioScrubEnabled() const { return m_audioScrub->isCheck
 bool PreferencesDialog::frameStepAudioEnabled() const { return m_frameStepAudio->isChecked(); }
 bool PreferencesDialog::bookmarkSnapEnabled() const { return m_bookmarkSnap->isChecked(); }
 bool PreferencesDialog::reopenLastProject() const { return m_reopenLast->isChecked(); }
+bool PreferencesDialog::showLibraryAtStartup() const { return m_showLibrary->isChecked(); }
 bool PreferencesDialog::apiEnabled() const { return m_apiEnabled->isChecked(); }
 int PreferencesDialog::apiPort() const { return m_apiPort->value(); }
 int PreferencesDialog::stillImageHoldFrames() const { return m_stillHoldFrames->value(); }
@@ -293,6 +300,7 @@ void PreferencesDialog::resetPreferencesDraft()
             QMessageBox::Reset | QMessageBox::Cancel, QMessageBox::Cancel) != QMessageBox::Reset) return;
     m_restoreLayout->setChecked(ApplicationSettings::defaultRestoreWindowLayout());
     m_reopenLast->setChecked(ApplicationSettings::defaultReopenLastProject());
+    m_showLibrary->setChecked(ApplicationSettings::defaultShowLibraryAtStartup());
     m_audioScrub->setChecked(ApplicationSettings::defaultAudioScrubEnabled());
     m_frameStepAudio->setChecked(ApplicationSettings::defaultFrameStepAudioEnabled());
     m_bookmarkSnap->setChecked(ApplicationSettings::defaultBookmarkSnapEnabled());

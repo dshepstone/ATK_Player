@@ -29,8 +29,10 @@ int main(int argc, char* argv[])
             window.openProjectFile(requested);
         else
             window.openMediaFile(requested);
-    } else {
-        window.reopenLastProjectIfEnabled();
+    } else if (!window.reopenLastProjectIfEnabled()) {
+        // Started on its own (no file from a double-click, Maya, Harmony or
+        // --open): the Review Library, unless turned off in Preferences.
+        window.showStartScreen();
     }
 
     // First launch after an install or upgrade: say thank you once.
