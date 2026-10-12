@@ -31,6 +31,7 @@ set(ATK_CORE_SOURCES
     media/MediaDecoder.cpp
     media/DecoderWorker.cpp
     media/PlaylistProbeWorker.cpp
+    media/ThumbnailWorker.cpp
     media/ffmpeg/FFmpegUtil.cpp
 
     audio/AudioRingBuffer.cpp
@@ -96,6 +97,7 @@ set(ATK_CORE_HEADERS
     media/MediaDecoder.h
     media/DecoderWorker.h
     media/PlaylistProbeWorker.h
+    media/ThumbnailWorker.h
     media/ffmpeg/FFmpegUtil.h
     media/ffmpeg/FFmpegRaii.h
 

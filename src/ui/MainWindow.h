@@ -34,7 +34,7 @@ namespace atk::api { class ApiServer; }
 namespace atk::api { struct ApiResponse; }
 namespace atk::playback { class CompareSession; class CompareVideoLane; enum class CompareLayout; enum class CompareAudioMode; }
 namespace atk::project { class Project; }
-namespace atk::media { class PlaylistProbeWorker; }
+namespace atk::media { class PlaylistProbeWorker; class ThumbnailWorker; }
 namespace atk::exporter { class ExportJob; class ReviewNotesJob; }
 namespace atk::timeline { class TimelineModel; }
 
@@ -261,6 +261,11 @@ private:
     /// Size and opacity, floating at the viewer's left edge while drawing.
     BrushSizePill* m_brushSizePill = nullptr;
     void placeBrushSizePill();
+    // Playlist thumbnails: a worker on its own thread, like the probe worker.
+    QThread* m_thumbnailThread = nullptr;
+    media::ThumbnailWorker* m_thumbnailWorker = nullptr;
+    quint64 m_nextThumbnailToken = 1;
+    void requestThumbnail(const QUuid& sourceId);
     int m_tracingPaper = 0;
     int m_tracingPaperLevel = 50;
     annotation::GhostSettings m_ghostSettings;

@@ -13,6 +13,7 @@
 #include "media/MediaSource.h"
 #include "media/CompareAudioWorker.h"
 #include "media/PlaylistProbeWorker.h"
+#include "media/ThumbnailWorker.h"
 #include "export/ExportJob.h"
 #include "export/FFmpegExporter.h"
 #include "export/ReviewNotesPdf.h"
@@ -282,6 +283,12 @@ MainWindow::~MainWindow()
         m_probeThread->quit();
         m_probeThread->wait();
     }
+    // Stop delivery, then let the worker finish its current clip and go.
+    if (m_thumbnailWorker) m_thumbnailWorker->disconnect(this);
+    if (m_thumbnailThread) {
+        m_thumbnailThread->quit();
+        m_thumbnailThread->wait();
+    }
 }
 
 void MainWindow::buildModels()
@@ -337,6 +344,12 @@ void MainWindow::buildModels()
             m_project->applyProbeResult(id, path, token, metadata, error, missing);
         });
     m_probeThread->start();
+    m_thumbnailThread = new QThread(this);
+    m_thumbnailThread->setObjectName(QStringLiteral("ThumbnailThread"));
+    m_thumbnailWorker = new media::ThumbnailWorker;
+    m_thumbnailWorker->moveToThread(m_thumbnailThread);
+    connect(m_thumbnailThread, &QThread::finished, m_thumbnailWorker, &QObject::deleteLater);
+    m_thumbnailThread->start(QThread::LowPriority);
     m_compare  = std::make_unique<playback::CompareSession>();
     m_apiServer = std::make_unique<api::ApiServer>(
         m_playback.get(), m_timeline.get(),
@@ -440,6 +453,13 @@ void MainWindow::buildWidgets()
     // --- Left dock: sources ----------------------------------------------
     m_sources = new SourcesPanel(this);
     m_sources->setProject(m_project.get());
+    // Delivered on the GUI thread (queued); a clip removed meanwhile is ignored.
+    connect(m_thumbnailWorker, &media::ThumbnailWorker::thumbnailReady, m_sources,
+            [this](QUuid id, quint64, const QImage& image, const QString& error, bool) {
+                if (!error.isEmpty()) qCDebug(log::ui) << "No thumbnail for" << id << ":" << error;
+                if (!image.isNull() && m_project->indexForId(id) >= 0) m_sources->setThumbnail(id, image);
+            });
+    connect(m_sources, &SourcesPanel::thumbnailWanted, this, &MainWindow::requestThumbnail);
 
     m_sourcesDock = new QDockWidget(tr("Playlist"), this);
     m_sourcesDock->setObjectName(QStringLiteral("SourcesDock"));
@@ -1857,6 +1877,24 @@ void MainWindow::startProbe(const QUuid& id, const QString& path)
     const media::ImageSourceOptions still = m_project->entries().at(index).source->imageOptions();
     QMetaObject::invokeMethod(m_probeWorker, [worker = m_probeWorker, id, path, token, still] {
         worker->probe(id, path, token, still);
+    }, Qt::QueuedConnection);
+}
+
+void MainWindow::requestThumbnail(const QUuid& sourceId)
+{
+    const int index = m_project->indexForId(sourceId);
+    if (index < 0 || !m_thumbnailWorker) return;
+    const auto& source = m_project->entries().at(index).source;
+    if (!source) return;
+    // Beside the settings file when one was given (tests), else the user cache.
+    const QString cacheDirectory = !m_settingsIniPath.isEmpty()
+        ? QFileInfo(m_settingsIniPath).absoluteDir().filePath(QStringLiteral("thumbnails"))
+        : QDir(QStandardPaths::writableLocation(QStandardPaths::CacheLocation)).filePath(QStringLiteral("thumbnails"));
+    const QString path = source->filePath();
+    const media::ImageSourceOptions still = source->imageOptions();
+    const quint64 token = m_nextThumbnailToken++;
+    QMetaObject::invokeMethod(m_thumbnailWorker, [worker = m_thumbnailWorker, sourceId, path, token, still, cacheDirectory] {
+        worker->render(sourceId, path, token, still, QSize(320, 180), cacheDirectory);
     }, Qt::QueuedConnection);
 }
 
