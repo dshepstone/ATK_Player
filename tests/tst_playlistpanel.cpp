@@ -4,12 +4,16 @@
 #include "project/ProjectSerializer.h"
 #include "ui/MainWindow.h"
 #include "ui/PlaylistCardDelegate.h"
+#include "ui/ReviewHeaderBar.h"
 #include "ui/SourcesPanel.h"
 
 #include <QApplication>
+#include <QComboBox>
+#include <QToolButton>
 #include <QLabel>
 #include <QDir>
 #include <QListWidget>
+#include <QMenu>
 #include <QScrollBar>
 #include <QSignalSpy>
 #include <QTemporaryDir>
@@ -46,6 +50,7 @@ private slots:
     void thumbnailsAreAskedForOnceAndShown();
     void drawingAndNotesUpdateTheCardInPlace();
     void mainWindowFillsInThumbnails();
+    void headerShowsTheClipAndSetsItsStatus();
 };
 
 void TestPlaylistPanel::cardsCarryTheClipDetails()
@@ -179,6 +184,51 @@ void TestPlaylistPanel::mainWindowFillsInThumbnails()
     }
     // Kept on disk beside the settings, so the next session shows them at once.
     QVERIFY(!QDir(directory.filePath(QStringLiteral("thumbnails"))).entryList({QStringLiteral("*.png")}).isEmpty());
+}
+
+void TestPlaylistPanel::headerShowsTheClipAndSetsItsStatus()
+{
+    QTemporaryDir directory;
+    project::Project project;
+    project.setName(QStringLiteral("Week 13 Capstone"));
+    project.addSource(std::make_shared<media::MediaSource>(fixture("atk_fixture_48f.mp4")));
+    project.addSource(std::make_shared<media::MediaSource>(fixture("atk_review_10s.mkv")));
+    project.mutableEntries()[1].displayName = QStringLiteral("Smith_Jane");
+    project.setActiveIndex(1);
+    const QString path = directory.filePath(QStringLiteral("status.atkproj"));
+    QVERIFY(project::ProjectSerializer::save(project, path).ok);
+
+    ui::MainWindow window(directory.filePath(QStringLiteral("settings.ini")));
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    auto* header = window.findChild<ui::ReviewHeaderBar*>();
+    auto* status = window.findChild<QComboBox*>(QStringLiteral("ClipStatusCombo"));
+    auto* clip = window.findChild<QLabel*>(QStringLiteral("ReviewHeaderClip"));
+    QVERIFY(header && status && clip);
+    QVERIFY(header->isVisible());
+    QVERIFY(!status->isEnabled()); // nothing loaded yet
+
+    window.openProjectFile(path);
+    QTRY_COMPARE_WITH_TIMEOUT(window.project()->activeIndex(), 1, 5000);
+    QTRY_COMPARE(clip->text(), QStringLiteral("Smith_Jane"));
+    QCOMPARE(window.findChild<QLabel*>(QStringLiteral("ReviewHeaderProject"))->text(),
+             QStringLiteral("Week 13 Capstone"));
+    QVERIFY(status->isEnabled());
+    QCOMPARE(header->status(), project::ClipStatus::NotReviewed);
+
+    // Choosing a status sets it on the loaded clip and shows on its card.
+    status->setCurrentIndex(status->findData(int(project::ClipStatus::Approved)));
+    QCOMPARE(window.project()->entries()[1].status, project::ClipStatus::Approved);
+    QCOMPARE(window.project()->entries()[0].status, project::ClipStatus::NotReviewed);
+    auto* panel = window.findChild<ui::SourcesPanel*>();
+    QCOMPARE(panel->list()->item(1)->data(role::Status).toInt(), int(project::ClipStatus::Approved));
+    QVERIFY(window.project()->isModified());
+    QCOMPARE(ui::clipStatusLabel(project::ClipStatus::Approved), QStringLiteral("Approved"));
+
+    // The export button offers the window's own export commands.
+    auto* exportButton = window.findChild<QToolButton*>(QStringLiteral("ReviewHeaderExport"));
+    QVERIFY(exportButton && exportButton->menu());
+    QVERIFY(exportButton->menu()->actions().contains(window.findChild<QAction*>(QStringLiteral("file.exportReviewNotes"))));
 }
 
 QTEST_MAIN(TestPlaylistPanel)

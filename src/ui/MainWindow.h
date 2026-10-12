@@ -24,6 +24,7 @@ class QSlider;
 class QCloseEvent;
 class QMenu;
 class QThread;
+class QToolBar;
 class QVBoxLayout;
 class QSplitter;
 class QProgressDialog;
@@ -47,6 +48,7 @@ class CommandRegistry;
 class ApplicationSettings;
 class BookmarkPanel;
 class BrushSizePill;
+class ReviewHeaderBar;
 class CompareBar;
 class ComparisonCompositeWidget;
 class FrameNumberInput;
@@ -261,6 +263,10 @@ private:
     /// Size and opacity, floating at the viewer's left edge while drawing.
     BrushSizePill* m_brushSizePill = nullptr;
     void placeBrushSizePill();
+    /// Project › clip and the clip's status, above the picture.
+    ReviewHeaderBar* m_reviewHeader = nullptr;
+    QToolBar* m_reviewHeaderToolbar = nullptr;
+    void refreshReviewHeader();
     // Playlist thumbnails: a worker on its own thread, like the probe worker.
     QThread* m_thumbnailThread = nullptr;
     media::ThumbnailWorker* m_thumbnailWorker = nullptr;

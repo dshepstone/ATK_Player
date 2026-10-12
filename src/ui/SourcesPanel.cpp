@@ -160,6 +160,11 @@ void SourcesPanel::setProject(project::Project* project)
         // rather than rebuilding the list (which would lose the scroll position).
         connect(m_project, &project::Project::annotationsChanged,
                 this, [this](const QUuid& id) { updateCounts(id); });
+        connect(m_project, &project::Project::clipStatusChanged, this, [this](const QUuid& id) {
+            const int index = m_project->indexForId(id);
+            if (index >= 0 && index < m_list->count() && m_list->item(index)->data(Qt::UserRole).toUuid() == id)
+                m_list->item(index)->setData(playlistrole::Status, int(m_project->entries().at(index).status));
+        });
     }
 
     refresh();
@@ -225,6 +230,7 @@ void SourcesPanel::refresh()
                               entry.availability == project::SourceAvailability::Ready
                                   ? qint64(entry.source->metadata().effectiveFrameCount()) : qint64(0));
                 item->setData(playlistrole::Thumbnail, m_thumbnails.value(entry.id));
+                item->setData(playlistrole::Status, int(entry.status));
                 item->setData(Qt::AccessibleTextRole,
                               QStringLiteral("%1. %2%3").arg(order).arg(name, state.isEmpty() ? QString() : QStringLiteral(", ") + state));
                 item->setToolTip(entry.availabilityError.isEmpty() ? entry.source->filePath()

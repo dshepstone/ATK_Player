@@ -8,6 +8,7 @@
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTest>
 
@@ -17,6 +18,7 @@ class TestProject : public QObject {
     Q_OBJECT
 private slots:
     void stableIdentitySurvivesReorder();
+    void clipStatusRoundTripsAsVersion3();
     void roundTripReviewStateAndRelativePath();
     void missingMediaRemainsInProject();
     void rejectsMalformedAndUnsupportedFilesWithoutMutation();
@@ -543,6 +545,51 @@ void TestProject::savePromptOnlyForReviewWork()
     annotations.setFrame(drawn);
     project.mutableEntries()[0].annotations = annotations;     // notes count too
     QVERIFY(project.needsSavePrompt());
+}
+
+void TestProject::clipStatusRoundTripsAsVersion3()
+{
+    QTemporaryDir directory;
+    project::Project original;
+    original.addSource(std::make_shared<media::MediaSource>(directory.filePath(QStringLiteral("a.mov"))));
+    original.addSource(std::make_shared<media::MediaSource>(directory.filePath(QStringLiteral("b.mov"))));
+    const QUuid first = original.entries()[0].id;
+
+    // Setting a status is a change; setting the same one again is not.
+    QSignalSpy changed(&original, &project::Project::clipStatusChanged);
+    original.setModified(false);
+    QVERIFY(original.setClipStatus(first, project::ClipStatus::NeedsChanges));
+    QCOMPARE(changed.count(), 1);
+    QVERIFY(original.isModified());
+    QVERIFY(!original.setClipStatus(first, project::ClipStatus::NeedsChanges));
+    QVERIFY(!original.setClipStatus(QUuid::createUuid(), project::ClipStatus::Approved));
+    QCOMPARE(changed.count(), 1);
+
+    auto versionOf = [](const QString& path) {
+        QFile file(path);
+        if (!file.open(QIODevice::ReadOnly)) return -1;
+        return QJsonDocument::fromJson(file.readAll()).object().value(QStringLiteral("version")).toInt();
+    };
+    const QString path = directory.filePath(QStringLiteral("status.atkproj"));
+    QVERIFY(project::ProjectSerializer::save(original, path).ok);
+    // Older builds must refuse it rather than drop the statuses and save over them.
+    QCOMPARE(versionOf(path), 3);
+
+    project::Project loaded;
+    QVERIFY(project::ProjectSerializer::load(loaded, path).ok);
+    QCOMPARE(loaded.entries()[0].status, project::ClipStatus::NeedsChanges);
+    QCOMPARE(loaded.entries()[1].status, project::ClipStatus::NotReviewed);
+
+    // Back to all "not reviewed": nothing to protect, so the oldest version.
+    QVERIFY(loaded.setClipStatus(first, project::ClipStatus::NotReviewed));
+    QVERIFY(project::ProjectSerializer::save(loaded, path).ok);
+    QCOMPARE(versionOf(path), 1);
+
+    QCOMPARE(project::clipStatusFromKey(QStringLiteral("approved")), project::ClipStatus::Approved);
+    QCOMPARE(project::clipStatusFromKey(QStringLiteral("someday")), project::ClipStatus::NotReviewed);
+    for (auto status : {project::ClipStatus::NotReviewed, project::ClipStatus::InReview,
+                        project::ClipStatus::NeedsChanges, project::ClipStatus::Approved})
+        QCOMPARE(project::clipStatusFromKey(project::clipStatusKey(status)), status);
 }
 
 QTEST_MAIN(TestProject)

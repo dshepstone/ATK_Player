@@ -16,6 +16,7 @@ enum : int {
     DrawnFrames,              ///< int: frames with drawings
     Unavailable,              ///< bool: missing or unreadable
     FrameCount,               ///< qint64: frames in the clip; 0 when unknown
+    Status,                   ///< int (project::ClipStatus)
 };
 } // namespace playlistrole
 

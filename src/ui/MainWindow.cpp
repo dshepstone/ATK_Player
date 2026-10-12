@@ -37,6 +37,7 @@
 #include "ui/NotesPanel.h"
 #include "ui/PreferencesDialog.h"
 #include "ui/Resources.h"
+#include "ui/ReviewHeaderBar.h"
 #include "ui/ReviewNotesDialog.h"
 #include "ui/SourcesPanel.h"
 #include "ui/StatusInfoBar.h"
@@ -83,6 +84,7 @@
 #include <QDialogButtonBox>
 #include <QMenu>
 #include <QMenuBar>
+#include <QToolBar>
 #include <QToolButton>
 #include <QDateTime>
 #include <QDesktopServices>
@@ -496,6 +498,35 @@ void MainWindow::buildWidgets()
     // the top right opens it.
     m_notesDock->hide();
 
+    // --- Review header: project › clip, status, export --------------------
+    // A fixed toolbar row across the top, above the drawing tools, so it never
+    // disturbs the central column that full screen and compare rearrange.
+    m_reviewHeader = new ReviewHeaderBar(this);
+    auto* headerBar = new QToolBar(tr("Review"), this);
+    m_reviewHeaderToolbar = headerBar;
+    headerBar->setObjectName(QStringLiteral("ReviewHeaderToolbar"));
+    headerBar->setMovable(false);
+    headerBar->setFloatable(false);
+    headerBar->toggleViewAction()->setVisible(false);
+    headerBar->addWidget(m_reviewHeader);
+    addToolBar(Qt::TopToolBarArea, headerBar);
+    addToolBarBreak(Qt::TopToolBarArea);
+    connect(m_reviewHeader, &ReviewHeaderBar::statusChosen, this, [this](project::ClipStatus status) {
+        const int index = m_project->activeIndex();
+        if (index >= 0) m_project->setClipStatus(m_project->entries().at(index).id, status);
+    });
+    connect(m_reviewHeader, &ReviewHeaderBar::showInFolderRequested, this, [this] {
+        const int index = m_project->activeIndex();
+        if (index < 0 || !m_project->entries().at(index).source) return;
+        const QString folder = QFileInfo(m_project->entries().at(index).source->filePath()).absolutePath();
+        QDesktopServices::openUrl(QUrl::fromLocalFile(folder));
+    });
+    connect(m_project.get(), &project::Project::entriesChanged, this, &MainWindow::refreshReviewHeader);
+    connect(m_project.get(), &project::Project::activeIndexChanged, this, [this](int) { refreshReviewHeader(); });
+    connect(m_project.get(), &project::Project::nameChanged, this, [this](const QString&) { refreshReviewHeader(); });
+    connect(m_project.get(), &project::Project::clipStatusChanged, this, [this](const QUuid&) { refreshReviewHeader(); });
+    refreshReviewHeader();
+
     // --- Drawing toolbar --------------------------------------------------
     // Shown only while Draw on Frame is on.
     m_annotationToolbar = new AnnotationToolbar(this);
@@ -549,6 +580,10 @@ void MainWindow::buildMenus()
     m_commands->action(CommandId::UndoAnnotation)->setIcon(icons::icon(QStringLiteral("undo-2")));
     m_commands->action(CommandId::RedoAnnotation)->setIcon(icons::icon(QStringLiteral("redo-2")));
     m_commands->action(CommandId::ClearFrameAnnotations)->setIcon(icons::icon(QStringLiteral("trash-2")));
+    m_reviewHeader->setExportActions({m_commands->action(CommandId::ExportReview),
+                                      m_commands->action(CommandId::ExportReviewNotes),
+                                      m_commands->action(CommandId::ExportNotesVideo),
+                                      m_commands->action(CommandId::ExportCurrentFrame)});
     // Undo, redo and clear also sit on the drawing row, as the same commands.
     m_annotationToolbar->addEditActions({m_commands->action(CommandId::UndoAnnotation),
                                          m_commands->action(CommandId::RedoAnnotation),
@@ -1460,6 +1495,14 @@ void MainWindow::restoreApplicationLayout()
     if (m_annotationToolbar) m_annotationToolbar->setVisible(m_viewer->annotateMode());
     // Notes always start closed, whatever the last session left open.
     if (m_notesDock) m_notesDock->hide();
+    // The review header always has the top row to itself, above the drawing
+    // tools, even when the saved layout predates it.
+    if (m_reviewHeaderToolbar && m_annotationToolbar) {
+        removeToolBar(m_reviewHeaderToolbar);
+        insertToolBar(m_annotationToolbar, m_reviewHeaderToolbar);
+        insertToolBarBreak(m_annotationToolbar);
+        m_reviewHeaderToolbar->show();
+    }
 }
 
 void MainWindow::saveApplicationLayout()
@@ -1878,6 +1921,25 @@ void MainWindow::startProbe(const QUuid& id, const QString& path)
     QMetaObject::invokeMethod(m_probeWorker, [worker = m_probeWorker, id, path, token, still] {
         worker->probe(id, path, token, still);
     }, Qt::QueuedConnection);
+}
+
+void MainWindow::refreshReviewHeader()
+{
+    if (!m_reviewHeader) return;
+    QString projectName = m_project->name().trimmed();
+    if (projectName.isEmpty() && !m_project->filePath().isEmpty())
+        projectName = QFileInfo(m_project->filePath()).completeBaseName();
+    if (projectName.isEmpty()) projectName = tr("Untitled project");
+    const int index = m_project->activeIndex();
+    if (index < 0 || index >= m_project->entries().size() || !m_project->entries().at(index).source) {
+        m_reviewHeader->setLocation(projectName, QString(), false);
+        m_reviewHeader->setStatus(project::ClipStatus::NotReviewed);
+        return;
+    }
+    const project::SourceEntry& entry = m_project->entries().at(index);
+    m_reviewHeader->setLocation(projectName,
+                                entry.displayName.isEmpty() ? entry.source->displayName() : entry.displayName, true);
+    m_reviewHeader->setStatus(entry.status);
 }
 
 void MainWindow::requestThumbnail(const QUuid& sourceId)

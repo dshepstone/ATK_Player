@@ -16,6 +16,16 @@ namespace atk::project {
 
 enum class SourceAvailability { Unknown, Probing, Ready, Missing, Error };
 
+/// Where a clip stands in the review. Saved with the project; a project with
+/// any status other than NotReviewed is written as version 3, so older builds
+/// refuse it rather than drop the statuses.
+enum class ClipStatus { NotReviewed, InReview, NeedsChanges, Approved };
+
+/// Stable keys used in the project file ("notReviewed", "inReview", ...).
+QString clipStatusKey(ClipStatus status);
+/// The status for a key; NotReviewed for an empty or unknown one.
+ClipStatus clipStatusFromKey(const QString& key);
+
 /// Per-source review state. Bookmarks and the in/out range belong to the source
 /// they were made against, not to the application, so switching between two
 /// sources in a playlist restores each one's own notes.
@@ -37,6 +47,8 @@ struct SourceEntry {
     /// Frames added to the master frame number for this source. Used by A/B
     /// comparison to line up takes with different handles.
     int64_t frameOffset = 0;
+    /// Review status, set by the reviewer from the header bar.
+    ClipStatus status = ClipStatus::NotReviewed;
 };
 
 /// Which viewer a source is bound to during A/B comparison.
@@ -103,6 +115,9 @@ public:
     /// here), marks the project modified and emits annotationsChanged. Returns
     /// false for an unknown id; no change is made then.
     bool setAnnotations(const QUuid& id, annotation::SourceAnnotations annotations);
+    /// Sets one clip's review status, marks the project modified and emits
+    /// clipStatusChanged. Returns false for an unknown id or no change.
+    bool setClipStatus(const QUuid& id, ClipStatus status);
     bool beginProbe(const QUuid& id, const QString& path, quint64 token);
     bool applyProbeResult(const QUuid& id, const QString& path, quint64 token,
                           const media::MediaMetadata& metadata, const QString& error,
@@ -119,6 +134,7 @@ signals:
     void modifiedChanged(bool modified);
     void entriesChanged();
     void annotationsChanged(const QUuid& sourceId);
+    void clipStatusChanged(const QUuid& sourceId);
     void activeIndexChanged(int index);
     void compareAssignmentChanged();
 

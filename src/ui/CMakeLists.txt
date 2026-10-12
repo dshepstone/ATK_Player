@@ -23,6 +23,7 @@ set(ATK_UI_SOURCES
     MediaInformationDialog.cpp
     NotesPanel.cpp
     PlaylistCardDelegate.cpp
+    ReviewHeaderBar.cpp
     ReviewNotesDialog.cpp
     PreferencesDialog.cpp
     Resources.cpp
@@ -57,6 +58,7 @@ set(ATK_UI_HEADERS
     MediaInformationDialog.h
     NotesPanel.h
     PlaylistCardDelegate.h
+    ReviewHeaderBar.h
     ReviewNotesDialog.h
     PreferencesDialog.h
     Resources.h

@@ -1,6 +1,8 @@
 #include "ui/PlaylistCardDelegate.h"
 
+#include "project/Project.h"
 #include "ui/IconProvider.h"
+#include "ui/ReviewHeaderBar.h"
 #include "ui/Theme.h"
 
 #include <QFontMetrics>
@@ -131,7 +133,29 @@ void PlaylistCardDelegate::paint(QPainter* painter, const QStyleOptionViewItem& 
     const int drawn = index.data(playlistrole::DrawnFrames).toInt();
     QPoint badge(int(text.left()), int(text.bottom()));
     if (notes > 0) badge.rx() += drawBadge(painter, badge, QStringLiteral("message-square"), notes, detailFont);
-    if (drawn > 0) drawBadge(painter, badge, QStringLiteral("pencil"), drawn, detailFont);
+    if (drawn > 0) badge.rx() += drawBadge(painter, badge, QStringLiteral("pencil"), drawn, detailFont);
+
+    // Review status, right-aligned on the badge line: a dot and its name, so
+    // it never relies on colour alone. "Not reviewed" is the default: no chip.
+    const auto status = project::ClipStatus(index.data(playlistrole::Status).toInt());
+    if (status != project::ClipStatus::NotReviewed) {
+        const QString label = clipStatusLabel(status);
+        const QFontMetrics metrics(detailFont);
+        const qreal width = metrics.horizontalAdvance(label) + 18;
+        const QRectF chip(std::max<qreal>(badge.x(), text.right() - width), text.bottom() - 13, width, 15);
+        QColor fill = clipStatusColor(status);
+        fill.setAlpha(45);
+        QPainterPath pill;
+        pill.addRoundedRect(chip, 7.5, 7.5);
+        painter->fillPath(pill, fill);
+        painter->setPen(Qt::NoPen);
+        painter->setBrush(clipStatusColor(status));
+        painter->drawEllipse(QPointF(chip.left() + 7.5, chip.center().y()), 3.0, 3.0);
+        painter->setFont(detailFont);
+        painter->setPen(theme::textPrimary());
+        painter->drawText(chip.adjusted(13, 0, -3, 0), Qt::AlignLeft | Qt::AlignVCenter,
+                          metrics.elidedText(label, Qt::ElideRight, int(chip.width() - 16)));
+    }
 
     if (option.state & QStyle::State_HasFocus && !(option.state & QStyle::State_Selected)) {
         painter->setPen(QPen(theme::accent(), 1.0));
