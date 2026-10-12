@@ -1,5 +1,9 @@
 #include "ui/AnnotationToolbar.h"
 
+#include "ui/BrushSizePill.h"
+#include "ui/IconProvider.h"
+#include "ui/Theme.h"
+
 #include <QAction>
 #include <QActionGroup>
 #include <QCheckBox>
@@ -11,43 +15,66 @@
 #include <QPainter>
 #include <QPixmap>
 #include <QSignalBlocker>
-#include <QSlider>
+#include <QFormLayout>
 #include <QSpinBox>
 #include <QToolButton>
 #include <QWidgetAction>
 
-#include <cmath>
+#include <algorithm>
 
 namespace atk::ui {
 namespace {
 using annotation::AnnotationTool;
 
-QIcon swatchIcon(const QColor& color)
+/// A colour swatch, drawn at both scales so it stays crisp on high-DPI screens.
+QIcon swatchIcon(const QColor& color, int size = 16)
 {
-    QPixmap pixmap(16, 16);
-    pixmap.fill(Qt::transparent);
-    QPainter painter(&pixmap);
-    painter.setRenderHint(QPainter::Antialiasing, true);
-    painter.setPen(QPen(QColor(0, 0, 0, 160), 1.0));
-    painter.setBrush(color);
-    painter.drawRoundedRect(QRectF(1.5, 1.5, 13, 13), 3, 3);
-    return QIcon(pixmap);
+    QIcon icon;
+    for (int scale : {1, 2}) {
+        QPixmap pixmap(size * scale, size * scale);
+        pixmap.setDevicePixelRatio(scale);
+        pixmap.fill(Qt::transparent);
+        QPainter painter(&pixmap);
+        painter.setRenderHint(QPainter::Antialiasing, true);
+        painter.setPen(QPen(QColor(255, 255, 255, 120), 1.0));
+        painter.setBrush(color);
+        painter.drawEllipse(QRectF(1.5, 1.5, size - 3.0, size - 3.0));
+        painter.end();
+        icon.addPixmap(pixmap);
+    }
+    return icon;
 }
 
-// The size slider is logarithmic: fine control for small pens, still reaching
-// a 200 px marker.
-constexpr int kSliderSteps = 1000;
-int sliderFromPixels(qreal pixels)
+// Flat icon buttons: no frame until hovered, a filled accent tile when the
+// tool is chosen. Applied to the whole row so QToolBar's own buttons match.
+QString toolRowStyleSheet()
 {
-    const qreal minimum = std::log(annotation::AnnotationToolSettings::kMinSizePixels);
-    const qreal maximum = std::log(annotation::AnnotationToolSettings::kMaxSizePixels);
-    return qRound((std::log(std::max<qreal>(pixels, 1.0)) - minimum) / (maximum - minimum) * kSliderSteps);
+    return QStringLiteral(R"CSS(
+QToolBar#annotationToolbar { spacing: 2px; padding: 3px 6px; }
+QToolBar#annotationToolbar QToolButton {
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-radius: %1px;
+    padding: 4px;
+    min-width: 0;
 }
-qreal pixelsFromSlider(int value)
-{
-    const qreal minimum = std::log(annotation::AnnotationToolSettings::kMinSizePixels);
-    const qreal maximum = std::log(annotation::AnnotationToolSettings::kMaxSizePixels);
-    return std::round(std::exp(minimum + (maximum - minimum) * value / kSliderSteps));
+QToolBar#annotationToolbar QToolButton:hover   { background-color: %2; }
+QToolBar#annotationToolbar QToolButton:pressed { background-color: %3; }
+QToolBar#annotationToolbar QToolButton:checked { background-color: %4; border-color: %4; }
+QToolBar#annotationToolbar QToolButton[popupMode="1"] { padding-right: 12px; }
+QToolBar#annotationToolbar QToolButton::menu-button {
+    background: transparent;
+    border: none;
+    width: 12px;
+}
+QToolBar#annotationToolbar QToolButton::menu-button:hover { background-color: %3; }
+/* Pop-up buttons say so with their own icon (chevron, swatch, sliders). */
+QToolBar#annotationToolbar QToolButton[popupMode="2"]::menu-indicator { image: none; width: 0; }
+QToolBar#annotationToolbar::separator { background: %5; width: 1px; margin: 6px 6px; }
+)CSS")
+        .arg(theme::metrics::radiusSmall)
+        .arg(theme::controlHover().name(), theme::controlPressed().name(), theme::accentFill().name(),
+             theme::controlHover().name());
 }
 } // namespace
 
@@ -55,33 +82,40 @@ AnnotationToolbar::AnnotationToolbar(QWidget* parent) : QToolBar(tr("Drawing"), 
 {
     setObjectName(QStringLiteral("annotationToolbar"));
     setMovable(true);
-    setToolButtonStyle(Qt::ToolButtonTextOnly);
+    setToolButtonStyle(Qt::ToolButtonIconOnly);
+    setIconSize(QSize(theme::metrics::iconLarge, theme::metrics::iconLarge));
+    setStyleSheet(toolRowStyleSheet());
 
     m_toolGroup = new QActionGroup(this);
     m_toolGroup->setExclusive(true);
-    addToolAction(AnnotationTool::Select, tr("Select"),
+    addToolAction(AnnotationTool::Select, QStringLiteral("mouse-pointer-2"), tr("Select"),
                   tr("Select: click a drawing or text to select it, drag to move it, Delete to remove it, "
                      "double-click text to edit it"));
     addSeparator();
-    addToolAction(AnnotationTool::Pencil, tr("Pencil"), tr("Pencil: grainy, pressure sets width and darkness"));
-    addToolAction(AnnotationTool::Pen, tr("Pen"), tr("Pen: smooth ink, pressure sets width"));
-    addToolAction(AnnotationTool::Brush, tr("Brush"), tr("Brush: soft edge, pressure sets width and opacity"));
-    addToolAction(AnnotationTool::Marker, tr("Marker"), tr("Marker: flat, even, translucent"));
-    addToolAction(AnnotationTool::Stamp, tr("Custom"),
+    addToolAction(AnnotationTool::Pencil, QStringLiteral("pencil"), tr("Pencil"),
+                  tr("Pencil: grainy, pressure sets width and darkness"));
+    addToolAction(AnnotationTool::Pen, QStringLiteral("pen-tool"), tr("Pen"), tr("Pen: smooth ink, pressure sets width"));
+    addToolAction(AnnotationTool::Brush, QStringLiteral("brush"), tr("Brush"),
+                  tr("Brush: soft edge, pressure sets width and opacity"));
+    addToolAction(AnnotationTool::Marker, QStringLiteral("highlighter"), tr("Marker"), tr("Marker: flat, even, translucent"));
+    addToolAction(AnnotationTool::Stamp, QStringLiteral("stamp"), tr("Custom"),
                   tr("Custom brush: paints with an imported brush tip (for example from a Photoshop .abr set)"));
+    // The imported-brush menu sits right after Custom, as its drop-down.
     m_brushButton = new QToolButton(this);
+    m_brushButton->setObjectName(QStringLiteral("BrushSetButton"));
     m_brushButton->setPopupMode(QToolButton::InstantPopup);
-    m_brushButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-    m_brushButton->setToolTip(tr("Choose an imported brush, or import Photoshop brushes (.abr)"));
+    m_brushButton->setToolButtonStyle(Qt::ToolButtonIconOnly);
     m_brushButton->setMenu(new QMenu(m_brushButton));
-    addWidget(m_brushButton);
-    addToolAction(AnnotationTool::Eraser, tr("Eraser"), tr("Eraser (the pen's eraser end works too)"));
-    m_eraserModeCombo = new QComboBox(this);
+    addIconButton(m_brushButton, QStringLiteral("chevron-down"));
+    m_brushButton->setIconSize(QSize(theme::metrics::iconSmall, theme::metrics::iconSmall));
+    addToolAction(AnnotationTool::Eraser, QStringLiteral("eraser"), tr("Eraser"),
+                  tr("Eraser (the pen's eraser end works too). Area or whole-stroke mode is under Tool options."));
+    m_eraserModeCombo = new QComboBox;
     m_eraserModeCombo->addItem(tr("Erase area"), int(annotation::EraserMode::Area));
     m_eraserModeCombo->addItem(tr("Erase stroke"), int(annotation::EraserMode::WholeStroke));
+    m_eraserModeCombo->setObjectName(QStringLiteral("EraserModeCombo"));
     m_eraserModeCombo->setToolTip(tr("Erase area removes only the ink under the eraser; "
                                      "Erase stroke removes every stroke it touches"));
-    addWidget(m_eraserModeCombo);
     connect(m_eraserModeCombo, &QComboBox::currentIndexChanged, this, [this](int index) {
         if (m_updating || index < 0) return;
         auto next = m_settings;
@@ -89,17 +123,19 @@ AnnotationToolbar::AnnotationToolbar(QWidget* parent) : QToolBar(tr("Drawing"), 
         apply(next, true);
     });
     addSeparator();
-    addToolAction(AnnotationTool::Line, tr("Line"), tr("Straight line"));
-    addToolAction(AnnotationTool::Arrow, tr("Arrow"), tr("Arrow"));
-    addToolAction(AnnotationTool::Rectangle, tr("Rect"), tr("Rectangle"));
-    addToolAction(AnnotationTool::Ellipse, tr("Ellipse"), tr("Ellipse"));
-    addToolAction(AnnotationTool::Text, tr("Text"), tr("Text: click to type at a point, or drag a box for text that wraps. "
-                                                   "Ctrl+Enter or click away to finish, Esc to cancel"));
+    addToolAction(AnnotationTool::Arrow, QStringLiteral("arrow-up-right"), tr("Arrow"), tr("Arrow"));
+    addToolAction(AnnotationTool::Rectangle, QStringLiteral("square"), tr("Rect"), tr("Rectangle"));
+    addToolAction(AnnotationTool::Ellipse, QStringLiteral("circle"), tr("Ellipse"), tr("Ellipse"));
+    addToolAction(AnnotationTool::Line, QStringLiteral("minus"), tr("Line"), tr("Straight line"));
+    addToolAction(AnnotationTool::Text, QStringLiteral("type"), tr("Text"),
+                  tr("Text: click to type at a point, or drag a box for text that wraps. "
+                     "Ctrl+Enter or click away to finish, Esc to cancel"));
     addSeparator();
 
     m_colorButton = new QToolButton(this);
-    m_colorButton->setToolTip(tr("Colour"));
+    m_colorButton->setObjectName(QStringLiteral("ColorButton"));
     m_colorButton->setPopupMode(QToolButton::InstantPopup);
+    m_colorButton->setToolButtonStyle(Qt::ToolButtonIconOnly);
     auto* colorMenu = new QMenu(m_colorButton);
     for (const QColor& color : presetColors()) {
         QAction* swatch = colorMenu->addAction(swatchIcon(color), color.name());
@@ -114,60 +150,39 @@ AnnotationToolbar::AnnotationToolbar(QWidget* parent) : QToolBar(tr("Drawing"), 
     m_colorButton->setMenu(colorMenu);
     addWidget(m_colorButton);
 
-    addWidget(new QLabel(tr(" Size "), this));
-    m_sizeSlider = new QSlider(Qt::Horizontal, this);
-    m_sizeSlider->setRange(0, kSliderSteps);
-    m_sizeSlider->setFixedWidth(110);
-    m_sizeSlider->setToolTip(tr("Brush size ([ and ] to change)"));
-    addWidget(m_sizeSlider);
-    m_sizeSpin = new QSpinBox(this);
-    m_sizeSpin->setRange(int(annotation::AnnotationToolSettings::kMinSizePixels),
-                         int(annotation::AnnotationToolSettings::kMaxSizePixels));
-    m_sizeSpin->setSuffix(tr(" px"));
-    m_sizeSpin->setToolTip(tr("Brush size in source-image pixels"));
-    addWidget(m_sizeSpin);
-    // The size controls edit the eraser's size while the Eraser is selected.
-    connect(m_sizeSlider, &QSlider::valueChanged, this, [this](int value) {
-        if (m_updating) return;
-        auto next = m_settings;
-        next.setActiveSizePixels(pixelsFromSlider(value));
-        apply(next, true);
-    });
-    connect(m_sizeSpin, &QSpinBox::valueChanged, this, [this](int value) {
-        if (m_updating) return;
-        auto next = m_settings;
-        next.setActiveSizePixels(value);
-        apply(next, true);
-    });
+    // The owner's undo, redo and clear go here (addEditActions).
+    m_editAnchor = addSeparator();
 
-    addWidget(new QLabel(tr(" Opacity "), this));
-    m_opacitySpin = new QSpinBox(this);
-    m_opacitySpin->setRange(5, 100);
-    m_opacitySpin->setSuffix(QStringLiteral("%"));
-    addWidget(m_opacitySpin);
-    connect(m_opacitySpin, &QSpinBox::valueChanged, this, [this](int value) {
-        if (m_updating) return;
-        auto next = m_settings;
-        next.opacity = value / 100.0;
-        apply(next, true);
-    });
-    addSeparator();
-
-    m_pressureCheck = new QCheckBox(tr("Pressure"), this);
+    // --- Tool options pop-up: settings changed now and then, not per stroke.
+    m_optionsButton = new QToolButton(this);
+    m_optionsButton->setObjectName(QStringLiteral("ToolOptionsButton"));
+    m_optionsButton->setText(tr("Tool options"));
+    m_optionsButton->setToolTip(tr("Tool options: eraser mode, pen pressure and stabiliser"));
+    m_optionsButton->setPopupMode(QToolButton::InstantPopup);
+    auto* optionsMenu = new QMenu(m_optionsButton);
+    optionsMenu->setObjectName(QStringLiteral("ToolOptionsMenu"));
+    auto* optionsPanel = new QWidget(optionsMenu);
+    auto* form = new QFormLayout(optionsPanel);
+    form->setContentsMargins(12, 10, 12, 10);
+    form->setHorizontalSpacing(12);
+    form->setVerticalSpacing(8);
+    m_eraserModeCombo->setParent(optionsPanel);
+    form->addRow(tr("Eraser"), m_eraserModeCombo);
+    m_pressureCheck = new QCheckBox(tr("Use pen pressure"), optionsPanel);
     m_pressureCheck->setToolTip(tr("Use pen pressure from a drawing tablet"));
-    addWidget(m_pressureCheck);
+    form->addRow(tr("Pressure"), m_pressureCheck);
     connect(m_pressureCheck, &QCheckBox::toggled, this, [this](bool on) {
         if (m_updating) return;
         auto next = m_settings;
         next.usePressure = on;
         apply(next, true);
     });
-    m_curveCombo = new QComboBox(this);
+    m_curveCombo = new QComboBox(optionsPanel);
     m_curveCombo->addItem(tr("Soft"), int(annotation::PressureCurve::Soft));
     m_curveCombo->addItem(tr("Linear"), int(annotation::PressureCurve::Linear));
     m_curveCombo->addItem(tr("Firm"), int(annotation::PressureCurve::Firm));
     m_curveCombo->setToolTip(tr("Pressure response: Soft needs a lighter touch, Firm a heavier one"));
-    addWidget(m_curveCombo);
+    form->addRow(tr("Response"), m_curveCombo);
     connect(m_curveCombo, &QComboBox::currentIndexChanged, this, [this](int index) {
         if (m_updating || index < 0) return;
         auto next = m_settings;
@@ -175,25 +190,27 @@ AnnotationToolbar::AnnotationToolbar(QWidget* parent) : QToolBar(tr("Drawing"), 
         apply(next, true);
     });
 
-    addWidget(new QLabel(tr(" Stabiliser "), this));
-    m_stabilizerSpin = new QSpinBox(this);
+    m_stabilizerSpin = new QSpinBox(optionsPanel);
     m_stabilizerSpin->setRange(0, 95);
     m_stabilizerSpin->setSuffix(QStringLiteral("%"));
     m_stabilizerSpin->setToolTip(tr("Smooths shaky lines; higher values lag behind the pointer more"));
-    addWidget(m_stabilizerSpin);
+    form->addRow(tr("Stabiliser"), m_stabilizerSpin);
     connect(m_stabilizerSpin, &QSpinBox::valueChanged, this, [this](int value) {
         if (m_updating) return;
         auto next = m_settings;
         next.stabilizer = value / 100.0;
         apply(next, true);
     });
-
-    addSeparator();
+    auto* optionsAction = new QWidgetAction(optionsMenu);
+    optionsAction->setDefaultWidget(optionsPanel);
+    optionsMenu->addAction(optionsAction);
+    m_optionsButton->setMenu(optionsMenu);
 
     // Tracing paper: a white wash under the drawings, like SyncSketch's.
     m_traceButton = new QToolButton(this);
     m_traceButton->setObjectName(QStringLiteral("TracingPaperButton"));
     m_traceButton->setText(tr("Trace"));
+    m_traceButton->setToolButtonStyle(Qt::ToolButtonIconOnly);
     m_traceButton->setCheckable(true);
     m_traceButton->setPopupMode(QToolButton::MenuButtonPopup);
     m_traceButton->setToolTip(tr("Tracing paper: fade the picture so drawings stand out (T). "
@@ -210,7 +227,7 @@ AnnotationToolbar::AnnotationToolbar(QWidget* parent) : QToolBar(tr("Drawing"), 
         connect(action, &QAction::triggered, this, [this, level] { emit tracingPaperRequested(level); });
     }
     m_traceButton->setMenu(traceMenu);
-    addWidget(m_traceButton);
+    addIconButton(m_traceButton, QStringLiteral("layers"));
     connect(m_traceButton, &QToolButton::clicked, this,
             [this](bool on) { emit tracingPaperRequested(on ? m_traceLevel : 0); });
 
@@ -218,6 +235,7 @@ AnnotationToolbar::AnnotationToolbar(QWidget* parent) : QToolBar(tr("Drawing"), 
     m_ghostButton = new QToolButton(this);
     m_ghostButton->setObjectName(QStringLiteral("GhostButton"));
     m_ghostButton->setText(tr("Ghost"));
+    m_ghostButton->setToolButtonStyle(Qt::ToolButtonIconOnly);
     m_ghostButton->setCheckable(true);
     m_ghostButton->setPopupMode(QToolButton::MenuButtonPopup);
     m_ghostButton->setToolTip(tr("Ghost drawings from earlier frames (red) and later frames (green) (G). "
@@ -272,7 +290,9 @@ AnnotationToolbar::AnnotationToolbar(QWidget* parent) : QToolBar(tr("Drawing"), 
         emit ghostSettingsRequested(next);
     });
     m_ghostButton->setMenu(ghostMenu);
-    addWidget(m_ghostButton);
+    addIconButton(m_ghostButton, QStringLiteral("ghost"));
+    addSeparator();
+    addIconButton(m_optionsButton, QStringLiteral("sliders-horizontal"));
     connect(m_ghostButton, &QToolButton::clicked, this, [this](bool on) {
         auto next = m_ghost;
         next.enabled = on;
@@ -363,11 +383,15 @@ void AnnotationToolbar::refreshBrushButton()
             preview.invertPixels();
             m_brushButton->setIcon(QIcon(QPixmap::fromImage(preview)));
             m_brushButton->setText(tip.name.left(18));
+            m_brushButton->setToolTip(tr("Custom brush: %1. Choose another, or import Photoshop brushes (.abr)")
+                                          .arg(tip.name.isEmpty() ? tr("Brush") : tip.name));
             return;
         }
     }
-    m_brushButton->setIcon({});
+    m_brushButton->setIcon(icons::icon(QStringLiteral("chevron-down")));
     m_brushButton->setText(m_brushSets.isEmpty() ? tr("Brushes") : tr("Choose brush"));
+    m_brushButton->setToolTip(m_brushSets.isEmpty() ? tr("Import Photoshop brushes (.abr) for the Custom tool")
+                                                    : tr("Choose an imported brush, or import Photoshop brushes (.abr)"));
 }
 
 QList<QColor> AnnotationToolbar::presetColors()
@@ -376,9 +400,10 @@ QList<QColor> AnnotationToolbar::presetColors()
             QColor(40, 170, 255), QColor(150, 80, 230), QColor(255, 255, 255), QColor(20, 20, 20)};
 }
 
-void AnnotationToolbar::addToolAction(AnnotationTool tool, const QString& label, const QString& tip)
+void AnnotationToolbar::addToolAction(AnnotationTool tool, const QString& iconName, const QString& label,
+                                      const QString& tip)
 {
-    QAction* action = addAction(label);
+    QAction* action = addAction(icons::icon(iconName), label);
     action->setCheckable(true);
     action->setToolTip(tip);
     m_toolGroup->addAction(action);
@@ -389,6 +414,39 @@ void AnnotationToolbar::addToolAction(AnnotationTool tool, const QString& label,
         next.tool = tool;
         apply(next, true);
     });
+}
+
+QToolButton* AnnotationToolbar::addIconButton(QToolButton* button, const QString& iconName)
+{
+    button->setIcon(icons::icon(iconName));
+    button->setIconSize(iconSize());
+    button->setAccessibleName(button->text().isEmpty() ? button->toolTip() : button->text());
+    addWidget(button);
+    return button;
+}
+
+void AnnotationToolbar::attachSizePill(BrushSizePill* pill)
+{
+    m_pill = pill;
+    if (!pill) return;
+    // The size controls edit the eraser's size while the Eraser is selected.
+    connect(pill, &BrushSizePill::sizeChanged, this, [this](qreal pixels) {
+        auto next = m_settings;
+        next.setActiveSizePixels(pixels);
+        apply(next, true);
+    });
+    connect(pill, &BrushSizePill::opacityChanged, this, [this](qreal opacity) {
+        auto next = m_settings;
+        next.opacity = opacity;
+        apply(next, true);
+    });
+    pill->setValues(m_settings.activeSizePixels(), m_settings.opacity, m_settings.tool == AnnotationTool::Eraser);
+}
+
+void AnnotationToolbar::addEditActions(const QList<QAction*>& actions)
+{
+    insertActions(m_editAnchor, actions);
+    insertSeparator(m_editAnchor);
 }
 
 void AnnotationToolbar::setSettings(const annotation::AnnotationToolSettings& settings)
@@ -406,14 +464,9 @@ void AnnotationToolbar::apply(const annotation::AnnotationToolSettings& settings
                                              annotation::AnnotationToolSettings::kMaxSizePixels);
     m_updating = true;
     if (QAction* action = m_toolActions.value(int(m_settings.tool))) action->setChecked(true);
-    m_sizeSlider->setValue(sliderFromPixels(m_settings.activeSizePixels()));
-    m_sizeSpin->setValue(qRound(m_settings.activeSizePixels()));
-    const QString sizeTip = m_settings.tool == AnnotationTool::Eraser ? tr("Eraser size ([ and ] to change)")
-                                                                      : tr("Brush size ([ and ] to change)");
-    m_sizeSlider->setToolTip(sizeTip);
-    m_sizeSpin->setToolTip(sizeTip);
+    if (m_pill)
+        m_pill->setValues(m_settings.activeSizePixels(), m_settings.opacity, m_settings.tool == AnnotationTool::Eraser);
     m_eraserModeCombo->setCurrentIndex(m_eraserModeCombo->findData(int(m_settings.eraserMode)));
-    m_opacitySpin->setValue(qRound(m_settings.opacity * 100.0));
     m_pressureCheck->setChecked(m_settings.usePressure);
     m_curveCombo->setCurrentIndex(m_curveCombo->findData(int(m_settings.pressureCurve)));
     m_curveCombo->setEnabled(m_settings.usePressure);
@@ -426,8 +479,9 @@ void AnnotationToolbar::apply(const annotation::AnnotationToolSettings& settings
 
 void AnnotationToolbar::refreshColorButton()
 {
-    m_colorButton->setIcon(swatchIcon(m_settings.color));
+    m_colorButton->setIcon(swatchIcon(m_settings.color, theme::metrics::iconLarge));
     m_colorButton->setText(m_settings.color.name());
+    m_colorButton->setToolTip(tr("Colour: %1").arg(m_settings.color.name()));
 }
 
 void AnnotationToolbar::chooseCustomColor()

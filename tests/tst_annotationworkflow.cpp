@@ -5,6 +5,7 @@
 #include "project/Project.h"
 #include "project/ProjectSerializer.h"
 #include "ui/AnnotationToolbar.h"
+#include "ui/BrushSizePill.h"
 #include "ui/ExportDialog.h"
 #include "ui/ExportUi.h"
 #include "ui/MainWindow.h"
@@ -15,6 +16,7 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QCheckBox>
 #include <QComboBox>
 #include <QFile>
 #include <QFileInfo>
@@ -97,6 +99,7 @@ private slots:
     void notesComposerBelongsToTheFrame();
     void tracingPaperAndGhostingToggleAndPersist();
     void drawButtonAndCtrlAngleBracketsJumpBetweenDrawings();
+    void drawingRowIsIconsWithAFloatingSizePill();
     void fileMenuHasTheNotesExports();
     void exportsOpenOnlyOnceTheFileIsReady();
     void watchingASavedProjectNeverAsksToSave();
@@ -596,6 +599,82 @@ void TestAnnotationWorkflow::drawButtonAndCtrlAngleBracketsJumpBetweenDrawings()
     QCOMPARE(command(window, "draw.nextFrame")->shortcut(), QKeySequence(QStringLiteral("Ctrl+.")));
     QCOMPARE(command(window, "draw.previousFrame")->shortcut(), QKeySequence(QStringLiteral("Ctrl+,")));
     QCOMPARE(command(window, "edit.preferences")->shortcut(), QKeySequence(QStringLiteral("Ctrl+K")));
+}
+
+void TestAnnotationWorkflow::drawingRowIsIconsWithAFloatingSizePill()
+{
+    QTemporaryDir directory;
+    const QString projectPath = writeProject(directory);
+    atk::ui::MainWindow window(directory.filePath(QStringLiteral("settings.ini")));
+    window.resize(1400, 800);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    QVERIFY(openAt(window, projectPath, 10));
+    auto* viewer = window.findChild<atk::ui::ViewerWidget*>();
+    auto* toolbar = window.findChild<atk::ui::AnnotationToolbar*>();
+    auto* pill = window.findChild<atk::ui::BrushSizePill*>();
+    QVERIFY(viewer && toolbar && pill);
+    QVERIFY(!pill->isVisible());
+
+    command(window, "draw.annotateMode")->trigger();
+    QVERIFY(toolbar->isVisible());
+    QTRY_VERIFY(pill->isVisible());
+    // Beside the picture: over the viewer's left edge, vertically inside it.
+    const QRect pillRect(pill->mapTo(&window, QPoint(0, 0)), pill->size());
+    const QRect viewerRect(viewer->mapTo(&window, QPoint(0, 0)), viewer->size());
+    QVERIFY(viewerRect.contains(pillRect));
+    QVERIFY(pillRect.left() - viewerRect.left() < 40);
+
+    // Every tool is an icon button that keeps its name for menus and screen readers.
+    QCOMPARE(toolbar->toolButtonStyle(), Qt::ToolButtonIconOnly);
+    for (const QString& name : {QStringLiteral("Select"), QStringLiteral("Pencil"), QStringLiteral("Pen"),
+                               QStringLiteral("Brush"), QStringLiteral("Marker"), QStringLiteral("Custom"),
+                               QStringLiteral("Eraser"), QStringLiteral("Arrow"), QStringLiteral("Rect"),
+                               QStringLiteral("Ellipse"), QStringLiteral("Line"), QStringLiteral("Text")}) {
+        QAction* tool = nullptr;
+        for (QAction* action : toolbar->actions())
+            if (action->text() == name) tool = action;
+        QVERIFY2(tool && !tool->icon().isNull(), qPrintable(name));
+    }
+    // Undo, redo and clear are the window's own commands, shown on the row.
+    for (const char* key : {"draw.undo", "draw.redo", "draw.clearFrame"})
+        QVERIFY2(toolbar->actions().contains(command(window, key)), key);
+
+    // The pill sets the brush size and opacity the viewer draws with.
+    auto* sizeField = pill->findChild<QSpinBox*>(QStringLiteral("BrushSizeField"));
+    auto* opacityField = pill->findChild<QSpinBox*>(QStringLiteral("BrushOpacityField"));
+    QVERIFY(sizeField && opacityField);
+    sizeField->setValue(23);
+    QCOMPARE(viewer->annotationTool().sizePixels, 23.0);
+    opacityField->setValue(40);
+    QCOMPARE(viewer->annotationTool().opacity, 0.4);
+    // The [ ] keys move the pill too.
+    command(window, "draw.brushSizeUp")->trigger();
+    QCOMPARE(sizeField->value(), qRound(toolbar->settings().sizePixels)); // whole pixels shown
+    QVERIFY(toolbar->settings().sizePixels > 23.0);
+
+    // With the Eraser chosen the pill sets the eraser's own size; opacity does not apply.
+    const qreal brushSize = toolbar->settings().sizePixels;
+    for (QAction* action : toolbar->actions())
+        if (action->text() == QStringLiteral("Eraser")) action->trigger();
+    QVERIFY(!opacityField->isEnabled());
+    sizeField->setValue(60);
+    QCOMPARE(viewer->annotationTool().eraserSizePixels, 60.0);
+    QCOMPARE(viewer->annotationTool().sizePixels, brushSize);
+
+    // Eraser mode, pressure and stabiliser live in the Tool options pop-up.
+    QToolButton* options = toolbar->toolOptionsButton();
+    QVERIFY(options && options->isVisible() && options->menu());
+    auto* eraserMode = options->menu()->findChild<QComboBox*>(QStringLiteral("EraserModeCombo"));
+    QVERIFY(eraserMode);
+    eraserMode->setCurrentIndex(eraserMode->findData(int(atk::annotation::EraserMode::WholeStroke)));
+    QCOMPARE(viewer->annotationTool().eraserMode, atk::annotation::EraserMode::WholeStroke);
+    QVERIFY(options->menu()->findChild<QCheckBox*>());
+
+    // Leaving Draw on Frame takes the pill away with the toolbar.
+    command(window, "draw.annotateMode")->trigger();
+    QVERIFY(!toolbar->isVisible());
+    QTRY_VERIFY(!pill->isVisible());
 }
 
 void TestAnnotationWorkflow::fileMenuHasTheNotesExports()

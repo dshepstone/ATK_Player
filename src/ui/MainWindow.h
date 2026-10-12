@@ -46,6 +46,7 @@ class ExportProgressDialog;
 class CommandRegistry;
 class ApplicationSettings;
 class BookmarkPanel;
+class BrushSizePill;
 class CompareBar;
 class ComparisonCompositeWidget;
 class FrameNumberInput;
@@ -130,6 +131,7 @@ public:
 
 protected:
     void closeEvent(QCloseEvent* event) override;
+    bool eventFilter(QObject* watched, QEvent* event) override;
     /// Dropping supported local media files onto the window adds them to the
     /// playlist, exactly like Add to Playlist; nothing is replaced or prompted.
     void dragEnterEvent(QDragEnterEvent* event) override;
@@ -256,6 +258,9 @@ private:
     CommandRegistry* m_commands = nullptr;
     BookmarkPanel* m_bookmarks = nullptr;
     AnnotationToolbar* m_annotationToolbar = nullptr;
+    /// Size and opacity, floating at the viewer's left edge while drawing.
+    BrushSizePill* m_brushSizePill = nullptr;
+    void placeBrushSizePill();
     int m_tracingPaper = 0;
     int m_tracingPaperLevel = 50;
     annotation::GhostSettings m_ghostSettings;

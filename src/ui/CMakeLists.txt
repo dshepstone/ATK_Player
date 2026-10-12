@@ -10,6 +10,7 @@ set(ATK_UI_SOURCES
     AnnotationToolbar.cpp
     ApplicationSettings.cpp
     BookmarkPanel.cpp
+    BrushSizePill.cpp
     BurnInOptionsWidget.cpp
     CompareBar.cpp
     ComparisonCompositeWidget.cpp
@@ -42,6 +43,7 @@ set(ATK_UI_HEADERS
     AnnotationToolbar.h
     ApplicationSettings.h
     BookmarkPanel.h
+    BrushSizePill.h
     BurnInOptionsWidget.h
     CompareBar.h
     ComparisonCompositeWidget.h

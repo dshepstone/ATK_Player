@@ -23,6 +23,7 @@
 #include "ui/AnnotationToolbar.h"
 #include "ui/ApplicationSettings.h"
 #include "ui/BookmarkPanel.h"
+#include "ui/BrushSizePill.h"
 #include "ui/BurnInOptionsWidget.h"
 #include "ui/CompareBar.h"
 #include "ui/ComparisonCompositeWidget.h"
@@ -479,6 +480,13 @@ void MainWindow::buildWidgets()
     addToolBar(Qt::TopToolBarArea, m_annotationToolbar);
     m_annotationToolbar->hide();
     m_viewer->setAnnotationTool(m_annotationToolbar->settings());
+    // Floats over the central column, beside the picture, not in its layout;
+    // the viewer itself never knows it is there.
+    m_brushSizePill = new BrushSizePill(m_viewer->parentWidget());
+    m_brushSizePill->hide();
+    m_annotationToolbar->attachSizePill(m_brushSizePill);
+    m_viewer->installEventFilter(this);
+    m_annotationToolbar->installEventFilter(this);
 
     // --- Status bar -------------------------------------------------------
     m_statusInfo = new StatusInfoBar(this);
@@ -514,6 +522,13 @@ void MainWindow::buildMenus()
     m_commands->action(CommandId::TimelineZoomFit)->setIcon(icons::icon(QStringLiteral("move-horizontal")));
     m_commands->action(CommandId::ZoomFit)->setIcon(icons::icon(QStringLiteral("scan")));
     m_commands->action(CommandId::ZoomActualSize)->setIcon(icons::icon(QStringLiteral("zoom-in")));
+    m_commands->action(CommandId::UndoAnnotation)->setIcon(icons::icon(QStringLiteral("undo-2")));
+    m_commands->action(CommandId::RedoAnnotation)->setIcon(icons::icon(QStringLiteral("redo-2")));
+    m_commands->action(CommandId::ClearFrameAnnotations)->setIcon(icons::icon(QStringLiteral("trash-2")));
+    // Undo, redo and clear also sit on the drawing row, as the same commands.
+    m_annotationToolbar->addEditActions({m_commands->action(CommandId::UndoAnnotation),
+                                         m_commands->action(CommandId::RedoAnnotation),
+                                         m_commands->action(CommandId::ClearFrameAnnotations)});
 
     for (const commands::CommandCategory category : categories) {
         QMenu* menu = menuBar()->addMenu(commands::categoryTitle(category));
@@ -2432,6 +2447,41 @@ void MainWindow::dropEvent(QDropEvent* event)
     event->acceptProposedAction();
     m_lastMediaDirectory = QFileInfo(paths.first()).absolutePath();
     addMediaFiles(paths);
+}
+
+bool MainWindow::eventFilter(QObject* watched, QEvent* event)
+{
+    if (watched == m_viewer || watched == m_annotationToolbar) {
+        switch (event->type()) {
+        case QEvent::Resize:
+        case QEvent::Move:
+        case QEvent::Show:
+        case QEvent::Hide:
+            placeBrushSizePill();
+            break;
+        default:
+            break;
+        }
+    }
+    return QMainWindow::eventFilter(watched, event);
+}
+
+void MainWindow::placeBrushSizePill()
+{
+    if (!m_brushSizePill) return;
+    // Shown with the drawing tools, over the viewer's left edge and centred on
+    // it, as long as the viewer has room for it.
+    const QRect viewer = m_viewer->geometry();
+    const QSize size = m_brushSizePill->sizeHint();
+    const bool show = m_annotationToolbar->isVisibleTo(this) && m_viewer->isVisibleTo(this)
+        && viewer.height() >= size.height() + 2 * theme::metrics::spacingLarge;
+    if (show) {
+        m_brushSizePill->resize(size);
+        m_brushSizePill->move(viewer.left() + theme::metrics::spacingLarge,
+                              viewer.top() + (viewer.height() - size.height()) / 2);
+        m_brushSizePill->raise();
+    }
+    m_brushSizePill->setVisible(show);
 }
 
 void MainWindow::closeEvent(QCloseEvent* event)

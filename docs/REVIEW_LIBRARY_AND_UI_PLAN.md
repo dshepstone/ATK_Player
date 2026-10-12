@@ -7,7 +7,8 @@ Notes PDF (§2.8).** Work proceeds phase by phase.
 | Phase | State |
 |---|---|
 | 1. Visual system | **Implemented** (PR dshepstone/ATK_Player#31): teal accent and new tokens, `ui/IconProvider` with Lucide icons, stylesheet refresh, transport/playlist/command icons. Windows Debug/Release run pending. |
-| 2–7 | Not started |
+| 2. Drawing tools | **Implemented** (same PR): icon row, Tool options pop-up, floating size/opacity pill, undo/redo/clear on the row; pen-up cost now flat (cache paints only the new stroke). Trace/Ghost stay on the drawing row as icon buttons until Phase 4 builds the bottom view group. Windows run pending. |
+| 3–7 | Not started |
 Per `AGENTS.md`, this is new milestone work. Suggested name:
 **M10 — Review Library and Interface Refresh**. It has no OS-specific code
 apart from "show in Explorer/Finder" and can land before or after M6–M8.
