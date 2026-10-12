@@ -60,8 +60,12 @@ set(ATK_CORE_SOURCES
     project/Project.cpp
     project/ProjectSerializer.cpp
 
+    review/BatchRename.cpp
     review/FolderScanner.cpp
     review/ReviewLibrary.cpp
+    review/Roster.cpp
+    review/RosterMatcher.cpp
+    review/ZipArchive.cpp
 
     export/ExportSpec.cpp
     export/ExportBurnInRenderer.cpp
@@ -130,8 +134,12 @@ set(ATK_CORE_HEADERS
 
     project/Project.h
     project/ProjectSerializer.h
+    review/BatchRename.h
     review/FolderScanner.h
     review/ReviewLibrary.h
+    review/Roster.h
+    review/RosterMatcher.h
+    review/ZipArchive.h
 
     export/ExportSpec.h
     export/ExportBurnInRenderer.h

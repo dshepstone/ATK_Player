@@ -37,8 +37,10 @@
 #include "ui/NotesPanel.h"
 #include "ui/PreferencesDialog.h"
 #include "ui/Resources.h"
+#include "review/BatchRename.h"
 #include "review/FolderScanner.h"
 #include "review/ReviewLibrary.h"
+#include "ui/BatchRenameDialog.h"
 #include "ui/NewReviewDialog.h"
 #include "ui/ReviewHeaderBar.h"
 #include "ui/ReviewLibraryPage.h"
@@ -598,6 +600,8 @@ void MainWindow::buildMenus()
     m_commands->action(CommandId::UndoAnnotation)->setIcon(icons::icon(QStringLiteral("undo-2")));
     m_commands->action(CommandId::RedoAnnotation)->setIcon(icons::icon(QStringLiteral("redo-2")));
     m_commands->action(CommandId::ClearFrameAnnotations)->setIcon(icons::icon(QStringLiteral("trash-2")));
+    m_commands->action(CommandId::RenameFromRoster)->setIcon(icons::icon(QStringLiteral("text-cursor-input")));
+    m_reviewHeader->setRenameAction(m_commands->action(CommandId::RenameFromRoster));
     m_reviewHeader->setExportActions({m_commands->action(CommandId::ExportReview),
                                       m_commands->action(CommandId::ExportReviewNotes),
                                       m_commands->action(CommandId::ExportNotesVideo),
@@ -1303,6 +1307,9 @@ void MainWindow::onCommand(CommandId id, bool checked)
         return;
     case CommandId::NewReview:
         newReviewDialog();
+        return;
+    case CommandId::RenameFromRoster:
+        renameClipsFromRoster();
         return;
     case CommandId::OpenMedia:
         openMediaDialog();
@@ -2071,6 +2078,169 @@ void MainWindow::syncReviewLibraryEntry()
     }
 }
 
+void MainWindow::offerRenameRecovery(const QString& folder)
+{
+    for (const QString& journal : review::interruptedJournals(folder)) {
+        const auto answer = QMessageBox::question(
+            this, tr("Unfinished Rename"),
+            tr("A rename of clips in this folder did not finish (the computer may have shut down part way).\n\n"
+               "Put the original file names back?"),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+        if (answer != QMessageBox::Yes) continue;
+        const review::RenameResult result = review::recoverInterrupted(journal);
+        if (result.ok)
+            statusBar()->showMessage(tr("Restored %n file name(s).", nullptr, result.renamed), 6000);
+        else
+            QMessageBox::warning(this, tr("Unfinished Rename"), result.error);
+    }
+}
+
+void MainWindow::retargetRenamedClips(const QHash<QString, QString>& moved)
+{
+    auto key = [](const QString& path) { return QDir::cleanPath(QFileInfo(path).absoluteFilePath()); };
+    QHash<QString, QString> byKey;
+    for (auto it = moved.cbegin(); it != moved.cend(); ++it) byKey.insert(key(it.key()), it.value());
+    QVector<QPair<QUuid, QString>> renamed;
+    for (project::SourceEntry& entry : m_project->mutableEntries()) {
+        if (!entry.source) continue;
+        const auto it = byKey.constFind(key(entry.source->filePath()));
+        if (it == byKey.cend()) continue;
+        // Same clip, same metadata, new file name: drawings, notes,
+        // bookmarks and status stay with it.
+        auto replacement = std::make_shared<media::MediaSource>(*it);
+        replacement->setMetadata(entry.source->metadata());
+        replacement->setImageOptions(entry.source->imageOptions());
+        entry.source = std::move(replacement);
+        entry.missing = false;
+        renamed.append({entry.id, QFileInfo(*it).fileName()});
+    }
+    for (const auto& [id, name] : renamed) m_project->setDisplayName(id, name);
+    m_project->setModified(true);
+}
+
+void MainWindow::renameClipsFromRoster()
+{
+    if (m_project->entries().isEmpty()) {
+        QMessageBox::information(this, tr("Rename Clips from Class List"),
+                                 tr("Open a review, or add clips to the playlist, first."));
+        return;
+    }
+    showPlayer();
+    QVector<BatchRenameDialog::Clip> clips;
+    for (const project::SourceEntry& entry : m_project->entries()) {
+        if (!entry.source) continue;
+        clips.append({entry.id, entry.source->filePath(),
+                      entry.displayName.isEmpty() ? entry.source->displayName() : entry.displayName,
+                      entry.source->isImageSequence()});
+    }
+    offerRenameRecovery(QFileInfo(clips.first().path).absolutePath());
+    BatchRenameDialog dialog(clips, m_project->name(), m_settings->renameTemplate(), this);
+    if (const QString last = m_settings->lastRosterPath(); !last.isEmpty() && QFileInfo::exists(last))
+        dialog.loadRoster(last);
+    if (dialog.exec() != QDialog::Accepted) return;
+    if (!dialog.undoJournal().isEmpty()) {
+        QString error;
+        if (undoRosterRename(dialog.undoJournal(), &error))
+            statusBar()->showMessage(tr("The last rename was undone."), 6000);
+        else
+            QMessageBox::warning(this, tr("Undo Rename"), error);
+        return;
+    }
+    if (!dialog.rosterPath().isEmpty()) m_settings->setLastRosterPath(dialog.rosterPath());
+    m_settings->setRenameTemplate(dialog.nameTemplate());
+    QString error;
+    if (!applyRosterRename(dialog.decisions(), dialog.renameOnDisk(), dialog.orderByRoster(), &error))
+        QMessageBox::warning(this, tr("Rename Clips"), tr("Nothing was renamed.\n\n%1").arg(error));
+    else
+        statusBar()->showMessage(dialog.renameOnDisk() ? tr("Files renamed. Undo is in the same window.")
+                                                       : tr("Clips renamed in ATK Player. The files are unchanged."),
+                                 6000);
+}
+
+bool MainWindow::applyRosterRename(const QVector<review::RenameDecision>& decisions, bool onDisk, bool reorder,
+                                   QString* error)
+{
+    const QUuid active = m_project->currentSourceId();
+    auto reactivate = [this, active] {
+        const int index = m_project->indexForId(active);
+        if (index >= 0 && m_project->activeIndex() != index) {
+            m_project->setActiveIndex(-1);
+            activatePlaylistIndex(index);
+        }
+    };
+    if (onDisk) {
+        QVector<review::RenameItem> items;
+        for (const review::RenameDecision& d : decisions) {
+            const int index = m_project->indexForId(d.id);
+            if (d.newPath.isEmpty() || index < 0 || !m_project->entries().at(index).source) continue;
+            items.append({m_project->entries().at(index).source->filePath(), d.newPath});
+        }
+        const review::RenamePlan plan = review::planRenames(items);
+        if (!plan.ok()) {
+            if (error) *error = tr("Some new names cannot be used; nothing was renamed.");
+            return false;
+        }
+        if (plan.changeCount() > 0) {
+            // The player holds the open clip; release it so Windows lets it be renamed.
+            m_playback->closeMedia();
+            m_project->setActiveIndex(-1);
+            const review::RenameResult result = review::executeRenames(plan);
+            if (!result.ok) {
+                if (error) *error = result.error;
+                reactivate();
+                return false;
+            }
+            QHash<QString, QString> moved;
+            for (const review::PlannedRename& r : plan.items)
+                if (r.problem == review::RenameProblem::None) moved.insert(r.from, r.to);
+            retargetRenamedClips(moved);
+        }
+    }
+    // The names shown in ATK Player (and in the notes PDF and exports).
+    for (const review::RenameDecision& d : decisions) {
+        const int index = m_project->indexForId(d.id);
+        if (d.newName.isEmpty() || index < 0 || !m_project->entries().at(index).source) continue;
+        const auto& source = m_project->entries().at(index).source;
+        const QString suffix = source->isImageSequence() ? QString() : QFileInfo(source->filePath()).suffix();
+        m_project->setDisplayName(d.id, suffix.isEmpty() ? d.newName : d.newName + QLatin1Char('.') + suffix);
+    }
+    if (reorder)
+        for (int target = 0; target < decisions.size(); ++target) {
+            const int from = m_project->indexForId(decisions[target].id);
+            if (from >= 0 && from != target) m_project->moveSource(from, target);
+        }
+    // After renaming files the saved project must point at the new names.
+    if (onDisk && !m_project->filePath().isEmpty()) saveProjectTo(m_project->filePath());
+    reactivate();
+    updateWindowTitle();
+    return true;
+}
+
+bool MainWindow::undoRosterRename(const QString& journalPath, QString* error)
+{
+    QVector<review::RenameItem> items;
+    QString state;
+    if (!review::readRenameJournal(journalPath, &items, &state)) {
+        if (error) *error = tr("The rename record could not be read.");
+        return false;
+    }
+    const QUuid active = m_project->currentSourceId();
+    m_playback->closeMedia();
+    m_project->setActiveIndex(-1);
+    const review::RenameResult result = review::undoRenames(journalPath);
+    if (result.ok) {
+        QHash<QString, QString> moved;
+        for (const review::RenameItem& item : items) moved.insert(item.to, item.from);
+        retargetRenamedClips(moved);
+        if (!m_project->filePath().isEmpty()) saveProjectTo(m_project->filePath());
+    } else if (error) {
+        *error = result.error;
+    }
+    if (const int index = m_project->indexForId(active); index >= 0) activatePlaylistIndex(index);
+    updateWindowTitle();
+    return result.ok;
+}
+
 void MainWindow::newReviewDialog()
 {
     NewReviewDialog dialog(m_lastMediaDirectory, this);
@@ -2152,6 +2322,7 @@ bool MainWindow::openReview(const QUuid& id, bool interactive)
         return false;
     }
     if (interactive && !confirmDiscardChanges()) return false;
+    if (interactive) offerRenameRecovery(info.folder); // before the files are opened
     if (!openProjectFile(info.projectPath)) return false;
 
     review::ReviewInfo opened = info;

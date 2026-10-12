@@ -60,6 +60,9 @@ public:
     bool showLibraryAtStartup() const;
     QStringList recentProjects() const;
     QString lastProjectPath() const;
+    /// Rename from Class List: the last list used and the name pattern.
+    QString lastRosterPath() const;
+    QString renameTemplate() const;
     bool apiEnabled() const;
     int apiPort() const;
     int stillImageHoldFrames() const;
@@ -96,6 +99,8 @@ public:
     void addRecentProject(const QString& path);
     void clearRecentProjects();
     void setLastProjectPath(const QString& path);
+    void setLastRosterPath(const QString& path);
+    void setRenameTemplate(const QString& nameTemplate);
     void setApiEnabled(bool value);
     void setApiPort(int value);
     void setStillImageHoldFrames(int value);

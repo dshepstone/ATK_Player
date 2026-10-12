@@ -118,6 +118,10 @@ public:
     /// Sets one clip's review status, marks the project modified and emits
     /// clipStatusChanged. Returns false for an unknown id or no change.
     bool setClipStatus(const QUuid& id, ClipStatus status);
+    /// The name a clip is shown under (the file is not touched). Marks the
+    /// project modified and emits entriesChanged. False for an unknown id or
+    /// no change.
+    bool setDisplayName(const QUuid& id, const QString& name);
     bool beginProbe(const QUuid& id, const QString& path, quint64 token);
     bool applyProbeResult(const QUuid& id, const QString& path, quint64 token,
                           const media::MediaMetadata& metadata, const QString& error,

@@ -42,7 +42,7 @@ namespace atk::project { class Project; }
 namespace atk::media { class PlaylistProbeWorker; class ThumbnailWorker; }
 namespace atk::exporter { class ExportJob; class ReviewNotesJob; }
 namespace atk::timeline { class TimelineModel; }
-namespace atk::review { class ReviewLibrary; struct FoundClip; }
+namespace atk::review { class ReviewLibrary; struct FoundClip; struct RenameDecision; }
 
 namespace atk::ui {
 
@@ -126,6 +126,13 @@ public:
                       const QVector<review::FoundClip>& clips, const QString& projectPath, bool interactive = true);
     /// Opens a library review; offers to add clips that appeared in its folder.
     bool openReview(const QUuid& id, bool interactive = true);
+    /// Applies a Rename from Class List decision (what the dialog returns):
+    /// shown names, order, and, with `onDisk`, the checked file renames.
+    /// False (and nothing changed on disk) when the renames failed.
+    bool applyRosterRename(const QVector<review::RenameDecision>& decisions, bool onDisk, bool reorder,
+                           QString* error = nullptr);
+    /// Puts back the names from a finished rename journal.
+    bool undoRosterRename(const QString& journalPath, QString* error = nullptr);
     /// Shows the welcome dialog once per installed version. Called by main()
     /// after the window is up; tests construct the window without it.
     void showWelcomeIfFirstRun();
@@ -301,6 +308,12 @@ private:
     QList<QWidget*> m_hiddenForLibrary;
     QHash<QUuid, QString> m_previewThumbnailRequests;
     void newReviewDialog();
+    void renameClipsFromRoster();
+    /// Points the project's clips at their files' new names after a disk
+    /// rename (or its undo): `moved` maps old path to new path.
+    void retargetRenamedClips(const QHash<QString, QString>& moved);
+    /// Offers to restore names from a rename in `folder` that never finished.
+    void offerRenameRecovery(const QString& folder);
     void saveReviewLibrary();
     /// Keeps the library's clip count and preview strip in step with the
     /// open project when it belongs to a review.

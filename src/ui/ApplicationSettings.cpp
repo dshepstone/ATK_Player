@@ -24,6 +24,8 @@ constexpr auto kReopenLast = "projects/reopenLast";
 constexpr auto kShowLibraryAtStartup = "startup/showReviewLibrary";
 constexpr auto kRecentProjects = "projects/recent";
 constexpr auto kLastProject = "projects/lastPath";
+constexpr auto kLastRoster = "review/lastRosterPath";
+constexpr auto kRenameTemplate = "review/renameTemplate";
 constexpr auto kApiEnabled = "api/enabled";
 constexpr auto kApiPort = "api/port";
 constexpr auto kStillHoldFrames = "media/stillImageHoldFrames";
@@ -98,6 +100,11 @@ bool ApplicationSettings::showLibraryAtStartup() const
 }
 QStringList ApplicationSettings::recentProjects() const { return m_settings->value(QString::fromLatin1(kRecentProjects)).toStringList(); }
 QString ApplicationSettings::lastProjectPath() const { return m_settings->value(QString::fromLatin1(kLastProject)).toString(); }
+QString ApplicationSettings::lastRosterPath() const { return m_settings->value(QString::fromLatin1(kLastRoster)).toString(); }
+QString ApplicationSettings::renameTemplate() const
+{
+    return m_settings->value(QString::fromLatin1(kRenameTemplate), QStringLiteral("{last}_{first}")).toString();
+}
 bool ApplicationSettings::apiEnabled() const { return readBool(kApiEnabled, defaultApiEnabled()); }
 int ApplicationSettings::apiPort() const
 {
@@ -165,6 +172,11 @@ void ApplicationSettings::addRecentProject(const QString& path)
 }
 void ApplicationSettings::clearRecentProjects() { m_settings->remove(QString::fromLatin1(kRecentProjects)); }
 void ApplicationSettings::setLastProjectPath(const QString& path) { m_settings->setValue(QString::fromLatin1(kLastProject), path); }
+void ApplicationSettings::setLastRosterPath(const QString& path) { m_settings->setValue(QString::fromLatin1(kLastRoster), path); }
+void ApplicationSettings::setRenameTemplate(const QString& nameTemplate)
+{
+    m_settings->setValue(QString::fromLatin1(kRenameTemplate), nameTemplate);
+}
 void ApplicationSettings::setApiEnabled(bool value) { m_settings->setValue(QString::fromLatin1(kApiEnabled), value); }
 void ApplicationSettings::setApiPort(int value)
 {

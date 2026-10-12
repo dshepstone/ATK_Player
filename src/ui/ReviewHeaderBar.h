@@ -34,6 +34,8 @@ public:
     project::ClipStatus status() const;
     /// The Export menu offers these (the window's own export commands).
     void setExportActions(const QList<QAction*>& actions);
+    /// A button for the window's "Rename Clips from Class List" command.
+    void setRenameAction(QAction* action);
 
 signals:
     void statusChosen(atk::project::ClipStatus status);
@@ -48,6 +50,7 @@ private:
     QLabel* m_clip = nullptr;
     QComboBox* m_status = nullptr;
     QToolButton* m_export = nullptr;
+    QToolButton* m_rename = nullptr;
     QToolButton* m_folder = nullptr;
     bool m_updating = false;
 };

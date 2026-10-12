@@ -28,6 +28,7 @@ set(ATK_TEST_SOURCES
     tst_annotationrenderer.cpp
     tst_abrreader.cpp
     tst_reviewlibrary.cpp
+    tst_roster.cpp
 )
 
 # Suites that include FFmpeg-facing headers.

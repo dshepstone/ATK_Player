@@ -3,6 +3,7 @@
 #include "ui/IconProvider.h"
 #include "ui/Theme.h"
 
+#include <QAction>
 #include <QComboBox>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -109,6 +110,9 @@ ReviewHeaderBar::ReviewHeaderBar(QWidget* parent) : QWidget(parent)
     m_export = iconButton(this, QStringLiteral("download"), tr("Export"), QStringLiteral("ReviewHeaderExport"));
     m_export->setPopupMode(QToolButton::InstantPopup);
     m_export->setMenu(new QMenu(m_export));
+    m_rename = iconButton(this, QStringLiteral("text-cursor-input"), tr("Rename clips from a class list"),
+                          QStringLiteral("ReviewHeaderRename"));
+    m_rename->hide(); // shown once the owner hands over its command
     m_folder = iconButton(this, QStringLiteral("folder-open"), tr("Show the clip's folder"),
                           QStringLiteral("ReviewHeaderFolder"));
     connect(m_folder, &QToolButton::clicked, this, &ReviewHeaderBar::showInFolderRequested);
@@ -119,6 +123,7 @@ ReviewHeaderBar::ReviewHeaderBar(QWidget* parent) : QWidget(parent)
     layout->addWidget(m_clip, 1);
     layout->addWidget(m_status);
     layout->addSpacing(theme::metrics::spacingMedium);
+    layout->addWidget(m_rename);
     layout->addWidget(m_export);
     layout->addWidget(m_folder);
 
@@ -147,6 +152,14 @@ void ReviewHeaderBar::setStatus(ClipStatus status)
 ClipStatus ReviewHeaderBar::status() const
 {
     return ClipStatus(m_status->currentData().toInt());
+}
+
+void ReviewHeaderBar::setRenameAction(QAction* action)
+{
+    m_rename->setDefaultAction(action);
+    m_rename->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    m_rename->setToolTip(tr("Rename clips from a class list"));
+    m_rename->show();
 }
 
 void ReviewHeaderBar::setExportActions(const QList<QAction*>& actions)

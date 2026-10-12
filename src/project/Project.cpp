@@ -176,6 +176,16 @@ ClipStatus clipStatusFromKey(const QString& key)
     return ClipStatus::NotReviewed;
 }
 
+bool Project::setDisplayName(const QUuid& id, const QString& name)
+{
+    const int index = indexForId(id);
+    if (index < 0 || name.trimmed().isEmpty() || m_entries[index].displayName == name) return false;
+    m_entries[index].displayName = name;
+    emit entriesChanged();
+    setModified(true);
+    return true;
+}
+
 bool Project::setClipStatus(const QUuid& id, ClipStatus status)
 {
     const int index = indexForId(id);

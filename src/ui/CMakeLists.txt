@@ -9,6 +9,7 @@
 set(ATK_UI_SOURCES
     AnnotationToolbar.cpp
     ApplicationSettings.cpp
+    BatchRenameDialog.cpp
     BookmarkPanel.cpp
     BrushSizePill.cpp
     BurnInOptionsWidget.cpp
@@ -46,6 +47,7 @@ set(ATK_UI_SOURCES
 set(ATK_UI_HEADERS
     AnnotationToolbar.h
     ApplicationSettings.h
+    BatchRenameDialog.h
     BookmarkPanel.h
     BrushSizePill.h
     BurnInOptionsWidget.h

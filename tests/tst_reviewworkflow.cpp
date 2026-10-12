@@ -4,6 +4,9 @@
 #include "review/FolderScanner.h"
 #include "review/ReviewLibrary.h"
 #include "ui/MainWindow.h"
+#include "review/BatchRename.h"
+#include "review/Roster.h"
+#include "ui/BatchRenameDialog.h"
 #include "ui/NewReviewDialog.h"
 #include "ui/ReviewLibraryPage.h"
 #include "ui/SourcesPanel.h"
@@ -14,10 +17,12 @@
 #include <QCheckBox>
 #include <QDockWidget>
 #include <QFile>
+#include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QRadioButton>
 #include <QSettings>
 #include <QStatusBar>
 #include <QTemporaryDir>
@@ -45,6 +50,41 @@ QString makeClassFolder(QTemporaryDir& directory)
     return folder;
 }
 
+/// A review of three student clips and the matching class list.
+struct ClassReview {
+    QString folder;
+    QString projectPath;
+    QString rosterPath;
+};
+
+ClassReview makeClassReview(QTemporaryDir& directory, ui::MainWindow& window)
+{
+    ClassReview r;
+    r.folder = directory.filePath(QStringLiteral("Animatics"));
+    QDir().mkpath(r.folder);
+    QFile::copy(fixture("atk_fixture_48f.mp4"), r.folder + QStringLiteral("/A1_Logel_Jordan_Animatic_v002.mp4"));
+    QFile::copy(fixture("atk_fixture_48f.mp4"), r.folder + QStringLiteral("/jsmith_walk.mp4"));
+    QFile::copy(fixture("atk_review_10s.mkv"), r.folder + QStringLiteral("/1004219_final.mkv"));
+    r.rosterPath = directory.filePath(QStringLiteral("class.csv"));
+    QFile roster(r.rosterPath);
+    roster.open(QIODevice::WriteOnly);
+    roster.write("Student ID,Last Name,First Name\r\n1004219,Adams,Kim\r\n1004218,Logel,Jordan\r\n"
+                 "1004217,Smith,Jane\r\n1004220,Zhou,Wei\r\n");
+    roster.close();
+    r.projectPath = QDir(r.folder).filePath(QStringLiteral("Animatics.atkproj"));
+    window.createReview(QStringLiteral("Animatics"), r.folder, false, review::scanFolder(r.folder, false),
+                        r.projectPath, false);
+    return r;
+}
+
+QVector<ui::BatchRenameDialog::Clip> clipsOf(const project::Project* project)
+{
+    QVector<ui::BatchRenameDialog::Clip> clips;
+    for (const project::SourceEntry& e : project->entries())
+        clips.append({e.id, e.source->filePath(), e.displayName, e.source->isImageSequence()});
+    return clips;
+}
+
 QAction* command(ui::MainWindow& window, const char* key)
 {
     return window.findChild<QAction*>(QString::fromLatin1(key));
@@ -61,6 +101,8 @@ private slots:
     void createdReviewIsSavedListedAndReopened();
     void libraryStarsArchivesAndSearches();
     void newClipsInTheFolderAreOffered();
+    void classListRenamesShownNamesByDefault();
+    void classListRenamesFilesOnDiskAndUndoes();
 };
 
 void TestReviewWorkflow::startScreenIsTheLibraryUnlessTurnedOff()
@@ -302,6 +344,89 @@ void TestReviewWorkflow::newClipsInTheFolderAreOffered()
     QCOMPARE(window.project()->entries().last().source->filePath(), QDir(folder).filePath(QStringLiteral("student3.mp4")));
     QVERIFY(!window.project()->isModified()); // saved with the new clip
     QCOMPARE(window.reviewLibrary()->find(id)->clipCount, 4);
+}
+
+void TestReviewWorkflow::classListRenamesShownNamesByDefault()
+{
+    QTemporaryDir directory;
+    ui::MainWindow window(directory.filePath(QStringLiteral("settings.ini")));
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    const ClassReview r = makeClassReview(directory, window);
+    QCOMPARE(window.project()->entries().size(), 3);
+
+    ui::BatchRenameDialog dialog(clipsOf(window.project()), QStringLiteral("Animatics"), QStringLiteral("{last}_{first}"));
+    QVERIFY(dialog.loadRoster(r.rosterPath));
+    // Natural order: 1004219_final, A1_Logel..., jsmith_walk.
+    QCOMPARE(dialog.matchFor(0), 0); // by ID -> Adams
+    QCOMPARE(dialog.matchFor(1), 1); // last_first -> Logel
+    QCOMPARE(dialog.matchFor(2), 2); // initial+last -> Smith
+    QVERIFY(dialog.findChild<QLabel*>(QStringLiteral("BatchRenameMissing"))->text().contains(QStringLiteral("Wei Zhou")));
+    QVERIFY(!dialog.renameOnDisk()); // the safe choice is the default
+    QVERIFY(dialog.findChild<QPushButton*>(QStringLiteral("BatchRenameApply"))->isEnabled());
+
+    // Correct a match by hand: give Jane's clip to nobody.
+    dialog.setMatch(2, -1);
+    QCOMPARE(dialog.matchFor(2), -1);
+    dialog.setMatch(2, 2);
+    dialog.findChild<QCheckBox*>(QStringLiteral("BatchRenameOrder"))->setChecked(true);
+
+    const QVector<review::RenameDecision> decisions = dialog.decisions();
+    QCOMPARE(decisions.size(), 3);
+    QCOMPARE(decisions[0].newName, QStringLiteral("Adams_Kim"));
+    QVERIFY(decisions[0].newPath.isEmpty()); // nothing on disk
+    QVERIFY(window.applyRosterRename(decisions, false, true));
+
+    const auto& entries = window.project()->entries();
+    QCOMPARE(entries[0].displayName, QStringLiteral("Adams_Kim.mkv"));
+    QCOMPARE(entries[1].displayName, QStringLiteral("Logel_Jordan.mp4"));
+    QCOMPARE(entries[2].displayName, QStringLiteral("Smith_Jane.mp4"));
+    // The files are untouched.
+    QVERIFY(QFileInfo::exists(r.folder + QStringLiteral("/jsmith_walk.mp4")));
+    QVERIFY(!QFileInfo::exists(r.folder + QStringLiteral("/Smith_Jane.mp4")));
+    QVERIFY(window.project()->isModified());
+}
+
+void TestReviewWorkflow::classListRenamesFilesOnDiskAndUndoes()
+{
+    QTemporaryDir directory;
+    ui::MainWindow window(directory.filePath(QStringLiteral("settings.ini")));
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    const ClassReview r = makeClassReview(directory, window);
+    // Review state on a clip must survive its file being renamed.
+    const QUuid smith = window.project()->entries()[2].id;
+    QVERIFY(window.project()->setClipStatus(smith, project::ClipStatus::Approved));
+
+    ui::BatchRenameDialog dialog(clipsOf(window.project()), QStringLiteral("Animatics"),
+                                 QStringLiteral("{order:02}_{last}_{first}"));
+    QVERIFY(dialog.loadRoster(r.rosterPath));
+    dialog.findChild<QRadioButton*>(QStringLiteral("BatchRenameOnDisk"))->setChecked(true);
+    QVERIFY(dialog.diskPlan().ok());
+    QCOMPARE(dialog.diskPlan().changeCount(), 3);
+    QVERIFY(window.applyRosterRename(dialog.decisions(), true, false));
+
+    QVERIFY(QFileInfo::exists(r.folder + QStringLiteral("/03_Smith_Jane.mp4")));
+    QVERIFY(!QFileInfo::exists(r.folder + QStringLiteral("/jsmith_walk.mp4")));
+    const int index = window.project()->indexForId(smith);
+    QCOMPARE(window.project()->entries()[index].source->filePath(), QDir(r.folder).filePath(QStringLiteral("03_Smith_Jane.mp4")));
+    QCOMPARE(window.project()->entries()[index].status, project::ClipStatus::Approved);
+    QCOMPARE(window.project()->entries()[index].displayName, QStringLiteral("03_Smith_Jane.mp4"));
+    // Saved, so the project on disk points at the new names.
+    QVERIFY(!window.project()->isModified());
+    project::Project saved;
+    QVERIFY(project::ProjectSerializer::load(saved, r.projectPath).ok);
+    QCOMPARE(saved.entries()[index].source->filePath(), QDir(r.folder).filePath(QStringLiteral("03_Smith_Jane.mp4")));
+    QTRY_VERIFY(window.project()->activeIndex() >= 0); // still playing a clip
+
+    // Undo puts the files and the project back.
+    const QString journal = review::latestUndoableJournal(r.folder);
+    QVERIFY(!journal.isEmpty());
+    QVERIFY(window.undoRosterRename(journal));
+    QVERIFY(QFileInfo::exists(r.folder + QStringLiteral("/jsmith_walk.mp4")));
+    QVERIFY(!QFileInfo::exists(r.folder + QStringLiteral("/03_Smith_Jane.mp4")));
+    QCOMPARE(window.project()->entries()[index].source->filePath(), QDir(r.folder).filePath(QStringLiteral("jsmith_walk.mp4")));
+    QCOMPARE(window.project()->entries()[index].status, project::ClipStatus::Approved);
 }
 
 QTEST_MAIN(TestReviewWorkflow)

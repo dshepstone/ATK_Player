@@ -12,6 +12,7 @@ enum class CommandId {
     // File
     ShowReviewLibrary,
     NewReview,
+    RenameFromRoster,
     OpenMedia,
     NewProject,
     AddMediaToPlaylist,
