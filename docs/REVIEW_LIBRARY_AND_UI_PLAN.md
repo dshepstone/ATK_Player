@@ -1,0 +1,313 @@
+# Review Library and Interface Refresh — Proposed Plan
+
+Status: **Proposal, awaiting approval.** Nothing in this document is built yet.
+Per `AGENTS.md`, this is new milestone work. Suggested name:
+**M10 — Review Library and Interface Refresh**. It has no OS-specific code
+apart from "show in Explorer/Finder" and can land before or after M6–M8.
+
+The three goals:
+
+1. Give the player, playlist and drawing tools a cleaner, icon-led look in the
+   style of SyncSketch (shown in the owner's reference screenshots). Copy the
+   *layout ideas*, not their branding, logo or assets.
+2. Add a **Review Library** start screen. A review is a list of clips from a
+   folder on disk (Windows, macOS or Linux), in a chosen order, that opens in
+   the player for notes and drawings.
+3. Add a **roster import and batch rename** tool. It matches the clip names in a
+   folder to a class list or staff list (CSV or Excel), so each clip carries the
+   right person's name and the review plays in roster order.
+
+---
+
+## 1. What the reference shows (and where ATK differs today)
+
+| Area | SyncSketch reference | ATK Player today |
+|---|---|---|
+| Header | Breadcrumb (course › review), clip name, **status** dropdown, download, share | Menu bar plus window title |
+| Drawing tools | One row of **icon-only** buttons above the picture: active tool filled with the accent colour; colour swatch; undo/redo/clear at the end | `AnnotationToolbar` with **text** buttons, plus size, opacity, pressure, curve and stabiliser controls in the same row |
+| Size / opacity | Floating **vertical slider pill** beside the picture (size number on top, opacity % below) | Horizontal slider and spin box in the toolbar |
+| Playlist | Large 16:9 **thumbnail cards**: index number, title, owner, notes-count badge, active card highlighted with an accent bar, "Drop new files here" | `SourcesPanel`: plain text `QListWidget` rows with a ▶ marker |
+| Notes | Right panel: "All Notes" filter, search, sort, empty state, composer pinned to the bottom with a "Frame" toggle and Submit | `NotesPanel`: functionally similar, plainer layout |
+| Timeline / transport | Thin full-width track, current-frame box at the right; one icon row below, grouped (transport · edit · view · zoom/settings) | Wider timeline and a text-plus-icon transport |
+| Home | Review list: expandable rows with a thumbnail strip, item count, Add Media; left navigation (All / Starred / Archived) | `WelcomeDialog` only (thank-you screen) |
+| Accent | Teal green | Blue (`theme::accent()` `#4C9EE0`) |
+
+Existing pieces we build on rather than replace:
+
+- `theme::` palette and `styleSheet()` (`src/ui/Theme.*`). Colours are already
+  defined once.
+- `Project` / `SourceEntry` (`src/project`) already hold an ordered playlist,
+  `displayName`, bookmarks and annotations, and save to `.atkproj` versions 1 and 2.
+- The command table (`src/ui/commands`). Every button keeps its existing command
+  and shortcut, so the restyle changes no behaviour.
+
+---
+
+## 2. Proposed design
+
+### 2.1 Visual system (Phase 1)
+
+- **Accent:** add a teal accent token (for example `#1FB58F`, final value to
+  be tuned for contrast), used for the active tool, selected playlist card,
+  primary buttons and the playhead's frame box. The viewer surround stays
+  neutral dark grey and the picture background stays pure black, as `Theme.h`
+  already argues.
+- **Tokens:** add the missing ones (`cardBackground`, `cardSelected`,
+  `badgeBackground`, `statusApproved/NeedsWork/…`, corner radius, spacing
+  scale), so widgets never hard-code values.
+- **Icons:** one consistent outline icon set as SVG in `assets/icons`, compiled
+  into `atk_resources.qrc` and **tinted at runtime** from theme tokens (normal,
+  hover, active, disabled), so one file serves every state. Candidates: Lucide
+  (ISC) or Tabler (MIT). Both are permissive; the chosen licence is added to
+  `THIRD_PARTY_LICENSES.md`.
+- A small `IconProvider` in `src/ui` caches the tinted `QIcon`s by name, colour
+  and DPR.
+
+### 2.2 Drawing tools (Phase 2)
+
+- `AnnotationToolbar` becomes a single **icon row** that matches the
+  reference's order:
+  `Select (hand) · Pencil · Pen · Brush · Marker · Custom ▾ · Eraser ▾ |
+  Arrow · Rect · Ellipse · Line · Text | colour swatch · eyedropper (later) |
+  Undo · Redo · Clear frame`
+- The active tool is drawn as a filled accent tile, with a tooltip giving the
+  name and shortcut.
+- **Tool options move into a popover.** Eraser mode, pressure, pressure curve,
+  stabiliser and the brush-set menu move behind a "⋯" button at the end of the
+  row and on the tool's ▾. Most of the time the row stays uncluttered.
+- **Floating size/opacity pill** at the viewer's left edge: two vertical
+  sliders with their values (px and %), shown only in Draw mode. It is a child
+  widget of the viewer area, not of `ViewerWidget` itself, so the viewer still
+  only displays frames.
+- **Trace ▾ / Ghost ▾** move to the bottom view-tools group, as in the
+  reference's onion-skin and grid icons.
+- **Drawing speed fix.** This comes from the earlier investigation of strokes
+  slowing down:
+  - While drawing, the in-progress stroke is currently rebuilt from its first
+    point on every pointer move. Instead, render it **incrementally** into a
+    stroke layer and only re-smooth the last few segments.
+  - Coalesce the store's per-edit refreshes. Notes panel, timeline marks,
+    project copy and the full annotation cache now run once per stroke, and
+    once per eraser *move*. Make them run once per stroke or swipe.
+  - This must be measured before and after on real hardware.
+
+### 2.3 Playlist panel (Phase 3)
+
+- Replace the `QListWidget` text rows with a `QListView` driven by a
+  `PlaylistModel` and a custom card delegate:
+  - Thumbnail (16:9, lazy-loaded) with index number and frame count overlaid
+  - Title: `displayName`, so a roster rename shows here
+  - Subtitle: roster person and/or folder
+  - Badges: notes count and "has drawings"
+  - Status chip
+  - Active card: accent left bar and tinted background
+  - Missing media: greyed out with a relink action
+- Drag to reorder (writes to `Project` order) and drop files to add, with a
+  "Drop new files here" hint when the list is short.
+- **`ThumbnailService`** (media layer, no widgets): a worker thread that owns
+  its own FFmpeg context, decodes one representative frame per clip, and
+  scales it. Results return to the panel through queued signals, and are cached
+  on disk under `QStandardPaths::CacheLocation`, keyed by path, size and
+  mtime. Shutdown order follows `AGENTS.md`: stop, disconnect, join, destroy.
+
+### 2.4 Header, notes and transport (Phase 4)
+
+- **Review header bar** above the viewer:
+  - Breadcrumb `Library › Review name`, which is clickable and returns to the
+    Review Library
+  - Clip name
+  - **Status dropdown** for the clip (Not reviewed · In review · Needs changes
+    · Approved; the list is configurable)
+  - Export and Show-in-folder buttons
+- **Notes panel:**
+  - Filter header (All notes / This clip / This frame)
+  - Search and sort
+  - Friendly empty state
+  - Composer pinned to the bottom with a "Frame" toggle (attach to the current
+    frame, or to the clip in general) and a Submit button. Existing note
+    storage and PDF export are unchanged.
+- **Timeline / transport:**
+  - Thinner track
+  - Frame-number box at the right end in the accent colour
+  - One icon row underneath, grouped as transport · in/out/loop · edit · view
+    (trace, ghost, flip, safe areas) · zoom/settings/fullscreen
+  - The fps readout stays visible, showing the rational rate (for example
+    23.976), never a hard-coded 24.
+
+### 2.5 Review Library — start screen (Phase 5)
+
+**Where it lives.** The Review Library is a *Home* page inside the main window
+(`QStackedWidget`: Home ⇄ Player), not a separate window. It shows at launch
+(this replaces the auto-shown `WelcomeDialog`, which stays under Help) and from
+the breadcrumb or **File › Review Library** (`Ctrl+Shift+H`).
+
+**Layout** (following the reference):
+
+- Left navigation: **All Reviews · Starred · Archived**, plus Recent.
+- Main area:
+  - Header: "Reviews", a search box, sort (Latest / Name / Folder), grid ⇄
+    list toggle, and a **+ New Review** button.
+- Each review row:
+  - Name, item count, folder path, and a thumbnail strip of its first clips
+  - **Open ▶**, **Add media**, **Rescan folder**, **Rename clips…**
+  - **⋯** menu: Star, Archive, Show in folder, Remove from library
+- Expanding a row shows its clips as cards (with status chips) that can be
+  reordered before opening.
+
+**New Review wizard:**
+
+1. **Choose folder** (`QFileDialog::getExistingDirectory`; works the same on
+   Windows, macOS and Linux). Option: include subfolders.
+2. **Pick clips.** The folder is scanned on a worker thread for supported media
+   (the media layer's extension list, plus image sequences detected the same
+   way the Open dialog does). All clips are ticked by default, and individual
+   ones can be unticked.
+3. **Order:** by name (natural sort, so `clip2` comes before `clip10`), by date,
+   by roster (after Phase 6), or by manual drag.
+4. **Name the review** (default: the folder name) and **Create**.
+
+**Data model.** A new `src/review` library has no widget dependencies:
+
+- `ReviewList`:
+  - Id, name, source folder, include-subfolders flag
+  - Ordered entries (relative path, display name, roster key, status)
+  - Starred, archived, created and opened times
+- `ReviewLibrary`: the index of known reviews. It is stored as JSON under
+  `QStandardPaths::AppDataLocation/reviews.json`, written atomically with
+  `QSaveFile`.
+- **Persistence:**
+  - Each review's notes and drawings live in an `.atkproj` saved **in the
+    review folder** (`<folder>/<review name>.atkproj`). Whoever opens that
+    folder gets the notes too, and the existing project format, annotations
+    and PDF/MP4 exports are reused.
+  - The review metadata (source folder, roster mapping, statuses) is an
+    optional `review` block in that project file. As was done for annotations,
+    a project **with** the block is written as **version 3**, so older builds
+    refuse it cleanly instead of silently dropping the data. Projects without
+    it keep their current version.
+  - Entries are stored relative to the folder, so a moved or synced folder
+    (OneDrive, a network drive) still opens.
+- **Rescan** compares the folder with the list:
+  - New files are offered for adding.
+  - Missing files are marked "missing" (the existing relink flow applies).
+- Opening a review builds the `Project` playlist in the review's order and
+  switches to the Player page.
+
+### 2.6 Roster import and batch rename (Phase 6)
+
+**Import a roster:**
+
+- **CSV** (UTF-8 or UTF-16, with or without a BOM; comma, semicolon or tab
+  separated) is supported in all cases.
+- **Excel `.xlsx`** support is decision **D4** (§5).
+- A preview shows the first rows. The user picks:
+  - Which column is the **match key** (for example Student ID, Email, or
+    "Last name")
+  - Which columns form the **name**
+  - Whether row order defines the **review order**
+
+**Match clips to roster rows** (`RosterMatcher`, pure logic):
+
+1. An exact key found in the file name (for example a student ID).
+2. Name tokens: case-, accent- and separator-insensitive, either order
+   (`smith_jane`, `Jane-Smith`, `JSmith`).
+3. Fuzzy matching (edit distance) as a *suggestion only*.
+
+The results show in a table: clip → matched person, with a confidence level.
+Any row can be changed through a dropdown. **Unmatched clips** and **roster
+people with no clip** (missing submissions) are listed separately, and the
+latter are useful on their own.
+
+**New name template**, for example:
+
+```
+{order:02}_{last}_{first}            → 01_Smith_Jane.mp4
+{id}_{last}{first}_{original}        → 1004217_SmithJane_blocking_v3.mov
+```
+
+The tokens are `{order}`, `{id}`, `{first}`, `{last}`, `{full}`, any roster
+column `{col:Header}`, `{original}`, `{date}` and `{review}`. The extension is
+always kept.
+
+**Two modes**, chosen per run:
+
+- **Display names only** (default, non-destructive): this sets
+  `SourceEntry::displayName` and the review entry's name. The files on disk are
+  untouched, and the playlist, notes PDF and exports show the roster names.
+- **Rename files on disk**: shown only after a preview and an explicit
+  confirmation. Safety rules:
+  - **Dry-run preview**: old → new name for every file, with problems flagged
+    before anything changes:
+    - Duplicate targets
+    - Case-only collisions on Windows and macOS
+    - Characters that are illegal on any of the three OSes (`<>:"/\|?*`,
+      trailing dots and spaces, reserved names such as `CON`)
+    - Over-long paths
+    - Files that already exist
+  - **Two-step rename**: every file goes to a unique temporary name first,
+    then to its final name. Swaps and chains (A→B, B→A) cannot clobber
+    anything.
+  - A **journal** (`.atk-rename-<timestamp>.json` in the folder) is written
+    *before* the first rename. It enables **Undo last rename** from the review's
+    ⋯ menu, and it lets an interrupted run roll back at the next launch.
+  - Any failure stops the run and rolls back the files already renamed. Nothing
+    is overwritten. Files currently open in the player are released first.
+  - After a successful rename, the review and `.atkproj` entries are updated, so
+    notes and drawings stay attached to the right clip.
+- **Order by roster**: one click sorts the review into roster row order, and
+  clips with no match go at the end.
+
+---
+
+## 3. Phases
+
+Each phase lands as its own PR, runs, and is worth using on its own. Each must
+build and pass the full `ctest` suite in Windows Debug and Release before it is
+called done.
+
+| Phase | Scope | Main files | Tests |
+|---|---|---|---|
+| **1. Visual system** | Teal accent and new tokens, `IconProvider`, SVG icon set and licence, stylesheet refresh | `Theme.*`, new `IconProvider.*`, `assets/icons`, `atk_resources.qrc`, `THIRD_PARTY_LICENSES.md` | Icon lookup and tint cache; stylesheet builds |
+| **2. Drawing tools** | Icon row, options popover, floating size/opacity pill, Trace/Ghost moved; **incremental stroke rendering and coalesced refreshes** | `AnnotationToolbar.*`, new `BrushSizePill.*`, `ViewerWidget.cpp`, `AnnotationRenderer.cpp`, `MainWindow.cpp` | Existing annotation suites stay green; renderer pixel-equivalence (incremental vs full); timing benchmark of a 2,000-point stroke and a 200-stroke frame |
+| **3. Playlist cards** | `PlaylistModel` and card delegate, drag reorder, drop zone, `ThumbnailService` with disk cache | `SourcesPanel.*`, new `PlaylistModel.*`, `PlaylistCardDelegate.*`, `src/media/ThumbnailService.*` | Model and reorder tests; thumbnail worker start/stop and shutdown order; cache invalidation on mtime |
+| **4. Header, notes, transport** | Review header with clip status, notes panel layout, timeline and transport regrouping | `MainWindow.*`, `NotesPanel.*`, `TransportControls.*`, `TimelineWidget.*`, new `ReviewHeaderBar.*` | Status persistence; notes filter and search; existing timeline and transport tests |
+| **5. Review Library** | `src/review` (`ReviewList`, `ReviewLibrary`, folder scanner), Home page, New Review wizard, project v3 `review` block, rescan | new `src/review/*`, new `ReviewLibraryPage.*`, `NewReviewWizard.*`, `ProjectSerializer.cpp`, `MainWindow.*` | Library JSON round-trip and atomic save; scanner (natural sort, subfolders, sequences); v1/v2/v3 compatibility; relative-path relocation |
+| **6. Roster and rename** | CSV (and XLSX per D4) import, `RosterMatcher`, name template, `RenamePlanner` / `RenameExecutor` with journal and undo, rename dialog | new `src/review/Roster*`, `RenamePlanner.*`, `RenameExecutor.*`, `BatchRenameDialog.*` | Parser edge cases (BOM, quotes, delimiters); matcher; planner conflicts per OS rule; executor on a temp dir: swaps, chains, failure and rollback, undo |
+| **7. Polish and docs** | Keyboard paths, accessibility names, high-DPI check, user guide, release notes, `ROADMAP.md` | `docs/*`, `README.md` | Full suite; manual acceptance list |
+
+**Suggested order:** Phases 1 → 2 → 3 make the player look and feel right first.
+Phases 5 → 6 deliver the class-review workflow. Phase 4 can slot anywhere after 1.
+If the review workflow is the more urgent need, Phases 5–6 can come straight
+after Phase 1, using plain playlist rows until Phase 3 lands.
+
+---
+
+## 4. Risks and how the plan handles them
+
+- **Renaming students' files is destructive.** The default is display-only.
+  Disk renames require a preview, a confirmation, the two-step rename, a journal
+  and undo, and they never overwrite.
+- **Thumbnails could stall the UI.** They decode on a worker thread with its own
+  FFmpeg context, return through queued signals, and are cached on disk.
+- **Older builds opening new projects.** Projects with a `review` block are
+  written as version 3, so older builds refuse them cleanly instead of losing
+  the data.
+- **Scope creep from "look like SyncSketch".** Only layout and interaction
+  patterns are copied. There are no cloud sync, share links or accounts; those
+  remain out of scope.
+- **Milestone boundaries.** This plan needs the owner's approval as a milestone
+  before Phase 1 starts.
+
+---
+
+## 5. Decisions needed before Phase 1
+
+| # | Question | Recommendation |
+|---|---|---|
+| D1 | Accent colour: switch to teal, or keep blue with the new layout? | Teal, defined as one token so it can be changed back in one line |
+| D2 | Icon set | Lucide (ISC): broad set, consistent outline style |
+| D3 | Home page: inside the main window, or a separate start window? | Inside the main window (Home ⇄ Player), like the reference |
+| D4 | Excel support | CSV in Phase 6; `.xlsx` through a small built-in reader that uses the zlib already shipped (no new dependency). The alternative is the QXlsx library (MIT), which adds a dependency |
+| D5 | Default rename mode | Display names only; rename on disk is opt-in per run |
+| D6 | Clip status values | Not reviewed · In review · Needs changes · Approved, editable in Preferences |
+| D7 | Where a review's notes are saved | An `.atkproj` inside the review folder (travels with the clips). The alternative is a central app-data store |
