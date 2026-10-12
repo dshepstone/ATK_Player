@@ -17,6 +17,7 @@ set(ATK_UI_SOURCES
     ExportUi.cpp
     FrameFieldStyle.cpp
     FrameNumberInput.cpp
+    IconProvider.cpp
     MainWindow.cpp
     MediaInformationDialog.cpp
     NotesPanel.cpp
@@ -48,6 +49,7 @@ set(ATK_UI_HEADERS
     ExportUi.h
     FrameFieldStyle.h
     FrameNumberInput.h
+    IconProvider.h
     MainWindow.h
     MediaInformationDialog.h
     NotesPanel.h

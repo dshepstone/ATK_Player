@@ -1,5 +1,7 @@
 #include "ui/BookmarkPanel.h"
 
+#include "ui/IconProvider.h"
+
 #include "timeline/Bookmark.h"
 #include "timeline/TimelineModel.h"
 
@@ -36,7 +38,7 @@ BookmarkPanel::BookmarkPanel(QWidget* parent) : QWidget(parent)
 
     m_addPoint = new QPushButton(tr("Add Point Bookmark (B)"), this);
     m_addPoint->setObjectName(QStringLiteral("AddPointBookmark"));
-    m_addPoint->setIcon(QIcon(QStringLiteral(":/icons/bookmark-add.svg")));
+    m_addPoint->setIcon(icons::icon(QStringLiteral("bookmark-plus")));
     layout->addWidget(m_addPoint);
 
     auto* creationGroup = new QGroupBox(tr("Create Range Bookmark"), this);

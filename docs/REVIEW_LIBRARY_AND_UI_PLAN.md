@@ -2,7 +2,12 @@
 
 Status: **Approved by the owner (2026-10-12) with the recommended decisions in §5,
 plus two additions: launch routing (§2.7) and an images-only option for the
-Notes PDF (§2.8).** Work proceeds phase by phase; nothing is built yet.
+Notes PDF (§2.8).** Work proceeds phase by phase.
+
+| Phase | State |
+|---|---|
+| 1. Visual system | **Implemented** (PR dshepstone/ATK_Player#31): teal accent and new tokens, `ui/IconProvider` with Lucide icons, stylesheet refresh, transport/playlist/command icons. Windows Debug/Release run pending. |
+| 2–7 | Not started |
 Per `AGENTS.md`, this is new milestone work. Suggested name:
 **M10 — Review Library and Interface Refresh**. It has no OS-specific code
 apart from "show in Explorer/Finder" and can land before or after M6–M8.

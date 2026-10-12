@@ -1,5 +1,8 @@
 #include "ui/SourcesPanel.h"
 
+#include "ui/IconProvider.h"
+#include "ui/Theme.h"
+
 #include "media/MediaSource.h"
 #include "project/Project.h"
 
@@ -57,11 +60,17 @@ SourcesPanel::SourcesPanel(QWidget* parent)
 
     auto* controls = new QHBoxLayout;
     controls->setContentsMargins(4, 4, 4, 4);
-    auto* add = new QPushButton(tr("+"), this); add->setToolTip(tr("Add media to playlist"));
-    auto* remove = new QPushButton(tr("−"), this); remove->setToolTip(tr("Remove selected playlist item"));
-    auto* up = new QPushButton(tr("↑"), this); up->setToolTip(tr("Move selected item up"));
-    auto* down = new QPushButton(tr("↓"), this); down->setToolTip(tr("Move selected item down"));
-    for (QPushButton* button : {add, remove, up, down}) { button->setFixedWidth(30); controls->addWidget(button); }
+    auto* add = new QPushButton(icons::icon(QStringLiteral("plus")), QString(), this); add->setToolTip(tr("Add media to playlist"));
+    auto* remove = new QPushButton(icons::icon(QStringLiteral("minus")), QString(), this); remove->setToolTip(tr("Remove selected playlist item"));
+    auto* up = new QPushButton(icons::icon(QStringLiteral("arrow-up")), QString(), this); up->setToolTip(tr("Move selected item up"));
+    auto* down = new QPushButton(icons::icon(QStringLiteral("arrow-down")), QString(), this); down->setToolTip(tr("Move selected item down"));
+    for (QPushButton* button : {add, remove, up, down}) {
+        button->setProperty("atkRole", "iconButton");
+        button->setAccessibleName(button->toolTip());
+        button->setIconSize(QSize(theme::metrics::iconSmall, theme::metrics::iconSmall));
+        button->setFixedWidth(30);
+        controls->addWidget(button);
+    }
     controls->addStretch(1); layout->addLayout(controls);
     connect(add, &QPushButton::clicked, this, &SourcesPanel::addMediaRequested);
     connect(remove, &QPushButton::clicked, this, [this] { emit removeRequested(selectedIndex()); });

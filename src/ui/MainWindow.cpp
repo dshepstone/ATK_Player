@@ -30,6 +30,7 @@
 #include "ui/ExportUi.h"
 #include "ui/FrameFieldStyle.h"
 #include "ui/FrameNumberInput.h"
+#include "ui/IconProvider.h"
 #include "ui/MediaInformationDialog.h"
 #include "ui/NotesPanel.h"
 #include "ui/PreferencesDialog.h"
@@ -507,12 +508,12 @@ void MainWindow::buildMenus()
         commands::CommandCategory::Help,
     };
 
-    m_commands->action(CommandId::OpenMedia)->setIcon(style()->standardIcon(QStyle::SP_DialogOpenButton));
-    m_commands->action(CommandId::Preferences)->setIcon(style()->standardIcon(QStyle::SP_FileDialogDetailedView));
-    m_commands->action(CommandId::AddBookmark)->setIcon(QIcon(QStringLiteral(":/icons/bookmark-add.svg")));
-    m_commands->action(CommandId::TimelineZoomFit)->setIcon(style()->standardIcon(QStyle::SP_DesktopIcon));
-    m_commands->action(CommandId::ZoomFit)->setIcon(style()->standardIcon(QStyle::SP_TitleBarMaxButton));
-    m_commands->action(CommandId::ZoomActualSize)->setIcon(style()->standardIcon(QStyle::SP_FileDialogContentsView));
+    m_commands->action(CommandId::OpenMedia)->setIcon(icons::icon(QStringLiteral("folder-open")));
+    m_commands->action(CommandId::Preferences)->setIcon(icons::icon(QStringLiteral("settings")));
+    m_commands->action(CommandId::AddBookmark)->setIcon(icons::icon(QStringLiteral("bookmark-plus")));
+    m_commands->action(CommandId::TimelineZoomFit)->setIcon(icons::icon(QStringLiteral("move-horizontal")));
+    m_commands->action(CommandId::ZoomFit)->setIcon(icons::icon(QStringLiteral("scan")));
+    m_commands->action(CommandId::ZoomActualSize)->setIcon(icons::icon(QStringLiteral("zoom-in")));
 
     for (const commands::CommandCategory category : categories) {
         QMenu* menu = menuBar()->addMenu(commands::categoryTitle(category));
@@ -724,9 +725,9 @@ void MainWindow::connectSignals()
     connect(m_compare.get(), &playback::CompareSession::activePaneChanged, this,
             [this](playback::ComparePane pane) {
                 m_viewer->setStyleSheet(pane == playback::ComparePane::A
-                    ? QStringLiteral("border: 2px solid #1687d9;") : QString());
+                    ? QStringLiteral("border: 2px solid %1;").arg(theme::accent().name()) : QString());
                 m_viewerB->setStyleSheet(pane == playback::ComparePane::B
-                    ? QStringLiteral("border: 2px solid #1687d9;") : QString());
+                    ? QStringLiteral("border: 2px solid %1;").arg(theme::accent().name()) : QString());
             });
     connect(m_project.get(), &project::Project::entriesChanged, this, [this] {
         if (!isComparisonActive()) return;

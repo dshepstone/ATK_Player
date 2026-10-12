@@ -59,6 +59,7 @@ set(ATK_UI_TEST_SOURCES
     tst_mediainformation.cpp
     tst_annotationviewer.cpp
     tst_annotationworkflow.cpp
+    tst_iconprovider.cpp
 )
 
 foreach(test_source IN LISTS ATK_TEST_SOURCES ATK_FFMPEG_TEST_SOURCES ATK_UI_TEST_SOURCES)
