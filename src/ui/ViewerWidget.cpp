@@ -496,17 +496,27 @@ void ViewerWidget::leaveEvent(QEvent* event)
 
 void ViewerWidget::setAnnotationFrame(const annotation::FrameAnnotation& frame)
 {
+    // The usual edit while drawing is one stroke added on top: the cached
+    // strokes stay valid and only the new one needs painting. A note edit
+    // leaves the drawings untouched altogether.
+    const bool sameFrame = frame.frame == m_annotationFrame.frame;
+    const bool sameItems = sameFrame && frame.items == m_annotationFrame.items;
+    const bool appended = sameFrame && !sameItems && frame.items.size() > m_annotationFrame.items.size()
+        && std::equal(m_annotationFrame.items.cbegin(), m_annotationFrame.items.cend(), frame.items.cbegin());
+    const quint64 hiddenBefore = m_hiddenItemId;
     m_annotationFrame = frame;
     // Any hidden item has now been replaced by the owner's updated data.
     if (!m_textEdit || !m_textEdit->existing) m_hiddenItemId = 0;
     if (m_selectedItemId && !findItem(m_selectedItemId)) m_selectedItemId = 0;
-    ++m_annotationGeneration;
+    if (m_hiddenItemId != hiddenBefore || !(sameItems || appended)) ++m_annotationGeneration;
     update();
 }
 
 void ViewerWidget::setGhostFrames(qint64 centerFrame, const QVector<annotation::GhostFrame>& ghosts)
 {
     if (ghosts.isEmpty() && m_ghosts.isEmpty()) return;
+    // Drawing on this frame re-sends the same ghosts; keep the composited cache.
+    if (centerFrame == m_ghostCenterFrame && ghosts == m_ghosts) return;
     m_ghosts = ghosts;
     m_ghostCenterFrame = centerFrame;
     ++m_ghostGeneration;
@@ -1274,20 +1284,28 @@ void ViewerWidget::paintAnnotations(QPainter& painter, const QRectF& target)
     }
     // Only draw annotations that belong to the frame on screen.
     if (!m_annotationFrame.isEmpty() && m_annotationFrame.frame == m_frame.frameIndex) {
+        const auto& items = m_annotationFrame.items;
         if (m_annotationCacheGeneration != m_annotationGeneration || m_annotationCacheTarget != target
             || m_annotationCacheFlipped != m_flipHorizontal || m_annotationCache.size() != pixelSize
-            || !qFuzzyCompare(m_annotationCache.devicePixelRatio(), dpr)) {
+            || !qFuzzyCompare(m_annotationCache.devicePixelRatio(), dpr) || m_annotationCacheItems > items.size()) {
             m_annotationCache = QImage(pixelSize, QImage::Format_ARGB32_Premultiplied);
             m_annotationCache.setDevicePixelRatio(dpr);
             m_annotationCache.fill(Qt::transparent);
-            QPainter cachePainter(&m_annotationCache);
-            applyFlip(cachePainter);
-            for (const annotation::AnnotationItem& item : m_annotationFrame.items)
-                if (item.id != m_hiddenItemId)
-                    annotation::AnnotationRenderer::paintItem(cachePainter, target, item);
+            m_annotationCacheItems = 0;
             m_annotationCacheGeneration = m_annotationGeneration;
             m_annotationCacheTarget = target;
             m_annotationCacheFlipped = m_flipHorizontal;
+            ++m_annotationCacheRebuilds;
+        }
+        if (m_annotationCacheItems < items.size()) {
+            // Items are painted in order, so painting only the ones added
+            // since the last paint gives exactly the pixels a full rebuild would.
+            QPainter cachePainter(&m_annotationCache);
+            applyFlip(cachePainter);
+            for (qsizetype i = m_annotationCacheItems; i < items.size(); ++i)
+                if (items[i].id != m_hiddenItemId)
+                    annotation::AnnotationRenderer::paintItem(cachePainter, target, items[i]);
+            m_annotationCacheItems = int(items.size());
         }
         painter.drawImage(QPointF(0.0, 0.0), m_annotationCache);
     }
