@@ -1,6 +1,8 @@
 # Review Library and Interface Refresh — Proposed Plan
 
-Status: **Proposal, awaiting approval.** Nothing in this document is built yet.
+Status: **Approved by the owner (2026-10-12) with the recommended decisions in §5,
+plus two additions: launch routing (§2.7) and an images-only option for the
+Notes PDF (§2.8).** Work proceeds phase by phase; nothing is built yet.
 Per `AGENTS.md`, this is new milestone work. Suggested name:
 **M10 — Review Library and Interface Refresh**. It has no OS-specific code
 apart from "show in Explorer/Finder" and can land before or after M6–M8.
@@ -137,9 +139,11 @@ Existing pieces we build on rather than replace:
 ### 2.5 Review Library — start screen (Phase 5)
 
 **Where it lives.** The Review Library is a *Home* page inside the main window
-(`QStackedWidget`: Home ⇄ Player), not a separate window. It shows at launch
-(this replaces the auto-shown `WelcomeDialog`, which stays under Help) and from
-the breadcrumb or **File › Review Library** (`Ctrl+Shift+H`).
+(`QStackedWidget`: Home ⇄ Player), not a separate window. It shows when the
+player is started **on its own** (see §2.7 for exactly when), and is always
+reachable from the breadcrumb or **File › Review Library** (`Ctrl+Shift+H`).
+The first-run `WelcomeDialog` stays, shown once over whichever page is up, and
+remains under Help.
 
 **Layout** (following the reference):
 
@@ -257,6 +261,71 @@ always kept.
 - **Order by roster**: one click sorts the review into roster row order, and
   clips with no match go at the end.
 
+### 2.7 Launch routing: when Home shows, and when it does not (Phase 5)
+
+The Review Library is for the user who opens ATK Player **to choose clips**.
+Anyone who sends the player a clip goes **straight to the Player page**, with
+no Home screen in between.
+
+| How the player was started | Opens on |
+|---|---|
+| Started on its own (Start menu, Dock, desktop icon, `ATKPlayer` with no file) | **Home** (Review Library) |
+| A clip or `.atkproj` was **double-clicked** in Explorer, Finder or a Linux file manager (file association, so a bare path on the command line) | **Player**, with that file loaded |
+| Sent by **Maya, Harmony** or another tool: `--open <file>`, a bare path, or a file drag onto the program icon | **Player**, with that file loaded |
+| A file arrives over the **external API** (`src/api`) while the player is already running | **Player**: switches from Home if needed and loads the file |
+| A file is **dropped** onto the window while Home is showing | **Player**, with that file loaded |
+| Started on its own with **Preferences › "Reopen the last project at startup"** turned on | **Player**, with the last project (Home is one click away) |
+
+Implementation notes:
+
+- `main.cpp` already separates the two cases: `requestedMediaPath()` empty or
+  not. A requested path calls `openMediaFile` / `openProjectFile` exactly as
+  today. Only the empty-path branch asks `MainWindow` to show Home, unless
+  reopen-last-project applies. The Home page is built lazily, so a launch from
+  Maya or Harmony pays no start-up cost for it.
+- Every way a file opens goes through one `MainWindow::showPlayer()` switch,
+  so no route can leave the user staring at Home with a clip loaded behind it.
+- A failed open, such as a missing or unreadable file, still lands on the
+  Player page with the existing error state, so the user sees why.
+- **Preference:** "At startup, show: Review Library / Empty player". The
+  default is the Review Library. This affects only plain launches; files sent
+  by double-click, Maya or Harmony always open directly.
+- **Already running (follow-up, optional):** today a second double-click
+  starts a second player. Handing the file to the running instance (through a
+  local socket, in a later phase) would load it in the existing window
+  instead. This is listed under §5 as D9 and is not part of the core phases.
+- macOS sends files through `QFileOpenEvent` rather than the command line.
+  That is handled with the macOS milestone and follows the same rule (file →
+  Player).
+
+### 2.8 Notes PDF: include the text notes, or images only (Phase 4)
+
+**Export Notes PDF** (`ReviewNotesDialog`, *Content* card) gets an on/off
+switch: **"Include text notes"**, on by default.
+
+- **On:** the current layout. Each row has the frame picture, with drawings,
+  beside its notes.
+- **Off: images only.**
+  - Each row is the frame picture with its drawings, captioned with the frame
+    number and timecode only. No note text, authors or dates.
+  - The freed column lets each picture use the full page width.
+  - Frames that have notes but **no drawings** are left out, since without the
+    text there is nothing on them to review. The dialog's summary line counts
+    exactly what will be exported (for example "12 frames will be listed").
+  - "Include resolved notes" is disabled while the switch is off, because it no
+    longer applies.
+  - The header (project, clip, reviewer, date) stays in both modes.
+- The setting is remembered between exports, like "Open the PDF when it is
+  done".
+- Code: `ReviewNotesOptions` gains `bool includeNoteText = true`.
+  `ReviewNotesJob::framesToInclude` takes the new flag, the PDF layout gets an
+  images-only row, and the dialog gets the switch.
+- Tests:
+  - `framesToInclude` with the switch on and off (notes-only frames dropped)
+  - Pagination of full-width rows
+  - The PDF writes and verifies in both modes
+  - The note text is absent from the images-only PDF
+
 ---
 
 ## 3. Phases
@@ -270,10 +339,13 @@ called done.
 | **1. Visual system** | Teal accent and new tokens, `IconProvider`, SVG icon set and licence, stylesheet refresh | `Theme.*`, new `IconProvider.*`, `assets/icons`, `atk_resources.qrc`, `THIRD_PARTY_LICENSES.md` | Icon lookup and tint cache; stylesheet builds |
 | **2. Drawing tools** | Icon row, options popover, floating size/opacity pill, Trace/Ghost moved; **incremental stroke rendering and coalesced refreshes** | `AnnotationToolbar.*`, new `BrushSizePill.*`, `ViewerWidget.cpp`, `AnnotationRenderer.cpp`, `MainWindow.cpp` | Existing annotation suites stay green; renderer pixel-equivalence (incremental vs full); timing benchmark of a 2,000-point stroke and a 200-stroke frame |
 | **3. Playlist cards** | `PlaylistModel` and card delegate, drag reorder, drop zone, `ThumbnailService` with disk cache | `SourcesPanel.*`, new `PlaylistModel.*`, `PlaylistCardDelegate.*`, `src/media/ThumbnailService.*` | Model and reorder tests; thumbnail worker start/stop and shutdown order; cache invalidation on mtime |
-| **4. Header, notes, transport** | Review header with clip status, notes panel layout, timeline and transport regrouping | `MainWindow.*`, `NotesPanel.*`, `TransportControls.*`, `TimelineWidget.*`, new `ReviewHeaderBar.*` | Status persistence; notes filter and search; existing timeline and transport tests |
-| **5. Review Library** | `src/review` (`ReviewList`, `ReviewLibrary`, folder scanner), Home page, New Review wizard, project v3 `review` block, rescan | new `src/review/*`, new `ReviewLibraryPage.*`, `NewReviewWizard.*`, `ProjectSerializer.cpp`, `MainWindow.*` | Library JSON round-trip and atomic save; scanner (natural sort, subfolders, sequences); v1/v2/v3 compatibility; relative-path relocation |
+| **4. Header, notes, transport, PDF option** | Review header with clip status, notes panel layout, timeline and transport regrouping; **"Include text notes" switch for the Notes PDF (§2.8)** | `MainWindow.*`, `NotesPanel.*`, `TransportControls.*`, `TimelineWidget.*`, new `ReviewHeaderBar.*`, `ReviewNotesDialog.*`, `ReviewNotesPdf.*` | Status persistence; notes filter and search; existing timeline and transport tests; images-only PDF tests from §2.8 |
+| **5. Review Library** | `src/review` (`ReviewList`, `ReviewLibrary`, folder scanner), Home page, New Review wizard, project v3 `review` block, rescan; **launch routing (§2.7)** | new `src/review/*`, new `ReviewLibraryPage.*`, `NewReviewWizard.*`, `ProjectSerializer.cpp`, `MainWindow.*`, `app/main.cpp`, `PreferencesDialog.*` | Library JSON round-trip and atomic save; launch routing (no file → Home; `--open`, bare path, `.atkproj`, API, drop → Player; reopen-last preference); scanner (natural sort, subfolders, sequences); v1/v2/v3 compatibility; relative-path relocation |
 | **6. Roster and rename** | CSV (and XLSX per D4) import, `RosterMatcher`, name template, `RenamePlanner` / `RenameExecutor` with journal and undo, rename dialog | new `src/review/Roster*`, `RenamePlanner.*`, `RenameExecutor.*`, `BatchRenameDialog.*` | Parser edge cases (BOM, quotes, delimiters); matcher; planner conflicts per OS rule; executor on a temp dir: swaps, chains, failure and rollback, undo |
 | **7. Polish and docs** | Keyboard paths, accessibility names, high-DPI check, user guide, release notes, `ROADMAP.md` | `docs/*`, `README.md` | Full suite; manual acceptance list |
+
+The PDF switch (§2.8) is small and self-contained. It can ship early, even
+before Phase 1, if it is wanted sooner.
 
 **Suggested order:** Phases 1 → 2 → 3 make the player look and feel right first.
 Phases 5 → 6 deliver the class-review workflow. Phase 4 can slot anywhere after 1.
@@ -300,7 +372,7 @@ after Phase 1, using plain playlist rows until Phase 3 lands.
 
 ---
 
-## 5. Decisions needed before Phase 1
+## 5. Decisions (approved 2026-10-12: the recommendations)
 
 | # | Question | Recommendation |
 |---|---|---|
@@ -311,3 +383,5 @@ after Phase 1, using plain playlist rows until Phase 3 lands.
 | D5 | Default rename mode | Display names only; rename on disk is opt-in per run |
 | D6 | Clip status values | Not reviewed · In review · Needs changes · Approved, editable in Preferences |
 | D7 | Where a review's notes are saved | An `.atkproj` inside the review folder (travels with the clips). The alternative is a central app-data store |
+| D8 | Images-only PDF: keep frames that have notes but no drawings? | Leave them out (§2.8) |
+| D9 | Double-click while the player is already running | Optional follow-up: hand the file to the running window instead of starting a second player |
