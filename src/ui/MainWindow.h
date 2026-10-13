@@ -126,7 +126,7 @@ public:
                       const QVector<review::FoundClip>& clips, const QString& projectPath, bool interactive = true);
     /// Opens a library review; offers to add clips that appeared in its folder.
     bool openReview(const QUuid& id, bool interactive = true);
-    /// Applies a Rename from Class List decision (what the dialog returns):
+    /// Applies a Rename from Team List decision (what the dialog returns):
     /// shown names, order, and, with `onDisk`, the checked file renames.
     /// False (and nothing changed on disk) when the renames failed.
     bool applyRosterRename(const QVector<review::RenameDecision>& decisions, bool onDisk, bool reorder,

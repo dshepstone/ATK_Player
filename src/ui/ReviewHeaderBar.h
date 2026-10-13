@@ -34,7 +34,7 @@ public:
     project::ClipStatus status() const;
     /// The Export menu offers these (the window's own export commands).
     void setExportActions(const QList<QAction*>& actions);
-    /// A button for the window's "Rename Clips from Class List" command.
+    /// A button for the window's "Rename Clips from Team List" command.
     void setRenameAction(QAction* action);
 
 signals:

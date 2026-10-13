@@ -60,7 +60,7 @@ public:
     bool showLibraryAtStartup() const;
     QStringList recentProjects() const;
     QString lastProjectPath() const;
-    /// Rename from Class List: the last list used and the name pattern.
+    /// Rename from Team List: the last list used and the name pattern.
     QString lastRosterPath() const;
     QString renameTemplate() const;
     bool apiEnabled() const;

@@ -2121,7 +2121,7 @@ void MainWindow::retargetRenamedClips(const QHash<QString, QString>& moved)
 void MainWindow::renameClipsFromRoster()
 {
     if (m_project->entries().isEmpty()) {
-        QMessageBox::information(this, tr("Rename Clips from Class List"),
+        QMessageBox::information(this, tr("Rename Clips from Team List"),
                                  tr("Open a review, or add clips to the playlist, first."));
         return;
     }

@@ -17,7 +17,7 @@ class QTableWidget;
 
 namespace atk::ui {
 
-/// "Rename Clips from Class List": match the clips of a review to a class or
+/// "Rename Clips from Team List": match the clips of a review to a team, class or
 /// staff list (CSV or Excel) and give them the people's names.
 ///
 /// By default only the names shown in ATK Player change (the playlist,
@@ -40,7 +40,7 @@ public:
 
     BatchRenameDialog(QVector<Clip> clips, QString reviewName, QString nameTemplate, QWidget* parent = nullptr);
 
-    /// Loads a class list (also what "Choose List…" does).
+    /// Loads a team list (also what "Choose List…" does).
     bool loadRoster(const QString& path);
     /// Or uses one already read (tests).
     void setRoster(const review::Roster& roster);

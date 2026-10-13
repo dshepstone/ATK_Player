@@ -68,13 +68,13 @@ BatchRenameDialog::BatchRenameDialog(QVector<Clip> clips, QString reviewName, QS
     : QDialog(parent), m_clips(std::move(clips)), m_reviewName(std::move(reviewName))
 {
     setObjectName(QStringLiteral("BatchRenameDialog"));
-    setWindowTitle(tr("Rename Clips from Class List"));
+    setWindowTitle(tr("Rename Clips from Team List"));
     resize(920, 680);
     m_matches.resize(m_clips.size());
     auto* root = new QVBoxLayout(this);
 
-    // --- The class list ----------------------------------------------------
-    auto* listBox = new QGroupBox(tr("Class or staff list (CSV or Excel)"), this);
+    // --- The team list -----------------------------------------------------
+    auto* listBox = new QGroupBox(tr("Team, class or staff list (CSV or Excel)"), this);
     auto* listLayout = new QVBoxLayout(listBox);
     auto* fileRow = new QHBoxLayout;
     m_rosterLabel = new QLabel(tr("No list chosen."), listBox);
@@ -143,7 +143,7 @@ BatchRenameDialog::BatchRenameDialog(QVector<Clip> clips, QString reviewName, QS
     m_displayOnly->setChecked(true);
     m_onDisk = new QRadioButton(tr("Rename the files on disk too (checked first, and can be undone)."), this);
     m_onDisk->setObjectName(QStringLiteral("BatchRenameOnDisk"));
-    m_order = new QCheckBox(tr("Put the review in class-list order (clips with no match go last)"), this);
+    m_order = new QCheckBox(tr("Put the review in team-list order (clips with no match go last)"), this);
     m_order->setObjectName(QStringLiteral("BatchRenameOrder"));
     root->addWidget(m_displayOnly);
     root->addWidget(m_onDisk);
@@ -195,7 +195,7 @@ bool BatchRenameDialog::loadRoster(const QString& path)
 {
     const review::RosterResult result = review::readRosterFile(path, m_headerRow->isChecked());
     if (!result.ok) {
-        QMessageBox::warning(this, tr("Class List"), tr("The list could not be read:\n%1").arg(result.error));
+        QMessageBox::warning(this, tr("Team List"), tr("The list could not be read:\n%1").arg(result.error));
         return false;
     }
     m_rosterPath = path;
@@ -223,8 +223,8 @@ void BatchRenameDialog::setRoster(const review::Roster& roster)
 void BatchRenameDialog::chooseRoster()
 {
     const QString path = QFileDialog::getOpenFileName(
-        this, tr("Choose the Class List"), m_rosterPath.isEmpty() ? QString() : QFileInfo(m_rosterPath).absolutePath(),
-        tr("Class lists (*.csv *.xlsx *.txt *.tsv);;All Files (*)"));
+        this, tr("Choose the Team List"), m_rosterPath.isEmpty() ? QString() : QFileInfo(m_rosterPath).absolutePath(),
+        tr("Team lists (*.csv *.xlsx *.xlsm *.xls *.txt *.tsv);;All Files (*)"));
     if (!path.isEmpty()) loadRoster(path);
 }
 
@@ -434,7 +434,7 @@ void BatchRenameDialog::refreshNames()
                                                : tr("No clip found for: %1").arg(missing.join(QStringLiteral(", "))));
 
     QString summary;
-    if (m_roster.rows.isEmpty()) summary = tr("Choose a class list to match the clips to.");
+    if (m_roster.rows.isEmpty()) summary = tr("Choose a team list to match the clips to.");
     else if (named == 0) summary = tr("No clip is matched to anyone yet. Pick people in the Person column.");
     else if (nameTemplate().isEmpty()) summary = tr("Enter a pattern for the new names.");
     else if (blocked > 0) summary = tr("%n file(s) cannot be renamed as shown. Change the pattern or the matches.", nullptr, blocked);

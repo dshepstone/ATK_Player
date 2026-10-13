@@ -61,6 +61,7 @@ set(ATK_CORE_SOURCES
     project/ProjectSerializer.cpp
 
     review/BatchRename.cpp
+    review/CompoundFile.cpp
     review/FolderScanner.cpp
     review/ReviewLibrary.cpp
     review/Roster.cpp
@@ -135,6 +136,7 @@ set(ATK_CORE_HEADERS
     project/Project.h
     project/ProjectSerializer.h
     review/BatchRename.h
+    review/CompoundFile.h
     review/FolderScanner.h
     review/ReviewLibrary.h
     review/Roster.h

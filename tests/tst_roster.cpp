@@ -1,4 +1,5 @@
 #include "review/BatchRename.h"
+#include "review/CompoundFile.h"
 #include "review/Roster.h"
 #include "review/RosterMatcher.h"
 #include "review/ZipArchive.h"
@@ -63,6 +64,203 @@ QByteArray makeXlsx()
                     {QStringLiteral("xl/worksheets/class.xml"), sheet}});
 }
 
+/// One BIFF record: type, length, data.
+QByteArray biff(quint16 type, const QByteArray& data)
+{
+    QByteArray r;
+    put16(r, type);
+    put16(r, quint16(data.size()));
+    return r + data;
+}
+
+QByteArray cellHead(quint16 row, quint16 column)
+{
+    QByteArray d;
+    put16(d, row);
+    put16(d, column);
+    put16(d, 15); // XF
+    return d;
+}
+
+/// "Compressed" (one byte per character) or UTF-16 string, optionally with
+/// rich-text runs (SST only).
+QByteArray biffString(const QString& text, bool wide, int runs = 0)
+{
+    QByteArray d;
+    put16(d, quint16(text.size()));
+    d.append(char((wide ? 0x01 : 0) | (runs ? 0x08 : 0)));
+    if (runs) put16(d, quint16(runs));
+    for (const QChar c : text) {
+        if (wide) put16(d, c.unicode());
+        else d.append(char(c.unicode()));
+    }
+    for (int i = 0; i < runs; ++i) put32(d, 0);
+    return d;
+}
+
+/// An Excel 97-2003 workbook stream laid out like a college class-list
+/// report: a title row, the header row further down, an empty column, a
+/// totals line after the people, and every kind of cell record.
+QByteArray makeBiffWorkbook(bool passwordProtected = false)
+{
+    // Shared strings; the email crosses into a CONTINUE record and goes on as UTF-16.
+    QByteArray sst;
+    put32(sst, 7);
+    put32(sst, 6);
+    sst += biffString(QStringLiteral("CLASS LISTS"), false);
+    sst += biffString(QStringLiteral("ID"), false);
+    sst += biffString(QStringLiteral("Name"), false, 2);
+    sst += biffString(QStringLiteral("Chac, Edward"), false);
+    QByteArray split;
+    put16(split, 17);
+    split.append(char(0));
+    split.append("echac@ex");
+    sst += split;
+    QByteArray cont;
+    cont.append(char(1));
+    for (const QChar c : QStringLiteral("ample.com")) put16(cont, c.unicode());
+    cont += biffString(QStringLiteral("Gill, Saanvi"), false);
+
+    QByteArray bof;
+    put16(bof, 0x0600);
+    put16(bof, 0x0005);
+    bof.append(12, '\0');
+    QByteArray sheetBof = bof;
+    sheetBof[2] = 0x10;
+
+    const auto boundSheet = [](quint32 at, bool hidden, const QByteArray& name) {
+        QByteArray d;
+        put32(d, at);
+        d.append(char(hidden ? 1 : 0)).append(char(0));
+        d.append(char(name.size())).append(char(0));
+        return biff(0x0085, d + name);
+    };
+    QByteArray globalsHead = biff(0x0809, bof);
+    if (passwordProtected) globalsHead += biff(0x002F, QByteArray(6, '\0'));
+    const QByteArray globalsTail = biff(0x00FC, sst) + biff(0x003C, cont) + biff(0x000A, {});
+    const qsizetype sheetAt = globalsHead.size() + boundSheet(0, true, "Old").size()
+                              + boundSheet(0, false, "Class").size() + globalsTail.size();
+    // A hidden sheet comes first in the workbook; the visible one is read.
+    const QByteArray hiddenSheet = biff(0x0809, sheetBof) + biff(0x00FD, cellHead(0, 0) + QByteArray(4, '\0'))
+                                   + biff(0x000A, {});
+    const QByteArray globals = globalsHead + boundSheet(quint32(sheetAt), true, "Old")
+                               + boundSheet(quint32(sheetAt + hiddenSheet.size()), false, "Class") + globalsTail;
+
+    const auto sstCell = [](quint16 row, quint16 column, quint32 index) {
+        QByteArray d = cellHead(row, column);
+        put32(d, index);
+        return biff(0x00FD, d);
+    };
+    QByteArray sheet = biff(0x0809, sheetBof);
+    sheet += sstCell(0, 3, 0);                                                     // the title
+    sheet += biff(0x0204, cellHead(2, 0) + biffString(QStringLiteral("Component"), false));
+    sheet += sstCell(2, 2, 1) + sstCell(2, 4, 2);
+    sheet += biff(0x0204, cellHead(2, 6) + biffString(QStringLiteral("Email"), true));
+    QByteArray rk = cellHead(3, 2);
+    put32(rk, (8834796u << 2) | 0x02);                                             // an integer RK
+    sheet += biff(0x027E, rk) + sstCell(3, 4, 3) + sstCell(3, 6, 4);
+    QByteArray number = cellHead(4, 2);
+    const double id = 9063977.0;
+    number.append(reinterpret_cast<const char*>(&id), 8);
+    sheet += biff(0x0203, number);
+    sheet += biff(0x0204, cellHead(4, 4) + biffString(QStringLiteral("Núñez, José"), true));
+    QByteArray mulrk;
+    put16(mulrk, 5);
+    put16(mulrk, 1);
+    put16(mulrk, 15);
+    put32(mulrk, (7u << 2) | 0x02);
+    put16(mulrk, 15);
+    put32(mulrk, (9048864u << 2) | 0x02);
+    put16(mulrk, 2);
+    sheet += biff(0x00BD, mulrk) + sstCell(5, 4, 5);
+    QByteArray formula = cellHead(5, 6);
+    formula += QByteArray("\0\0\0\0\0\0\xff\xff", 8);
+    formula += QByteArray(8, '\0');
+    sheet += biff(0x0006, formula) + biff(0x0207, biffString(QStringLiteral("sgill@example.com"), false));
+    sheet += biff(0x0205, cellHead(5, 7) + QByteArray("\x01\x00", 2));
+    QByteArray total = cellHead(6, 0) + biffString(QStringLiteral("Total Students: 3"), false);
+    sheet += biff(0x0204, total) + biff(0x000A, {});
+    return globals + hiddenSheet + sheet;
+}
+
+/// A version 3 compound file holding one stream: in the mini stream when
+/// under 4096 bytes (as small workbooks are), else in regular sectors.
+QByteArray makeCompoundFile(const QByteArray& stream, const QString& name = QStringLiteral("Workbook"))
+{
+    constexpr quint32 kEnd = 0xFFFFFFFE;
+    constexpr quint32 kFree = 0xFFFFFFFF;
+    const bool mini = stream.size() < 4096;
+    QVector<quint32> fat(128, kFree);
+    fat[0] = 0xFFFFFFFD; // the FAT itself
+    fat[1] = kEnd;       // directory
+    QByteArray body;     // sectors 2...
+    QByteArray miniFat;
+    quint32 streamStart = 2;
+    quint32 rootStart = kEnd;
+    quint32 rootSize = 0;
+    const auto chainSectors = [&](quint32 first, qsizetype bytes) {
+        const quint32 count = quint32((bytes + 511) / 512);
+        for (quint32 i = 0; i < count; ++i) fat[first + i] = i + 1 < count ? first + i + 1 : kEnd;
+        return count;
+    };
+    if (mini) {
+        fat[2] = kEnd; // one mini FAT sector
+        const quint32 miniCount = quint32((stream.size() + 63) / 64);
+        for (quint32 i = 0; i < 128; ++i) put32(miniFat, i < miniCount ? (i + 1 < miniCount ? i + 1 : kEnd) : kFree);
+        streamStart = 0;
+        rootStart = 3;
+        rootSize = miniCount * 64;
+        chainSectors(3, rootSize);
+        body = miniFat + stream;
+    } else {
+        chainSectors(2, stream.size());
+        body = stream;
+    }
+    body.append(QByteArray((512 - body.size() % 512) % 512, '\0'));
+
+    const auto entry = [](const QString& entryName, quint8 type, quint32 child, quint32 start, quint32 size) {
+        QByteArray e;
+        for (const QChar c : entryName) put16(e, c.unicode());
+        e.append(QByteArray(64 - e.size(), '\0'));
+        put16(e, quint16((entryName.size() + 1) * 2));
+        e.append(char(type)).append(char(1));
+        put32(e, 0xFFFFFFFF);
+        put32(e, 0xFFFFFFFF);
+        put32(e, child);
+        e.append(QByteArray(116 - e.size(), '\0'));
+        put32(e, start);
+        put32(e, size);
+        put32(e, 0);
+        return e;
+    };
+    QByteArray directory = entry(QStringLiteral("Root Entry"), 5, 1, rootStart, rootSize)
+                           + entry(name, 2, 0xFFFFFFFF, streamStart, quint32(stream.size()));
+    directory.append(QByteArray(512 - directory.size(), '\0'));
+
+    QByteArray header("\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1", 8);
+    header.append(QByteArray(16, '\0'));
+    put16(header, 0x3E);
+    put16(header, 3);
+    put16(header, 0xFFFE);
+    put16(header, 9);
+    put16(header, 6);
+    header.append(QByteArray(10, '\0'));
+    put32(header, 1); // FAT sectors
+    put32(header, 1); // first directory sector
+    put32(header, 0);
+    put32(header, 4096);
+    put32(header, mini ? 2 : kEnd);
+    put32(header, mini ? 1 : 0);
+    put32(header, kEnd); // no DIFAT sectors
+    put32(header, 0);
+    put32(header, 0); // the FAT is sector 0
+    while (header.size() < 512) put32(header, kFree);
+
+    QByteArray fatSector;
+    for (const quint32 v : fat) put32(fatSector, v);
+    return header + fatSector + directory + body;
+}
+
 void touch(const QString& path, const QByteArray& content)
 {
     QFile file(path);
@@ -85,6 +283,9 @@ private slots:
     void inflateMatchesZlib();
     void inflateRefusesDamageAndBombs();
     void readsTheFirstSheetOfAnXlsx();
+    void readsAnExcel97Workbook_data();
+    void readsAnExcel97Workbook();
+    void xlsProblemsAreExplained();
     void readsCsvInExcelsEncodingsAndDelimiters();
     void csvQuotesBlankRowsAndNoHeader();
     void columnsAreGuessedFromHeaders();
@@ -147,8 +348,79 @@ void TestRoster::readsTheFirstSheetOfAnXlsx()
     touch(path, makeXlsx());
     QVERIFY(readRosterFile(path).ok);
     QVERIFY(!parseXlsx("not a zip").ok);
-    touch(dir.filePath(QStringLiteral("old.xls")), "x");
-    QVERIFY(readRosterFile(dir.filePath(QStringLiteral("old.xls"))).error.contains(QStringLiteral(".xlsx")));
+    // The contents decide: an .xlsx saved under an .xls name still reads,
+    // and a web page saved as .xls is explained.
+    touch(dir.filePath(QStringLiteral("renamed.xls")), makeXlsx());
+    QVERIFY(readRosterFile(dir.filePath(QStringLiteral("renamed.xls"))).ok);
+    touch(dir.filePath(QStringLiteral("page.xls")), "<html><table><tr><td>Name</td></tr></table></html>");
+    QVERIFY(readRosterFile(dir.filePath(QStringLiteral("page.xls"))).error.contains(QStringLiteral("Save As")));
+}
+
+void TestRoster::readsAnExcel97Workbook_data()
+{
+    QTest::addColumn<bool>("large");
+    QTest::newRow("mini stream") << false;
+    QTest::newRow("regular sectors") << true;
+}
+
+void TestRoster::readsAnExcel97Workbook()
+{
+    QFETCH(bool, large);
+    QByteArray stream = makeBiffWorkbook();
+    if (large) stream.append(QByteArray(6000, '\0')); // past the 4096-byte mini stream cutoff
+    const QByteArray file = makeCompoundFile(stream);
+
+    CompoundFile cfb;
+    QVERIFY(cfb.open(file));
+    QCOMPARE(cfb.read(QStringLiteral("WORKBOOK")).value_or(QByteArray()), stream);
+    QVERIFY(!cfb.read(QStringLiteral("Book")).has_value());
+
+    const RosterResult result = parseXls(file);
+    QVERIFY2(result.ok, qPrintable(result.error));
+    // The title above the header row and the totals line below the people
+    // are left out, and so are columns empty everywhere; unnamed columns
+    // keep their spreadsheet letter.
+    QCOMPARE(result.roster.headers, (QStringList{QStringLiteral("Component"), QStringLiteral("Column B"), QStringLiteral("ID"),
+                                                 QStringLiteral("Name"), QStringLiteral("Email"), QStringLiteral("Column H")}));
+    QCOMPARE(result.roster.rows.size(), 3);
+    QCOMPARE(result.roster.rows[0], (QStringList{QString(), QString(), QStringLiteral("8834796"), QStringLiteral("Chac, Edward"),
+                                                 QStringLiteral("echac@example.com"), QString()}));
+    QCOMPARE(result.roster.rows[1][2], QStringLiteral("9063977"));
+    QCOMPARE(result.roster.rows[1][3], QStringLiteral("Núñez, José"));
+    QCOMPARE(result.roster.rows[2], (QStringList{QString(), QStringLiteral("7"), QStringLiteral("9048864"), QStringLiteral("Gill, Saanvi"),
+                                                 QStringLiteral("sgill@example.com"), QStringLiteral("TRUE")}));
+
+    // The columns are recognised, so clips match without any setup.
+    const RosterColumns columns = guessColumns(result.roster.headers);
+    QCOMPARE(columns.id, 2);
+    QCOMPARE(columns.full, 3);
+    const auto matches = matchClipsToRoster({QStringLiteral("A1_Gill_Saanvi_Walk")}, result.roster, columns);
+    QCOMPARE(matches[0].roster, 2);
+
+    QTemporaryDir dir;
+    const QString path = dir.filePath(QStringLiteral("Class Lists.xls"));
+    touch(path, file);
+    QVERIFY(readRosterFile(path).ok);
+}
+
+void TestRoster::xlsProblemsAreExplained()
+{
+    QVERIFY(!CompoundFile().open("not a compound file"));
+    QVERIFY(parseXls("not a compound file").error.contains(QStringLiteral(".xls")));
+    QVERIFY(parseXls(makeCompoundFile(makeBiffWorkbook(true))).error.contains(QStringLiteral("password")));
+    QVERIFY(parseXls(makeCompoundFile("x", QStringLiteral("WordDocument"))).error.contains(QStringLiteral("no Excel workbook")));
+
+    // Damage anywhere fails cleanly, never hangs or crashes.
+    const QByteArray good = makeCompoundFile(makeBiffWorkbook());
+    for (int at = 0; at < good.size(); at += 7) {
+        QByteArray bad = good;
+        bad[at] = char(~bad[at]);
+        (void)parseXls(bad);
+    }
+    QByteArray looped = good;
+    looped.replace(512 + 3 * 4, 4, QByteArray("\x03\x00\x00\x00", 4)); // a chain that points at itself
+    (void)parseXls(looped);
+    QVERIFY(!parseXls(good.left(700)).ok);
 }
 
 void TestRoster::readsCsvInExcelsEncodingsAndDelimiters()

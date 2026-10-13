@@ -110,7 +110,7 @@ ReviewHeaderBar::ReviewHeaderBar(QWidget* parent) : QWidget(parent)
     m_export = iconButton(this, QStringLiteral("download"), tr("Export"), QStringLiteral("ReviewHeaderExport"));
     m_export->setPopupMode(QToolButton::InstantPopup);
     m_export->setMenu(new QMenu(m_export));
-    m_rename = iconButton(this, QStringLiteral("text-cursor-input"), tr("Rename clips from a class list"),
+    m_rename = iconButton(this, QStringLiteral("text-cursor-input"), tr("Rename clips from a team list"),
                           QStringLiteral("ReviewHeaderRename"));
     m_rename->hide(); // shown once the owner hands over its command
     m_folder = iconButton(this, QStringLiteral("folder-open"), tr("Show the clip's folder"),
@@ -158,7 +158,7 @@ void ReviewHeaderBar::setRenameAction(QAction* action)
 {
     m_rename->setDefaultAction(action);
     m_rename->setToolButtonStyle(Qt::ToolButtonIconOnly);
-    m_rename->setToolTip(tr("Rename clips from a class list"));
+    m_rename->setToolTip(tr("Rename clips from a team list"));
     m_rename->show();
 }
 

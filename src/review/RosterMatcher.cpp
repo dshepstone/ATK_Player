@@ -11,15 +11,12 @@
 namespace atk::review {
 namespace {
 
+/// `headers` already lower-case letters and digits only (see guessColumns).
 int findHeader(const QStringList& headers, std::initializer_list<const char*> wanted)
 {
     for (const char* w : wanted) {
-        const QString target = QString::fromLatin1(w);
-        for (int i = 0; i < headers.size(); ++i) {
-            QString h = headers[i].toLower();
-            h.remove(QRegularExpression(QStringLiteral("[^a-z0-9]")));
-            if (h == target) return i;
-        }
+        const qsizetype i = headers.indexOf(QLatin1String(w));
+        if (i >= 0) return int(i);
     }
     return -1;
 }
@@ -52,8 +49,11 @@ QString PersonName::full() const
     return QStringList{first, last}.join(QLatin1Char(' ')).trimmed();
 }
 
-RosterColumns guessColumns(const QStringList& headers)
+RosterColumns guessColumns(const QStringList& rawHeaders)
 {
+    static const QRegularExpression notAlphanumeric(QStringLiteral("[^a-z0-9]"));
+    QStringList headers = rawHeaders;
+    for (QString& h : headers) h = h.toLower().remove(notAlphanumeric);
     RosterColumns c;
     c.id = findHeader(headers, {"studentid", "studentnumber", "studentno", "id", "number", "employeeid",
                                 "staffid", "username", "userid", "login", "email"});

@@ -7,7 +7,7 @@
 
 namespace atk::review {
 
-/// What to do with one clip of a review when renaming from a class list.
+/// What to do with one clip of a review when renaming from a team list.
 struct RenameDecision {
     QUuid id;            ///< the project entry
     int rosterRow = -1;  ///< the person, or -1: not matched, left as it is
