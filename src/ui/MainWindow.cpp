@@ -2181,8 +2181,9 @@ bool MainWindow::applyRosterRename(const QVector<review::RenameDecision>& decisi
             return false;
         }
         if (plan.changeCount() > 0) {
-            // The player holds the open clip; release it so Windows lets it be renamed.
-            m_playback->closeMedia();
+            // The player holds the open clip; release it so Windows lets it be
+            // renamed (the rename retries while the player's threads let go).
+            m_playback->releaseMediaFiles();
             m_project->setActiveIndex(-1);
             const review::RenameResult result = review::executeRenames(plan);
             if (!result.ok) {
@@ -2225,7 +2226,7 @@ bool MainWindow::undoRosterRename(const QString& journalPath, QString* error)
         return false;
     }
     const QUuid active = m_project->currentSourceId();
-    m_playback->closeMedia();
+    m_playback->releaseMediaFiles();
     m_project->setActiveIndex(-1);
     const review::RenameResult result = review::undoRenames(journalPath);
     if (result.ok) {

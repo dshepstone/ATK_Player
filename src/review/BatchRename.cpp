@@ -12,6 +12,7 @@
 #include <QJsonObject>
 #include <QSaveFile>
 #include <QSet>
+#include <QThread>
 #include <QUuid>
 
 #include <algorithm>
@@ -77,25 +78,46 @@ QString temporaryName(const QString& from, int index)
                                    .arg(suffix));
 }
 
+/// Renames one file. Windows refuses to rename a file that is open, and a
+/// file is often open for a moment after ATK Player lets go of it (a decoder
+/// thread finishing its close) or while antivirus, the search indexer or
+/// OneDrive looks at it, so a refusal is retried for up to about 3 seconds.
+/// Elsewhere an open file can be renamed and a failure is final.
+bool moveFile(const QString& from, const QString& to)
+{
+#ifdef Q_OS_WIN
+    constexpr int kAttempts = 40;
+#else
+    constexpr int kAttempts = 1;
+#endif
+    for (int attempt = 0; attempt < kAttempts; ++attempt) {
+        if (QFile::rename(from, to)) return true;
+        if (!QFileInfo::exists(from) || QFileInfo::exists(to) || !QFileInfo(QFileInfo(to).absolutePath()).isDir())
+            return false; // not a lock: final
+        if (attempt + 1 < kAttempts) QThread::msleep(75);
+    }
+    return false;
+}
+
 /// Moves files from -> temp -> to; undoes what it did on any failure.
 bool runSteps(const QVector<Step>& steps, QString* error)
 {
     QVector<int> parked;
     for (int i = 0; i < steps.size(); ++i) {
-        if (QFileInfo::exists(steps[i].temp) || !QFile::rename(steps[i].from, steps[i].temp)) {
+        if (QFileInfo::exists(steps[i].temp) || !moveFile(steps[i].from, steps[i].temp)) {
             *error = QStringLiteral("Could not rename %1 (is it open in another program?).")
                          .arg(QDir::toNativeSeparators(steps[i].from));
-            for (auto it = parked.crbegin(); it != parked.crend(); ++it) QFile::rename(steps[*it].temp, steps[*it].from);
+            for (auto it = parked.crbegin(); it != parked.crend(); ++it) moveFile(steps[*it].temp, steps[*it].from);
             return false;
         }
         parked.append(i);
     }
     QVector<int> placed;
     for (int i = 0; i < steps.size(); ++i) {
-        if (QFileInfo::exists(steps[i].to) || !QFile::rename(steps[i].temp, steps[i].to)) {
+        if (QFileInfo::exists(steps[i].to) || !moveFile(steps[i].temp, steps[i].to)) {
             *error = QStringLiteral("Could not rename to %1.").arg(QDir::toNativeSeparators(steps[i].to));
-            for (auto it = placed.crbegin(); it != placed.crend(); ++it) QFile::rename(steps[*it].to, steps[*it].temp);
-            for (auto it = parked.crbegin(); it != parked.crend(); ++it) QFile::rename(steps[*it].temp, steps[*it].from);
+            for (auto it = placed.crbegin(); it != placed.crend(); ++it) moveFile(steps[*it].to, steps[*it].temp);
+            for (auto it = parked.crbegin(); it != parked.crend(); ++it) moveFile(steps[*it].temp, steps[*it].from);
             return false;
         }
         placed.append(i);
@@ -282,8 +304,8 @@ RenameResult recoverInterrupted(const QString& journalPath)
     QStringList stuck;
     for (const Step& s : steps) {
         if (QFileInfo::exists(s.from)) continue; // never moved
-        if (QFileInfo::exists(s.temp) && QFile::rename(s.temp, s.from)) { ++result.renamed; continue; }
-        if (QFileInfo::exists(s.to) && QFile::rename(s.to, s.from)) { ++result.renamed; continue; }
+        if (QFileInfo::exists(s.temp) && moveFile(s.temp, s.from)) { ++result.renamed; continue; }
+        if (QFileInfo::exists(s.to) && moveFile(s.to, s.from)) { ++result.renamed; continue; }
         stuck << QFileInfo(s.from).fileName();
     }
     if (!stuck.isEmpty()) {
