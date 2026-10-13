@@ -98,9 +98,14 @@ Compress-Archive -Path $staging -DestinationPath $zipPath -CompressionLevel Opti
 $zipHash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
 
 if ($ReleaseBodyTemplate) {
-    $body = (Get-Content -LiteralPath $ReleaseBodyTemplate -Raw).Replace("{{ZIP_SHA256}}", $zipHash).Replace("{{MSI_SHA256}}", $msiHash)
+    # Read and write as UTF-8 explicitly: Windows PowerShell 5.1 reads a file
+    # without a BOM in the ANSI code page, which turned the template's
+    # arrows and dashes into mojibake in the 0.5.0 release text.
+    $utf8 = New-Object System.Text.UTF8Encoding($false)
+    $template = [System.IO.File]::ReadAllText((Resolve-Path -LiteralPath $ReleaseBodyTemplate).Path, $utf8)
+    $body = $template.Replace("{{ZIP_SHA256}}", $zipHash).Replace("{{MSI_SHA256}}", $msiHash)
     $bodyPath = Join-Path $OutputDirectory "RELEASE_BODY_v$version.md"
-    Set-Content -LiteralPath $bodyPath -Encoding utf8 -Value $body
+    [System.IO.File]::WriteAllText([System.IO.Path]::GetFullPath($bodyPath), $body, $utf8)
     Write-Host "Release text: $bodyPath"
 }
 
