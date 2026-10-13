@@ -265,7 +265,7 @@ Released in 0.4.0 and 0.4.1. Plan: [ANNOTATION_PLAN.md](ANNOTATION_PLAN.md).
 - [x] Rename clips from a team list (CSV, `.xlsx`, `.xls`) with checks, undo and recovery
 - [x] Playlist playback modes
 - [x] Polish: keyboard paths, accessibility names, high-DPI icons, timeline time labels, user guide
-- [x] Windows Debug and Release acceptance of the full milestone (released in 0.5.0)
+- [x] Windows Debug and Release: CI build and full test suite pass on the merged head (run 38341193368); owner review on Windows
 
 Plan: [REVIEW_LIBRARY_AND_UI_PLAN.md](REVIEW_LIBRARY_AND_UI_PLAN.md).
 User guide: [USER_GUIDE.md](USER_GUIDE.md).

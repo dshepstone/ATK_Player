@@ -22,11 +22,11 @@ The latest Windows release is available from:
 
 **[Download ATK Player](https://github.com/dshepstone/ATK_Player/releases/latest)**
 
-### Windows Installer — Recommended
+### Windows Installer
 
-Download:
-
-`ATK-Player-0.5.0-Windows-x64.msi`
+Download `ATK-Player-v0.5.0-Windows.zip` from the release, extract it, and run
+`ATK-Player-0.5.0-Windows-x64.msi` from the extracted folder. The ZIP also holds
+`INSTALL.txt`, the MSI's SHA-256 checksum and the licence notices.
 
 The installer:
 
@@ -37,17 +37,8 @@ The installer:
 - includes the required Qt and FFmpeg runtime components
 - includes project MIT, Qt LGPL and FFmpeg LGPL texts and third-party notices
 
-### Portable Version
-
-Download:
-
-`ATK-Player-0.5.0-Windows-x64-Portable.zip`
-
-Extract the complete folder and run:
-
-`ATKPlayer.exe`
-
-Do not separate `ATKPlayer.exe` from the DLL and plugin folders included with the portable distribution.
+A portable (no-install) package was last published with 0.2.0; current releases
+ship the installer only.
 
 ### Windows Requirements
 
