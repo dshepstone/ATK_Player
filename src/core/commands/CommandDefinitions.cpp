@@ -25,7 +25,7 @@ using C = CommandCategory;
 constexpr std::array kCommands{
     // File
     CommandDefinition{ CommandId::ShowReviewLibrary,  "file.reviewLibrary",    QT_TRANSLATE_NOOP("Command", "Review Library"),       C::File,     "Ctrl+Shift+H", false },
-    CommandDefinition{ CommandId::NewReview,          "file.newReview",        QT_TRANSLATE_NOOP("Command", "New Review from Folder..."),C::File,  nullptr,        false },
+    CommandDefinition{ CommandId::NewReview,          "file.newReview",        QT_TRANSLATE_NOOP("Command", "New Review from Folder..."),C::File,  "Ctrl+Shift+N", false },
     CommandDefinition{ CommandId::RenameFromRoster,   "file.renameFromRoster", QT_TRANSLATE_NOOP("Command", "Rename Clips from Team List..."),C::File, nullptr,      false },
     CommandDefinition{ CommandId::OpenMedia,          "file.openMedia",        QT_TRANSLATE_NOOP("Command", "Open Media..."),        C::File,     "Ctrl+O",       false },
     CommandDefinition{ CommandId::NewProject,         "file.newProject",       QT_TRANSLATE_NOOP("Command", "New Project"),          C::File,     "Ctrl+N",       false },

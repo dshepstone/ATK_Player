@@ -236,6 +236,7 @@ NotesPanel::NotesPanel(QWidget* parent) : QWidget(parent)
 
     m_search = new QLineEdit(this);
     m_search->setObjectName(QStringLiteral("NotesSearch"));
+    m_search->setAccessibleName(tr("Search notes"));
     m_search->setPlaceholderText(tr("Search notes and authors"));
     m_search->setClearButtonEnabled(true);
     m_search->setVisible(false);
@@ -258,6 +259,7 @@ NotesPanel::NotesPanel(QWidget* parent) : QWidget(parent)
     m_stack = new QStackedWidget(this);
     m_list = new QListWidget(m_stack);
     m_list->setObjectName(QStringLiteral("NotesList"));
+    m_list->setAccessibleName(tr("Notes"));
     m_list->setItemDelegate(new NoteCardDelegate(m_list));
     m_list->setResizeMode(QListView::Adjust);
     m_list->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
@@ -333,6 +335,7 @@ NotesPanel::NotesPanel(QWidget* parent) : QWidget(parent)
     nameLabel->setObjectName(QStringLiteral("NotesReviewerLabel"));
     m_reviewer = new QLineEdit(footer);
     m_reviewer->setObjectName(QStringLiteral("NotesReviewer"));
+    m_reviewer->setAccessibleName(tr("Reviewer name"));
     m_reviewer->setPlaceholderText(tr("Your name"));
     m_reviewer->setMaxLength(200);
     nameRow->addWidget(nameLabel);

@@ -54,6 +54,7 @@ SourcesPanel::SourcesPanel(QWidget* parent)
 
     m_list = new QListWidget(this);
     m_list->setObjectName(QStringLiteral("PlaylistList"));
+    m_list->setAccessibleName(tr("Playlist"));
     m_list->setItemDelegate(new PlaylistCardDelegate(m_list));
     m_list->setUniformItemSizes(true);
     m_list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);

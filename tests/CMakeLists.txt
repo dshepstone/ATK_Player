@@ -65,6 +65,7 @@ set(ATK_UI_TEST_SOURCES
     tst_iconprovider.cpp
     tst_playlistpanel.cpp
     tst_reviewworkflow.cpp
+    tst_uipolish.cpp
 )
 
 foreach(test_source IN LISTS ATK_TEST_SOURCES ATK_FFMPEG_TEST_SOURCES ATK_UI_TEST_SOURCES)

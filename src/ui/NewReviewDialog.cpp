@@ -55,6 +55,7 @@ NewReviewDialog::NewReviewDialog(const QString& startFolder, QWidget* parent) : 
     auto* folderRow = new QHBoxLayout;
     m_folder = new QLineEdit(this);
     m_folder->setObjectName(QStringLiteral("NewReviewFolder"));
+    m_folder->setAccessibleName(tr("Folder"));
     m_folder->setPlaceholderText(tr("Folder of clips"));
     auto* browse = new QPushButton(icons::icon(QStringLiteral("folder-open")), tr("Browse…"), this);
     browse->setObjectName(QStringLiteral("NewReviewBrowse"));
@@ -83,6 +84,7 @@ NewReviewDialog::NewReviewDialog(const QString& startFolder, QWidget* parent) : 
 
     m_clips = new QListWidget(this);
     m_clips->setObjectName(QStringLiteral("NewReviewClips"));
+    m_clips->setAccessibleName(tr("Clips to include"));
     m_clips->setDragDropMode(QAbstractItemView::InternalMove);
     m_clips->setDefaultDropAction(Qt::MoveAction);
     m_clips->setSelectionMode(QAbstractItemView::ExtendedSelection);
@@ -100,6 +102,7 @@ NewReviewDialog::NewReviewDialog(const QString& startFolder, QWidget* parent) : 
     nameRow->addWidget(new QLabel(tr("Review name"), this));
     m_name = new QLineEdit(this);
     m_name->setObjectName(QStringLiteral("NewReviewName"));
+    m_name->setAccessibleName(tr("Review name"));
     nameRow->addWidget(m_name, 1);
     root->addLayout(nameRow);
     connect(m_name, &QLineEdit::textEdited, this, [this] {

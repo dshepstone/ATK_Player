@@ -3,7 +3,9 @@
 #include "ui/IconProvider.h"
 #include "ui/Theme.h"
 
+#include <QAbstractButton>
 #include <QComboBox>
+#include <QKeyEvent>
 #include <QDateTime>
 #include <QDir>
 #include <QEvent>
@@ -90,7 +92,8 @@ ReviewLibraryPage::ReviewLibraryPage(review::ReviewLibrary* library, QWidget* pa
     m_sections = new QListWidget(this);
     m_sections->setObjectName(QStringLiteral("ReviewSections"));
     m_sections->setFixedWidth(200);
-    m_sections->setFocusPolicy(Qt::NoFocus);
+    m_sections->setFocusPolicy(Qt::TabFocus); // arrow keys switch sections
+    m_sections->setAccessibleName(tr("Review sections"));
     for (const auto& [label, icon] : {std::pair{tr("All Reviews"), QStringLiteral("layout-grid")},
                                       std::pair{tr("Starred"), QStringLiteral("star")},
                                       std::pair{tr("Archived"), QStringLiteral("archive")}})
@@ -131,6 +134,7 @@ ReviewLibraryPage::ReviewLibraryPage(review::ReviewLibrary* library, QWidget* pa
     auto* filterRow = new QHBoxLayout;
     m_search = new QLineEdit(main);
     m_search->setObjectName(QStringLiteral("ReviewLibrarySearch"));
+    m_search->setAccessibleName(tr("Search reviews"));
     m_search->setPlaceholderText(tr("Find reviews by name or folder"));
     m_search->setClearButtonEnabled(true);
     m_sort = new QComboBox(main);
@@ -227,6 +231,35 @@ void ReviewLibraryPage::refresh()
         empty = tr("Nothing archived.");
     m_empty->setText(empty);
     m_empty->setVisible(!empty.isEmpty());
+
+    // See eventFilter(): the page's buttons take Space and Enter themselves.
+    for (QAbstractButton* button : findChildren<QAbstractButton*>()) button->installEventFilter(this);
+}
+
+bool ReviewLibraryPage::eventFilter(QObject* watched, QEvent* event)
+{
+    // Space is the player's Play/Pause shortcut everywhere in the window, so a
+    // focused button here would never see it; claim it (and Enter, which
+    // plain buttons ignore outside dialogs) so the library works from the
+    // keyboard: Tab to a review's Open button, press Space or Enter.
+    auto* button = qobject_cast<QAbstractButton*>(watched);
+    if (button && (event->type() == QEvent::ShortcutOverride || event->type() == QEvent::KeyPress)) {
+        const auto* key = static_cast<QKeyEvent*>(event);
+        const bool plain = (key->modifiers() & ~Qt::KeypadModifier) == Qt::NoModifier;
+        const bool space = key->key() == Qt::Key_Space;
+        const bool enter = key->key() == Qt::Key_Return || key->key() == Qt::Key_Enter;
+        if (plain && (space || enter)) {
+            if (event->type() == QEvent::ShortcutOverride) {
+                event->accept();
+                return true;
+            }
+            if (enter && !key->isAutoRepeat()) {
+                button->animateClick();
+                return true;
+            }
+        }
+    }
+    return QWidget::eventFilter(watched, event);
 }
 
 QWidget* ReviewLibraryPage::makeRow(const review::ReviewInfo& review)

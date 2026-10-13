@@ -1735,6 +1735,7 @@ void MainWindow::buildAudioControls()
     m_volumeSlider = new QSlider(Qt::Horizontal, container);
     m_volumeSlider->setRange(0, 100);
     m_volumeSlider->setValue(qRound(m_playback->volume() * 100));
+    m_volumeSlider->setAccessibleName(tr("Volume level"));
     m_volumeSlider->setFixedWidth(140);
     layout->addWidget(m_volumeSlider);
 

@@ -105,6 +105,7 @@ TransportControls::TransportControls(CommandRegistry* registry, QWidget* parent)
 
     m_volumeButton = new QToolButton(this);
     m_volumeButton->setObjectName(QStringLiteral("TransportVolumeButton"));
+    m_volumeButton->setAccessibleName(tr("Volume"));
     m_volumeButton->setIcon(icons::icon(QStringLiteral("volume-2")));
     m_volumeButton->setIconSize(QSize(theme::metrics::iconMedium, theme::metrics::iconMedium));
     m_volumeButton->setToolTip(tr("Volume"));
@@ -115,6 +116,7 @@ TransportControls::TransportControls(CommandRegistry* registry, QWidget* parent)
     auto* container = new QWidget(menu); auto* popupLayout = new QHBoxLayout(container);
     popupLayout->setContentsMargins(10, 6, 10, 6);
     m_volumeSlider = new QSlider(Qt::Horizontal, container); m_volumeSlider->setRange(0, 100); m_volumeSlider->setFixedWidth(140);
+    m_volumeSlider->setAccessibleName(tr("Volume level"));
     m_volumeLabel = new QLabel(QStringLiteral("100%"), container); m_volumeLabel->setMinimumWidth(42);
     popupLayout->addWidget(m_volumeSlider); popupLayout->addWidget(m_volumeLabel);
     auto* sliderAction = new QWidgetAction(menu); sliderAction->setDefaultWidget(container); menu->addAction(sliderAction);

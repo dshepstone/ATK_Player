@@ -110,6 +110,7 @@ BatchRenameDialog::BatchRenameDialog(QVector<Clip> clips, QString reviewName, QS
     // --- Matches -------------------------------------------------------------
     m_table = new QTableWidget(int(m_clips.size()), ColumnCount, this);
     m_table->setObjectName(QStringLiteral("BatchRenameTable"));
+    m_table->setAccessibleName(tr("Clips and the people they are matched to"));
     m_table->setHorizontalHeaderLabels({tr("#"), tr("Clip"), tr("Person"), tr("Match"), tr("New name")});
     m_table->verticalHeader()->hide();
     m_table->setSelectionMode(QAbstractItemView::NoSelection);
@@ -128,6 +129,7 @@ BatchRenameDialog::BatchRenameDialog(QVector<Clip> clips, QString reviewName, QS
     auto* form = new QFormLayout;
     m_template = new QLineEdit(nameTemplate.isEmpty() ? QStringLiteral("{last}_{first}") : nameTemplate, this);
     m_template->setObjectName(QStringLiteral("BatchRenameTemplate"));
+    m_template->setAccessibleName(tr("Name pattern"));
     form->addRow(tr("New name"), m_template);
     auto* help = new QLabel(tr("Fill-ins: {last} {first} {full} {id} {order:02} {original} {review} {date} "
                                "{col:Column name}. The file extension is kept."),

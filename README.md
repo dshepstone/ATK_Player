@@ -70,6 +70,25 @@ To install anyway: when **Windows protected your PC** appears, click **More info
 
 ## Features
 
+### Review Library and Class Reviews
+
+Started on its own, ATK Player opens the **Review Library**: every review you
+have made, with search, starring, archiving and thumbnails. Clips opened from
+Explorer, Maya, Harmony or the local API go straight to the player.
+
+- **New Review from Folder** (`Ctrl+Shift+N`): turn a folder of submitted
+  clips into an ordered review, with optional subfolders and natural name
+  order; late submissions are offered when the review is reopened
+- **Rename Clips from Team List**: match clips to a class or staff list
+  (Excel `.xlsx`/`.xls`, or CSV) by ID or name, then rename the shown names or
+  the files themselves, with checks, undo and crash recovery
+- **Playlist playback modes**: Play Through Playlist, Stop After Each Clip,
+  Loop This Clip or Loop Whole Playlist
+- **Clip status** (Not reviewed, In review, Needs changes, Approved) on each
+  playlist card
+
+See the **[User Guide](docs/USER_GUIDE.md)** for a walkthrough.
+
 ### Frame-Accurate Playback
 
 ATK Player is designed around frame-accurate animation review rather than approximate media-player seeking.
@@ -163,7 +182,9 @@ ATK Player projects use the `.atkproj` format.
 Projects support:
 
 - Multiple media sources
-- Ordered playlists
+- Ordered playlists shown as thumbnail cards
+- Playlist playback modes (play through, stop after each clip, loop clip, loop playlist)
+- Per-clip review status
 - Drag-and-drop reordering
 - Current-source tracking
 - Per-source bookmarks
@@ -367,7 +388,12 @@ Harmony frames remain one-based while ATK's internal/API frame mapping remains z
 
 | Action | Shortcut |
 |---|---|
+| Review Library | `Ctrl+Shift+H` |
+| New Review from Folder | `Ctrl+Shift+N` |
 | Play / Pause | `Space` |
+| Loop | `L` |
+| Draw on Frame | `D` |
+| Notes Panel | `F6` |
 | Previous Frame | `Left` |
 | Next Frame | `Right` |
 | Add Point Bookmark | `B` |
@@ -389,6 +415,13 @@ Shortcuts can be customized under:
 ---
 
 ## Current Release Status
+
+### In development: ATK Player 0.5.0
+
+The Review Library, reviews made from a folder, renaming clips from a class or
+team list, playlist playback modes, clip status and a refreshed interface. See
+the draft [docs/RELEASE_NOTES_0.5.0.md](docs/RELEASE_NOTES_0.5.0.md) and the
+[User Guide](docs/USER_GUIDE.md).
 
 ### ATK Player 0.4.1
 

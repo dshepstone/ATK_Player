@@ -54,6 +54,9 @@ signals:
     void libraryChanged();
     void thumbnailWanted(const QString& clipPath);
 
+protected:
+    bool eventFilter(QObject* watched, QEvent* event) override;
+
 private:
     QWidget* makeRow(const review::ReviewInfo& review);
     void showRowMenu(const QUuid& id, QWidget* anchor);

@@ -216,6 +216,16 @@ QRect TimelineWidget::trackRect() const
     return rect().adjusted(kLabelMargin, kTrackInsetTop, -kLabelMargin, -kTrackInsetBottom);
 }
 
+int64_t TimelineWidget::timeRulerStepSeconds(double pixelsPerSecond)
+{
+    constexpr double kMinSpacing = 80.0;
+    for (const int64_t step : {1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600})
+        if (double(step) * pixelsPerSecond >= kMinSpacing) return step;
+    int64_t step = 3600;
+    while (double(step) * pixelsPerSecond < kMinSpacing && step < (int64_t(1) << 40)) step *= 2;
+    return step;
+}
+
 int TimelineWidget::xForFrame(int64_t frame) const
 {
     const QRect track = trackRect();
@@ -528,12 +538,34 @@ void TimelineWidget::paintFrameLabels(QPainter& painter)
         ? double(track.width() - 1) / double(m_model->viewport().visibleFrameCount() - 1)
         : 0.0;
     if (m_mediaDurationUs > 0 && track.width() > 0 && pixelsPerFrame < 6.0) {
-        const int divisions = std::max(1, track.width() / 96);
-        for (int i = 0; i <= divisions; ++i) {
-            const int x = track.left() + ((track.width() - 1) * i) / divisions;
-            const QString label = rulerTime(mediaTimeForX(x));
-            painter.drawText(QRect(x - 36, waveformRect().top(), 72, 14),
-                             Qt::AlignHCenter | Qt::AlignTop, label);
+        const auto rate = m_model ? m_model->frameRate() : media::FrameRate{};
+        if (rate.isValid()) {
+            // Round times at their true places: the smallest step of a
+            // stopwatch-like series that keeps labels ~80 px apart, so every
+            // label differs and none sits between two seconds.
+            const double pixelsPerSecond = pixelsPerFrame * double(rate.numerator) / double(rate.denominator);
+            const int64_t stepSeconds = timeRulerStepSeconds(pixelsPerSecond);
+            const auto& viewport = m_model->viewport();
+            const auto secondsAt = [&](int64_t frame) {
+                return double(frame) * double(rate.denominator) / double(rate.numerator);
+            };
+            const int64_t first = static_cast<int64_t>(std::ceil(secondsAt(viewport.startFrame()) / double(stepSeconds)))
+                                * stepSeconds;
+            for (int64_t s = first; s <= secondsAt(viewport.endFrame()) + 1e-9; s += stepSeconds) {
+                const auto frame = static_cast<int64_t>(
+                    std::llround(double(s) * double(rate.numerator) / double(rate.denominator)));
+                const int x = xForFrame(std::clamp(frame, viewport.startFrame(), viewport.endFrame()));
+                if (x < 0) continue;
+                painter.drawText(QRect(x - 36, waveformRect().top(), 72, 14), Qt::AlignHCenter | Qt::AlignTop,
+                                 rulerTime(s * 1'000'000));
+            }
+        } else {
+            const int divisions = std::max(1, track.width() / 96);
+            for (int i = 0; i <= divisions; ++i) {
+                const int x = track.left() + ((track.width() - 1) * i) / divisions;
+                painter.drawText(QRect(x - 36, waveformRect().top(), 72, 14),
+                                 Qt::AlignHCenter | Qt::AlignTop, rulerTime(mediaTimeForX(x)));
+            }
         }
     }
 }

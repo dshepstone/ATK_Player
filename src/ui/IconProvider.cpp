@@ -97,7 +97,15 @@ public:
     QPixmap scaledPixmap(const QSize& size, QIcon::Mode mode, QIcon::State state, qreal scale) override
     {
         const qreal ratio = std::max<qreal>(1.0, scale);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+        // Qt 6.8 and later pass the logical size.
         const QSize deviceSize(qRound(size.width() * ratio), qRound(size.height() * ratio));
+#else
+        // Before 6.8, QIcon::pixmap() passes the size already in device
+        // pixels; scaling it again drew 1.5x too large at 150% and blurred
+        // when shrunk back. paint() below passes the logical size.
+        const QSize deviceSize = size;
+#endif
         QPixmap result = render(m_name, deviceSize, colorFor(mode, state));
         result.setDevicePixelRatio(ratio);
         return result;
@@ -105,8 +113,10 @@ public:
 
     void paint(QPainter* painter, const QRect& rect, QIcon::Mode mode, QIcon::State state) override
     {
-        const qreal ratio = painter->device() ? painter->device()->devicePixelRatioF() : 1.0;
-        const QPixmap pm = scaledPixmap(rect.size(), mode, state, ratio);
+        const qreal ratio = std::max<qreal>(1.0, painter->device() ? painter->device()->devicePixelRatioF() : 1.0);
+        const QSize deviceSize(qRound(rect.width() * ratio), qRound(rect.height() * ratio));
+        QPixmap pm = render(m_name, deviceSize, colorFor(mode, state));
+        pm.setDevicePixelRatio(ratio);
         if (!pm.isNull()) painter->drawPixmap(rect, pm);
     }
 
