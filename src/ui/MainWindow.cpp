@@ -76,6 +76,7 @@
 #include <QWindow>
 
 #include <QAction>
+#include <QActionGroup>
 #include <QCloseEvent>
 #include <QDragEnterEvent>
 #include <QDropEvent>
@@ -147,6 +148,7 @@ bool startsNewGroup(CommandId id)
     case CommandId::IncreaseBrushSize:
     case CommandId::PreviousFrame:
     case CommandId::ToggleLoop:
+    case CommandId::PlaylistPlayThrough:
     case CommandId::SetRangeIn:
     case CommandId::AddBookmark:
     case CommandId::VolumeUp:
@@ -912,11 +914,22 @@ void MainWindow::connectSignals()
 
     connect(m_playback.get(), &playback::PlaybackController::loopEnabledChanged,
             this, [this](bool enabled) {
-                if (QAction* action = m_commands->action(CommandId::ToggleLoop)) {
-                    QSignalBlocker blocker(action);
-                    action->setChecked(enabled);
-                }
+                // Loop switched on the player itself (the API): follow it.
+                if (enabled && m_playlistMode != PlaylistMode::LoopClip) setPlaylistMode(PlaylistMode::LoopClip);
+                else if (!enabled && m_playlistMode == PlaylistMode::LoopClip)
+                    setPlaylistMode(m_stopAfterEachClip ? PlaylistMode::StopAfterClip : PlaylistMode::PlayThrough);
             });
+    {
+        auto* modes = new QActionGroup(this);
+        modes->setExclusive(true);
+        for (const CommandId id : {CommandId::PlaylistPlayThrough, CommandId::PlaylistStopAfterClip,
+                                   CommandId::PlaylistLoopClip, CommandId::PlaylistLoopAll})
+            if (QAction* action = m_commands->action(id)) modes->addAction(action);
+        m_stopAfterEachClip = m_settings->stopAfterEachClip();
+        m_loopWholePlaylist = m_settings->loopWholePlaylist();
+        // Loop itself starts off each session, as it always has.
+        setPlaylistMode(m_stopAfterEachClip ? PlaylistMode::StopAfterClip : PlaylistMode::PlayThrough);
+    }
 
     // Scrubbing the timeline goes through the controller, not straight into the
     // model, so a drag behaves exactly like an API seek.
@@ -1053,11 +1066,13 @@ void MainWindow::onCommand(CommandId id, bool checked)
     switch (id) {
     // --- Transport: fully wired ------------------------------------------
     case CommandId::PlayPause:
+        // Play at the end of a clip goes on to the next one (in every mode:
+        // "stop after each clip" pauses between clips, Play moves on).
         if (!isComparisonActive() && !m_playback->isPlaying() && !m_playback->isLoopEnabled()
             && m_project->activeIndex() >= 0
             && m_playback->currentFrame() == m_timeline->effectiveEndFrame()) {
-            const int next = nextUsablePlaylistIndex();
-            if (next >= 0) {
+            const int next = nextUsablePlaylistIndex(m_playlistMode == PlaylistMode::LoopPlaylist);
+            if (next >= 0 && next != m_project->activeIndex()) {
                 activatePlaylistIndex(next, true);
                 return;
             }
@@ -1080,8 +1095,17 @@ void MainWindow::onCommand(CommandId id, bool checked)
         m_playback->goToEnd();
         return;
     case CommandId::ToggleLoop:
-        m_playback->setLoopEnabled(checked);
+        if (checked) setPlaylistMode(m_loopWholePlaylist ? PlaylistMode::LoopPlaylist : PlaylistMode::LoopClip);
+        else setPlaylistMode(m_stopAfterEachClip ? PlaylistMode::StopAfterClip : PlaylistMode::PlayThrough);
         return;
+    case CommandId::PlaylistPlayThrough:
+        setPlaylistMode(PlaylistMode::PlayThrough); return;
+    case CommandId::PlaylistStopAfterClip:
+        setPlaylistMode(PlaylistMode::StopAfterClip); return;
+    case CommandId::PlaylistLoopClip:
+        setPlaylistMode(PlaylistMode::LoopClip); return;
+    case CommandId::PlaylistLoopAll:
+        setPlaylistMode(PlaylistMode::LoopPlaylist); return;
     case CommandId::SkipBack10Seconds:
         m_playback->skipBySeconds(-10); return;
     case CommandId::SkipForward10Seconds:
@@ -1574,14 +1598,28 @@ void MainWindow::onPlayerStateChanged(playback::PlayerState state)
         if (isComparisonActive()) {
             m_playlistPlaybackActive = false;
             statusBar()->showMessage(tr("End of comparison"), 2000);
-        } else if (m_playlistPlaybackActive && !m_playback->isLoopEnabled()) {
-            const int next = nextUsablePlaylistIndex();
-            if (next >= 0) {
+        } else if (m_playlistPlaybackActive && (m_playlistMode == PlaylistMode::PlayThrough
+                                                || m_playlistMode == PlaylistMode::LoopPlaylist)) {
+            const bool wrap = m_playlistMode == PlaylistMode::LoopPlaylist;
+            const int next = nextUsablePlaylistIndex(wrap);
+            if (next >= 0 && next != m_project->activeIndex()) {
                 activatePlaylistIndex(next, true);
+                break;
+            }
+            if (next >= 0) {
+                // Looping a playlist of one clip: play it again. Queued, as the
+                // player is still reporting the end.
+                QMetaObject::invokeMethod(this, [this] {
+                    m_playback->goToStart();
+                    m_playback->play();
+                }, Qt::QueuedConnection);
                 break;
             }
             m_playlistPlaybackActive = false;
             statusBar()->showMessage(tr("End of playlist"), 2000);
+        } else if (m_playlistMode == PlaylistMode::StopAfterClip) {
+            m_playlistPlaybackActive = false;
+            statusBar()->showMessage(tr("End of clip (Space plays the next)"), 3000);
         } else {
             m_playlistPlaybackActive = false;
             statusBar()->showMessage(tr("End of playlist"), 2000);
@@ -1793,9 +1831,13 @@ void MainWindow::onMediaOpened(const media::MediaMetadata& metadata)
     }
 }
 
-int MainWindow::nextUsablePlaylistIndex() const
+int MainWindow::nextUsablePlaylistIndex(bool wrap) const
 {
-    for (int i = m_project->activeIndex() + 1; i < m_project->entries().size(); ++i) {
+    const int count = int(m_project->entries().size());
+    const int active = m_project->activeIndex();
+    const int steps = wrap ? count : count - active - 1;
+    for (int step = 1; step <= steps; ++step) {
+        const int i = (active + step) % count;
         const auto availability = m_project->entries().at(i).availability;
         if (availability != project::SourceAvailability::Missing
             && availability != project::SourceAvailability::Error) {
@@ -1803,6 +1845,34 @@ int MainWindow::nextUsablePlaylistIndex() const
         }
     }
     return -1;
+}
+
+void MainWindow::setPlaylistMode(PlaylistMode mode)
+{
+    m_playlistMode = mode;
+    // Each side of the loop button remembers its choice.
+    if (mode == PlaylistMode::PlayThrough || mode == PlaylistMode::StopAfterClip) {
+        m_stopAfterEachClip = mode == PlaylistMode::StopAfterClip;
+        m_settings->setStopAfterEachClip(m_stopAfterEachClip);
+    } else {
+        m_loopWholePlaylist = mode == PlaylistMode::LoopPlaylist;
+        m_settings->setLoopWholePlaylist(m_loopWholePlaylist);
+    }
+    // The player loops a clip by itself; a playlist loops here, clip to clip.
+    const bool loop = mode == PlaylistMode::LoopClip || mode == PlaylistMode::LoopPlaylist;
+    if (m_playback->isLoopEnabled() != (mode == PlaylistMode::LoopClip))
+        m_playback->setLoopEnabled(mode == PlaylistMode::LoopClip);
+    const auto check = [this](CommandId id, bool on) {
+        if (QAction* action = m_commands->action(id)) {
+            QSignalBlocker blocker(action);
+            action->setChecked(on);
+        }
+    };
+    check(CommandId::ToggleLoop, loop);
+    check(CommandId::PlaylistPlayThrough, mode == PlaylistMode::PlayThrough);
+    check(CommandId::PlaylistStopAfterClip, mode == PlaylistMode::StopAfterClip);
+    check(CommandId::PlaylistLoopClip, mode == PlaylistMode::LoopClip);
+    check(CommandId::PlaylistLoopAll, mode == PlaylistMode::LoopPlaylist);
 }
 
 void MainWindow::onMediaError(const QString& message)

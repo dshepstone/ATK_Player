@@ -63,6 +63,11 @@ public:
     /// Rename from Team List: the last list used and the name pattern.
     QString lastRosterPath() const;
     QString renameTemplate() const;
+    /// Playlist playback: with loop off, stop after each clip instead of
+    /// going on to the next; with loop on, loop the whole playlist instead
+    /// of the current clip. Both default to false.
+    bool stopAfterEachClip() const;
+    bool loopWholePlaylist() const;
     bool apiEnabled() const;
     int apiPort() const;
     int stillImageHoldFrames() const;
@@ -101,6 +106,8 @@ public:
     void setLastProjectPath(const QString& path);
     void setLastRosterPath(const QString& path);
     void setRenameTemplate(const QString& nameTemplate);
+    void setStopAfterEachClip(bool value);
+    void setLoopWholePlaylist(bool value);
     void setApiEnabled(bool value);
     void setApiPort(int value);
     void setStillImageHoldFrames(int value);

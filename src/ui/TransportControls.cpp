@@ -51,8 +51,22 @@ TransportControls::TransportControls(CommandRegistry* registry, QWidget* parent)
         icons::icon(QStringLiteral("arrow-left-to-line")), tr("Set range in")));
     layout->addWidget(makeCommandButton(commands::CommandId::SetRangeOut,
         icons::icon(QStringLiteral("arrow-right-to-line")), tr("Set range out")));
-    layout->addWidget(makeCommandButton(commands::CommandId::ToggleLoop,
-        icons::icon(QStringLiteral("repeat")), tr("Loop playback")));
+    // Loop, with the arrow choosing what happens at the end of each clip.
+    QToolButton* loop = makeCommandButton(commands::CommandId::ToggleLoop, icons::icon(QStringLiteral("repeat")),
+        tr("Loop. The arrow chooses: play through the playlist, stop after each clip, "
+           "loop this clip or loop the whole playlist."));
+    loop->setObjectName(QStringLiteral("TransportLoopButton"));
+    loop->setPopupMode(QToolButton::MenuButtonPopup);
+    auto* loopMenu = new QMenu(loop);
+    loopMenu->setObjectName(QStringLiteral("TransportLoopMenu"));
+    loopMenu->addSection(tr("Loop off"));
+    for (const auto id : {commands::CommandId::PlaylistPlayThrough, commands::CommandId::PlaylistStopAfterClip})
+        if (QAction* action = m_registry ? m_registry->action(id) : nullptr) loopMenu->addAction(action);
+    loopMenu->addSection(tr("Loop on"));
+    for (const auto id : {commands::CommandId::PlaylistLoopClip, commands::CommandId::PlaylistLoopAll})
+        if (QAction* action = m_registry ? m_registry->action(id) : nullptr) loopMenu->addAction(action);
+    loop->setMenu(loopMenu);
+    layout->addWidget(loop);
 
     layout->addStretch(1);
     layout->addWidget(makeCommandButton(commands::CommandId::FirstFrame,

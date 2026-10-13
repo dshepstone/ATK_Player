@@ -401,6 +401,15 @@ void BatchRenameDialog::refreshNames()
                                                      : confidenceText(m_matches[i].confidence, m_matches[i].score));
         if (m_matches[i].confidence == review::MatchConfidence::Low && score >= 0)
             match->setForeground(theme::statusNeedsChanges());
+        if (m_matches[i].roster < 0 && m_matches[i].alsoNames >= 0 && m_matches[i].alsoNames < m_roster.rows.size()) {
+            // Most often a resubmission, or a copy already renamed: say so
+            // rather than show a bare "No match".
+            const review::PersonName person = review::personName(m_roster.rows[m_matches[i].alsoNames], m_columns);
+            match->setText(tr("Second clip for %1").arg(person.full()));
+            match->setToolTip(tr("%1 already has another clip in this review. Each person gets one clip; "
+                                 "pick them here to give this one their name instead.").arg(person.full()));
+            match->setForeground(theme::statusNeedsChanges());
+        }
         m_table->setItem(i, MatchColumn, match);
 
         QString shown = d.newName.isEmpty() ? tr("(unchanged)") : d.newName;

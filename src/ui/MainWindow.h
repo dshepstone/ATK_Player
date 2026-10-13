@@ -133,6 +133,18 @@ public:
                            QString* error = nullptr);
     /// Puts back the names from a finished rename journal.
     bool undoRosterRename(const QString& journalPath, QString* error = nullptr);
+
+    /// What happens when a clip of the playlist finishes playing. The loop
+    /// button (L) switches between the two loop modes and the two others,
+    /// each side keeping the choice last made for it.
+    enum class PlaylistMode {
+        PlayThrough,   ///< on to the next clip; stop after the last (default)
+        StopAfterClip, ///< stop at the end of each clip
+        LoopClip,      ///< play the current clip again
+        LoopPlaylist,  ///< on to the next clip; the last goes on to the first
+    };
+    PlaylistMode playlistMode() const { return m_playlistMode; }
+    void setPlaylistMode(PlaylistMode mode);
     /// Shows the welcome dialog once per installed version. Called by main()
     /// after the window is up; tests construct the window without it.
     void showWelcomeIfFirstRun();
@@ -207,7 +219,9 @@ private:
     bool saveProjectTo(const QString& path, bool saveAs = false, bool showError = true);
     bool confirmDiscardChanges();
     void activatePlaylistIndex(int index, bool continuePlayback = false);
-    int nextUsablePlaylistIndex() const;
+    /// The next playable clip after the current one, or -1. With `wrap`
+    /// the search goes on from the first clip (up to the current one).
+    int nextUsablePlaylistIndex(bool wrap = false) const;
     void saveActiveReviewState();
     void restoreActiveReviewState();
     void removePlaylistIndex(int index);
@@ -367,6 +381,9 @@ private:
     bool m_restoringSourceState = false;
     bool m_playAfterSourceOpen = false;
     bool m_playlistPlaybackActive = false;
+    PlaylistMode m_playlistMode = PlaylistMode::PlayThrough;
+    bool m_stopAfterEachClip = false; // the choice for when loop is off
+    bool m_loopWholePlaylist = false; // the choice for when loop is on
     QThread* m_probeThread = nullptr;
     media::PlaylistProbeWorker* m_probeWorker = nullptr;
     quint64 m_nextProbeToken = 1;

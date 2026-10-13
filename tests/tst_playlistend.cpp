@@ -77,6 +77,9 @@ private slots:
     void playFromExactEndAdvances();
     void pausedExactSeekDoesNotAdvance();
     void naturalPlaybackStillAdvancesAndStops();
+    void stopAfterEachClipStopsAndPlayMovesOn();
+    void loopWholePlaylistWrapsToTheFirstClip();
+    void loopButtonRemembersEachSidesChoice();
     void aboutDialogUsesAnimationToolKitCopy();
     void droppedStillPlaysHeldExtentAndStops();
     void droppedSequenceFramesOpenOneSequenceAtPreferenceRate();
@@ -222,6 +225,90 @@ void TestPlaylistEnd::naturalPlaybackStillAdvancesAndStops()
     window.playbackController()->activateReviewRange(0, 2);
     QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->state(), PlayerState::Ended, 10000);
     QCOMPARE(window.project()->activeIndex(), 2);
+}
+
+void TestPlaylistEnd::stopAfterEachClipStopsAndPlayMovesOn()
+{
+    using Mode = atk::ui::MainWindow::PlaylistMode;
+    QTemporaryDir directory;
+    atk::ui::MainWindow window(directory.filePath(QStringLiteral("settings.ini")));
+    QVERIFY(window.openProjectFile(writeProject(directory, 2)));
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->state(), PlayerState::Ready, 10000);
+    command(window, "playback.stopAfterEachClip")->trigger();
+    QCOMPARE(window.playlistMode(), Mode::StopAfterClip);
+    QVERIFY(!command(window, "playback.toggleLoop")->isChecked());
+    QVERIFY(!window.playbackController()->isLoopEnabled());
+
+    window.playbackController()->play();
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->state(), PlayerState::Playing, 5000);
+    command(window, "playback.lastFrame")->trigger();
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->state(), PlayerState::Ended, 5000);
+    QTest::qWait(300);
+    QCOMPARE(window.project()->activeIndex(), 0); // stopped on this clip
+    // Play at the end goes on to the next clip.
+    command(window, "playback.playPause")->trigger();
+    QTRY_COMPARE_WITH_TIMEOUT(window.project()->activeIndex(), 1, 10000);
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->state(), PlayerState::Playing, 10000);
+}
+
+void TestPlaylistEnd::loopWholePlaylistWrapsToTheFirstClip()
+{
+    using Mode = atk::ui::MainWindow::PlaylistMode;
+    for (const int count : {2, 1}) {
+        QTemporaryDir directory;
+        atk::ui::MainWindow window(directory.filePath(QStringLiteral("settings.ini")));
+        QVERIFY(window.openProjectFile(writeProject(directory, count)));
+        QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->state(), PlayerState::Ready, 10000);
+        if (count == 2) {
+            command(window, "playlist.next")->trigger();
+            QTRY_COMPARE_WITH_TIMEOUT(window.project()->activeIndex(), 1, 10000);
+            QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->state(), PlayerState::Ready, 10000);
+        }
+        command(window, "playback.loopPlaylist")->trigger();
+        QCOMPARE(window.playlistMode(), Mode::LoopPlaylist);
+        QVERIFY(command(window, "playback.toggleLoop")->isChecked());
+        QVERIFY(!window.playbackController()->isLoopEnabled()); // the window loops clip to clip
+
+        QSignalSpy frames(window.playbackController(), &atk::playback::PlaybackController::frameChanged);
+        window.playbackController()->play();
+        QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->state(), PlayerState::Playing, 5000);
+        command(window, "playback.lastFrame")->trigger();
+        QTRY_COMPARE_WITH_TIMEOUT(window.project()->activeIndex(), 0, 10000);
+        frames.clear();
+        QTRY_VERIFY_WITH_TIMEOUT(sawFrame(frames, 0) || sawFrame(frames, 1), 10000);
+        QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->state(), PlayerState::Playing, 10000);
+    }
+}
+
+void TestPlaylistEnd::loopButtonRemembersEachSidesChoice()
+{
+    using Mode = atk::ui::MainWindow::PlaylistMode;
+    QTemporaryDir directory;
+    const QString settingsFile = directory.filePath(QStringLiteral("settings.ini"));
+    {
+        atk::ui::MainWindow window(settingsFile);
+        QCOMPARE(window.playlistMode(), Mode::PlayThrough); // the default
+        QVERIFY(command(window, "playback.playThroughPlaylist")->isChecked());
+        command(window, "playback.loopPlaylist")->trigger();
+        command(window, "playback.stopAfterEachClip")->trigger();
+        QAction* loop = command(window, "playback.toggleLoop");
+        loop->trigger(); // on: the loop choice made earlier
+        QCOMPARE(window.playlistMode(), Mode::LoopPlaylist);
+        loop->trigger(); // off: the other choice
+        QCOMPARE(window.playlistMode(), Mode::StopAfterClip);
+        command(window, "playback.loopClip")->trigger();
+        QVERIFY(window.playbackController()->isLoopEnabled());
+        QVERIFY(loop->isChecked());
+        // Loop switched on the player (as the API does) is followed.
+        window.playbackController()->setLoopEnabled(false);
+        QCOMPARE(window.playlistMode(), Mode::StopAfterClip);
+        QVERIFY(!loop->isChecked());
+    }
+    // Both choices are kept; loop itself starts off.
+    atk::ui::MainWindow window(settingsFile);
+    QCOMPARE(window.playlistMode(), Mode::StopAfterClip);
+    command(window, "playback.toggleLoop")->trigger();
+    QCOMPARE(window.playlistMode(), Mode::LoopClip); // the last loop choice was this clip
 }
 
 void TestPlaylistEnd::droppedStillPlaysHeldExtentAndStops()

@@ -161,6 +161,8 @@ QVector<RosterMatch> matchClipsToRoster(const QStringList& clipNames, const Rost
         result[clip] = {person, score, confidenceFor(score)};
         personTaken[person] = true;
     }
+    for (const auto& [score, clip, person] : pairs)
+        if (score >= 80 && result[clip].roster < 0 && result[clip].alsoNames < 0) result[clip].alsoNames = person;
     return result;
 }
 

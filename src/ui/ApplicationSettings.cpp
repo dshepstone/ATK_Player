@@ -26,6 +26,8 @@ constexpr auto kRecentProjects = "projects/recent";
 constexpr auto kLastProject = "projects/lastPath";
 constexpr auto kLastRoster = "review/lastRosterPath";
 constexpr auto kRenameTemplate = "review/renameTemplate";
+constexpr auto kStopAfterEachClip = "playback/stopAfterEachClip";
+constexpr auto kLoopWholePlaylist = "playback/loopWholePlaylist";
 constexpr auto kApiEnabled = "api/enabled";
 constexpr auto kApiPort = "api/port";
 constexpr auto kStillHoldFrames = "media/stillImageHoldFrames";
@@ -172,6 +174,11 @@ void ApplicationSettings::addRecentProject(const QString& path)
 }
 void ApplicationSettings::clearRecentProjects() { m_settings->remove(QString::fromLatin1(kRecentProjects)); }
 void ApplicationSettings::setLastProjectPath(const QString& path) { m_settings->setValue(QString::fromLatin1(kLastProject), path); }
+bool ApplicationSettings::stopAfterEachClip() const { return readBool(kStopAfterEachClip, false); }
+bool ApplicationSettings::loopWholePlaylist() const { return readBool(kLoopWholePlaylist, false); }
+void ApplicationSettings::setStopAfterEachClip(bool value) { m_settings->setValue(QString::fromLatin1(kStopAfterEachClip), value); }
+void ApplicationSettings::setLoopWholePlaylist(bool value) { m_settings->setValue(QString::fromLatin1(kLoopWholePlaylist), value); }
+
 void ApplicationSettings::setLastRosterPath(const QString& path) { m_settings->setValue(QString::fromLatin1(kLastRoster), path); }
 void ApplicationSettings::setRenameTemplate(const QString& nameTemplate)
 {

@@ -290,6 +290,7 @@ private slots:
     void csvQuotesBlankRowsAndNoHeader();
     void columnsAreGuessedFromHeaders();
     void matchesClipNamesToPeople();
+    void secondClipForAPersonIsExplained();
     void templatesBuildSafeNames();
     void planCatchesEveryProblemBeforeTouchingFiles();
     void renameSwapsSafelyAndUndoes();
@@ -515,6 +516,27 @@ void TestRoster::matchesClipNamesToPeople()
         {QStringLiteral("logel.mov"), QStringLiteral("jordan_logel.mov")}, roster, columns);
     QCOMPARE(twice[1].roster, 0);
     QCOMPARE(twice[0].roster, -1);
+}
+
+void TestRoster::secondClipForAPersonIsExplained()
+{
+    Roster roster;
+    roster.headers = {QStringLiteral("ID"), QStringLiteral("Name")};
+    roster.rows = {{QStringLiteral("321240"), QStringLiteral("Orellana, Selena")},
+                   {QStringLiteral("334948"), QStringLiteral("Vispo, Raine")}};
+    const QStringList clips{QStringLiteral("Orellana_Selena"),
+                            QStringLiteral("321240-1377601 - Selena Orellana - Oct 5, 2026 940 AM - untitled"),
+                            QStringLiteral("Vispo_Raine"), QStringLiteral("someone_else")};
+    const auto matches = matchClipsToRoster(clips, roster, guessColumns(roster.headers));
+    // The ID makes the download the stronger match; the renamed copy is the
+    // second clip for her, and says so.
+    QCOMPARE(matches[1].roster, 0);
+    QCOMPARE(matches[0].roster, -1);
+    QCOMPARE(matches[0].alsoNames, 0);
+    QCOMPARE(matches[2].roster, 1);
+    QCOMPARE(matches[2].alsoNames, -1);
+    QCOMPARE(matches[3].roster, -1);
+    QCOMPARE(matches[3].alsoNames, -1);
 }
 
 void TestRoster::templatesBuildSafeNames()

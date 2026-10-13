@@ -37,6 +37,10 @@ struct RosterMatch {
     int roster = -1; ///< roster row, or -1 for no match
     int score = 0;   ///< 0-100
     MatchConfidence confidence = MatchConfidence::None;
+    /// For a clip left without a match: the person it clearly names (score
+    /// 80 or more) who was given another clip, such as a resubmission or a
+    /// copy already renamed. -1 otherwise.
+    int alsoNames = -1;
 };
 
 /// Lower-case words of a name with accents removed: "José_Smith-Jones v2"
@@ -50,7 +54,8 @@ QStringList nameTokens(const QString& text);
 ///   - initial plus last name ("JSmith", "smith_j"): High (80)
 ///   - the last name alone, when no one else shares it: Medium (60)
 ///   - a last name one letter off ("Smtih"): Low (40), a suggestion only
-/// The result has one entry per clip.
+/// The result has one entry per clip. A person gets one clip; a second clip
+/// that names them is left unmatched, with `alsoNames` set.
 QVector<RosterMatch> matchClipsToRoster(const QStringList& clipNames, const Roster& roster,
                                         const RosterColumns& columns);
 
