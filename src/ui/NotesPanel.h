@@ -15,6 +15,7 @@ class QListWidgetItem;
 class QPlainTextEdit;
 class QPushButton;
 class QStackedWidget;
+class QToolButton;
 
 namespace atk::ui {
 
@@ -56,6 +57,16 @@ public:
     void setFilter(Filter filter);
     Filter filter() const;
 
+    /// Only notes whose text or author contains `text` (any case); empty
+    /// shows all. Combines with the filter.
+    void setSearchText(const QString& text);
+    QString searchText() const;
+
+    /// Frame order (default), or the most recently written first.
+    enum class Sort { FrameOrder, NewestFirst };
+    void setSort(Sort sort);
+    Sort sort() const { return m_sort; }
+
     QPlainTextEdit* composer() const { return m_composer; }
     QListWidget* list() const { return m_list; }
     /// Starts editing an existing note in the composer.
@@ -85,6 +96,10 @@ private:
     const NoteRow* rowFor(QListWidgetItem* item) const;
 
     QComboBox* m_filter = nullptr;
+    QToolButton* m_searchButton = nullptr;
+    QToolButton* m_sortButton = nullptr;
+    QLineEdit* m_search = nullptr;
+    Sort m_sort = Sort::FrameOrder;
     QLabel* m_count = nullptr;
     QStackedWidget* m_stack = nullptr;
     QListWidget* m_list = nullptr;
@@ -102,6 +117,7 @@ private:
     QHash<qint64, QString> m_drafts; // unsent text per frame
     qint64 m_currentFrame = -1;
     QString m_currentTimecode;
+    void refreshSortButton();
     bool m_available = false;
     qint64 m_editFrame = -1;
     quint64 m_editNoteId = 0;

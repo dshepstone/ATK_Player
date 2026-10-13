@@ -12,6 +12,7 @@
 #include <QTextDocument>
 #include <QTextEdit>
 
+#include <cmath>
 #include <memory>
 
 using namespace atk;
@@ -118,6 +119,7 @@ private slots:
     void zoomedViewMapsToTheSameImagePoint();
     void shapeNeedsADrag();
     void textClickTypesInPlaceAndCommits();
+    void addingStrokesPaintsOnlyTheNewOne();
     void textDragMakesAWrappingBox();
     void textEscapeAndEmptyTextAddNothing();
     void clickingExistingTextEditsIt();
@@ -859,6 +861,65 @@ void TestAnnotationViewer::ghostsPaintTintedAndFadedUnderTheFrame()
     f.viewer.setFrame(frame(12));
     f.viewer.setGhostFrames(12, {});
     QCOMPARE(f.viewer.grab().toImage().pixelColor(f.at(0.4, 0.5) * dpr).red(), 0);
+}
+
+// Lifting the pen adds one stroke to the frame. The viewer must paint just
+// that stroke onto its cache instead of re-rendering every earlier one (the
+// cost that used to grow with each line), and the result must be exactly what
+// a full re-render gives.
+void TestAnnotationViewer::addingStrokesPaintsOnlyTheNewOne()
+{
+    Fixture f;
+    annotation::AnnotationStore store;
+    QObject::connect(&f.viewer, &ViewerWidget::annotationItemDrawn, &store,
+                     [&](qint64 frame, const AnnotationItem& item) { store.addItem(frame, 0, item); });
+    QObject::connect(&store, &annotation::AnnotationStore::frameChanged, &f.viewer,
+                     [&](qint64 frame) { f.viewer.setAnnotationFrame(store.frame(frame)); });
+    annotation::AnnotationToolSettings tool;
+    tool.tool = AnnotationTool::Pencil;
+    tool.sizePixels = 6;
+    f.viewer.setAnnotationTool(tool);
+    f.viewer.setAnnotateMode(true);
+
+    auto stroke = [&](qreal y) {
+        QTest::mousePress(&f.viewer, Qt::LeftButton, {}, f.at(0.2, y));
+        for (int i = 1; i <= 12; ++i) {
+            const QPoint p = f.at(0.2 + 0.05 * i, y + 0.04 * std::sin(i));
+            QMouseEvent move(QEvent::MouseMove, p, f.viewer.mapToGlobal(p), Qt::NoButton, Qt::LeftButton,
+                             Qt::NoModifier);
+            QApplication::sendEvent(&f.viewer, &move);
+        }
+        QTest::mouseRelease(&f.viewer, Qt::LeftButton, {}, f.at(0.8, y));
+        f.viewer.grab(); // paint, so the cache catches up
+    };
+    stroke(0.2);
+    const quint64 rebuilds = f.viewer.annotationCacheRebuilds();
+    for (qreal y : {0.35, 0.5, 0.65, 0.8}) stroke(y);
+    QCOMPARE(store.frame(12).items.size(), 5);
+    QCOMPARE(f.viewer.annotationCacheRebuilds(), rebuilds);
+
+    // A note changes the frame but not its drawings: still no re-render.
+    annotation::FrameNote note;
+    note.text = QStringLiteral("timing");
+    store.addNote(12, 0, note);
+    f.viewer.grab();
+    QCOMPARE(f.viewer.annotationCacheRebuilds(), rebuilds);
+
+    const QImage incremental = f.viewer.grab().toImage();
+    // Force a full re-render of the same drawings and compare every pixel.
+    f.viewer.setAnnotationFrame({});
+    f.viewer.setAnnotationFrame(store.frame(12));
+    const QImage full = f.viewer.grab().toImage();
+    QVERIFY(f.viewer.annotationCacheRebuilds() > rebuilds);
+    QCOMPARE(incremental, full);
+
+    // Undo is not an append: it must re-render, and show one stroke fewer.
+    store.undo(); // the note
+    store.undo(); // the last stroke
+    QCOMPARE(store.frame(12).items.size(), 4);
+    const quint64 beforeUndoPaint = f.viewer.annotationCacheRebuilds();
+    QVERIFY(f.viewer.grab().toImage() != full);
+    QCOMPARE(f.viewer.annotationCacheRebuilds(), beforeUndoPaint + 1);
 }
 
 QTEST_MAIN(TestAnnotationViewer)

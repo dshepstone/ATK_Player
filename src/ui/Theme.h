@@ -30,12 +30,39 @@ inline QColor textPrimary()       { return QColor(0xDA, 0xDD, 0xE1); }
 inline QColor textSecondary()     { return QColor(0x8B, 0x92, 0x9B); }
 inline QColor textDisabled()      { return QColor(0x5C, 0x62, 0x69); }
 
-inline QColor accent()            { return QColor(0x4C, 0x9E, 0xE0); }
-inline QColor accentMuted()       { return QColor(0x35, 0x6E, 0x9C); }
+/// The one colour that means "active", "selected" or "primary". Teal, in the
+/// spirit of the review tools reviewers already know; change it here and the
+/// whole interface follows. 6:1 against the window background.
+inline QColor accent()            { return QColor(0x1F, 0xB5, 0x8F); }
+/// Filled accent tiles (the checked tool, primary buttons): dark enough that
+/// textOnAccent() reads at 4.3:1 on it.
+inline QColor accentFill()        { return QColor(0x14, 0x86, 0x6A); }
+inline QColor accentFillHover()   { return QColor(0x18, 0x97, 0x78); }
+/// Quiet accent for selection backgrounds (list rows, menus).
+inline QColor accentMuted()       { return QColor(0x1E, 0x5E, 0x4F); }
+inline QColor textOnAccent()      { return QColor(0xF4, 0xFB, 0xF8); }
+
+// Icons: monochrome outlines tinted from these, never baked-in colours.
+inline QColor iconNormal()        { return QColor(0xB4, 0xBA, 0xC2); }
+inline QColor iconHover()         { return textPrimary(); }
+inline QColor iconDisabled()      { return textDisabled(); }
+
+// Cards (playlist items, review rows) and the small badges on them.
+inline QColor cardBackground()    { return QColor(0x2F, 0x32, 0x36); }
+inline QColor cardHover()         { return QColor(0x37, 0x3A, 0x3F); }
+inline QColor cardSelected()      { return QColor(0x23, 0x45, 0x3E); }
+inline QColor badgeBackground()   { return QColor(0x3E, 0x42, 0x48); }
+
+// Review status of a clip. Distinct in hue *and* paired with a text label
+// wherever shown, so status never relies on colour alone.
+inline QColor statusNotReviewed() { return textSecondary(); }
+inline QColor statusInReview()    { return QColor(0x4C, 0x9E, 0xE0); }
+inline QColor statusNeedsChanges(){ return QColor(0xE0, 0x6C, 0x5A); }
+inline QColor statusApproved()    { return accent(); }
 
 inline QColor timelineTrack()     { return QColor(0x1B, 0x1D, 0x20); }
 inline QColor timelineFill()      { return QColor(0x3A, 0x3E, 0x44); }
-inline QColor timelineRange()     { return QColor(0x35, 0x5A, 0x77); }
+inline QColor timelineRange()     { return QColor(0x24, 0x55, 0x4B); }
 inline QColor playhead()          { return QColor(0xE8, 0x9A, 0x3C); }
 inline QColor tickMark()          { return QColor(0x54, 0x5A, 0x62); }
 
@@ -45,6 +72,19 @@ inline QColor tickMark()          { return QColor(0x54, 0x5A, 0x62); }
 inline QColor waveform()          { return QColor(0x6E, 0x8A, 0xA6); }
 /// Marks silent regions, so "quiet" reads differently from "not analysed yet".
 inline QColor waveformSilence()   { return QColor(0x44, 0x4A, 0x52); }
+
+/// Shared sizes, so spacing and rounding stay consistent between widgets that
+/// are styled in code and those styled by the stylesheet.
+namespace metrics {
+inline constexpr int radiusSmall = 4;  // buttons, inputs, chips
+inline constexpr int radiusMedium = 6; // cards, popovers
+inline constexpr int spacingSmall = 4;
+inline constexpr int spacingMedium = 8;
+inline constexpr int spacingLarge = 16;
+inline constexpr int iconSmall = 16;   // menus, badges
+inline constexpr int iconMedium = 18;  // toolbars, transport
+inline constexpr int iconLarge = 22;   // primary tool row
+} // namespace metrics
 
 /// Application-wide stylesheet built from the palette above.
 QString styleSheet();

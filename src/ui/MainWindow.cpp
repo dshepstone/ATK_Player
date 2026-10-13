@@ -13,6 +13,7 @@
 #include "media/MediaSource.h"
 #include "media/CompareAudioWorker.h"
 #include "media/PlaylistProbeWorker.h"
+#include "media/ThumbnailWorker.h"
 #include "export/ExportJob.h"
 #include "export/FFmpegExporter.h"
 #include "export/ReviewNotesPdf.h"
@@ -23,6 +24,7 @@
 #include "ui/AnnotationToolbar.h"
 #include "ui/ApplicationSettings.h"
 #include "ui/BookmarkPanel.h"
+#include "ui/BrushSizePill.h"
 #include "ui/BurnInOptionsWidget.h"
 #include "ui/CompareBar.h"
 #include "ui/ComparisonCompositeWidget.h"
@@ -30,10 +32,18 @@
 #include "ui/ExportUi.h"
 #include "ui/FrameFieldStyle.h"
 #include "ui/FrameNumberInput.h"
+#include "ui/IconProvider.h"
 #include "ui/MediaInformationDialog.h"
 #include "ui/NotesPanel.h"
 #include "ui/PreferencesDialog.h"
 #include "ui/Resources.h"
+#include "review/BatchRename.h"
+#include "review/FolderScanner.h"
+#include "review/ReviewLibrary.h"
+#include "ui/BatchRenameDialog.h"
+#include "ui/NewReviewDialog.h"
+#include "ui/ReviewHeaderBar.h"
+#include "ui/ReviewLibraryPage.h"
 #include "ui/ReviewNotesDialog.h"
 #include "ui/SourcesPanel.h"
 #include "ui/StatusInfoBar.h"
@@ -66,6 +76,7 @@
 #include <QWindow>
 
 #include <QAction>
+#include <QActionGroup>
 #include <QCloseEvent>
 #include <QDragEnterEvent>
 #include <QDropEvent>
@@ -80,6 +91,10 @@
 #include <QDialogButtonBox>
 #include <QMenu>
 #include <QMenuBar>
+#include <QSet>
+#include <QStackedWidget>
+#include <QToolBar>
+#include <QToolButton>
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QLocale>
@@ -133,6 +148,7 @@ bool startsNewGroup(CommandId id)
     case CommandId::IncreaseBrushSize:
     case CommandId::PreviousFrame:
     case CommandId::ToggleLoop:
+    case CommandId::PlaylistPlayThrough:
     case CommandId::SetRangeIn:
     case CommandId::AddBookmark:
     case CommandId::VolumeUp:
@@ -156,17 +172,11 @@ bool startsNewGroup(CommandId id)
 constexpr int64_t kPlaceholderFrameCount = 100;
 constexpr int kPlaceholderFps = 24;
 
-/// Video extensions offered by the media dialogs and accepted by drag and drop.
-/// FFmpeg decides what is actually readable; "All Files" stays available.
+/// Video extensions offered by the media dialogs and accepted by drag and drop
+/// (shared with the review folder scan). "All Files" stays available.
 const QStringList& videoExtensions()
 {
-    static const QStringList extensions{
-        QStringLiteral("mp4"), QStringLiteral("mov"), QStringLiteral("avi"),
-        QStringLiteral("mkv"), QStringLiteral("m4v"), QStringLiteral("webm"),
-        QStringLiteral("mpg"), QStringLiteral("mpeg"), QStringLiteral("wmv"),
-        QStringLiteral("flv"),
-    };
-    return extensions;
+    return media::videoFileExtensions();
 }
 
 QString globList(const QStringList& extensions)
@@ -187,11 +197,7 @@ QString mediaFileFilter()
         .arg(video, images);
 }
 
-bool isSupportedMediaPath(const QString& path)
-{
-    const QString suffix = QFileInfo(path).suffix().toLower();
-    return videoExtensions().contains(suffix) || media::isStillImagePath(path);
-}
+using media::isSupportedMediaPath;
 
 /// Local, existing, supported media files carried by a drag.
 QStringList droppedMediaPaths(const QMimeData* mime)
@@ -279,6 +285,12 @@ MainWindow::~MainWindow()
         m_probeThread->quit();
         m_probeThread->wait();
     }
+    // Stop delivery, then let the worker finish its current clip and go.
+    if (m_thumbnailWorker) m_thumbnailWorker->disconnect(this);
+    if (m_thumbnailThread) {
+        m_thumbnailThread->quit();
+        m_thumbnailThread->wait();
+    }
 }
 
 void MainWindow::buildModels()
@@ -298,6 +310,14 @@ void MainWindow::buildModels()
     m_brushLibrary = std::make_unique<annotation::BrushLibrary>(brushDirectory);
     m_brushLibrary->load();
     m_brushLibrary->registerAll();
+    // The review index: beside the settings file when one was given (tests),
+    // else in the user's application data.
+    m_reviewLibrary = std::make_unique<review::ReviewLibrary>(
+        !m_settingsIniPath.isEmpty()
+            ? QFileInfo(m_settingsIniPath).absoluteDir().filePath(QStringLiteral("reviews.json"))
+            : QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)).filePath(QStringLiteral("reviews.json")));
+    if (QString error; !m_reviewLibrary->load(&error))
+        qCWarning(log::ui) << "Review library not read:" << error;
     m_probeThread = new QThread(this);
     m_probeWorker = new media::PlaylistProbeWorker;
     m_probeWorker->moveToThread(m_probeThread);
@@ -334,6 +354,12 @@ void MainWindow::buildModels()
             m_project->applyProbeResult(id, path, token, metadata, error, missing);
         });
     m_probeThread->start();
+    m_thumbnailThread = new QThread(this);
+    m_thumbnailThread->setObjectName(QStringLiteral("ThumbnailThread"));
+    m_thumbnailWorker = new media::ThumbnailWorker;
+    m_thumbnailWorker->moveToThread(m_thumbnailThread);
+    connect(m_thumbnailThread, &QThread::finished, m_thumbnailWorker, &QObject::deleteLater);
+    m_thumbnailThread->start(QThread::LowPriority);
     m_compare  = std::make_unique<playback::CompareSession>();
     m_apiServer = std::make_unique<api::ApiServer>(
         m_playback.get(), m_timeline.get(),
@@ -432,11 +458,29 @@ void MainWindow::buildWidgets()
     });
     column->addWidget(m_transport);
 
-    setCentralWidget(central);
+    // The player is one page; the Review Library, built when first shown, is
+    // the other.
+    m_playerPage = central;
+    m_pages = new QStackedWidget(this);
+    m_pages->setObjectName(QStringLiteral("MainPages"));
+    m_pages->addWidget(central);
+    setCentralWidget(m_pages);
 
     // --- Left dock: sources ----------------------------------------------
     m_sources = new SourcesPanel(this);
     m_sources->setProject(m_project.get());
+    // Delivered on the GUI thread (queued); a clip removed meanwhile is ignored.
+    connect(m_thumbnailWorker, &media::ThumbnailWorker::thumbnailReady, m_sources,
+            [this](QUuid id, quint64, const QImage& image, const QString& error, bool) {
+                if (const auto preview = m_previewThumbnailRequests.find(id); preview != m_previewThumbnailRequests.end()) {
+                    if (!image.isNull() && m_libraryPage) m_libraryPage->setThumbnail(*preview, image);
+                    m_previewThumbnailRequests.erase(preview);
+                    return;
+                }
+                if (!error.isEmpty()) qCDebug(log::ui) << "No thumbnail for" << id << ":" << error;
+                if (!image.isNull() && m_project->indexForId(id) >= 0) m_sources->setThumbnail(id, image);
+            });
+    connect(m_sources, &SourcesPanel::thumbnailWanted, this, &MainWindow::requestThumbnail);
 
     m_sourcesDock = new QDockWidget(tr("Playlist"), this);
     m_sourcesDock->setObjectName(QStringLiteral("SourcesDock"));
@@ -469,6 +513,39 @@ void MainWindow::buildWidgets()
     m_notesDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
     m_notesDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetClosable);
     addDockWidget(Qt::RightDockWidgetArea, m_notesDock);
+    // Starts closed so the picture gets the room; F6 or the Notes button at
+    // the top right opens it.
+    m_notesDock->hide();
+
+    // --- Review header: project › clip, status, export --------------------
+    // A fixed toolbar row across the top, above the drawing tools, so it never
+    // disturbs the central column that full screen and compare rearrange.
+    m_reviewHeader = new ReviewHeaderBar(this);
+    auto* headerBar = new QToolBar(tr("Review"), this);
+    m_reviewHeaderToolbar = headerBar;
+    headerBar->setObjectName(QStringLiteral("ReviewHeaderToolbar"));
+    headerBar->setMovable(false);
+    headerBar->setFloatable(false);
+    headerBar->toggleViewAction()->setVisible(false);
+    headerBar->addWidget(m_reviewHeader);
+    addToolBar(Qt::TopToolBarArea, headerBar);
+    addToolBarBreak(Qt::TopToolBarArea);
+    connect(m_reviewHeader, &ReviewHeaderBar::libraryRequested, this, &MainWindow::showReviewLibrary);
+    connect(m_reviewHeader, &ReviewHeaderBar::statusChosen, this, [this](project::ClipStatus status) {
+        const int index = m_project->activeIndex();
+        if (index >= 0) m_project->setClipStatus(m_project->entries().at(index).id, status);
+    });
+    connect(m_reviewHeader, &ReviewHeaderBar::showInFolderRequested, this, [this] {
+        const int index = m_project->activeIndex();
+        if (index < 0 || !m_project->entries().at(index).source) return;
+        const QString folder = QFileInfo(m_project->entries().at(index).source->filePath()).absolutePath();
+        QDesktopServices::openUrl(QUrl::fromLocalFile(folder));
+    });
+    connect(m_project.get(), &project::Project::entriesChanged, this, &MainWindow::refreshReviewHeader);
+    connect(m_project.get(), &project::Project::activeIndexChanged, this, [this](int) { refreshReviewHeader(); });
+    connect(m_project.get(), &project::Project::nameChanged, this, [this](const QString&) { refreshReviewHeader(); });
+    connect(m_project.get(), &project::Project::clipStatusChanged, this, [this](const QUuid&) { refreshReviewHeader(); });
+    refreshReviewHeader();
 
     // --- Drawing toolbar --------------------------------------------------
     // Shown only while Draw on Frame is on.
@@ -478,6 +555,15 @@ void MainWindow::buildWidgets()
     addToolBar(Qt::TopToolBarArea, m_annotationToolbar);
     m_annotationToolbar->hide();
     m_viewer->setAnnotationTool(m_annotationToolbar->settings());
+    // Floats over the central column, beside the picture, not in its layout;
+    // the viewer itself never knows it is there.
+    m_brushSizePill = new BrushSizePill(m_viewer->parentWidget());
+    m_brushSizePill->hide();
+    m_annotationToolbar->attachSizePill(m_brushSizePill);
+    // Tracing paper and ghosts sit with the other view tools under the timeline.
+    m_transport->addViewTools(m_annotationToolbar->viewTools());
+    m_viewer->installEventFilter(this);
+    m_annotationToolbar->installEventFilter(this);
 
     // --- Status bar -------------------------------------------------------
     m_statusInfo = new StatusInfoBar(this);
@@ -507,12 +593,25 @@ void MainWindow::buildMenus()
         commands::CommandCategory::Help,
     };
 
-    m_commands->action(CommandId::OpenMedia)->setIcon(style()->standardIcon(QStyle::SP_DialogOpenButton));
-    m_commands->action(CommandId::Preferences)->setIcon(style()->standardIcon(QStyle::SP_FileDialogDetailedView));
-    m_commands->action(CommandId::AddBookmark)->setIcon(QIcon(QStringLiteral(":/icons/bookmark-add.svg")));
-    m_commands->action(CommandId::TimelineZoomFit)->setIcon(style()->standardIcon(QStyle::SP_DesktopIcon));
-    m_commands->action(CommandId::ZoomFit)->setIcon(style()->standardIcon(QStyle::SP_TitleBarMaxButton));
-    m_commands->action(CommandId::ZoomActualSize)->setIcon(style()->standardIcon(QStyle::SP_FileDialogContentsView));
+    m_commands->action(CommandId::OpenMedia)->setIcon(icons::icon(QStringLiteral("folder-open")));
+    m_commands->action(CommandId::Preferences)->setIcon(icons::icon(QStringLiteral("settings")));
+    m_commands->action(CommandId::AddBookmark)->setIcon(icons::icon(QStringLiteral("bookmark-plus")));
+    m_commands->action(CommandId::TimelineZoomFit)->setIcon(icons::icon(QStringLiteral("move-horizontal")));
+    m_commands->action(CommandId::ZoomFit)->setIcon(icons::icon(QStringLiteral("scan")));
+    m_commands->action(CommandId::ZoomActualSize)->setIcon(icons::icon(QStringLiteral("zoom-in")));
+    m_commands->action(CommandId::UndoAnnotation)->setIcon(icons::icon(QStringLiteral("undo-2")));
+    m_commands->action(CommandId::RedoAnnotation)->setIcon(icons::icon(QStringLiteral("redo-2")));
+    m_commands->action(CommandId::ClearFrameAnnotations)->setIcon(icons::icon(QStringLiteral("trash-2")));
+    m_commands->action(CommandId::RenameFromRoster)->setIcon(icons::icon(QStringLiteral("text-cursor-input")));
+    m_reviewHeader->setRenameAction(m_commands->action(CommandId::RenameFromRoster));
+    m_reviewHeader->setExportActions({m_commands->action(CommandId::ExportReview),
+                                      m_commands->action(CommandId::ExportReviewNotes),
+                                      m_commands->action(CommandId::ExportNotesVideo),
+                                      m_commands->action(CommandId::ExportCurrentFrame)});
+    // Undo, redo and clear also sit on the drawing row, as the same commands.
+    m_annotationToolbar->addEditActions({m_commands->action(CommandId::UndoAnnotation),
+                                         m_commands->action(CommandId::RedoAnnotation),
+                                         m_commands->action(CommandId::ClearFrameAnnotations)});
 
     for (const commands::CommandCategory category : categories) {
         QMenu* menu = menuBar()->addMenu(commands::categoryTitle(category));
@@ -554,7 +653,26 @@ void MainWindow::buildMenus()
     applyTracingPaper(m_settings->tracingPaper());
     applyGhostSettings(m_settings->ghostSettings());
     if (QAction* notesAction = m_commands->action(CommandId::ToggleNotesPanel)) {
-        notesAction->setChecked(true);
+        notesAction->setChecked(false);
+        notesAction->setIcon(icons::icon(QStringLiteral("message-square")));
+        // Top right of the menu bar, above where the panel opens.
+        auto* notesButton = new QToolButton(menuBar());
+        notesButton->setObjectName(QStringLiteral("NotesToggleButton"));
+        notesButton->setDefaultAction(notesAction);
+        notesButton->setText(tr("Notes"));
+        notesButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+        notesButton->setIconSize(QSize(theme::metrics::iconSmall, theme::metrics::iconSmall));
+        notesButton->setFocusPolicy(Qt::NoFocus);
+        notesButton->setProperty("atkRole", "iconButton");
+        const auto refreshTip = [notesButton, notesAction] {
+            notesButton->setText(tr("Notes"));
+            const QString shortcut = notesAction->shortcut().toString(QKeySequence::NativeText);
+            notesButton->setToolTip(shortcut.isEmpty() ? tr("Show or hide the notes panel")
+                                                       : tr("Show or hide the notes panel (%1)").arg(shortcut));
+        };
+        connect(notesAction, &QAction::changed, notesButton, refreshTip);
+        refreshTip();
+        menuBar()->setCornerWidget(notesButton, Qt::TopRightCorner);
     }
     if (QAction* scrubAction = m_commands->action(CommandId::ToggleAudioScrub)) {
         scrubAction->setChecked(m_settings->audioScrubEnabled());
@@ -724,9 +842,9 @@ void MainWindow::connectSignals()
     connect(m_compare.get(), &playback::CompareSession::activePaneChanged, this,
             [this](playback::ComparePane pane) {
                 m_viewer->setStyleSheet(pane == playback::ComparePane::A
-                    ? QStringLiteral("border: 2px solid #1687d9;") : QString());
+                    ? QStringLiteral("border: 2px solid %1;").arg(theme::accent().name()) : QString());
                 m_viewerB->setStyleSheet(pane == playback::ComparePane::B
-                    ? QStringLiteral("border: 2px solid #1687d9;") : QString());
+                    ? QStringLiteral("border: 2px solid %1;").arg(theme::accent().name()) : QString());
             });
     connect(m_project.get(), &project::Project::entriesChanged, this, [this] {
         if (!isComparisonActive()) return;
@@ -796,11 +914,22 @@ void MainWindow::connectSignals()
 
     connect(m_playback.get(), &playback::PlaybackController::loopEnabledChanged,
             this, [this](bool enabled) {
-                if (QAction* action = m_commands->action(CommandId::ToggleLoop)) {
-                    QSignalBlocker blocker(action);
-                    action->setChecked(enabled);
-                }
+                // Loop switched on the player itself (the API): follow it.
+                if (enabled && m_playlistMode != PlaylistMode::LoopClip) setPlaylistMode(PlaylistMode::LoopClip);
+                else if (!enabled && m_playlistMode == PlaylistMode::LoopClip)
+                    setPlaylistMode(m_stopAfterEachClip ? PlaylistMode::StopAfterClip : PlaylistMode::PlayThrough);
             });
+    {
+        auto* modes = new QActionGroup(this);
+        modes->setExclusive(true);
+        for (const CommandId id : {CommandId::PlaylistPlayThrough, CommandId::PlaylistStopAfterClip,
+                                   CommandId::PlaylistLoopClip, CommandId::PlaylistLoopAll})
+            if (QAction* action = m_commands->action(id)) modes->addAction(action);
+        m_stopAfterEachClip = m_settings->stopAfterEachClip();
+        m_loopWholePlaylist = m_settings->loopWholePlaylist();
+        // Loop itself starts off each session, as it always has.
+        setPlaylistMode(m_stopAfterEachClip ? PlaylistMode::StopAfterClip : PlaylistMode::PlayThrough);
+    }
 
     // Scrubbing the timeline goes through the controller, not straight into the
     // model, so a drag behaves exactly like an API seek.
@@ -937,11 +1066,13 @@ void MainWindow::onCommand(CommandId id, bool checked)
     switch (id) {
     // --- Transport: fully wired ------------------------------------------
     case CommandId::PlayPause:
+        // Play at the end of a clip goes on to the next one (in every mode:
+        // "stop after each clip" pauses between clips, Play moves on).
         if (!isComparisonActive() && !m_playback->isPlaying() && !m_playback->isLoopEnabled()
             && m_project->activeIndex() >= 0
             && m_playback->currentFrame() == m_timeline->effectiveEndFrame()) {
-            const int next = nextUsablePlaylistIndex();
-            if (next >= 0) {
+            const int next = nextUsablePlaylistIndex(m_playlistMode == PlaylistMode::LoopPlaylist);
+            if (next >= 0 && next != m_project->activeIndex()) {
                 activatePlaylistIndex(next, true);
                 return;
             }
@@ -964,8 +1095,17 @@ void MainWindow::onCommand(CommandId id, bool checked)
         m_playback->goToEnd();
         return;
     case CommandId::ToggleLoop:
-        m_playback->setLoopEnabled(checked);
+        if (checked) setPlaylistMode(m_loopWholePlaylist ? PlaylistMode::LoopPlaylist : PlaylistMode::LoopClip);
+        else setPlaylistMode(m_stopAfterEachClip ? PlaylistMode::StopAfterClip : PlaylistMode::PlayThrough);
         return;
+    case CommandId::PlaylistPlayThrough:
+        setPlaylistMode(PlaylistMode::PlayThrough); return;
+    case CommandId::PlaylistStopAfterClip:
+        setPlaylistMode(PlaylistMode::StopAfterClip); return;
+    case CommandId::PlaylistLoopClip:
+        setPlaylistMode(PlaylistMode::LoopClip); return;
+    case CommandId::PlaylistLoopAll:
+        setPlaylistMode(PlaylistMode::LoopPlaylist); return;
     case CommandId::SkipBack10Seconds:
         m_playback->skipBySeconds(-10); return;
     case CommandId::SkipForward10Seconds:
@@ -1186,6 +1326,15 @@ void MainWindow::onCommand(CommandId id, bool checked)
         return;
 
     // --- Declared, not yet implemented ------------------------------------
+    case CommandId::ShowReviewLibrary:
+        showReviewLibrary();
+        return;
+    case CommandId::NewReview:
+        newReviewDialog();
+        return;
+    case CommandId::RenameFromRoster:
+        renameClipsFromRoster();
+        return;
     case CommandId::OpenMedia:
         openMediaDialog();
         return;
@@ -1335,6 +1484,7 @@ void MainWindow::applyPreferences(const PreferencesDialog& dialog)
     m_settings->setFrameStepAudioEnabled(dialog.frameStepAudioEnabled());
     m_settings->setBookmarkSnapEnabled(dialog.bookmarkSnapEnabled());
     m_settings->setReopenLastProject(dialog.reopenLastProject());
+    m_settings->setShowLibraryAtStartup(dialog.showLibraryAtStartup());
     // Applies to stills added from now on; existing sources keep their hold.
     m_settings->setStillImageHoldFrames(dialog.stillImageHoldFrames());
     m_settings->setImageSequenceFrameRate(dialog.imageSequenceFrameRate());
@@ -1399,10 +1549,22 @@ void MainWindow::restoreApplicationLayout()
     // The saved layout may record the drawing toolbar as visible; it belongs
     // to Draw on Frame, which always starts off.
     if (m_annotationToolbar) m_annotationToolbar->setVisible(m_viewer->annotateMode());
+    // Notes always start closed, whatever the last session left open.
+    if (m_notesDock) m_notesDock->hide();
+    // The review header always has the top row to itself, above the drawing
+    // tools, even when the saved layout predates it.
+    if (m_reviewHeaderToolbar && m_annotationToolbar) {
+        removeToolBar(m_reviewHeaderToolbar);
+        insertToolBar(m_annotationToolbar, m_reviewHeaderToolbar);
+        insertToolBarBreak(m_annotationToolbar);
+        m_reviewHeaderToolbar->show();
+    }
 }
 
 void MainWindow::saveApplicationLayout()
 {
+    // Save the player's layout, not the library's (which hides the docks).
+    showPlayer();
     if (!m_settings) return;
     if (!m_skipLayoutSaveOnce) {
         m_settings->setWindowGeometry(saveGeometry());
@@ -1436,14 +1598,28 @@ void MainWindow::onPlayerStateChanged(playback::PlayerState state)
         if (isComparisonActive()) {
             m_playlistPlaybackActive = false;
             statusBar()->showMessage(tr("End of comparison"), 2000);
-        } else if (m_playlistPlaybackActive && !m_playback->isLoopEnabled()) {
-            const int next = nextUsablePlaylistIndex();
-            if (next >= 0) {
+        } else if (m_playlistPlaybackActive && (m_playlistMode == PlaylistMode::PlayThrough
+                                                || m_playlistMode == PlaylistMode::LoopPlaylist)) {
+            const bool wrap = m_playlistMode == PlaylistMode::LoopPlaylist;
+            const int next = nextUsablePlaylistIndex(wrap);
+            if (next >= 0 && next != m_project->activeIndex()) {
                 activatePlaylistIndex(next, true);
+                break;
+            }
+            if (next >= 0) {
+                // Looping a playlist of one clip: play it again. Queued, as the
+                // player is still reporting the end.
+                QMetaObject::invokeMethod(this, [this] {
+                    m_playback->goToStart();
+                    m_playback->play();
+                }, Qt::QueuedConnection);
                 break;
             }
             m_playlistPlaybackActive = false;
             statusBar()->showMessage(tr("End of playlist"), 2000);
+        } else if (m_playlistMode == PlaylistMode::StopAfterClip) {
+            m_playlistPlaybackActive = false;
+            statusBar()->showMessage(tr("End of clip (Space plays the next)"), 3000);
         } else {
             m_playlistPlaybackActive = false;
             statusBar()->showMessage(tr("End of playlist"), 2000);
@@ -1559,6 +1735,7 @@ void MainWindow::buildAudioControls()
     m_volumeSlider = new QSlider(Qt::Horizontal, container);
     m_volumeSlider->setRange(0, 100);
     m_volumeSlider->setValue(qRound(m_playback->volume() * 100));
+    m_volumeSlider->setAccessibleName(tr("Volume level"));
     m_volumeSlider->setFixedWidth(140);
     layout->addWidget(m_volumeSlider);
 
@@ -1655,9 +1832,13 @@ void MainWindow::onMediaOpened(const media::MediaMetadata& metadata)
     }
 }
 
-int MainWindow::nextUsablePlaylistIndex() const
+int MainWindow::nextUsablePlaylistIndex(bool wrap) const
 {
-    for (int i = m_project->activeIndex() + 1; i < m_project->entries().size(); ++i) {
+    const int count = int(m_project->entries().size());
+    const int active = m_project->activeIndex();
+    const int steps = wrap ? count : count - active - 1;
+    for (int step = 1; step <= steps; ++step) {
+        const int i = (active + step) % count;
         const auto availability = m_project->entries().at(i).availability;
         if (availability != project::SourceAvailability::Missing
             && availability != project::SourceAvailability::Error) {
@@ -1665,6 +1846,34 @@ int MainWindow::nextUsablePlaylistIndex() const
         }
     }
     return -1;
+}
+
+void MainWindow::setPlaylistMode(PlaylistMode mode)
+{
+    m_playlistMode = mode;
+    // Each side of the loop button remembers its choice.
+    if (mode == PlaylistMode::PlayThrough || mode == PlaylistMode::StopAfterClip) {
+        m_stopAfterEachClip = mode == PlaylistMode::StopAfterClip;
+        m_settings->setStopAfterEachClip(m_stopAfterEachClip);
+    } else {
+        m_loopWholePlaylist = mode == PlaylistMode::LoopPlaylist;
+        m_settings->setLoopWholePlaylist(m_loopWholePlaylist);
+    }
+    // The player loops a clip by itself; a playlist loops here, clip to clip.
+    const bool loop = mode == PlaylistMode::LoopClip || mode == PlaylistMode::LoopPlaylist;
+    if (m_playback->isLoopEnabled() != (mode == PlaylistMode::LoopClip))
+        m_playback->setLoopEnabled(mode == PlaylistMode::LoopClip);
+    const auto check = [this](CommandId id, bool on) {
+        if (QAction* action = m_commands->action(id)) {
+            QSignalBlocker blocker(action);
+            action->setChecked(on);
+        }
+    };
+    check(CommandId::ToggleLoop, loop);
+    check(CommandId::PlaylistPlayThrough, mode == PlaylistMode::PlayThrough);
+    check(CommandId::PlaylistStopAfterClip, mode == PlaylistMode::StopAfterClip);
+    check(CommandId::PlaylistLoopClip, mode == PlaylistMode::LoopClip);
+    check(CommandId::PlaylistLoopAll, mode == PlaylistMode::LoopPlaylist);
 }
 
 void MainWindow::onMediaError(const QString& message)
@@ -1686,6 +1895,7 @@ void MainWindow::addMediaDialog()
 
 void MainWindow::addMediaFiles(const QStringList& paths, bool interactive)
 {
+    showPlayer(); // a dropped, opened or API-sent clip always lands in the player
     const bool wasEmpty = m_project->entries().isEmpty();
     // Preferences seed an image source's hold and rate once, here; the source
     // keeps them from then on, so a later preference change cannot move or
@@ -1819,6 +2029,425 @@ void MainWindow::startProbe(const QUuid& id, const QString& path)
     }, Qt::QueuedConnection);
 }
 
+void MainWindow::refreshReviewHeader()
+{
+    if (!m_reviewHeader) return;
+    QString projectName = m_project->name().trimmed();
+    if (projectName.isEmpty() && !m_project->filePath().isEmpty())
+        projectName = QFileInfo(m_project->filePath()).completeBaseName();
+    if (projectName.isEmpty()) projectName = tr("Untitled project");
+    const int index = m_project->activeIndex();
+    if (index < 0 || index >= m_project->entries().size() || !m_project->entries().at(index).source) {
+        m_reviewHeader->setLocation(projectName, QString(), false);
+        m_reviewHeader->setStatus(project::ClipStatus::NotReviewed);
+        return;
+    }
+    const project::SourceEntry& entry = m_project->entries().at(index);
+    m_reviewHeader->setLocation(projectName,
+                                entry.displayName.isEmpty() ? entry.source->displayName() : entry.displayName, true);
+    m_reviewHeader->setStatus(entry.status);
+}
+
+QString MainWindow::thumbnailCacheDirectory() const
+{
+    // Beside the settings file when one was given (tests), else the user cache.
+    return !m_settingsIniPath.isEmpty()
+        ? QFileInfo(m_settingsIniPath).absoluteDir().filePath(QStringLiteral("thumbnails"))
+        : QDir(QStandardPaths::writableLocation(QStandardPaths::CacheLocation)).filePath(QStringLiteral("thumbnails"));
+}
+
+void MainWindow::requestPreviewThumbnail(const QString& clipPath)
+{
+    // Library strips show clips by path; a name-based id keeps one request per clip.
+    static const QUuid kNamespace(QStringLiteral("{7d3c1f3e-5a8b-4b8e-9c1d-2f6a4e0b9a11}"));
+    const QUuid id = QUuid::createUuidV5(kNamespace, clipPath);
+    if (m_previewThumbnailRequests.contains(id) || !m_thumbnailWorker || !QFileInfo(clipPath).isFile()) return;
+    m_previewThumbnailRequests.insert(id, clipPath);
+    const QString cacheDirectory = thumbnailCacheDirectory();
+    const quint64 token = m_nextThumbnailToken++;
+    QMetaObject::invokeMethod(m_thumbnailWorker, [worker = m_thumbnailWorker, id, clipPath, token, cacheDirectory] {
+        worker->render(id, clipPath, token, {}, QSize(320, 180), cacheDirectory);
+    }, Qt::QueuedConnection);
+}
+
+void MainWindow::showStartScreen()
+{
+    if (m_settings->showLibraryAtStartup()) showReviewLibrary();
+}
+
+bool MainWindow::isShowingReviewLibrary() const
+{
+    return m_libraryPage && m_pages->currentWidget() == m_libraryPage;
+}
+
+void MainWindow::showReviewLibrary()
+{
+    if (!m_libraryPage) {
+        m_libraryPage = new ReviewLibraryPage(m_reviewLibrary.get(), m_pages);
+        m_pages->addWidget(m_libraryPage);
+        connect(m_libraryPage, &ReviewLibraryPage::newReviewRequested, this, &MainWindow::newReviewDialog);
+        connect(m_libraryPage, &ReviewLibraryPage::openReviewRequested, this, [this](const QUuid& id) { openReview(id); });
+        connect(m_libraryPage, &ReviewLibraryPage::openProjectRequested, this, &MainWindow::openProjectDialog);
+        connect(m_libraryPage, &ReviewLibraryPage::openMediaRequested, this, &MainWindow::openMediaDialog);
+        connect(m_libraryPage, &ReviewLibraryPage::showFolderRequested, this,
+                [](const QString& folder) { QDesktopServices::openUrl(QUrl::fromLocalFile(folder)); });
+        connect(m_libraryPage, &ReviewLibraryPage::libraryChanged, this, &MainWindow::saveReviewLibrary);
+        connect(m_libraryPage, &ReviewLibraryPage::thumbnailWanted, this, &MainWindow::requestPreviewThumbnail);
+    }
+    if (isShowingReviewLibrary()) {
+        m_libraryPage->refresh();
+        return;
+    }
+    // Leave the player in a quiet state: no drawing mode, nothing playing,
+    // not full screen. The project stays open; the player is one click away.
+    if (m_viewer->annotateMode()) setAnnotateMode(false);
+    exitVideoFullScreen();
+    if (m_playback->isPlaying()) m_playback->pause();
+    m_hiddenForLibrary.clear();
+    for (QWidget* widget : {static_cast<QWidget*>(m_sourcesDock), static_cast<QWidget*>(m_bookmarksDock),
+                            static_cast<QWidget*>(m_notesDock), static_cast<QWidget*>(m_reviewHeaderToolbar)}) {
+        if (widget && widget->isVisible()) {
+            m_hiddenForLibrary.append(widget);
+            widget->hide();
+        }
+    }
+    statusBar()->hide();
+    m_pages->setCurrentWidget(m_libraryPage);
+    m_libraryPage->refresh();
+}
+
+void MainWindow::showPlayer()
+{
+    if (!isShowingReviewLibrary()) return;
+    m_pages->setCurrentWidget(m_playerPage);
+    for (QWidget* widget : std::as_const(m_hiddenForLibrary)) widget->show();
+    m_hiddenForLibrary.clear();
+    statusBar()->show();
+}
+
+void MainWindow::saveReviewLibrary()
+{
+    if (QString error; !m_reviewLibrary->save(&error))
+        statusBar()->showMessage(tr("The review library could not be saved: %1").arg(error), 6000);
+}
+
+void MainWindow::syncReviewLibraryEntry()
+{
+    const review::ReviewInfo* found = m_reviewLibrary->findByProject(m_project->filePath());
+    if (!found) return;
+    review::ReviewInfo info = *found;
+    info.clipCount = int(m_project->entries().size());
+    info.previewClips.clear();
+    for (const project::SourceEntry& entry : m_project->entries()) {
+        if (info.previewClips.size() >= 5) break;
+        if (entry.source && !entry.source->isImageSequence()) info.previewClips.append(entry.source->filePath());
+    }
+    if (info != *found) {
+        m_reviewLibrary->update(info);
+        saveReviewLibrary();
+        if (m_libraryPage) m_libraryPage->refresh();
+    }
+}
+
+void MainWindow::offerRenameRecovery(const QString& folder)
+{
+    for (const QString& journal : review::interruptedJournals(folder)) {
+        const auto answer = QMessageBox::question(
+            this, tr("Unfinished Rename"),
+            tr("A rename of clips in this folder did not finish (the computer may have shut down part way).\n\n"
+               "Put the original file names back?"),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+        if (answer != QMessageBox::Yes) continue;
+        const review::RenameResult result = review::recoverInterrupted(journal);
+        if (result.ok)
+            statusBar()->showMessage(tr("Restored %n file name(s).", nullptr, result.renamed), 6000);
+        else
+            QMessageBox::warning(this, tr("Unfinished Rename"), result.error);
+    }
+}
+
+void MainWindow::retargetRenamedClips(const QHash<QString, QString>& moved)
+{
+    auto key = [](const QString& path) { return QDir::cleanPath(QFileInfo(path).absoluteFilePath()); };
+    QHash<QString, QString> byKey;
+    for (auto it = moved.cbegin(); it != moved.cend(); ++it) byKey.insert(key(it.key()), it.value());
+    QVector<QPair<QUuid, QString>> renamed;
+    for (project::SourceEntry& entry : m_project->mutableEntries()) {
+        if (!entry.source) continue;
+        const auto it = byKey.constFind(key(entry.source->filePath()));
+        if (it == byKey.cend()) continue;
+        // Same clip, same metadata, new file name: drawings, notes,
+        // bookmarks and status stay with it.
+        auto replacement = std::make_shared<media::MediaSource>(*it);
+        replacement->setMetadata(entry.source->metadata());
+        replacement->setImageOptions(entry.source->imageOptions());
+        entry.source = std::move(replacement);
+        entry.missing = false;
+        renamed.append({entry.id, QFileInfo(*it).fileName()});
+    }
+    for (const auto& [id, name] : renamed) m_project->setDisplayName(id, name);
+    m_project->setModified(true);
+}
+
+void MainWindow::renameClipsFromRoster()
+{
+    if (m_project->entries().isEmpty()) {
+        QMessageBox::information(this, tr("Rename Clips from Team List"),
+                                 tr("Open a review, or add clips to the playlist, first."));
+        return;
+    }
+    showPlayer();
+    QVector<BatchRenameDialog::Clip> clips;
+    for (const project::SourceEntry& entry : m_project->entries()) {
+        if (!entry.source) continue;
+        clips.append({entry.id, entry.source->filePath(),
+                      entry.displayName.isEmpty() ? entry.source->displayName() : entry.displayName,
+                      entry.source->isImageSequence()});
+    }
+    offerRenameRecovery(QFileInfo(clips.first().path).absolutePath());
+    BatchRenameDialog dialog(clips, m_project->name(), m_settings->renameTemplate(), this);
+    if (const QString last = m_settings->lastRosterPath(); !last.isEmpty() && QFileInfo::exists(last))
+        dialog.loadRoster(last);
+    if (dialog.exec() != QDialog::Accepted) return;
+    if (!dialog.undoJournal().isEmpty()) {
+        QString error;
+        if (undoRosterRename(dialog.undoJournal(), &error))
+            statusBar()->showMessage(tr("The last rename was undone."), 6000);
+        else
+            QMessageBox::warning(this, tr("Undo Rename"), error);
+        return;
+    }
+    if (!dialog.rosterPath().isEmpty()) m_settings->setLastRosterPath(dialog.rosterPath());
+    m_settings->setRenameTemplate(dialog.nameTemplate());
+    QString error;
+    if (!applyRosterRename(dialog.decisions(), dialog.renameOnDisk(), dialog.orderByRoster(), &error))
+        QMessageBox::warning(this, tr("Rename Clips"), tr("Nothing was renamed.\n\n%1").arg(error));
+    else
+        statusBar()->showMessage(dialog.renameOnDisk() ? tr("Files renamed. Undo is in the same window.")
+                                                       : tr("Clips renamed in ATK Player. The files are unchanged."),
+                                 6000);
+}
+
+bool MainWindow::applyRosterRename(const QVector<review::RenameDecision>& decisions, bool onDisk, bool reorder,
+                                   QString* error)
+{
+    const QUuid active = m_project->currentSourceId();
+    auto reactivate = [this, active] {
+        const int index = m_project->indexForId(active);
+        if (index >= 0 && m_project->activeIndex() != index) {
+            m_project->setActiveIndex(-1);
+            activatePlaylistIndex(index);
+        }
+    };
+    if (onDisk) {
+        QVector<review::RenameItem> items;
+        for (const review::RenameDecision& d : decisions) {
+            const int index = m_project->indexForId(d.id);
+            if (d.newPath.isEmpty() || index < 0 || !m_project->entries().at(index).source) continue;
+            items.append({m_project->entries().at(index).source->filePath(), d.newPath});
+        }
+        const review::RenamePlan plan = review::planRenames(items);
+        if (!plan.ok()) {
+            if (error) *error = tr("Some new names cannot be used; nothing was renamed.");
+            return false;
+        }
+        if (plan.changeCount() > 0) {
+            // The player holds the open clip; release it so Windows lets it be
+            // renamed (the rename retries while the player's threads let go).
+            m_playback->releaseMediaFiles();
+            m_project->setActiveIndex(-1);
+            const review::RenameResult result = review::executeRenames(plan);
+            if (!result.ok) {
+                if (error) *error = result.error;
+                reactivate();
+                return false;
+            }
+            QHash<QString, QString> moved;
+            for (const review::PlannedRename& r : plan.items)
+                if (r.problem == review::RenameProblem::None) moved.insert(r.from, r.to);
+            retargetRenamedClips(moved);
+        }
+    }
+    // The names shown in ATK Player (and in the notes PDF and exports).
+    for (const review::RenameDecision& d : decisions) {
+        const int index = m_project->indexForId(d.id);
+        if (d.newName.isEmpty() || index < 0 || !m_project->entries().at(index).source) continue;
+        const auto& source = m_project->entries().at(index).source;
+        const QString suffix = source->isImageSequence() ? QString() : QFileInfo(source->filePath()).suffix();
+        m_project->setDisplayName(d.id, suffix.isEmpty() ? d.newName : d.newName + QLatin1Char('.') + suffix);
+    }
+    if (reorder)
+        for (int target = 0; target < decisions.size(); ++target) {
+            const int from = m_project->indexForId(decisions[target].id);
+            if (from >= 0 && from != target) m_project->moveSource(from, target);
+        }
+    // After renaming files the saved project must point at the new names.
+    if (onDisk && !m_project->filePath().isEmpty()) saveProjectTo(m_project->filePath());
+    reactivate();
+    updateWindowTitle();
+    return true;
+}
+
+bool MainWindow::undoRosterRename(const QString& journalPath, QString* error)
+{
+    QVector<review::RenameItem> items;
+    QString state;
+    if (!review::readRenameJournal(journalPath, &items, &state)) {
+        if (error) *error = tr("The rename record could not be read.");
+        return false;
+    }
+    const QUuid active = m_project->currentSourceId();
+    m_playback->releaseMediaFiles();
+    m_project->setActiveIndex(-1);
+    const review::RenameResult result = review::undoRenames(journalPath);
+    if (result.ok) {
+        QHash<QString, QString> moved;
+        for (const review::RenameItem& item : items) moved.insert(item.to, item.from);
+        retargetRenamedClips(moved);
+        if (!m_project->filePath().isEmpty()) saveProjectTo(m_project->filePath());
+    } else if (error) {
+        *error = result.error;
+    }
+    if (const int index = m_project->indexForId(active); index >= 0) activatePlaylistIndex(index);
+    updateWindowTitle();
+    return result.ok;
+}
+
+void MainWindow::newReviewDialog()
+{
+    NewReviewDialog dialog(m_lastMediaDirectory, this);
+    if (dialog.exec() != QDialog::Accepted) return;
+    createReview(dialog.reviewName(), dialog.folder(), dialog.includeSubfolders(), dialog.chosenClips(),
+                 dialog.projectPath());
+}
+
+namespace {
+/// A clip found in a review folder as a media source with the user's image
+/// defaults (and a sequence's frame range).
+std::shared_ptr<media::MediaSource> sourceForClip(const review::FoundClip& clip, media::ImageSourceOptions still)
+{
+    auto source = std::make_shared<media::MediaSource>(clip.path);
+    if (clip.sequence) {
+        still.sequenceFirst = clip.sequenceFirst;
+        still.sequenceLast = clip.sequenceLast;
+        source->setImageOptions(still);
+    } else if (source->isStillImage()) {
+        source->setImageOptions(still);
+    }
+    return source;
+}
+} // namespace
+
+bool MainWindow::createReview(const QString& name, const QString& folder, bool includeSubfolders,
+                              const QVector<review::FoundClip>& clips, const QString& projectPath, bool interactive)
+{
+    if (clips.isEmpty() || projectPath.isEmpty()) return false;
+    if (!cancelExportForProjectChange()) return false;
+    exitComparison();
+    if (interactive && !confirmDiscardChanges()) return false;
+    ++m_projectGeneration;
+    m_playback->closeMedia();
+    m_project->replace(name, QString(), {}, QUuid{});
+    media::ImageSourceOptions still;
+    still.holdFrames = m_settings->stillImageHoldFrames();
+    still.frameRate = m_settings->imageSequenceFrameRate();
+    for (const review::FoundClip& clip : clips) m_project->addSource(sourceForClip(clip, still));
+
+    review::ReviewInfo info;
+    info.name = name;
+    info.folder = QDir::cleanPath(QFileInfo(folder).absoluteFilePath());
+    info.projectPath = QFileInfo(projectPath).absoluteFilePath();
+    info.includeSubfolders = includeSubfolders;
+    info.createdMsUtc = info.openedMsUtc = QDateTime::currentMSecsSinceEpoch();
+    m_reviewLibrary->add(info); // before saving, so the save fills in its count and strip
+    if (!saveProjectTo(projectPath, false, interactive)) {
+        if (const review::ReviewInfo* added = m_reviewLibrary->findByProject(projectPath))
+            m_reviewLibrary->remove(added->id);
+        return false;
+    }
+    m_project->setName(name);
+    saveReviewLibrary();
+    m_lastMediaDirectory = info.folder;
+    showPlayer();
+    m_project->setActiveIndex(-1);
+    activatePlaylistIndex(0);
+    startPlaylistProbes();
+    updateWindowTitle();
+    return true;
+}
+
+bool MainWindow::openReview(const QUuid& id, bool interactive)
+{
+    const review::ReviewInfo* found = m_reviewLibrary->find(id);
+    if (!found) return false;
+    const review::ReviewInfo info = *found;
+    if (!QFileInfo::exists(info.projectPath)) {
+        if (interactive
+            && QMessageBox::question(this, tr("Open Review"),
+                   tr("The project file for \"%1\" is missing:\n%2\n\nRemove the review from the library?")
+                       .arg(info.name, QDir::toNativeSeparators(info.projectPath)),
+                   QMessageBox::Yes | QMessageBox::No, QMessageBox::No) == QMessageBox::Yes) {
+            m_reviewLibrary->remove(id);
+            saveReviewLibrary();
+            if (m_libraryPage) m_libraryPage->refresh();
+        }
+        return false;
+    }
+    if (interactive && !confirmDiscardChanges()) return false;
+    if (interactive) offerRenameRecovery(info.folder); // before the files are opened
+    if (!openProjectFile(info.projectPath)) return false;
+
+    review::ReviewInfo opened = info;
+    opened.openedMsUtc = QDateTime::currentMSecsSinceEpoch();
+    m_reviewLibrary->update(opened);
+
+    // Clips added to the folder since: offer them, at the end.
+    if (interactive && QFileInfo(info.folder).isDir()) {
+        QSet<QString> known;
+        for (const project::SourceEntry& entry : m_project->entries())
+            if (entry.source) known.insert(QDir::cleanPath(entry.source->filePath()).toCaseFolded());
+        QVector<review::FoundClip> added;
+        for (const review::FoundClip& clip : review::scanFolder(info.folder, info.includeSubfolders))
+            if (!known.contains(QDir::cleanPath(clip.path).toCaseFolded())) added.append(clip);
+        if (!added.isEmpty()) {
+            QStringList names;
+            for (const review::FoundClip& clip : added.mid(0, 8)) names << clip.displayName;
+            if (added.size() > 8) names << tr("…and %n more", nullptr, int(added.size() - 8));
+            const auto answer = QMessageBox::question(
+                this, tr("New Clips"),
+                tr("%n new clip(s) in the review folder:", nullptr, int(added.size())) + QStringLiteral("\n\n")
+                    + names.join(QLatin1Char('\n')) + QStringLiteral("\n\n") + tr("Add them to the end of the review?"),
+                QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+            if (answer == QMessageBox::Yes) {
+                media::ImageSourceOptions still;
+                still.holdFrames = m_settings->stillImageHoldFrames();
+                still.frameRate = m_settings->imageSequenceFrameRate();
+                for (const review::FoundClip& clip : added) m_project->addSource(sourceForClip(clip, still));
+                startPlaylistProbes();
+                saveProjectTo(m_project->filePath());
+            }
+        }
+    }
+    syncReviewLibraryEntry();
+    saveReviewLibrary();
+    return true;
+}
+
+void MainWindow::requestThumbnail(const QUuid& sourceId)
+{
+    const int index = m_project->indexForId(sourceId);
+    if (index < 0 || !m_thumbnailWorker) return;
+    const auto& source = m_project->entries().at(index).source;
+    if (!source) return;
+    const QString cacheDirectory = thumbnailCacheDirectory();
+    const QString path = source->filePath();
+    const media::ImageSourceOptions still = source->imageOptions();
+    const quint64 token = m_nextThumbnailToken++;
+    QMetaObject::invokeMethod(m_thumbnailWorker, [worker = m_thumbnailWorker, sourceId, path, token, still, cacheDirectory] {
+        worker->render(sourceId, path, token, still, QSize(320, 180), cacheDirectory);
+    }, Qt::QueuedConnection);
+}
+
 void MainWindow::startPlaylistProbes()
 {
     for (const auto& entry : m_project->entries())
@@ -1945,6 +2574,7 @@ bool MainWindow::openProjectFile(const QString& path)
     }
     m_settings->addRecentProject(path); refreshRecentProjectsMenu();
     startPlaylistProbes();
+    showPlayer();
     updateWindowTitle(); return true;
 }
 
@@ -1964,6 +2594,7 @@ bool MainWindow::saveProjectTo(const QString& path, bool saveAs, bool showError)
     if (saveAs) m_project->setName(QFileInfo(absolutePath).completeBaseName());
     m_project->setModified(false);
     m_settings->addRecentProject(absolutePath); refreshRecentProjectsMenu();
+    syncReviewLibraryEntry();
     updateWindowTitle(); return true;
 }
 
@@ -1986,9 +2617,9 @@ void MainWindow::refreshRecentProjectsMenu()
     connect(clear, &QAction::triggered, this, [this] { m_settings->clearRecentProjects(); refreshRecentProjectsMenu(); });
 }
 
-void MainWindow::reopenLastProjectIfEnabled()
+bool MainWindow::reopenLastProjectIfEnabled()
 {
-    if (!m_settings->reopenLastProject()) return;
+    if (!m_settings->reopenLastProject()) return false;
     const QString path = m_settings->lastProjectPath();
     m_suppressProjectOpenError = true;
     const bool opened = !path.isEmpty() && QFileInfo::exists(path) && openProjectFile(path);
@@ -1997,6 +2628,7 @@ void MainWindow::reopenLastProjectIfEnabled()
         m_settings->setLastProjectPath(QString());
         statusBar()->showMessage(tr("The last project could not be reopened."), 5000);
     }
+    return opened;
 }
 
 void MainWindow::relinkSelectedMedia()
@@ -2320,8 +2952,10 @@ void MainWindow::exportReviewNotes()
         .filePath(exportBaseName(spec.sourceA) + QStringLiteral("_review_notes.pdf"));
     ReviewNotesDialog dialog(spec.annotations, suggested, m_tracingPaper, this);
     dialog.setOpenWhenDone(m_settings->openExportsWhenDone());
+    dialog.setIncludeNoteText(m_settings->reviewNotesIncludeText());
     if (dialog.exec() != QDialog::Accepted) return;
     m_settings->setOpenExportsWhenDone(dialog.openWhenDone());
+    m_settings->setReviewNotesIncludeText(dialog.includeNoteText());
     const bool openWhenDone = dialog.openWhenDone();
     const exporter::ReviewNotesOptions options = dialog.options();
     if (options.outputPath.isEmpty()) return;
@@ -2433,6 +3067,41 @@ void MainWindow::dropEvent(QDropEvent* event)
     addMediaFiles(paths);
 }
 
+bool MainWindow::eventFilter(QObject* watched, QEvent* event)
+{
+    if (watched == m_viewer || watched == m_annotationToolbar) {
+        switch (event->type()) {
+        case QEvent::Resize:
+        case QEvent::Move:
+        case QEvent::Show:
+        case QEvent::Hide:
+            placeBrushSizePill();
+            break;
+        default:
+            break;
+        }
+    }
+    return QMainWindow::eventFilter(watched, event);
+}
+
+void MainWindow::placeBrushSizePill()
+{
+    if (!m_brushSizePill) return;
+    // Shown with the drawing tools, over the viewer's left edge and centred on
+    // it, as long as the viewer has room for it.
+    const QRect viewer = m_viewer->geometry();
+    const QSize size = m_brushSizePill->sizeHint();
+    const bool show = m_annotationToolbar->isVisibleTo(this) && m_viewer->isVisibleTo(this)
+        && viewer.height() >= size.height() + 2 * theme::metrics::spacingLarge;
+    if (show) {
+        m_brushSizePill->resize(size);
+        m_brushSizePill->move(viewer.left() + theme::metrics::spacingLarge,
+                              viewer.top() + (viewer.height() - size.height()) / 2);
+        m_brushSizePill->raise();
+    }
+    m_brushSizePill->setVisible(show);
+}
+
 void MainWindow::closeEvent(QCloseEvent* event)
 {
     if (isVideoFullScreen()) exitVideoFullScreen();
@@ -2517,7 +3186,7 @@ void MainWindow::exitVideoFullScreen()
         m_fullscreenPresentation->setParent(m_compareHost);
         m_compareLayout->insertWidget(1, m_fullscreenPresentation, 1);
     } else {
-        m_viewer->setParent(centralWidget());
+        m_viewer->setParent(m_playerPage);
         m_centralLayout->insertWidget(0, m_viewer, 1);
     }
     m_fullscreenPresentation->resize(m_normalViewerSize);
@@ -2620,7 +3289,7 @@ void MainWindow::exitComparison()
     m_compareLane.reset();
     m_compareHost->hide();
     m_centralLayout->removeWidget(m_compareHost);
-    m_viewer->setParent(centralWidget());
+    m_viewer->setParent(m_playerPage);
     m_centralLayout->insertWidget(0, m_viewer, 1);
     m_viewer->setCornerLabel(QString());
     m_viewer->setStyleSheet(QString());

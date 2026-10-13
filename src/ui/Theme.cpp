@@ -20,6 +20,9 @@ QString expand(QString sheet)
     put("%TEXT_SECONDARY%",  textSecondary());
     put("%TEXT_DISABLED%",   textDisabled());
     put("%ACCENT_MUTED%",    accentMuted());
+    put("%ACCENT_FILL_HOVER%", accentFillHover());
+    put("%ACCENT_FILL%",     accentFill());
+    put("%TEXT_ON_ACCENT%",  textOnAccent());
     put("%ACCENT%",          accent());
     put("%TEXT%",            textPrimary());
 
@@ -96,7 +99,10 @@ QListWidget::item {
     border-radius: 3px;
 }
 QListWidget::item:hover    { background-color: %CONTROL_HOVER%; }
-QListWidget::item:selected { background-color: %ACCENT_MUTED%; }
+QListWidget::item:selected {
+    background-color: %ACCENT_MUTED%;
+    border-left: 3px solid %ACCENT%;
+}
 
 QToolButton {
     background-color: %CONTROL%;
@@ -107,8 +113,98 @@ QToolButton {
 }
 QToolButton:hover    { background-color: %CONTROL_HOVER%; }
 QToolButton:pressed  { background-color: %CONTROL_PRESSED%; }
-QToolButton:checked  { background-color: %ACCENT_MUTED%; border-color: %ACCENT%; }
+QToolButton:checked  {
+    background-color: %ACCENT_FILL%;
+    border-color: %ACCENT_FILL%;
+    color: %TEXT_ON_ACCENT%;
+}
+QToolButton:checked:hover { background-color: %ACCENT_FILL_HOVER%; }
 QToolButton:disabled { color: %TEXT_DISABLED%; }
+
+/* Icon-only buttons in tool rows: flat until hovered, a filled accent tile
+   when checked. */
+QToolButton[atkRole="iconButton"] {
+    background-color: transparent;
+    border: 1px solid transparent;
+    padding: 4px;
+    min-width: 0;
+}
+QToolButton[atkRole="iconButton"]:hover   { background-color: %CONTROL_HOVER%; }
+QToolButton[atkRole="iconButton"]:pressed { background-color: %CONTROL_PRESSED%; }
+QToolButton[atkRole="iconButton"]:checked {
+    background-color: %ACCENT_FILL%;
+    border-color: %ACCENT_FILL%;
+}
+QToolButton[atkRole="iconButton"][popupMode="1"] { padding-right: 12px; }
+QToolButton[atkRole="iconButton"]::menu-button {
+    background: transparent;
+    border: none;
+    width: 12px;
+}
+QToolButton[atkRole="iconButton"]::menu-button:hover { background-color: %CONTROL_HOVER%; }
+
+QPushButton {
+    background-color: %CONTROL%;
+    border: 1px solid %BORDER%;
+    border-radius: 4px;
+    padding: 5px 14px;
+}
+QPushButton:hover    { background-color: %CONTROL_HOVER%; }
+QPushButton:pressed  { background-color: %CONTROL_PRESSED%; }
+QPushButton:disabled { color: %TEXT_DISABLED%; }
+QPushButton:default  { border-color: %ACCENT%; }
+QPushButton[atkRole="iconButton"] { padding: 4px; }
+QPushButton[atkRole="primary"] {
+    background-color: %ACCENT_FILL%;
+    border-color: %ACCENT_FILL%;
+    color: %TEXT_ON_ACCENT%;
+    font-weight: 600;
+}
+QPushButton[atkRole="primary"]:hover    { background-color: %ACCENT_FILL_HOVER%; }
+QPushButton[atkRole="primary"]:disabled { background-color: %CONTROL%; color: %TEXT_DISABLED%; }
+
+QLineEdit {
+    background-color: %CONTROL%;
+    border: 1px solid %BORDER%;
+    border-radius: 4px;
+    padding: 4px 6px;
+    selection-background-color: %ACCENT_MUTED%;
+}
+QLineEdit:focus    { border-color: %ACCENT%; }
+QLineEdit:disabled { color: %TEXT_DISABLED%; }
+
+QSlider::groove:horizontal {
+    height: 4px;
+    background: %CONTROL%;
+    border-radius: 2px;
+}
+QSlider::sub-page:horizontal {
+    background: %ACCENT_FILL%;
+    border-radius: 2px;
+}
+QSlider::handle:horizontal {
+    background: %ACCENT%;
+    width: 12px;
+    margin: -4px 0;
+    border-radius: 6px;
+}
+QSlider::handle:horizontal:hover { background: %TEXT%; }
+QSlider::groove:vertical {
+    width: 4px;
+    background: %CONTROL%;
+    border-radius: 2px;
+}
+QSlider::add-page:vertical {
+    background: %ACCENT_FILL%;
+    border-radius: 2px;
+}
+QSlider::handle:vertical {
+    background: %ACCENT%;
+    height: 12px;
+    margin: 0 -4px;
+    border-radius: 6px;
+}
+QSlider::handle:vertical:hover { background: %TEXT%; }
 
 QLabel[atkRole="statusValue"] {
     color: %TEXT%;
@@ -148,6 +244,17 @@ QScrollBar::handle:vertical {
     min-height: 24px;
 }
 QScrollBar::handle:vertical:hover { background: %CONTROL_HOVER%; }
+QScrollBar:horizontal {
+    background: %WINDOW%;
+    height: 10px;
+    margin: 0;
+}
+QScrollBar::handle:horizontal {
+    background: %CONTROL%;
+    border-radius: 5px;
+    min-width: 24px;
+}
+QScrollBar::handle:horizontal:hover { background: %CONTROL_HOVER%; }
 QScrollBar::add-line, QScrollBar::sub-line { height: 0; width: 0; }
 QScrollBar::add-page, QScrollBar::sub-page { background: none; }
 

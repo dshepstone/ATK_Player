@@ -158,6 +158,44 @@ void Project::replace(QString name, QString filePath, QVector<SourceEntry> entri
     setModified(false);
 }
 
+QString clipStatusKey(ClipStatus status)
+{
+    switch (status) {
+    case ClipStatus::NotReviewed: return QStringLiteral("notReviewed");
+    case ClipStatus::InReview: return QStringLiteral("inReview");
+    case ClipStatus::NeedsChanges: return QStringLiteral("needsChanges");
+    case ClipStatus::Approved: return QStringLiteral("approved");
+    }
+    return QStringLiteral("notReviewed");
+}
+
+ClipStatus clipStatusFromKey(const QString& key)
+{
+    for (ClipStatus status : {ClipStatus::InReview, ClipStatus::NeedsChanges, ClipStatus::Approved})
+        if (key == clipStatusKey(status)) return status;
+    return ClipStatus::NotReviewed;
+}
+
+bool Project::setDisplayName(const QUuid& id, const QString& name)
+{
+    const int index = indexForId(id);
+    if (index < 0 || name.trimmed().isEmpty() || m_entries[index].displayName == name) return false;
+    m_entries[index].displayName = name;
+    emit entriesChanged();
+    setModified(true);
+    return true;
+}
+
+bool Project::setClipStatus(const QUuid& id, ClipStatus status)
+{
+    const int index = indexForId(id);
+    if (index < 0 || m_entries[index].status == status) return false;
+    m_entries[index].status = status;
+    emit clipStatusChanged(id);
+    setModified(true);
+    return true;
+}
+
 bool Project::setAnnotations(const QUuid& id, annotation::SourceAnnotations annotations)
 {
     const int index = indexForId(id);

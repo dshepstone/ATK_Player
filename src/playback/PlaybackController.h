@@ -91,6 +91,11 @@ public:
 
     /// Unloads the current media and returns to the placeholder empty state.
     void closeMedia();
+    /// closeMedia(), and also lets go of the clip's file in the scrub-audio
+    /// reader and any waveform scan, so the file can be renamed or moved
+    /// (Windows refuses while any of them has it open). The workers close on
+    /// their own threads straight after; nothing here waits for them.
+    void releaseMediaFiles();
 
     bool hasMedia() const { return m_hasMedia; }
     const media::MediaMetadata& metadata() const { return m_metadata; }

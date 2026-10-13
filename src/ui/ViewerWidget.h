@@ -123,6 +123,9 @@ public:
     /// (onion skin), for the frame `centerFrame`. Empty = no ghosts.
     void setGhostFrames(qint64 centerFrame, const QVector<annotation::GhostFrame>& ghosts);
     const QVector<annotation::GhostFrame>& ghostFrames() const { return m_ghosts; }
+    /// How many times every committed drawing has been re-rendered from
+    /// scratch. Diagnostics and tests: adding a stroke must not cause one.
+    quint64 annotationCacheRebuilds() const { return m_annotationCacheRebuilds; }
 
     /// Tracing paper: a white wash over the picture, under the drawings, so
     /// strokes read clearly (0 = off, 100 = blank paper). View only.
@@ -288,12 +291,11 @@ private:
     bool m_annotationCacheFlipped = false;
     quint64 m_annotationGeneration = 0;
     quint64 m_annotationCacheGeneration = ~quint64(0);
-    // When the only change since the cache was drawn is items added on top
-    // (a finished stroke), the cache is extended rather than redrawn: it holds
-    // the first m_annotationCacheItems items, and m_annotationAppendGeneration
-    // names the generation that extending it brings it up to.
+    // How many of the frame's items (in order) are already in the cache. A
+    // new stroke appended to the frame is painted onto the cache on its own,
+    // so lifting the pen costs one stroke, not every stroke on the frame.
     int m_annotationCacheItems = 0;
-    quint64 m_annotationAppendGeneration = ~quint64(0);
+    quint64 m_annotationCacheRebuilds = 0;
     // Ghosts, composited once per change like the annotation cache.
     QVector<annotation::GhostFrame> m_ghosts;
     qint64 m_ghostCenterFrame = -1;

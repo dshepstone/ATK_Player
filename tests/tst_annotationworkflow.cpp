@@ -5,6 +5,7 @@
 #include "project/Project.h"
 #include "project/ProjectSerializer.h"
 #include "ui/AnnotationToolbar.h"
+#include "ui/BrushSizePill.h"
 #include "ui/ExportDialog.h"
 #include "ui/ExportUi.h"
 #include "ui/MainWindow.h"
@@ -15,6 +16,7 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QCheckBox>
 #include <QComboBox>
 #include <QFile>
 #include <QFileInfo>
@@ -95,8 +97,10 @@ private slots:
     void notesPanelWritesNotesWhileDrawing();
     void notesPanelExportsAReviewNotesPdf();
     void notesComposerBelongsToTheFrame();
+    void notesPanelSearchesAndSorts();
     void tracingPaperAndGhostingToggleAndPersist();
     void drawButtonAndCtrlAngleBracketsJumpBetweenDrawings();
+    void drawingRowIsIconsWithAFloatingSizePill();
     void fileMenuHasTheNotesExports();
     void exportsOpenOnlyOnceTheFileIsReady();
     void watchingASavedProjectNeverAsksToSave();
@@ -323,7 +327,21 @@ void TestAnnotationWorkflow::notesPanelWritesNotesWhileDrawing()
     window.show();
     QVERIFY(QTest::qWaitForWindowExposed(&window));
     auto* panel = window.findChild<atk::ui::NotesPanel*>();
-    QVERIFY(panel && panel->isVisible()); // on the right by default
+    QVERIFY(panel && !panel->isVisible()); // closed at start, so the picture gets the room
+    // The Notes button at the top right opens it, on the right; F6 toggles it.
+    auto* notesButton = window.findChild<QToolButton*>(QStringLiteral("NotesToggleButton"));
+    QVERIFY(notesButton && notesButton->isVisible());
+    QVERIFY(notesButton->mapTo(&window, QPoint(0, 0)).x() > window.width() / 2);
+    notesButton->click();
+    QTRY_VERIFY(panel->isVisible());
+    QVERIFY(notesButton->isChecked());
+    QVERIFY(panel->mapTo(&window, QPoint(0, 0)).x() > window.width() / 2);
+    QCOMPARE(command(window, "view.toggleNotes")->shortcut(), QKeySequence(QStringLiteral("F6")));
+    command(window, "view.toggleNotes")->trigger();
+    QTRY_VERIFY(!panel->isVisible());
+    QVERIFY(!notesButton->isChecked());
+    command(window, "view.toggleNotes")->trigger();
+    QTRY_VERIFY(panel->isVisible());
     QVERIFY(!panel->composer()->isEnabled()); // no clip yet
     QVERIFY(openAt(window, projectPath, 30));
     auto* viewer = window.findChild<atk::ui::ViewerWidget*>();
@@ -401,6 +419,7 @@ void TestAnnotationWorkflow::notesPanelExportsAReviewNotesPdf()
     bool sawDialog = false;
     bool openOffered = false;
     bool tracingOffered = false;
+    bool textSwitchWorks = false;
     QString summary;
     QTimer driver;
     driver.setInterval(20);
@@ -411,6 +430,16 @@ void TestAnnotationWorkflow::notesPanelExportsAReviewNotesPdf()
             summary = dialog->findChild<QLabel*>(QStringLiteral("ReviewNotesSummary"))->text();
             openOffered = dialog->openWhenDone();
             tracingOffered = dialog->findChild<QComboBox*>(QStringLiteral("ReviewNotesTracingPaper")) != nullptr;
+            // "Include text notes" (on by default) switches to an images-only PDF.
+            auto* includeText = dialog->findChild<QCheckBox*>(QStringLiteral("ReviewNotesIncludeText"));
+            auto* includeResolved = dialog->findChild<QCheckBox*>(QStringLiteral("ReviewNotesIncludeResolved"));
+            textSwitchWorks = includeText && includeResolved && includeText->isChecked();
+            if (textSwitchWorks) {
+                includeText->setChecked(false);
+                textSwitchWorks = !includeResolved->isEnabled();
+                includeText->setChecked(true);
+                textSwitchWorks = textSwitchWorks && includeResolved->isEnabled();
+            }
             dialog->findChild<QLineEdit*>(QStringLiteral("ReviewNotesDestination"))->setText(pdf);
             dialog->findChild<QPushButton*>(QStringLiteral("ReviewNotesExport"))->click();
         }
@@ -420,6 +449,7 @@ void TestAnnotationWorkflow::notesPanelExportsAReviewNotesPdf()
     QTRY_COMPARE_WITH_TIMEOUT(QFileInfo(window.lastOpenedExport()).absoluteFilePath(), QFileInfo(pdf).absoluteFilePath(), 20000);
     driver.stop();
     QVERIFY(sawDialog);
+    QVERIFY(textSwitchWorks);
     QVERIFY(openOffered);   // on by default
     // The progress window has closed itself.
     QTRY_VERIFY(std::none_of(window.findChildren<atk::ui::ExportProgressDialog*>().cbegin(),
@@ -484,6 +514,57 @@ void TestAnnotationWorkflow::notesComposerBelongsToTheFrame()
     QCOMPARE(panel.list()->item(0)->text(), QStringLiteral("frame 25 note"));
 }
 
+void TestAnnotationWorkflow::notesPanelSearchesAndSorts()
+{
+    atk::ui::NotesPanel panel;
+    auto row = [](qint64 frame, quint64 id, const char* text, const char* author, qint64 when) {
+        atk::ui::NoteRow r;
+        r.frame = frame;
+        r.note.id = id;
+        r.note.text = QString::fromLatin1(text);
+        r.note.author = QString::fromLatin1(author);
+        r.note.createdMsUtc = when;
+        return r;
+    };
+    panel.setCurrentFrame(10, QStringLiteral("00:00:00:10"), true);
+    panel.setNotes({row(30, 1, "Arc on the hand", "Selena", 3000), row(10, 2, "Hold the pose longer", "David", 1000),
+                    row(20, 3, "Hand pops here", "David", 2000)});
+    auto texts = [&] {
+        QStringList shown;
+        for (int i = 0; i < panel.list()->count(); ++i) shown << panel.list()->item(i)->text();
+        return shown;
+    };
+    // Frame order by default.
+    QCOMPARE(texts(), (QStringList{QStringLiteral("Hold the pose longer"), QStringLiteral("Hand pops here"),
+                                   QStringLiteral("Arc on the hand")}));
+    // Newest first from the sort button.
+    auto* sortButton = panel.findChild<QToolButton*>(QStringLiteral("NotesSortButton"));
+    QVERIFY(sortButton);
+    sortButton->click();
+    QCOMPARE(panel.sort(), atk::ui::NotesPanel::Sort::NewestFirst);
+    QCOMPARE(texts().first(), QStringLiteral("Arc on the hand"));
+    sortButton->click();
+    QCOMPARE(texts().first(), QStringLiteral("Hold the pose longer"));
+
+    // Search matches note text or author, any case, and combines with the filter.
+    auto* searchButton = panel.findChild<QToolButton*>(QStringLiteral("NotesSearchButton"));
+    auto* search = panel.findChild<QLineEdit*>(QStringLiteral("NotesSearch"));
+    QVERIFY(searchButton && search && search->isHidden());
+    searchButton->click();
+    QVERIFY(!search->isHidden());
+    search->setText(QStringLiteral("HAND"));
+    QCOMPARE(texts(), (QStringList{QStringLiteral("Hand pops here"), QStringLiteral("Arc on the hand")}));
+    search->setText(QStringLiteral("selena"));
+    QCOMPARE(texts(), QStringList{QStringLiteral("Arc on the hand")});
+    panel.setFilter(atk::ui::NotesPanel::Filter::ThisFrame);
+    QCOMPARE(panel.list()->count(), 0); // Selena's note is not on frame 10
+    panel.setFilter(atk::ui::NotesPanel::Filter::All);
+    // Closing search clears it, so no note stays hidden by an invisible filter.
+    searchButton->click();
+    QVERIFY(panel.searchText().isEmpty());
+    QCOMPARE(panel.list()->count(), 3);
+}
+
 void TestAnnotationWorkflow::tracingPaperAndGhostingToggleAndPersist()
 {
     QTemporaryDir directory;
@@ -526,7 +607,10 @@ void TestAnnotationWorkflow::tracingPaperAndGhostingToggleAndPersist()
         command(window, "draw.ghosting")->trigger(); // G, default 3 back / 3 forward
         QTRY_COMPARE(viewer->ghostFrames().size(), 2);
         QVERIFY(toolbar->ghostButton()->isChecked());
-        auto* before = toolbar->findChild<QSpinBox*>(QStringLiteral("GhostBefore"));
+        // Ghost settings live with the view tools under the timeline.
+        auto* before = window.findChild<QSpinBox*>(QStringLiteral("GhostBefore"));
+        QVERIFY(toolbar->ghostButton()->isVisible() && toolbar->tracingPaperButton()->isVisible());
+        QVERIFY(!toolbar->isAncestorOf(toolbar->ghostButton()));
         QVERIFY(before);
         before->setValue(1); // frame 18 is now out of reach
         QCOMPARE(viewer->ghostFrames().size(), 1);
@@ -596,6 +680,82 @@ void TestAnnotationWorkflow::drawButtonAndCtrlAngleBracketsJumpBetweenDrawings()
     QCOMPARE(command(window, "draw.nextFrame")->shortcut(), QKeySequence(QStringLiteral("Ctrl+.")));
     QCOMPARE(command(window, "draw.previousFrame")->shortcut(), QKeySequence(QStringLiteral("Ctrl+,")));
     QCOMPARE(command(window, "edit.preferences")->shortcut(), QKeySequence(QStringLiteral("Ctrl+K")));
+}
+
+void TestAnnotationWorkflow::drawingRowIsIconsWithAFloatingSizePill()
+{
+    QTemporaryDir directory;
+    const QString projectPath = writeProject(directory);
+    atk::ui::MainWindow window(directory.filePath(QStringLiteral("settings.ini")));
+    window.resize(1400, 800);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    QVERIFY(openAt(window, projectPath, 10));
+    auto* viewer = window.findChild<atk::ui::ViewerWidget*>();
+    auto* toolbar = window.findChild<atk::ui::AnnotationToolbar*>();
+    auto* pill = window.findChild<atk::ui::BrushSizePill*>();
+    QVERIFY(viewer && toolbar && pill);
+    QVERIFY(!pill->isVisible());
+
+    command(window, "draw.annotateMode")->trigger();
+    QVERIFY(toolbar->isVisible());
+    QTRY_VERIFY(pill->isVisible());
+    // Beside the picture: over the viewer's left edge, vertically inside it.
+    const QRect pillRect(pill->mapTo(&window, QPoint(0, 0)), pill->size());
+    const QRect viewerRect(viewer->mapTo(&window, QPoint(0, 0)), viewer->size());
+    QVERIFY(viewerRect.contains(pillRect));
+    QVERIFY(pillRect.left() - viewerRect.left() < 40);
+
+    // Every tool is an icon button that keeps its name for menus and screen readers.
+    QCOMPARE(toolbar->toolButtonStyle(), Qt::ToolButtonIconOnly);
+    for (const QString& name : {QStringLiteral("Select"), QStringLiteral("Pencil"), QStringLiteral("Pen"),
+                               QStringLiteral("Brush"), QStringLiteral("Marker"), QStringLiteral("Custom"),
+                               QStringLiteral("Eraser"), QStringLiteral("Arrow"), QStringLiteral("Rect"),
+                               QStringLiteral("Ellipse"), QStringLiteral("Line"), QStringLiteral("Text")}) {
+        QAction* tool = nullptr;
+        for (QAction* action : toolbar->actions())
+            if (action->text() == name) tool = action;
+        QVERIFY2(tool && !tool->icon().isNull(), qPrintable(name));
+    }
+    // Undo, redo and clear are the window's own commands, shown on the row.
+    for (const char* key : {"draw.undo", "draw.redo", "draw.clearFrame"})
+        QVERIFY2(toolbar->actions().contains(command(window, key)), key);
+
+    // The pill sets the brush size and opacity the viewer draws with.
+    auto* sizeField = pill->findChild<QSpinBox*>(QStringLiteral("BrushSizeField"));
+    auto* opacityField = pill->findChild<QSpinBox*>(QStringLiteral("BrushOpacityField"));
+    QVERIFY(sizeField && opacityField);
+    sizeField->setValue(23);
+    QCOMPARE(viewer->annotationTool().sizePixels, 23.0);
+    opacityField->setValue(40);
+    QCOMPARE(viewer->annotationTool().opacity, 0.4);
+    // The [ ] keys move the pill too.
+    command(window, "draw.brushSizeUp")->trigger();
+    QCOMPARE(sizeField->value(), qRound(toolbar->settings().sizePixels)); // whole pixels shown
+    QVERIFY(toolbar->settings().sizePixels > 23.0);
+
+    // With the Eraser chosen the pill sets the eraser's own size; opacity does not apply.
+    const qreal brushSize = toolbar->settings().sizePixels;
+    for (QAction* action : toolbar->actions())
+        if (action->text() == QStringLiteral("Eraser")) action->trigger();
+    QVERIFY(!opacityField->isEnabled());
+    sizeField->setValue(60);
+    QCOMPARE(viewer->annotationTool().eraserSizePixels, 60.0);
+    QCOMPARE(viewer->annotationTool().sizePixels, brushSize);
+
+    // Eraser mode, pressure and stabiliser live in the Tool options pop-up.
+    QToolButton* options = toolbar->toolOptionsButton();
+    QVERIFY(options && options->isVisible() && options->menu());
+    auto* eraserMode = options->menu()->findChild<QComboBox*>(QStringLiteral("EraserModeCombo"));
+    QVERIFY(eraserMode);
+    eraserMode->setCurrentIndex(eraserMode->findData(int(atk::annotation::EraserMode::WholeStroke)));
+    QCOMPARE(viewer->annotationTool().eraserMode, atk::annotation::EraserMode::WholeStroke);
+    QVERIFY(options->menu()->findChild<QCheckBox*>());
+
+    // Leaving Draw on Frame takes the pill away with the toolbar.
+    command(window, "draw.annotateMode")->trigger();
+    QVERIFY(!toolbar->isVisible());
+    QTRY_VERIFY(!pill->isVisible());
 }
 
 void TestAnnotationWorkflow::fileMenuHasTheNotesExports()

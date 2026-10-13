@@ -21,8 +21,13 @@ constexpr auto kBookmarkSnap = "review/bookmarkSnap";
 constexpr auto kVolume = "review/volume";
 constexpr auto kMuted = "review/muted";
 constexpr auto kReopenLast = "projects/reopenLast";
+constexpr auto kShowLibraryAtStartup = "startup/showReviewLibrary";
 constexpr auto kRecentProjects = "projects/recent";
 constexpr auto kLastProject = "projects/lastPath";
+constexpr auto kLastRoster = "review/lastRosterPath";
+constexpr auto kRenameTemplate = "review/renameTemplate";
+constexpr auto kStopAfterEachClip = "playback/stopAfterEachClip";
+constexpr auto kLoopWholePlaylist = "playback/loopWholePlaylist";
 constexpr auto kApiEnabled = "api/enabled";
 constexpr auto kApiPort = "api/port";
 constexpr auto kStillHoldFrames = "media/stillImageHoldFrames";
@@ -43,6 +48,7 @@ constexpr auto kReviewerName = "review/reviewerName";
 constexpr auto kTracingPaper = "draw/tracingPaper";
 constexpr auto kTracingPaperLevel = "draw/tracingPaperLevel";
 constexpr auto kOpenExportsWhenDone = "export/openWhenDone";
+constexpr auto kReviewNotesIncludeText = "export/notesPdfIncludeText";
 constexpr auto kGhostEnabled = "draw/ghostEnabled";
 constexpr auto kGhostBefore = "draw/ghostBefore";
 constexpr auto kGhostAfter = "draw/ghostAfter";
@@ -90,8 +96,17 @@ bool ApplicationSettings::frameStepAudioEnabled() const { return readBool(kFrame
 bool ApplicationSettings::bookmarkSnapEnabled() const { return readBool(kBookmarkSnap, defaultBookmarkSnapEnabled()); }
 bool ApplicationSettings::muted() const { return readBool(kMuted, defaultMuted()); }
 bool ApplicationSettings::reopenLastProject() const { return readBool(kReopenLast, defaultReopenLastProject()); }
+bool ApplicationSettings::showLibraryAtStartup() const
+{
+    return readBool(kShowLibraryAtStartup, defaultShowLibraryAtStartup());
+}
 QStringList ApplicationSettings::recentProjects() const { return m_settings->value(QString::fromLatin1(kRecentProjects)).toStringList(); }
 QString ApplicationSettings::lastProjectPath() const { return m_settings->value(QString::fromLatin1(kLastProject)).toString(); }
+QString ApplicationSettings::lastRosterPath() const { return m_settings->value(QString::fromLatin1(kLastRoster)).toString(); }
+QString ApplicationSettings::renameTemplate() const
+{
+    return m_settings->value(QString::fromLatin1(kRenameTemplate), QStringLiteral("{last}_{first}")).toString();
+}
 bool ApplicationSettings::apiEnabled() const { return readBool(kApiEnabled, defaultApiEnabled()); }
 int ApplicationSettings::apiPort() const
 {
@@ -140,6 +155,10 @@ void ApplicationSettings::setBookmarkSnapEnabled(bool value) { m_settings->setVa
 void ApplicationSettings::setVolume(double value) { m_settings->setValue(QString::fromLatin1(kVolume), std::clamp(value, 0.0, 1.0)); }
 void ApplicationSettings::setMuted(bool value) { m_settings->setValue(QString::fromLatin1(kMuted), value); }
 void ApplicationSettings::setReopenLastProject(bool value) { m_settings->setValue(QString::fromLatin1(kReopenLast), value); }
+void ApplicationSettings::setShowLibraryAtStartup(bool value)
+{
+    m_settings->setValue(QString::fromLatin1(kShowLibraryAtStartup), value);
+}
 void ApplicationSettings::addRecentProject(const QString& path)
 {
     const QString normalized = QDir::cleanPath(QFileInfo(path).absoluteFilePath());
@@ -155,6 +174,16 @@ void ApplicationSettings::addRecentProject(const QString& path)
 }
 void ApplicationSettings::clearRecentProjects() { m_settings->remove(QString::fromLatin1(kRecentProjects)); }
 void ApplicationSettings::setLastProjectPath(const QString& path) { m_settings->setValue(QString::fromLatin1(kLastProject), path); }
+bool ApplicationSettings::stopAfterEachClip() const { return readBool(kStopAfterEachClip, false); }
+bool ApplicationSettings::loopWholePlaylist() const { return readBool(kLoopWholePlaylist, false); }
+void ApplicationSettings::setStopAfterEachClip(bool value) { m_settings->setValue(QString::fromLatin1(kStopAfterEachClip), value); }
+void ApplicationSettings::setLoopWholePlaylist(bool value) { m_settings->setValue(QString::fromLatin1(kLoopWholePlaylist), value); }
+
+void ApplicationSettings::setLastRosterPath(const QString& path) { m_settings->setValue(QString::fromLatin1(kLastRoster), path); }
+void ApplicationSettings::setRenameTemplate(const QString& nameTemplate)
+{
+    m_settings->setValue(QString::fromLatin1(kRenameTemplate), nameTemplate);
+}
 void ApplicationSettings::setApiEnabled(bool value) { m_settings->setValue(QString::fromLatin1(kApiEnabled), value); }
 void ApplicationSettings::setApiPort(int value)
 {
@@ -289,6 +318,13 @@ bool ApplicationSettings::openExportsWhenDone() const { return readBool(kOpenExp
 void ApplicationSettings::setOpenExportsWhenDone(bool open)
 {
     m_settings->setValue(QString::fromLatin1(kOpenExportsWhenDone), open);
+}
+
+bool ApplicationSettings::reviewNotesIncludeText() const { return readBool(kReviewNotesIncludeText, true); }
+
+void ApplicationSettings::setReviewNotesIncludeText(bool include)
+{
+    m_settings->setValue(QString::fromLatin1(kReviewNotesIncludeText), include);
 }
 
 void ApplicationSettings::setTracingPaper(int percent)

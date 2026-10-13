@@ -26,6 +26,11 @@ class TimelineWidget : public QWidget {
     Q_OBJECT
 
 public:
+    /// Seconds between the time labels above the waveform: the smallest of
+    /// 1, 2, 5, 10, 15, 30 s, 1, 2, 5, 10, 15, 30 min, 1 h (then doubling)
+    /// that keeps labels at least 80 px apart.
+    static int64_t timeRulerStepSeconds(double pixelsPerSecond);
+
     explicit TimelineWidget(QWidget* parent = nullptr);
     ~TimelineWidget() override;
 

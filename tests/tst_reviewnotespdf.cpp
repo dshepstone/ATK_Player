@@ -64,6 +64,7 @@ private slots:
     void paginateKeepsRowsWhole();
     void framesToIncludeFollowsDrawingsAndNotes();
     void writerProducesAPagePerOverflow();
+    void imagesOnlyPdfDropsTheTextAndWidensThePictures();
     void jobRendersAnnotatedFramesIntoAPdf();
     void jobCancelLeavesNoFile();
     void verifyCatchesBrokenFiles();
@@ -101,6 +102,32 @@ void TestReviewNotesPdf::framesToIncludeFollowsDrawingsAndNotes()
 
     QCOMPARE(exporter::ReviewNotesJob::framesToInclude(set, true), (QVector<qint64>{2, 5, 9}));
     QCOMPARE(exporter::ReviewNotesJob::framesToInclude(set, false), (QVector<qint64>{2, 5}));
+    // Images only: just the drawn frame; a notes-only frame has nothing to show.
+    QCOMPARE(exporter::ReviewNotesJob::framesToInclude(set, true, false), (QVector<qint64>{5}));
+    QCOMPARE(exporter::ReviewNotesJob::framesToInclude(set, false, false), (QVector<qint64>{5}));
+}
+
+void TestReviewNotesPdf::imagesOnlyPdfDropsTheTextAndWidensThePictures()
+{
+    QTemporaryDir dir;
+    exporter::ReviewNotesDocument doc;
+    doc.projectName = QStringLiteral("Project");
+    doc.clipName = QStringLiteral("clip.mov");
+    QImage picture(320, 180, QImage::Format_RGB32);
+    picture.fill(Qt::darkGray);
+    for (int i = 0; i < 4; ++i)
+        doc.rows.append({i, QStringLiteral("00:00:00:0%1").arg(i), picture,
+                         {note(quint64(i + 1), QStringLiteral("Note %1").arg(i))}});
+    QString error;
+    const QString withText = dir.filePath(QStringLiteral("text.pdf"));
+    QVERIFY2(exporter::ReviewNotesPdfWriter::write(doc, withText, &error), qPrintable(error));
+    // The same four frames at full page width take more pages.
+    doc.includeNoteText = false;
+    const QString imagesOnly = dir.filePath(QStringLiteral("images.pdf"));
+    QVERIFY2(exporter::ReviewNotesPdfWriter::write(doc, imagesOnly, &error), qPrintable(error));
+    QVERIFY(exporter::ReviewNotesPdfWriter::verify(imagesOnly, &error));
+    QVERIFY2(pdfPageCount(imagesOnly) > pdfPageCount(withText),
+             qPrintable(QStringLiteral("%1 vs %2").arg(pdfPageCount(imagesOnly)).arg(pdfPageCount(withText))));
 }
 
 void TestReviewNotesPdf::writerProducesAPagePerOverflow()

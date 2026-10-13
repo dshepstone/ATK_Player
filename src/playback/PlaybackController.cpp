@@ -693,6 +693,14 @@ void PlaybackController::closeMedia()
     setState(PlayerState::Empty);
 }
 
+void PlaybackController::releaseMediaFiles()
+{
+    closeMedia();
+    if (m_scrubAudioWorker != nullptr)
+        QMetaObject::invokeMethod(m_scrubAudioWorker, &media::ScrubAudioWorker::closeSource, Qt::QueuedConnection);
+    if (m_waveformWorker != nullptr) m_waveformWorker->requestAnalysis(++m_waveformGeneration);
+}
+
 void PlaybackController::onWorkerMediaOpened(const media::MediaMetadata& metadata,
                                              quint64 sourceGeneration)
 {

@@ -32,6 +32,9 @@ struct ReviewNotesDocument {
     QString generatedText;  // e.g. "from Oct 10th, 2026, 09:12"
     QString footerLeft;     // e.g. "ATK Player 0.4.0"
     QPageSize pageSize = QPageSize(QPageSize::A4);
+    /// Off: images only. Each row is the picture at full width, captioned
+    /// with its frame and timecode, with no note text.
+    bool includeNoteText = true;
     QVector<ReviewNotesRow> rows;
 };
 
@@ -67,6 +70,8 @@ struct ReviewNotesOptions {
     QString outputPath;
     QPageSize pageSize = QPageSize(QPageSize::A4);
     bool includeResolved = true;
+    /// Off: an images-only PDF (frames with drawings; no note text).
+    bool includeNoteText = true;
     int imageWidth = 1280; // pixels per frame picture in the PDF
     int tracingPaperPercent = 0; // white wash under the drawings, as in the viewer
 };
@@ -87,9 +92,11 @@ public:
                    QObject* parent = nullptr);
     ~ReviewNotesJob() override;
 
-    /// Frames that will become rows, in order (frames with drawings or with
-    /// notes that pass the resolved filter).
-    static QVector<qint64> framesToInclude(const annotation::SourceAnnotations& annotations, bool includeResolved);
+    /// Frames that will become rows, in order: frames with drawings or with
+    /// notes that pass the resolved filter. Without note text, only frames
+    /// with drawings: a notes-only frame would have nothing to show.
+    static QVector<qint64> framesToInclude(const annotation::SourceAnnotations& annotations, bool includeResolved,
+                                           bool includeNoteText = true);
 
     void start();
     void cancel();

@@ -1,53 +1,22 @@
 #include "ui/TransportControls.h"
 
 #include "core/commands/CommandDefinitions.h"
+#include "ui/IconProvider.h"
+#include "ui/Theme.h"
 #include "ui/commands/CommandRegistry.h"
 
 #include <QAction>
 #include <QHBoxLayout>
 #include <QToolButton>
-#include <QStyle>
 #include <QMenu>
-#include <QPainter>
-#include <QPainterPath>
 #include <QSlider>
+#include <QStyle>
 #include <QLabel>
 #include <QWidgetAction>
 
 #include <algorithm>
 
 namespace atk::ui {
-namespace {
-/// A pencil, drawn in code so it needs no image plugin.
-QIcon pencilIcon()
-{
-    QIcon icon;
-    for (int size : {18, 36}) {
-        QPixmap pixmap(size, size);
-        pixmap.fill(Qt::transparent);
-        QPainter p(&pixmap);
-        p.setRenderHint(QPainter::Antialiasing, true);
-        p.scale(size / 24.0, size / 24.0);
-        QPainterPath body;
-        body.moveTo(4, 20);
-        body.lineTo(5, 15.5);
-        body.lineTo(15.5, 5);
-        body.quadTo(17, 3.5, 18.5, 5);
-        body.lineTo(19, 5.5);
-        body.quadTo(20.5, 7, 19, 8.5);
-        body.lineTo(8.5, 19);
-        body.closeSubpath();
-        p.setPen(QPen(QColor(0xC7, 0xD0, 0xDC), 1.8, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-        p.drawPath(body);
-        p.setPen(QPen(QColor(0x57, 0xA6, 0xFF), 1.8, Qt::SolidLine, Qt::RoundCap));
-        p.drawLine(QPointF(13.5, 7), QPointF(17, 10.5));
-        p.drawLine(QPointF(4, 20), QPointF(10, 20));
-        p.end();
-        icon.addPixmap(pixmap);
-    }
-    return icon;
-}
-} // namespace
 
 TransportControls::TransportControls(CommandRegistry* registry, QWidget* parent)
     : QWidget(parent)
@@ -57,43 +26,88 @@ TransportControls::TransportControls(CommandRegistry* registry, QWidget* parent)
     layout->setContentsMargins(8, 6, 8, 6);
     layout->setSpacing(4);
 
-    m_playIcon = style()->standardIcon(QStyle::SP_MediaPlay);
-    m_pauseIcon = style()->standardIcon(QStyle::SP_MediaPause);
+    m_playIcon = icons::icon(QStringLiteral("play"));
+    m_pauseIcon = icons::icon(QStringLiteral("pause"));
 
     // Drawing tools: on the left, apart from the transport, like SyncSketch.
     QToolButton* draw = makeCommandButton(commands::CommandId::ToggleAnnotateMode,
-        pencilIcon(), tr("Draw on frame: show the drawing tools"));
+        icons::icon(QStringLiteral("pencil")), tr("Draw on frame: show the drawing tools"));
     draw->setObjectName(QStringLiteral("TransportDrawButton"));
     draw->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    draw->setProperty("atkRole", QVariant()); // a framed button: the way into drawing
     layout->addWidget(draw);
+
+    // In, out and loop: the review range.
+    auto separator = [this, layout] {
+        auto* line = new QWidget(this);
+        line->setFixedSize(1, 20);
+        line->setStyleSheet(QStringLiteral("background-color: %1;").arg(theme::controlHover().name()));
+        layout->addSpacing(6);
+        layout->addWidget(line);
+        layout->addSpacing(6);
+    };
+    separator();
+    layout->addWidget(makeCommandButton(commands::CommandId::SetRangeIn,
+        icons::icon(QStringLiteral("arrow-left-to-line")), tr("Set range in")));
+    layout->addWidget(makeCommandButton(commands::CommandId::SetRangeOut,
+        icons::icon(QStringLiteral("arrow-right-to-line")), tr("Set range out")));
+    // Loop, with the arrow choosing what happens at the end of each clip.
+    QToolButton* loop = makeCommandButton(commands::CommandId::ToggleLoop, icons::icon(QStringLiteral("repeat")),
+        tr("Loop. The arrow chooses: play through the playlist, stop after each clip, "
+           "loop this clip or loop the whole playlist."));
+    loop->setObjectName(QStringLiteral("TransportLoopButton"));
+    loop->setPopupMode(QToolButton::MenuButtonPopup);
+    auto* loopMenu = new QMenu(loop);
+    loopMenu->setObjectName(QStringLiteral("TransportLoopMenu"));
+    loopMenu->addSection(tr("Loop off"));
+    for (const auto id : {commands::CommandId::PlaylistPlayThrough, commands::CommandId::PlaylistStopAfterClip})
+        if (QAction* action = m_registry ? m_registry->action(id) : nullptr) loopMenu->addAction(action);
+    loopMenu->addSection(tr("Loop on"));
+    for (const auto id : {commands::CommandId::PlaylistLoopClip, commands::CommandId::PlaylistLoopAll})
+        if (QAction* action = m_registry ? m_registry->action(id) : nullptr) loopMenu->addAction(action);
+    loop->setMenu(loopMenu);
+    layout->addWidget(loop);
 
     layout->addStretch(1);
     layout->addWidget(makeCommandButton(commands::CommandId::FirstFrame,
-        style()->standardIcon(QStyle::SP_MediaSkipBackward), tr("Jump to first frame")));
+        icons::icon(QStringLiteral("skip-back")), tr("Jump to first frame")));
     layout->addWidget(makeCommandButton(commands::CommandId::PreviousFrame,
-        style()->standardIcon(QStyle::SP_MediaSeekBackward), tr("Previous frame")));
+        icons::icon(QStringLiteral("step-back")), tr("Previous frame")));
     layout->addWidget(makeCommandButton(commands::CommandId::SkipBack10Seconds,
-        style()->standardIcon(QStyle::SP_MediaSeekBackward), tr("Skip back 10 seconds")));
+        icons::icon(QStringLiteral("rewind")), tr("Skip back 10 seconds")));
 
     m_playPauseButton = makeCommandButton(commands::CommandId::PlayPause, m_playIcon, tr("Play"));
     layout->addWidget(m_playPauseButton);
 
     layout->addWidget(makeCommandButton(commands::CommandId::NextFrame,
-        style()->standardIcon(QStyle::SP_MediaSeekForward), tr("Next frame")));
+        icons::icon(QStringLiteral("step-forward")), tr("Next frame")));
     layout->addWidget(makeCommandButton(commands::CommandId::SkipForward10Seconds,
-        style()->standardIcon(QStyle::SP_MediaSeekForward), tr("Skip forward 10 seconds")));
+        icons::icon(QStringLiteral("fast-forward")), tr("Skip forward 10 seconds")));
     layout->addWidget(makeCommandButton(commands::CommandId::LastFrame,
-        style()->standardIcon(QStyle::SP_MediaSkipForward), tr("Jump to last frame")));
+        icons::icon(QStringLiteral("skip-forward")), tr("Jump to last frame")));
 
-    // Loop is a mode rather than a transport move, so it sits apart.
-    layout->addSpacing(14);
-    layout->addWidget(makeCommandButton(commands::CommandId::ToggleLoop,
-        style()->standardIcon(QStyle::SP_BrowserReload), tr("Loop playback")));
+    layout->addStretch(1);
+    // View tools: how the picture is shown.
+    m_viewTools = new QHBoxLayout;
+    m_viewTools->setSpacing(2);
+    layout->addLayout(m_viewTools);
+    m_viewTools->addWidget(makeCommandButton(commands::CommandId::FlipHorizontal,
+        icons::icon(QStringLiteral("flip-horizontal-2")), tr("Flip horizontally")));
+    m_viewTools->addWidget(makeCommandButton(commands::CommandId::ToggleAnnotationsVisible,
+        icons::icon(QStringLiteral("eye")), tr("Show drawings")));
+    separator();
+    layout->addWidget(makeCommandButton(commands::CommandId::ZoomFit,
+        icons::icon(QStringLiteral("scan")), tr("Fit the picture to the viewer")));
+    layout->addWidget(makeCommandButton(commands::CommandId::ToggleVideoFullScreen,
+        icons::icon(QStringLiteral("fullscreen")), tr("Video full screen")));
+    layout->addWidget(makeCommandButton(commands::CommandId::Preferences,
+        icons::icon(QStringLiteral("settings")), tr("Preferences")));
 
-    layout->addSpacing(10);
     m_volumeButton = new QToolButton(this);
     m_volumeButton->setObjectName(QStringLiteral("TransportVolumeButton"));
-    m_volumeButton->setIcon(style()->standardIcon(QStyle::SP_MediaVolume));
+    m_volumeButton->setAccessibleName(tr("Volume"));
+    m_volumeButton->setIcon(icons::icon(QStringLiteral("volume-2")));
+    m_volumeButton->setIconSize(QSize(theme::metrics::iconMedium, theme::metrics::iconMedium));
     m_volumeButton->setToolTip(tr("Volume"));
     m_volumeButton->setPopupMode(QToolButton::InstantPopup);
     m_volumeButton->setFocusPolicy(Qt::NoFocus);
@@ -102,6 +116,7 @@ TransportControls::TransportControls(CommandRegistry* registry, QWidget* parent)
     auto* container = new QWidget(menu); auto* popupLayout = new QHBoxLayout(container);
     popupLayout->setContentsMargins(10, 6, 10, 6);
     m_volumeSlider = new QSlider(Qt::Horizontal, container); m_volumeSlider->setRange(0, 100); m_volumeSlider->setFixedWidth(140);
+    m_volumeSlider->setAccessibleName(tr("Volume level"));
     m_volumeLabel = new QLabel(QStringLiteral("100%"), container); m_volumeLabel->setMinimumWidth(42);
     popupLayout->addWidget(m_volumeSlider); popupLayout->addWidget(m_volumeLabel);
     auto* sliderAction = new QWidgetAction(menu); sliderAction->setDefaultWidget(container); menu->addAction(sliderAction);
@@ -109,10 +124,22 @@ TransportControls::TransportControls(CommandRegistry* registry, QWidget* parent)
         m_volumeLabel->setText(QStringLiteral("%1%").arg(value)); emit volumeChanged(value);
     });
     m_volumeButton->setMenu(menu); layout->addWidget(m_volumeButton);
-
-    layout->addStretch(1);
+    m_volumeButton->setProperty("atkRole", "iconButton");
 
     setPlaying(false);
+}
+
+void TransportControls::addViewTools(const QList<QWidget*>& widgets)
+{
+    for (int i = 0; i < widgets.size(); ++i) {
+        QWidget* widget = widgets[i];
+        widget->setParent(this);
+        widget->setProperty("atkRole", "iconButton");
+        widget->style()->unpolish(widget);
+        widget->style()->polish(widget);
+        m_viewTools->insertWidget(i, widget);
+        widget->show();
+    }
 }
 
 void TransportControls::setVolumePercent(int percent)
@@ -123,7 +150,7 @@ void TransportControls::setVolumePercent(int percent)
 void TransportControls::setMuted(bool muted)
 {
     if (!m_volumeButton) return;
-    m_volumeButton->setIcon(style()->standardIcon(muted ? QStyle::SP_MediaVolumeMuted : QStyle::SP_MediaVolume));
+    m_volumeButton->setIcon(icons::icon(muted ? QStringLiteral("volume-x") : QStringLiteral("volume-2")));
     m_volumeButton->setToolTip(muted ? tr("Volume (Muted)") : tr("Volume"));
 }
 
@@ -135,7 +162,9 @@ QToolButton* TransportControls::makeCommandButton(commands::CommandId id,
 {
     auto* button = new QToolButton(this);
     button->setToolButtonStyle(Qt::ToolButtonIconOnly);
-    button->setIconSize(QSize(18, 18));
+    // Flat until hovered; a filled accent tile when on (loop, flip...).
+    button->setProperty("atkRole", "iconButton");
+    button->setIconSize(QSize(theme::metrics::iconMedium, theme::metrics::iconMedium));
     // Transport buttons must not steal focus, or Space would re-trigger the
     // focused button instead of running the Play/Pause command.
     button->setFocusPolicy(Qt::NoFocus);

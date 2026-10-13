@@ -10,6 +10,9 @@ namespace atk::commands {
 /// M2 without touching any widget.
 enum class CommandId {
     // File
+    ShowReviewLibrary,
+    NewReview,
+    RenameFromRoster,
     OpenMedia,
     NewProject,
     AddMediaToPlaylist,
@@ -48,6 +51,10 @@ enum class CommandId {
     FirstFrame,
     LastFrame,
     ToggleLoop,
+    PlaylistPlayThrough,
+    PlaylistStopAfterClip,
+    PlaylistLoopClip,
+    PlaylistLoopAll,
     SkipBack10Seconds,
     SkipForward10Seconds,
     PreviousPlaylistItem,

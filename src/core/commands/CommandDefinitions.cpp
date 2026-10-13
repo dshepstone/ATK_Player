@@ -24,6 +24,9 @@ using C = CommandCategory;
 // ---------------------------------------------------------------------------
 constexpr std::array kCommands{
     // File
+    CommandDefinition{ CommandId::ShowReviewLibrary,  "file.reviewLibrary",    QT_TRANSLATE_NOOP("Command", "Review Library"),       C::File,     "Ctrl+Shift+H", false },
+    CommandDefinition{ CommandId::NewReview,          "file.newReview",        QT_TRANSLATE_NOOP("Command", "New Review from Folder..."),C::File,  "Ctrl+Shift+N", false },
+    CommandDefinition{ CommandId::RenameFromRoster,   "file.renameFromRoster", QT_TRANSLATE_NOOP("Command", "Rename Clips from Team List..."),C::File, nullptr,      false },
     CommandDefinition{ CommandId::OpenMedia,          "file.openMedia",        QT_TRANSLATE_NOOP("Command", "Open Media..."),        C::File,     "Ctrl+O",       false },
     CommandDefinition{ CommandId::NewProject,         "file.newProject",       QT_TRANSLATE_NOOP("Command", "New Project"),          C::File,     "Ctrl+N",       false },
     CommandDefinition{ CommandId::AddMediaToPlaylist, "file.addMediaPlaylist", QT_TRANSLATE_NOOP("Command", "Add Media to Playlist..."),C::File,   nullptr,        false },
@@ -62,6 +65,10 @@ constexpr std::array kCommands{
     CommandDefinition{ CommandId::FirstFrame,         "playback.firstFrame",   QT_TRANSLATE_NOOP("Command", "First Frame"),          C::Playback, "Home",         false },
     CommandDefinition{ CommandId::LastFrame,          "playback.lastFrame",    QT_TRANSLATE_NOOP("Command", "Last Frame"),           C::Playback, "End",          false },
     CommandDefinition{ CommandId::ToggleLoop,         "playback.toggleLoop",   QT_TRANSLATE_NOOP("Command", "Loop"),                 C::Playback, "L",            true  },
+    CommandDefinition{ CommandId::PlaylistPlayThrough,  "playback.playThroughPlaylist", QT_TRANSLATE_NOOP("Command", "Play Through Playlist"), C::Playback, nullptr, true },
+    CommandDefinition{ CommandId::PlaylistStopAfterClip,"playback.stopAfterEachClip",   QT_TRANSLATE_NOOP("Command", "Stop After Each Clip"),  C::Playback, nullptr, true },
+    CommandDefinition{ CommandId::PlaylistLoopClip,     "playback.loopClip",            QT_TRANSLATE_NOOP("Command", "Loop This Clip"),        C::Playback, nullptr, true },
+    CommandDefinition{ CommandId::PlaylistLoopAll,      "playback.loopPlaylist",        QT_TRANSLATE_NOOP("Command", "Loop Whole Playlist"),   C::Playback, nullptr, true },
     CommandDefinition{ CommandId::SkipBack10Seconds,  "playback.skipBack10",   QT_TRANSLATE_NOOP("Command", "Skip Back 10 Seconds"), C::Playback, nullptr,        false },
     CommandDefinition{ CommandId::SkipForward10Seconds,"playback.skipForward10",QT_TRANSLATE_NOOP("Command", "Skip Forward 10 Seconds"),C::Playback,nullptr,        false },
     CommandDefinition{ CommandId::PreviousPlaylistItem,"playlist.previous",    QT_TRANSLATE_NOOP("Command", "Previous Playlist Item"),C::Playback,nullptr,        false },

@@ -163,15 +163,28 @@ A future artwork revision may provide a native multi-resolution source for large
 
 ### UI Icons
 
-Repository-owned UI icons under:
+The interface icons are **Lucide** outline icons, version 0.460.0, stored under:
 
 ```text
-assets/icons/
+assets/icons/lucide/
 ```
 
-are distributed as part of ATK Player and are covered by the project's licensing terms unless otherwise noted.
+- Project and source: https://lucide.dev/ and https://github.com/lucide-icons/lucide
+  (taken unmodified from the `lucide-static` npm package, with the per-file licence
+  comment and CSS class removed and whitespace compacted).
+- Licence: **ISC** (portions MIT, from Feather). Permissive; the copyright and
+  permission notice must accompany copies. The full text is in
+  `assets/icons/lucide/LICENSE` and is reproduced in the Windows
+  `THIRD_PARTY_NOTICES.txt`.
+- Copyright (c) for portions of Lucide are held by Cole Bemis 2013-2022 as part
+  of Feather (MIT). All other copyright (c) for Lucide are held by Lucide
+  Contributors 2022.
 
-Any future third-party artwork or icon library must have its licence and attribution requirements documented here before being distributed.
+Only the icons the interface uses are bundled; `src/ui/IconProvider` tints them
+from the theme at runtime.
+
+Any further third-party artwork or icon library must have its licence and attribution
+requirements documented here before being distributed.
 
 ---
 

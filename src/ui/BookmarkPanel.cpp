@@ -1,5 +1,7 @@
 #include "ui/BookmarkPanel.h"
 
+#include "ui/IconProvider.h"
+
 #include "timeline/Bookmark.h"
 #include "timeline/TimelineModel.h"
 
@@ -28,6 +30,7 @@ BookmarkPanel::BookmarkPanel(QWidget* parent) : QWidget(parent)
     layout->setSpacing(6);
     m_list = new QListWidget(this);
     m_list->setObjectName(QStringLiteral("BookmarkList"));
+    m_list->setAccessibleName(tr("Bookmarks"));
     layout->addWidget(m_list, 1);
     m_empty = new QLabel(tr("No bookmarks yet.\nPress B to add a point, or create a range below."), this);
     m_empty->setAlignment(Qt::AlignCenter);
@@ -36,7 +39,7 @@ BookmarkPanel::BookmarkPanel(QWidget* parent) : QWidget(parent)
 
     m_addPoint = new QPushButton(tr("Add Point Bookmark (B)"), this);
     m_addPoint->setObjectName(QStringLiteral("AddPointBookmark"));
-    m_addPoint->setIcon(QIcon(QStringLiteral(":/icons/bookmark-add.svg")));
+    m_addPoint->setIcon(icons::icon(QStringLiteral("bookmark-plus")));
     layout->addWidget(m_addPoint);
 
     auto* creationGroup = new QGroupBox(tr("Create Range Bookmark"), this);
@@ -68,6 +71,7 @@ BookmarkPanel::BookmarkPanel(QWidget* parent) : QWidget(parent)
     auto* form = new QFormLayout;
     m_name = new QLineEdit(this);
     m_name->setObjectName(QStringLiteral("BookmarkName"));
+    m_name->setAccessibleName(tr("Bookmark name"));
     form->addRow(tr("Name"), m_name);
     m_startLabel = new QLabel(tr("Frame"), this);
     m_start = new QSpinBox(this);

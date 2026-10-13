@@ -30,6 +30,7 @@ class TestTimelineWidgets : public QObject {
     Q_OBJECT
 private slots:
     void directFrameNumberInput();
+    void timeRulerLabelsAreRoundAndDistinct();
     void sliderTracksModelBothWays();
     void sliderHandlesAndBodyEditViewport();
     void frameMappingIsExactAtReviewZoom();
@@ -43,6 +44,24 @@ private slots:
     void activeAndFinalScrubPresentationRemainResponsive();
     void scrubShowsFrameNumberAbovePlayhead();
 };
+
+void TestTimelineWidgets::timeRulerLabelsAreRoundAndDistinct()
+{
+    using atk::ui::TimelineWidget;
+    // A 6-second clip across 1200 px used to read "0:00 0:00 0:01 0:01...":
+    // labels went every 96 px and were cut to whole seconds.
+    QCOMPARE(TimelineWidget::timeRulerStepSeconds(200.0), int64_t(1));
+    QCOMPARE(TimelineWidget::timeRulerStepSeconds(60.0), int64_t(2));
+    QCOMPARE(TimelineWidget::timeRulerStepSeconds(20.0), int64_t(5));
+    QCOMPARE(TimelineWidget::timeRulerStepSeconds(1.0), int64_t(120)); // 2 min
+    QCOMPARE(TimelineWidget::timeRulerStepSeconds(0.05), int64_t(1800));
+    QVERIFY(TimelineWidget::timeRulerStepSeconds(0.0001) * 0.0001 >= 80.0);
+    for (double pps = 0.01; pps < 5000.0; pps *= 1.37) {
+        const int64_t step = TimelineWidget::timeRulerStepSeconds(pps);
+        QVERIFY(step >= 1);
+        QVERIFY(double(step) * pps >= 80.0 || step == 1); // never crowded
+    }
+}
 
 void TestTimelineWidgets::directFrameNumberInput()
 {

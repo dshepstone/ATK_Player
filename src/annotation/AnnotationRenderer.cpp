@@ -193,6 +193,13 @@ void paintFreehand(QPainter& painter, const QRectF& rect, const AnnotationItem& 
 
         auto radiusAt = [&](qreal p) { return AnnotationRenderer::inkRadius(rect, item, p); };
         auto alphaAt = [&](qreal p) { return mix(shape.minOpacity, 1.0, p); };
+        // While drawing, the layer is only the few pixels being repainted, but
+        // the stroke can be thousands of segments long. Segments that cannot
+        // touch the layer change none of its pixels, so skip building them.
+        const QRectF layerBounds = QRectF(clipped).adjusted(-2, -2, 2, 2);
+        auto reaches = [&](const QPointF& a, const QPointF& b, qreal radius) {
+            return QRectF(a, b).normalized().adjusted(-radius, -radius, radius, radius).intersects(layerBounds);
+        };
 
         // Soft brush: concentric passes, outer faint to inner full, so the
         // edge falls off. Each pass overwrites (Source), so they never stack.
@@ -213,6 +220,9 @@ void paintFreehand(QPainter& painter, const QRectF& rect, const AnnotationItem& 
             for (int i = 1; i < path.size(); ++i) {
                 const auto& a = path[i - 1];
                 const auto& b = path[i];
+                if (!reaches(a.position, b.position,
+                             std::max(radiusAt(a.pressure), radiusAt(b.pressure)) * ringScale + 1.0))
+                    continue;
                 QPainterPath capsule;
                 capsule.setFillRule(Qt::WindingFill);
                 addCapsule(capsule, a.position, radiusAt(a.pressure) * ringScale, b.position,
@@ -283,8 +293,13 @@ void paintStamp(QPainter& painter, const QRectF& rect, const AnnotationItem& ite
         QPainter lp(&layer);
         lp.setRenderHint(QPainter::SmoothPixmapTransform, true);
         lp.translate(-clipped.topLeft());
+        const QRectF layerBounds = QRectF(clipped).adjusted(-2, -2, 2, 2);
         auto stampAt = [&](const QPointF& at, qreal pressure) {
             const qreal diameter = 2.0 * AnnotationRenderer::inkRadius(rect, item, pressure);
+            // A dab is at most `diameter` across however it is rotated; one
+            // that misses the layer changes nothing, so skip drawing it.
+            if (!QRectF(at - QPointF(diameter, diameter), QSizeF(2 * diameter, 2 * diameter)).intersects(layerBounds))
+                return;
             const QSizeF size = aspect >= 1.0 ? QSizeF(diameter, diameter / aspect) : QSizeF(diameter * aspect, diameter);
             lp.save();
             lp.translate(at);

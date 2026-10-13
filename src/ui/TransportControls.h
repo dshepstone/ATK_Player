@@ -6,6 +6,7 @@
 #include <QIcon>
 #include <QWidget>
 
+class QHBoxLayout;
 class QToolButton;
 class QSlider;
 class QLabel;
@@ -14,8 +15,10 @@ namespace atk::ui {
 
 class CommandRegistry;
 
-/// The transport control strip: jump to start, step back, play/pause, step
-/// forward, jump to end, loop.
+/// The strip under the timeline, in groups: Draw on Frame | in, out and loop |
+/// the transport (first, step, skip, play/pause, skip, step, last) | view
+/// tools (tracing paper, ghosts, flip, show drawings) | fit, video full screen,
+/// preferences and volume.
 ///
 /// Every button is backed by the QAction for its command, so the buttons, the
 /// menu entries and the keyboard shortcuts are literally the same objects. The
@@ -32,6 +35,9 @@ public:
     void setPlaying(bool playing);
     void setVolumePercent(int percent);
     void setMuted(bool muted);
+    /// Adds widgets owned elsewhere (the tracing paper and ghost buttons with
+    /// their menus) to the view tools group, before flip.
+    void addViewTools(const QList<QWidget*>& widgets);
 
 signals:
     void volumeChanged(int percent);
@@ -44,6 +50,7 @@ private:
     CommandRegistry* m_registry = nullptr;
     QToolButton* m_playPauseButton = nullptr;
     QToolButton* m_volumeButton = nullptr;
+    QHBoxLayout* m_viewTools = nullptr;
     QSlider* m_volumeSlider = nullptr;
     QLabel* m_volumeLabel = nullptr;
     QIcon m_playIcon;

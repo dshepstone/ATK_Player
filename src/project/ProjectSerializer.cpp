@@ -25,6 +25,9 @@ namespace {
 // stay version 1, so they still open in older builds.
 constexpr int kVersion = 1;
 constexpr int kAnnotatedVersion = 2;
+// Version 3 marks a project carrying review metadata (clip statuses), for
+// the same reason: a version 2 reader would drop it and save over it.
+constexpr int kReviewVersion = 3;
 /// Ids above this are refused on load, so allocating the next id can never
 /// wrap round to the reserved 0.
 constexpr quint64 kMaxAnnotationId = quint64(1) << 53;
@@ -317,6 +320,9 @@ static SerializerResult saveWithName(const Project& project, const QString& file
         // (see kAnnotatedVersion) so older builds cannot strip it.
         if (!entry.annotations.isEmpty())
             review.insert(QStringLiteral("annotations"), annotationsJson(entry.annotations));
+        // Likewise omitted at the default; present means version 3.
+        if (entry.status != ClipStatus::NotReviewed)
+            review.insert(QStringLiteral("status"), clipStatusKey(entry.status));
         QJsonObject source{{QStringLiteral("id"), entry.id.toString(QUuid::WithoutBraces)},
             {QStringLiteral("path"), storedMediaPath(entry.source->filePath(), filePath)},
             {QStringLiteral("displayName"), entry.displayName.isEmpty() ? entry.source->displayName() : entry.displayName},
@@ -331,8 +337,11 @@ static SerializerResult saveWithName(const Project& project, const QString& file
     }
     const bool annotated = std::any_of(project.entries().cbegin(), project.entries().cend(),
                                        [](const SourceEntry& entry) { return !entry.annotations.isEmpty(); });
+    const bool reviewed = std::any_of(project.entries().cbegin(), project.entries().cend(),
+                                      [](const SourceEntry& entry) { return entry.status != ClipStatus::NotReviewed; });
+    const int version = reviewed ? kReviewVersion : annotated ? kAnnotatedVersion : kVersion;
     QJsonObject root{{QStringLiteral("format"), QStringLiteral("ATKProject")},
-        {QStringLiteral("version"), annotated ? kAnnotatedVersion : kVersion}, {QStringLiteral("name"), projectName},
+        {QStringLiteral("version"), version}, {QStringLiteral("name"), projectName},
         {QStringLiteral("currentSourceId"), project.currentSourceId().toString(QUuid::WithoutBraces)},
         {QStringLiteral("sources"), sources}};
     // Imported brush tips used by any drawing travel with the project, so it
@@ -388,8 +397,8 @@ SerializerResult ProjectSerializer::load(Project& project, const QString& filePa
     if (!root.value(QStringLiteral("version")).isDouble())
         return SerializerResult::failure(QStringLiteral("The project version is missing."));
     const int version = root.value(QStringLiteral("version")).toInt();
-    if (version != kVersion && version != kAnnotatedVersion)
-        return SerializerResult::failure(version > kAnnotatedVersion
+    if (version != kVersion && version != kAnnotatedVersion && version != kReviewVersion)
+        return SerializerResult::failure(version > kReviewVersion
             ? QStringLiteral("This project was created by a newer version of ATK Player.")
             : QStringLiteral("This project version is not supported."));
     if (!root.value(QStringLiteral("sources")).isArray())
@@ -464,6 +473,7 @@ SerializerResult ProjectSerializer::load(Project& project, const QString& filePa
             bookmark.colorIndex = b.value(QStringLiteral("colorIndex")).toInt(timeline::Bookmark::kNoColor);
             entry.bookmarks.append(bookmark);
         }
+        entry.status = clipStatusFromKey(review.value(QStringLiteral("status")).toString());
         if (!readAnnotations(review.value(QStringLiteral("annotations")), &entry.annotations))
             return SerializerResult::failure(QStringLiteral("A source has invalid annotation data."));
         entries.append(std::move(entry));

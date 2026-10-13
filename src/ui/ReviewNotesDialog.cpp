@@ -55,6 +55,12 @@ ReviewNotesDialog::ReviewNotesDialog(const annotation::SourceAnnotations& annota
     exportui::addRow(output, this, tr("Paper"), m_paper, 0);
 
     auto* content = exportui::addCard(body, this, tr("Content"));
+    m_includeNoteText = new QCheckBox(tr("Include text notes"), this);
+    m_includeNoteText->setObjectName(QStringLiteral("ReviewNotesIncludeText"));
+    m_includeNoteText->setToolTip(tr("Off: only the pictures with their drawings, each captioned with its frame "
+                                     "and timecode. Frames with notes but no drawings are left out."));
+    m_includeNoteText->setChecked(true);
+    content->addWidget(m_includeNoteText);
     m_includeResolved = new QCheckBox(tr("Include resolved notes"), this);
     m_includeResolved->setObjectName(QStringLiteral("ReviewNotesIncludeResolved"));
     m_includeResolved->setChecked(true);
@@ -79,6 +85,10 @@ ReviewNotesDialog::ReviewNotesDialog(const annotation::SourceAnnotations& annota
     m_export->setObjectName(QStringLiteral("ReviewNotesExport"));
     connect(browseButton, &QPushButton::clicked, this, &ReviewNotesDialog::browse);
     connect(m_includeResolved, &QCheckBox::toggled, this, &ReviewNotesDialog::refreshSummary);
+    connect(m_includeNoteText, &QCheckBox::toggled, this, [this](bool on) {
+        m_includeResolved->setEnabled(on); // no text, nothing resolved to show
+        refreshSummary();
+    });
     connect(m_destination, &QLineEdit::textChanged, this, &ReviewNotesDialog::refreshSummary);
     refreshSummary();
 }
@@ -96,6 +106,7 @@ exporter::ReviewNotesOptions ReviewNotesDialog::options() const
     exporter::ReviewNotesOptions options;
     options.outputPath = destination();
     options.pageSize = QPageSize(QPageSize::PageSizeId(m_paper->currentData().toInt()));
+    options.includeNoteText = m_includeNoteText->isChecked();
     options.includeResolved = m_includeResolved->isChecked();
     options.tracingPaperPercent = m_tracingPaper->currentData().toInt();
     return options;
@@ -103,6 +114,8 @@ exporter::ReviewNotesOptions ReviewNotesDialog::options() const
 
 void ReviewNotesDialog::setOpenWhenDone(bool open) { m_openWhenDone->setChecked(open); }
 bool ReviewNotesDialog::openWhenDone() const { return m_openWhenDone->isChecked(); }
+void ReviewNotesDialog::setIncludeNoteText(bool include) { m_includeNoteText->setChecked(include); }
+bool ReviewNotesDialog::includeNoteText() const { return m_includeNoteText->isChecked(); }
 
 void ReviewNotesDialog::browse()
 {
@@ -113,9 +126,11 @@ void ReviewNotesDialog::browse()
 
 void ReviewNotesDialog::refreshSummary()
 {
+    const bool withText = m_includeNoteText->isChecked();
     const qsizetype frames =
-        exporter::ReviewNotesJob::framesToInclude(m_annotations, m_includeResolved->isChecked()).size();
-    m_summary->setText(frames == 0 ? tr("No frames have drawings or notes yet.")
+        exporter::ReviewNotesJob::framesToInclude(m_annotations, m_includeResolved->isChecked(), withText).size();
+    m_summary->setText(frames == 0 ? (withText ? tr("No frames have drawings or notes yet.")
+                                               : tr("No frames have drawings yet."))
                                    : tr("%n frame(s) will be listed.", nullptr, int(frames)));
     m_export->setEnabled(frames > 0 && !destination().isEmpty());
 }

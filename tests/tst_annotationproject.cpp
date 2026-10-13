@@ -496,8 +496,9 @@ void TestAnnotationProject::projectsWithDrawingsAreVersionTwoSoOlderBuildsRefuse
     QVERIFY(project::ProjectSerializer::load(fromDevBuild, fx.projectPath).ok);
     QCOMPARE(fromDevBuild.entries()[0].annotations, sampleAnnotations());
 
-    // Anything newer than this build is refused, not half-read.
-    root.insert(QStringLiteral("version"), 3);
+    // Anything newer than this build is refused, not half-read. (Version 3,
+    // review metadata, is the newest this build reads.)
+    root.insert(QStringLiteral("version"), 4);
     writeProject(fx.projectPath, root);
     project::Project newer;
     const auto result = project::ProjectSerializer::load(newer, fx.projectPath);

@@ -1,5 +1,9 @@
 #include "ui/SourcesPanel.h"
 
+#include "ui/IconProvider.h"
+#include "ui/PlaylistCardDelegate.h"
+#include "ui/Theme.h"
+
 #include "media/MediaSource.h"
 #include "project/Project.h"
 
@@ -49,19 +53,38 @@ SourcesPanel::SourcesPanel(QWidget* parent)
     layout->addWidget(heading);
 
     m_list = new QListWidget(this);
+    m_list->setObjectName(QStringLiteral("PlaylistList"));
+    m_list->setAccessibleName(tr("Playlist"));
+    m_list->setItemDelegate(new PlaylistCardDelegate(m_list));
+    m_list->setUniformItemSizes(true);
+    m_list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_list->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+    m_list->setAttribute(Qt::WA_Hover, true);
     m_list->setSelectionMode(QAbstractItemView::SingleSelection);
     m_list->setDragDropMode(QAbstractItemView::InternalMove);
     m_list->setDefaultDropAction(Qt::MoveAction);
     m_list->setContextMenuPolicy(Qt::CustomContextMenu);
     layout->addWidget(m_list, 1);
+    // Files dropped anywhere on the window are added to the playlist.
+    m_dropHint = new QLabel(tr("Drop clips here to add them"), this);
+    m_dropHint->setObjectName(QStringLiteral("PlaylistDropHint"));
+    m_dropHint->setProperty("atkRole", "placeholder");
+    m_dropHint->setAlignment(Qt::AlignCenter);
+    layout->addWidget(m_dropHint);
 
     auto* controls = new QHBoxLayout;
     controls->setContentsMargins(4, 4, 4, 4);
-    auto* add = new QPushButton(tr("+"), this); add->setToolTip(tr("Add media to playlist"));
-    auto* remove = new QPushButton(tr("−"), this); remove->setToolTip(tr("Remove selected playlist item"));
-    auto* up = new QPushButton(tr("↑"), this); up->setToolTip(tr("Move selected item up"));
-    auto* down = new QPushButton(tr("↓"), this); down->setToolTip(tr("Move selected item down"));
-    for (QPushButton* button : {add, remove, up, down}) { button->setFixedWidth(30); controls->addWidget(button); }
+    auto* add = new QPushButton(icons::icon(QStringLiteral("plus")), QString(), this); add->setToolTip(tr("Add media to playlist"));
+    auto* remove = new QPushButton(icons::icon(QStringLiteral("minus")), QString(), this); remove->setToolTip(tr("Remove selected playlist item"));
+    auto* up = new QPushButton(icons::icon(QStringLiteral("arrow-up")), QString(), this); up->setToolTip(tr("Move selected item up"));
+    auto* down = new QPushButton(icons::icon(QStringLiteral("arrow-down")), QString(), this); down->setToolTip(tr("Move selected item down"));
+    for (QPushButton* button : {add, remove, up, down}) {
+        button->setProperty("atkRole", "iconButton");
+        button->setAccessibleName(button->toolTip());
+        button->setIconSize(QSize(theme::metrics::iconSmall, theme::metrics::iconSmall));
+        button->setFixedWidth(30);
+        controls->addWidget(button);
+    }
     controls->addStretch(1); layout->addLayout(controls);
     connect(add, &QPushButton::clicked, this, &SourcesPanel::addMediaRequested);
     connect(remove, &QPushButton::clicked, this, [this] { emit removeRequested(selectedIndex()); });
@@ -70,7 +93,7 @@ SourcesPanel::SourcesPanel(QWidget* parent)
 
     // The hint replaces the list rather than sitting beneath it, so the empty
     // state reads as one panel instead of an empty box with a caption below it.
-    m_emptyHint = new QLabel(tr("No clips in playlist.\nAdd media to begin."), this);
+    m_emptyHint = new QLabel(tr("No clips in playlist.\nDrop clips here, or click + to add media."), this);
     m_emptyHint->setProperty("atkRole", "placeholder");
     m_emptyHint->setWordWrap(true);
     m_emptyHint->setAlignment(Qt::AlignTop | Qt::AlignLeft);
@@ -134,6 +157,15 @@ void SourcesPanel::setProject(project::Project* project)
                 this, &SourcesPanel::refresh);
         connect(m_project, &project::Project::activeIndexChanged,
                 this, [this](int) { refresh(); });
+        // Drawing and notes change only the counts: update the card in place
+        // rather than rebuilding the list (which would lose the scroll position).
+        connect(m_project, &project::Project::annotationsChanged,
+                this, [this](const QUuid& id) { updateCounts(id); });
+        connect(m_project, &project::Project::clipStatusChanged, this, [this](const QUuid& id) {
+            const int index = m_project->indexForId(id);
+            if (index >= 0 && index < m_list->count() && m_list->item(index)->data(Qt::UserRole).toUuid() == id)
+                m_list->item(index)->setData(playlistrole::Status, int(m_project->entries().at(index).status));
+        });
     }
 
     refresh();
@@ -146,15 +178,14 @@ void SourcesPanel::setCurrentMedia(const QString& fileName, const QString& descr
     m_list->clear();
 
     auto* item = new QListWidgetItem(fileName, m_list);
-    if (!description.isEmpty()) {
-        // Second line carries the resolution/fps/duration summary.
-        const QString label = fileName + QLatin1Char('\n') + description;
-        item->setText(label);
-        item->setToolTip(label);
-    }
+    item->setData(playlistrole::Order, 1);
+    item->setData(playlistrole::Active, true);
+    item->setData(playlistrole::Subtitle, description);
+    item->setToolTip(description.isEmpty() ? fileName : fileName + QLatin1Char('\n') + description);
     m_list->setCurrentRow(0);
 
     m_emptyHint->setVisible(false);
+    m_dropHint->setVisible(false);
     m_list->setVisible(true);
 }
 
@@ -188,15 +219,31 @@ void SourcesPanel::refresh()
                 case project::SourceAvailability::Error: state = tr("Unreadable"); break;
                 }
                 const bool current = m_project->activeIndex() == order - 1;
-                auto* item = new QListWidgetItem(QStringLiteral("%1 %2  %3%4").arg(current ? QStringLiteral("▶") : QStringLiteral(" "))
-                    .arg(order++).arg(name, state.isEmpty() ? QString() : QStringLiteral(" — ") + state), m_list);
+                const bool unavailable = entry.availability == project::SourceAvailability::Missing
+                    || entry.availability == project::SourceAvailability::Error;
+                auto* item = new QListWidgetItem(name, m_list);
                 item->setData(Qt::UserRole, entry.id);
+                item->setData(playlistrole::Order, order);
+                item->setData(playlistrole::Subtitle, state);
+                item->setData(playlistrole::Active, current);
+                item->setData(playlistrole::Unavailable, unavailable);
+                item->setData(playlistrole::FrameCount,
+                              entry.availability == project::SourceAvailability::Ready
+                                  ? qint64(entry.source->metadata().effectiveFrameCount()) : qint64(0));
+                item->setData(playlistrole::Thumbnail, m_thumbnails.value(entry.id));
+                item->setData(playlistrole::Status, int(entry.status));
+                item->setData(Qt::AccessibleTextRole,
+                              QStringLiteral("%1. %2%3").arg(order).arg(name, state.isEmpty() ? QString() : QStringLiteral(", ") + state));
                 item->setToolTip(entry.availabilityError.isEmpty() ? entry.source->filePath()
                     : QStringLiteral("%1\n%2").arg(entry.source->filePath(), entry.availabilityError));
-                QFont font = item->font(); font.setBold(current); item->setFont(font);
-                if (entry.availability == project::SourceAvailability::Missing
-                    || entry.availability == project::SourceAvailability::Error)
-                    item->setForeground(palette().color(QPalette::Disabled, QPalette::Text));
+                updateCounts(item, entry);
+                ++order;
+                // Ask once per clip and path; a relink to another file asks again.
+                const QString requestKey = entry.id.toString() + entry.source->filePath();
+                if (entry.availability == project::SourceAvailability::Ready && !m_thumbnailsRequested.contains(requestKey)) {
+                    m_thumbnailsRequested.insert(requestKey);
+                    emit thumbnailWanted(entry.id);
+                }
             }
         }
         m_list->setCurrentRow(m_project->activeIndex());
@@ -205,7 +252,40 @@ void SourcesPanel::refresh()
     const bool empty = m_list->count() == 0;
     m_emptyHint->setVisible(empty);
     m_list->setVisible(!empty);
+    m_dropHint->setVisible(!empty);
     m_refreshing = false;
+}
+
+void SourcesPanel::updateCounts(QListWidgetItem* item, const project::SourceEntry& entry)
+{
+    int notes = 0;
+    int drawn = 0;
+    for (const annotation::FrameAnnotation& frame : entry.annotations.frames()) {
+        notes += int(frame.notes.size());
+        if (frame.hasDrawings()) ++drawn;
+    }
+    item->setData(playlistrole::NoteCount, notes);
+    item->setData(playlistrole::DrawnFrames, drawn);
+}
+
+void SourcesPanel::updateCounts(const QUuid& sourceId)
+{
+    if (m_showingSingleSource || m_project == nullptr) return;
+    const int index = m_project->indexForId(sourceId);
+    if (index < 0 || index >= m_list->count()) return;
+    QListWidgetItem* item = m_list->item(index);
+    if (item->data(Qt::UserRole).toUuid() != sourceId) return;
+    updateCounts(item, m_project->entries().at(index));
+}
+
+void SourcesPanel::setThumbnail(const QUuid& sourceId, const QImage& image)
+{
+    if (image.isNull()) m_thumbnails.remove(sourceId);
+    else m_thumbnails.insert(sourceId, image);
+    for (int row = 0; row < m_list->count(); ++row) {
+        QListWidgetItem* item = m_list->item(row);
+        if (item->data(Qt::UserRole).toUuid() == sourceId) item->setData(playlistrole::Thumbnail, image);
+    }
 }
 
 } // namespace atk::ui

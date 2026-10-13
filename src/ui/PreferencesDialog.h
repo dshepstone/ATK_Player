@@ -33,6 +33,7 @@ public:
     bool frameStepAudioEnabled() const;
     bool bookmarkSnapEnabled() const;
     bool reopenLastProject() const;
+    bool showLibraryAtStartup() const;
     bool apiEnabled() const;
     int apiPort() const;
     int stillImageHoldFrames() const;
@@ -57,6 +58,7 @@ private:
 
     QCheckBox* m_restoreLayout = nullptr;
     QCheckBox* m_reopenLast = nullptr;
+    QCheckBox* m_showLibrary = nullptr;
     QCheckBox* m_audioScrub = nullptr;
     QCheckBox* m_frameStepAudio = nullptr;
     QCheckBox* m_bookmarkSnap = nullptr;

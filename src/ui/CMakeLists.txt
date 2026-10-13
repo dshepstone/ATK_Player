@@ -9,7 +9,9 @@
 set(ATK_UI_SOURCES
     AnnotationToolbar.cpp
     ApplicationSettings.cpp
+    BatchRenameDialog.cpp
     BookmarkPanel.cpp
+    BrushSizePill.cpp
     BurnInOptionsWidget.cpp
     CompareBar.cpp
     ComparisonCompositeWidget.cpp
@@ -17,9 +19,14 @@ set(ATK_UI_SOURCES
     ExportUi.cpp
     FrameFieldStyle.cpp
     FrameNumberInput.cpp
+    IconProvider.cpp
     MainWindow.cpp
     MediaInformationDialog.cpp
+    NewReviewDialog.cpp
     NotesPanel.cpp
+    PlaylistCardDelegate.cpp
+    ReviewHeaderBar.cpp
+    ReviewLibraryPage.cpp
     ReviewNotesDialog.cpp
     PreferencesDialog.cpp
     Resources.cpp
@@ -40,7 +47,9 @@ set(ATK_UI_SOURCES
 set(ATK_UI_HEADERS
     AnnotationToolbar.h
     ApplicationSettings.h
+    BatchRenameDialog.h
     BookmarkPanel.h
+    BrushSizePill.h
     BurnInOptionsWidget.h
     CompareBar.h
     ComparisonCompositeWidget.h
@@ -48,9 +57,14 @@ set(ATK_UI_HEADERS
     ExportUi.h
     FrameFieldStyle.h
     FrameNumberInput.h
+    IconProvider.h
     MainWindow.h
     MediaInformationDialog.h
+    NewReviewDialog.h
     NotesPanel.h
+    PlaylistCardDelegate.h
+    ReviewHeaderBar.h
+    ReviewLibraryPage.h
     ReviewNotesDialog.h
     PreferencesDialog.h
     Resources.h

@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 namespace atk::exporter {
 namespace {
@@ -81,12 +82,19 @@ struct RowGeometry {
     qreal height = 0;
 };
 
-RowGeometry measureRow(const ReviewNotesRow& row, qreal contentWidth, QPaintDevice* device)
+RowGeometry measureRow(const ReviewNotesRow& row, qreal contentWidth, QPaintDevice* device, bool withText)
 {
     RowGeometry g;
-    g.imageWidth = contentWidth * 0.45;
     const qreal aspect = row.image.isNull() ? 16.0 / 9.0
                                             : qreal(row.image.width()) / std::max(1, row.image.height());
+    if (!withText) {
+        // Images only: the caption line, then the picture across the page.
+        g.imageWidth = contentWidth;
+        g.imageHeight = g.imageWidth / std::max(0.1, aspect);
+        g.height = 22.0 + g.imageHeight;
+        return g;
+    }
+    g.imageWidth = contentWidth * 0.45;
     g.imageHeight = g.imageWidth / std::max(0.1, aspect);
     g.textWidth = contentWidth - g.imageWidth - 14.0;
     qreal text = 22.0; // the FRAME / TIMECODE line
@@ -151,7 +159,8 @@ public:
     {
         m_page = doc.pageSize.size(QPageSize::Point);
         m_contentWidth = m_page.width() - 2 * kMargin;
-        for (const ReviewNotesRow& row : doc.rows) m_geometry.append(measureRow(row, m_contentWidth, m_device));
+        for (const ReviewNotesRow& row : doc.rows)
+            m_geometry.append(measureRow(row, m_contentWidth, m_device, doc.includeNoteText));
         QVector<qreal> heights;
         for (const RowGeometry& g : m_geometry) heights.append(g.height);
         const qreal bodyHeight = m_page.height() - 2 * kMargin - kFooterHeight;
@@ -204,6 +213,28 @@ public:
             if (m_rowPages[i] != index) continue;
             const ReviewNotesRow& row = m_doc.rows[i];
             const RowGeometry& g = m_geometry[i];
+            if (!m_doc.includeNoteText) {
+                // Caption, then the picture at full width.
+                const QFont label = fontPt(6.5);
+                const QFont value = fontPt(12);
+                qreal cx = kMargin;
+                for (const auto& [l, v] : {std::pair{QStringLiteral("FRAME"), QString::number(row.frame + 1)},
+                                           std::pair{QStringLiteral("TIMECODE"), row.timecode}}) {
+                    p.setFont(label);
+                    p.setPen(kAccent);
+                    p.drawText(QPointF(cx, y + 14), l);
+                    cx += metrics(label).horizontalAdvance(l) + 4;
+                    p.setFont(value);
+                    p.setPen(kInk);
+                    p.drawText(QPointF(cx, y + 14), v);
+                    cx += metrics(value).horizontalAdvance(v) + 16;
+                }
+                const QRectF picture(kMargin, y + 22.0, g.imageWidth, g.imageHeight);
+                if (!row.image.isNull()) p.drawImage(picture, row.image);
+                else p.fillRect(picture, QColor(230, 232, 235));
+                y += g.height + kRowGap;
+                continue;
+            }
             const QRectF slot(kMargin, y, g.imageWidth, g.imageHeight);
             if (!row.image.isNull()) p.drawImage(slot, row.image);
             else p.fillRect(slot, QColor(230, 232, 235));
@@ -444,10 +475,14 @@ ReviewNotesJob::~ReviewNotesJob()
 }
 
 QVector<qint64> ReviewNotesJob::framesToInclude(const annotation::SourceAnnotations& annotations,
-                                                bool includeResolved)
+                                                bool includeResolved, bool includeNoteText)
 {
     QVector<qint64> frames;
     for (const annotation::FrameAnnotation& frame : annotations.frames()) {
+        if (!includeNoteText) {
+            if (frame.hasDrawings()) frames.append(frame.frame);
+            continue;
+        }
         const bool openNote = std::any_of(frame.notes.cbegin(), frame.notes.cend(),
                                           [&](const annotation::FrameNote& n) { return includeResolved || !n.resolved; });
         if (frame.hasDrawings() || openNote) frames.append(frame.frame);
@@ -479,7 +514,8 @@ void ReviewNotesJob::run()
 {
     // Results go back to the owner's thread through queued signals.
     auto report = [this](auto&& fn) { QMetaObject::invokeMethod(this, std::forward<decltype(fn)>(fn), Qt::QueuedConnection); };
-    const QVector<qint64> frames = framesToInclude(m_spec.annotations, m_options.includeResolved);
+    const QVector<qint64> frames =
+        framesToInclude(m_spec.annotations, m_options.includeResolved, m_options.includeNoteText);
 
     // Render each frame with its drawings burned in, using a decoder owned by
     // this thread.
@@ -499,6 +535,7 @@ void ReviewNotesJob::run()
         return;
     }
     ReviewNotesDocument doc = m_header;
+    doc.includeNoteText = m_options.includeNoteText;
     doc.pageSize = m_options.pageSize;
     for (int i = 0; i < frames.size(); ++i) {
         if (m_cancel) {
@@ -521,8 +558,9 @@ void ReviewNotesJob::run()
         row.image = out.image.width() > width
             ? out.image.scaledToWidth(width, Qt::SmoothTransformation).convertToFormat(QImage::Format_RGB32)
             : out.image.convertToFormat(QImage::Format_RGB32);
-        for (const annotation::FrameNote& note : m_spec.annotations.frame(frames[i]).notes)
-            if (m_options.includeResolved || !note.resolved) row.notes.append(note);
+        if (m_options.includeNoteText)
+            for (const annotation::FrameNote& note : m_spec.annotations.frame(frames[i]).notes)
+                if (m_options.includeResolved || !note.resolved) row.notes.append(note);
         doc.rows.append(std::move(row));
         const int percent = int(90.0 * (i + 1) / std::max<qsizetype>(1, frames.size()));
         report([this, percent] { emit progress(percent); });

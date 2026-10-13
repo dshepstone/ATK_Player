@@ -465,6 +465,9 @@ void TestAnnotationRenderer::partialRepaintsMatchAFullRender_data()
         const QByteArray suffix = QByteArray::number(dpr);
         QTest::newRow("pencil@" + suffix) << int(AnnotationTool::Pencil) << dpr;
         QTest::newRow("brush@" + suffix) << int(AnnotationTool::Brush) << dpr;
+        QTest::newRow("pen@" + suffix) << int(AnnotationTool::Pen) << dpr;
+        QTest::newRow("marker@" + suffix) << int(AnnotationTool::Marker) << dpr;
+        QTest::newRow("stamp@" + suffix) << int(AnnotationTool::Stamp) << dpr;
     }
 }
 
@@ -481,8 +484,15 @@ void TestAnnotationRenderer::partialRepaintsMatchAFullRender()
     item.color = QColor(20, 40, 200);
     item.size = 0.06;
     item.textureSeed = 7;
-    for (int i = 0; i < 40; ++i)
-        item.points.append({float(0.1 + i * 0.02), float(0.5 + 0.25 * std::sin(i / 4.0)), float(0.3 + (i % 7) / 10.0), 0, 0});
+    if (item.tool == AnnotationTool::Stamp) {
+        BrushTipRegistry::instance().add(squareRingTip(QStringLiteral("ring-partial"), 0.3));
+        item.brushId = QStringLiteral("ring-partial");
+    }
+    // Long enough that most segments lie outside any one tile, so the
+    // renderer's skipping of segments that cannot reach the area is covered.
+    for (int i = 0; i < 160; ++i)
+        item.points.append({float(0.1 + i * 0.005), float(0.5 + 0.25 * std::sin(i / 16.0)),
+                            float(0.3 + (i % 7) / 10.0), 0, 0});
     const QSize logical(300, 200);
     const QRectF rect(QPointF(0, 0), QSizeF(logical));
     auto canvas = [&] {
@@ -513,7 +523,11 @@ void TestAnnotationRenderer::partialRepaintsMatchAFullRender()
             worst = std::max({worst, std::abs(qAlpha(a) - qAlpha(b)), std::abs(qRed(a) - qRed(b)),
                               std::abs(qGreen(a) - qGreen(b)), std::abs(qBlue(a) - qBlue(b))});
         }
-    QVERIFY2(worst <= 2, qPrintable(QStringLiteral("largest channel difference %1").arg(worst)));
+    // Stamp dabs are resampled tip images; a clipped layer can shift that
+    // smooth sampling by a level or two at fractional scale. Invisible, and
+    // the same with or without the renderer skipping far-away segments.
+    const int tolerance = item.tool == AnnotationTool::Stamp ? 4 : 2;
+    QVERIFY2(worst <= tolerance, qPrintable(QStringLiteral("largest channel difference %1").arg(worst)));
 }
 
 QTEST_MAIN(TestAnnotationRenderer)

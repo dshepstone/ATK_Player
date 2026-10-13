@@ -15,6 +15,9 @@
 #include <QStringList>
 #include <QUuid>
 
+#include <QHash>
+#include <QUuid>
+
 #include <memory>
 
 class QDockWidget;
@@ -24,19 +27,22 @@ class QSlider;
 class QCloseEvent;
 class QMenu;
 class QThread;
+class QToolBar;
 class QVBoxLayout;
 class QSplitter;
 class QProgressDialog;
 class QJsonObject;
+class QStackedWidget;
 
 namespace atk::annotation { class AnnotationStore; class BrushLibrary; }
 namespace atk::api { class ApiServer; }
 namespace atk::api { struct ApiResponse; }
 namespace atk::playback { class CompareSession; class CompareVideoLane; enum class CompareLayout; enum class CompareAudioMode; }
 namespace atk::project { class Project; }
-namespace atk::media { class PlaylistProbeWorker; }
+namespace atk::media { class PlaylistProbeWorker; class ThumbnailWorker; }
 namespace atk::exporter { class ExportJob; class ReviewNotesJob; }
 namespace atk::timeline { class TimelineModel; }
+namespace atk::review { class ReviewLibrary; struct FoundClip; struct RenameDecision; }
 
 namespace atk::ui {
 
@@ -46,6 +52,9 @@ class ExportProgressDialog;
 class CommandRegistry;
 class ApplicationSettings;
 class BookmarkPanel;
+class BrushSizePill;
+class ReviewHeaderBar;
+class ReviewLibraryPage;
 class CompareBar;
 class ComparisonCompositeWidget;
 class FrameNumberInput;
@@ -96,7 +105,46 @@ public:
     playback::PlaybackController* playbackController() const { return m_playback.get(); }
     project::Project* project() const { return m_project.get(); }
     bool openProjectFile(const QString& path);
-    void reopenLastProjectIfEnabled();
+    /// Reopens the last project when that preference is on; true if it did.
+    bool reopenLastProjectIfEnabled();
+
+    // --- Review Library (the start screen) -------------------------------
+    /// What a launch without a file shows: the Review Library, unless the
+    /// user turned that off in Preferences (then the empty player).
+    void showStartScreen();
+    void showReviewLibrary();
+    /// Back to the player. Every way of opening a file goes through here, so
+    /// a clip never loads behind the library.
+    void showPlayer();
+    bool isShowingReviewLibrary() const;
+    review::ReviewLibrary* reviewLibrary() const { return m_reviewLibrary.get(); }
+    ReviewLibraryPage* reviewLibraryPage() const { return m_libraryPage; }
+    /// Makes a review: a project of `clips` in this order, saved as
+    /// `projectPath`, added to the library and opened. False (with a message
+    /// unless `interactive` is off) when it cannot be saved.
+    bool createReview(const QString& name, const QString& folder, bool includeSubfolders,
+                      const QVector<review::FoundClip>& clips, const QString& projectPath, bool interactive = true);
+    /// Opens a library review; offers to add clips that appeared in its folder.
+    bool openReview(const QUuid& id, bool interactive = true);
+    /// Applies a Rename from Team List decision (what the dialog returns):
+    /// shown names, order, and, with `onDisk`, the checked file renames.
+    /// False (and nothing changed on disk) when the renames failed.
+    bool applyRosterRename(const QVector<review::RenameDecision>& decisions, bool onDisk, bool reorder,
+                           QString* error = nullptr);
+    /// Puts back the names from a finished rename journal.
+    bool undoRosterRename(const QString& journalPath, QString* error = nullptr);
+
+    /// What happens when a clip of the playlist finishes playing. The loop
+    /// button (L) switches between the two loop modes and the two others,
+    /// each side keeping the choice last made for it.
+    enum class PlaylistMode {
+        PlayThrough,   ///< on to the next clip; stop after the last (default)
+        StopAfterClip, ///< stop at the end of each clip
+        LoopClip,      ///< play the current clip again
+        LoopPlaylist,  ///< on to the next clip; the last goes on to the first
+    };
+    PlaylistMode playlistMode() const { return m_playlistMode; }
+    void setPlaylistMode(PlaylistMode mode);
     /// Shows the welcome dialog once per installed version. Called by main()
     /// after the window is up; tests construct the window without it.
     void showWelcomeIfFirstRun();
@@ -130,6 +178,7 @@ public:
 
 protected:
     void closeEvent(QCloseEvent* event) override;
+    bool eventFilter(QObject* watched, QEvent* event) override;
     /// Dropping supported local media files onto the window adds them to the
     /// playlist, exactly like Add to Playlist; nothing is replaced or prompted.
     void dragEnterEvent(QDragEnterEvent* event) override;
@@ -170,7 +219,9 @@ private:
     bool saveProjectTo(const QString& path, bool saveAs = false, bool showError = true);
     bool confirmDiscardChanges();
     void activatePlaylistIndex(int index, bool continuePlayback = false);
-    int nextUsablePlaylistIndex() const;
+    /// The next playable clip after the current one, or -1. With `wrap`
+    /// the search goes on from the first clip (up to the current one).
+    int nextUsablePlaylistIndex(bool wrap = false) const;
     void saveActiveReviewState();
     void restoreActiveReviewState();
     void removePlaylistIndex(int index);
@@ -256,6 +307,38 @@ private:
     CommandRegistry* m_commands = nullptr;
     BookmarkPanel* m_bookmarks = nullptr;
     AnnotationToolbar* m_annotationToolbar = nullptr;
+    /// Size and opacity, floating at the viewer's left edge while drawing.
+    BrushSizePill* m_brushSizePill = nullptr;
+    void placeBrushSizePill();
+    /// Project › clip and the clip's status, above the picture.
+    ReviewHeaderBar* m_reviewHeader = nullptr;
+    QToolBar* m_reviewHeaderToolbar = nullptr;
+    void refreshReviewHeader();
+    std::unique_ptr<review::ReviewLibrary> m_reviewLibrary;
+    QStackedWidget* m_pages = nullptr;
+    QWidget* m_playerPage = nullptr;
+    ReviewLibraryPage* m_libraryPage = nullptr; // built the first time it is shown
+    /// Docks shown before the library hid them, restored by showPlayer().
+    QList<QWidget*> m_hiddenForLibrary;
+    QHash<QUuid, QString> m_previewThumbnailRequests;
+    void newReviewDialog();
+    void renameClipsFromRoster();
+    /// Points the project's clips at their files' new names after a disk
+    /// rename (or its undo): `moved` maps old path to new path.
+    void retargetRenamedClips(const QHash<QString, QString>& moved);
+    /// Offers to restore names from a rename in `folder` that never finished.
+    void offerRenameRecovery(const QString& folder);
+    void saveReviewLibrary();
+    /// Keeps the library's clip count and preview strip in step with the
+    /// open project when it belongs to a review.
+    void syncReviewLibraryEntry();
+    void requestPreviewThumbnail(const QString& clipPath);
+    QString thumbnailCacheDirectory() const;
+    // Playlist thumbnails: a worker on its own thread, like the probe worker.
+    QThread* m_thumbnailThread = nullptr;
+    media::ThumbnailWorker* m_thumbnailWorker = nullptr;
+    quint64 m_nextThumbnailToken = 1;
+    void requestThumbnail(const QUuid& sourceId);
     int m_tracingPaper = 0;
     int m_tracingPaperLevel = 50;
     annotation::GhostSettings m_ghostSettings;
@@ -298,6 +381,9 @@ private:
     bool m_restoringSourceState = false;
     bool m_playAfterSourceOpen = false;
     bool m_playlistPlaybackActive = false;
+    PlaylistMode m_playlistMode = PlaylistMode::PlayThrough;
+    bool m_stopAfterEachClip = false; // the choice for when loop is off
+    bool m_loopWholePlaylist = false; // the choice for when loop is on
     QThread* m_probeThread = nullptr;
     media::PlaylistProbeWorker* m_probeWorker = nullptr;
     quint64 m_nextProbeToken = 1;

@@ -170,10 +170,12 @@ CompareBar::CompareBar(CommandRegistry* commands, QWidget* parent) : QWidget(par
     m_wipeControls = new QWidget(toolsRow); auto* wipeLayout = new QHBoxLayout(m_wipeControls);
     wipeLayout->setContentsMargins(8, 0, 0, 0); wipeLayout->addWidget(new QLabel(tr("Wipe"), m_wipeControls));
     m_wipe = new QSlider(Qt::Horizontal, m_wipeControls); m_wipe->setObjectName(QStringLiteral("CompareWipePosition")); m_wipe->setRange(0, 100); m_wipe->setValue(50); m_wipe->setFixedWidth(140); wipeLayout->addWidget(m_wipe);
+    m_wipe->setAccessibleName(tr("Wipe position"));
     tools->addWidget(m_wipeControls);
     m_blendControls = new QWidget(toolsRow); auto* blendLayout = new QHBoxLayout(m_blendControls);
     blendLayout->setContentsMargins(8, 0, 0, 0); blendLayout->addWidget(new QLabel(tr("Blend"), m_blendControls));
     m_blend = new QSlider(Qt::Horizontal, m_blendControls); m_blend->setObjectName(QStringLiteral("CompareBlendAmount")); m_blend->setRange(0, 100); m_blend->setValue(50); m_blend->setFixedWidth(140); blendLayout->addWidget(m_blend);
+    m_blend->setAccessibleName(tr("Blend amount"));
     tools->addWidget(m_blendControls); tools->addStretch(1); outer->addWidget(toolsRow);
     connect(m_sourceA, &QComboBox::currentIndexChanged, this, [this](int index) { if (index >= 0) emit sourceASelected(m_sourceA->itemData(index).toUuid()); });
     connect(m_sourceB, &QComboBox::currentIndexChanged, this, [this](int index) { if (index >= 0) emit sourceBSelected(m_sourceB->itemData(index).toUuid()); });

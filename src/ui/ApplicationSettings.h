@@ -30,6 +30,7 @@ public:
     static constexpr double defaultVolume() { return 1.0; }
     static constexpr bool defaultMuted() { return false; }
     static constexpr bool defaultReopenLastProject() { return false; }
+    static constexpr bool defaultShowLibraryAtStartup() { return true; }
     static constexpr int maximumRecentProjects() { return 10; }
     static constexpr bool defaultApiEnabled() { return false; }
     static constexpr int defaultApiPort() { return 45571; }
@@ -55,8 +56,18 @@ public:
     double volume() const;
     bool muted() const;
     bool reopenLastProject() const;
+    /// A launch without a file opens the Review Library (else the empty player).
+    bool showLibraryAtStartup() const;
     QStringList recentProjects() const;
     QString lastProjectPath() const;
+    /// Rename from Team List: the last list used and the name pattern.
+    QString lastRosterPath() const;
+    QString renameTemplate() const;
+    /// Playlist playback: with loop off, stop after each clip instead of
+    /// going on to the next; with loop on, loop the whole playlist instead
+    /// of the current clip. Both default to false.
+    bool stopAfterEachClip() const;
+    bool loopWholePlaylist() const;
     bool apiEnabled() const;
     int apiPort() const;
     int stillImageHoldFrames() const;
@@ -77,6 +88,8 @@ public:
     int tracingPaperLevel() const;
     /// Open a finished PDF or video export in the system viewer (default on).
     bool openExportsWhenDone() const;
+    /// Notes PDF: include the note text (off = images only).
+    bool reviewNotesIncludeText() const;
     /// Ghosting (onion skin) of nearby frames' drawings.
     annotation::GhostSettings ghostSettings() const;
 
@@ -87,9 +100,14 @@ public:
     void setVolume(double value);
     void setMuted(bool value);
     void setReopenLastProject(bool value);
+    void setShowLibraryAtStartup(bool value);
     void addRecentProject(const QString& path);
     void clearRecentProjects();
     void setLastProjectPath(const QString& path);
+    void setLastRosterPath(const QString& path);
+    void setRenameTemplate(const QString& nameTemplate);
+    void setStopAfterEachClip(bool value);
+    void setLoopWholePlaylist(bool value);
     void setApiEnabled(bool value);
     void setApiPort(int value);
     void setStillImageHoldFrames(int value);
@@ -100,6 +118,7 @@ public:
     void setTracingPaper(int percent);
     void setTracingPaperLevel(int percent);
     void setOpenExportsWhenDone(bool open);
+    void setReviewNotesIncludeText(bool include);
     void setGhostSettings(const annotation::GhostSettings& settings);
 
     QByteArray windowGeometry() const;

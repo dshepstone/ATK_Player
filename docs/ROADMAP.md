@@ -4,7 +4,9 @@ Milestones are ordered by dependency, not by preference. Each one should leave
 the application in a state that runs and is worth using — no milestone is a
 half-landed refactor.
 
-**Current milestone: M6 — Windows MSI Installer.**
+**Released:** M0–M6 (0.2.x), still images and image sequences (0.3.0), and
+M9 — Annotation and Review Notes (0.4.x). **In progress:** M10 — Review
+Library and Interface Refresh (0.5.0).
 
 ---
 
@@ -242,12 +244,40 @@ retention, and reinstall.
 
 ---
 
+## M9 — Annotation and Review Notes ✅ COMPLETE
+
+- [x] Pressure-sensitive drawing tools, text, shapes and imported Photoshop brushes
+- [x] Frame notes panel, tracing paper and onion-skin ghosts
+- [x] Notes PDF and annotated MP4 export
+- [x] Drawing cost independent of the number of strokes on a frame (0.4.1)
+
+Released in 0.4.0 and 0.4.1. Plan: [ANNOTATION_PLAN.md](ANNOTATION_PLAN.md).
+
+---
+
+## M10 — Review Library and Interface Refresh
+
+- [x] Visual system: teal accent, Lucide icon set, refreshed stylesheet
+- [x] Drawing row with icon tools, Tool options pop-up and size/opacity pill
+- [x] Playlist thumbnail cards with note, drawing and status badges
+- [x] Review header, clip status, grouped bottom bar, images-only Notes PDF
+- [x] Review Library start page and New Review from a folder; launch routing
+- [x] Rename clips from a team list (CSV, `.xlsx`, `.xls`) with checks, undo and recovery
+- [x] Playlist playback modes
+- [x] Polish: keyboard paths, accessibility names, high-DPI icons, timeline time labels, user guide
+- [ ] Windows Debug and Release acceptance of the full milestone
+
+Plan: [REVIEW_LIBRARY_AND_UI_PLAN.md](REVIEW_LIBRARY_AND_UI_PLAN.md).
+User guide: [USER_GUIDE.md](USER_GUIDE.md).
+
+---
+
 ## Not scheduled
 
 Ideas that are worth keeping but do not have a milestone yet:
 
-- Audio playback and waveform display
 - Colour management (OCIO), for review that has to match a grading pipeline
-- Image-sequence support: EXR, DPX, PNG
+- DPX image sequences
+- Editable clip-status labels, and a clip note not tied to a frame
 - Network review sessions with a synchronised remote playhead
 - A GPU decode and display path

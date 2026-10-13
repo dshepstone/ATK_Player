@@ -8,9 +8,13 @@ The current committed master is 32×32. The ICO deliberately preserves that
 real resolution rather than claiming invented high-resolution detail. Replace
 both from a genuine multi-resolution master in a future artwork pass.
 
-The transport controls continue to use text glyphs from the system UI font.
+Interface icons live in `lucide/`: Lucide outline icons (ISC, see
+`lucide/LICENSE` and `docs/THIRD_PARTY_LICENSES.md`). They stroke with
+`currentColor` and are tinted from the theme by `src/ui/IconProvider`. To add
+one, copy its SVG from the same Lucide release into `lucide/`, list it in
+`src/ui/atk_resources.qrc`, and use it as `icons::icon(QStringLiteral("name"))`.
 
-David Shepstone designed the project icons with assistance from AI tools and confirmed ownership on September 30, 2026. The project icons are supplied under the repository's MIT License; see [asset provenance](../../docs/THIRD_PARTY_LICENSES.md).
+David Shepstone designed the application icon with assistance from AI tools and confirmed ownership on September 30, 2026. It is supplied under the repository's MIT License; see [asset provenance](../../docs/THIRD_PARTY_LICENSES.md).
 
 ## Asset rules
 

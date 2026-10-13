@@ -4,6 +4,7 @@
 #include "media/ImageSource.h"
 
 #include <QString>
+#include <QStringList>
 
 #include <cstdint>
 
@@ -67,5 +68,12 @@ private:
     ImageSourceOptions m_imageOptions;
     int64_t m_frameOffset = 0;
 };
+
+/// Video extensions the media dialogs, drag and drop and folder scans offer.
+/// FFmpeg decides what is actually readable; this is only the first filter.
+const QStringList& videoFileExtensions();
+
+/// A video or still-image file ATK Player will try to open (by extension).
+bool isSupportedMediaPath(const QString& path);
 
 } // namespace atk::media
