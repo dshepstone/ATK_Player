@@ -2,7 +2,7 @@
 
 ATK Player is an open-source, frame-accurate video playback and animation review application designed for animators, students, educators, and production workflows.
 
-**Latest release: ATK Player 0.4.1**
+**Latest release: ATK Player 0.5.0**
 
 ATK Player is **Animation Tool Kit — Media Player**, the companion application for the Animation Tool Kit Maya tools series. Created by David Shepstone.
 
@@ -22,11 +22,11 @@ The latest Windows release is available from:
 
 **[Download ATK Player](https://github.com/dshepstone/ATK_Player/releases/latest)**
 
-### Windows Installer — Recommended
+### Windows Installer
 
-Download:
-
-`ATK-Player-0.4.1-Windows-x64.msi`
+Download `ATK-Player-v0.5.0-Windows.zip` from the release, extract it, and run
+`ATK-Player-0.5.0-Windows-x64.msi` from the extracted folder. The ZIP also holds
+`INSTALL.txt`, the MSI's SHA-256 checksum and the licence notices.
 
 The installer:
 
@@ -37,17 +37,8 @@ The installer:
 - includes the required Qt and FFmpeg runtime components
 - includes project MIT, Qt LGPL and FFmpeg LGPL texts and third-party notices
 
-### Portable Version
-
-Download:
-
-`ATK-Player-0.4.1-Windows-x64-Portable.zip`
-
-Extract the complete folder and run:
-
-`ATKPlayer.exe`
-
-Do not separate `ATKPlayer.exe` from the DLL and plugin folders included with the portable distribution.
+A portable (no-install) package was last published with 0.2.0; current releases
+ship the installer only.
 
 ### Windows Requirements
 
@@ -56,7 +47,7 @@ Do not separate `ATKPlayer.exe` from the DLL and plugin folders included with th
 
 ### Unsigned Build Notice
 
-ATK Player 0.4.1 is currently distributed without a commercial Windows code-signing certificate.
+ATK Player 0.5.0 is currently distributed without a commercial Windows code-signing certificate.
 
 Windows may therefore display an **Unknown Publisher** or Microsoft Defender SmartScreen warning when launching the installer.
 
@@ -416,11 +407,12 @@ Shortcuts can be customized under:
 
 ## Current Release Status
 
-### In development: ATK Player 0.5.0
+### ATK Player 0.5.0
 
-The Review Library, reviews made from a folder, renaming clips from a class or
-team list, playlist playback modes, clip status and a refreshed interface. See
-the draft [docs/RELEASE_NOTES_0.5.0.md](docs/RELEASE_NOTES_0.5.0.md) and the
+Reviewing a whole class or team: the Review Library, reviews made from a
+folder, renaming clips from a class or team list, playlist playback modes, clip
+status and a refreshed interface. See
+[docs/RELEASE_NOTES_0.5.0.md](docs/RELEASE_NOTES_0.5.0.md) and the
 [User Guide](docs/USER_GUIDE.md).
 
 ### ATK Player 0.4.1

@@ -1,4 +1,4 @@
-# ATK Player 0.5.0 (draft — not yet released)
+# ATK Player 0.5.0
 
 Reviewing a whole class or team. Make a review from a folder of clips, name
 every clip after the person who made it from a class or team list, play them
@@ -59,7 +59,19 @@ as project version 3. ATK Player 0.4.x cannot open it (it reports that the
 project was made by a newer version) rather than silently dropping the
 statuses. Projects without statuses are saved exactly as before.
 
+## Upgrading
+
+Install the 0.5.0 MSI over 0.4.x or 0.3.0. It upgrades in place and keeps
+your preferences, projects and media.
+
 ## Requirements
 
 - Windows 11 x64 (the currently verified release platform)
 - Microsoft Visual C++ 2015–2022 x64 Redistributable
+
+## Unsigned Build Notice
+
+The Windows 0.5.0 MSI and executable are unsigned. Windows may show an
+Unknown Publisher or Microsoft Defender SmartScreen warning. Click
+**More info → Run anyway**, or right-click the MSI → **Properties** → tick
+**Unblock**. Verify the download against the published SHA-256 checksum.

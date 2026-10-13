@@ -4,9 +4,9 @@ Milestones are ordered by dependency, not by preference. Each one should leave
 the application in a state that runs and is worth using — no milestone is a
 half-landed refactor.
 
-**Released:** M0–M6 (0.2.x), still images and image sequences (0.3.0), and
-M9 — Annotation and Review Notes (0.4.x). **In progress:** M10 — Review
-Library and Interface Refresh (0.5.0).
+**Released:** M0–M6 (0.2.x), still images and image sequences (0.3.0),
+M9 — Annotation and Review Notes (0.4.x), and M10 — Review Library and
+Interface Refresh (0.5.0). **Next:** M7 — macOS and M8 — Linux.
 
 ---
 
@@ -255,7 +255,7 @@ Released in 0.4.0 and 0.4.1. Plan: [ANNOTATION_PLAN.md](ANNOTATION_PLAN.md).
 
 ---
 
-## M10 — Review Library and Interface Refresh
+## M10 — Review Library and Interface Refresh ✅ COMPLETE
 
 - [x] Visual system: teal accent, Lucide icon set, refreshed stylesheet
 - [x] Drawing row with icon tools, Tool options pop-up and size/opacity pill
@@ -265,7 +265,7 @@ Released in 0.4.0 and 0.4.1. Plan: [ANNOTATION_PLAN.md](ANNOTATION_PLAN.md).
 - [x] Rename clips from a team list (CSV, `.xlsx`, `.xls`) with checks, undo and recovery
 - [x] Playlist playback modes
 - [x] Polish: keyboard paths, accessibility names, high-DPI icons, timeline time labels, user guide
-- [ ] Windows Debug and Release acceptance of the full milestone
+- [x] Windows Debug and Release: CI build and full test suite pass on the merged head (run 38341193368); owner review on Windows
 
 Plan: [REVIEW_LIBRARY_AND_UI_PLAN.md](REVIEW_LIBRARY_AND_UI_PLAN.md).
 User guide: [USER_GUIDE.md](USER_GUIDE.md).
