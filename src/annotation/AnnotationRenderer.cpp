@@ -4,6 +4,8 @@
 
 #include <QFont>
 #include <QFontMetricsF>
+#include <QHash>
+#include <QMutex>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPainterPathStroker>
@@ -84,6 +86,38 @@ QRectF textRect(const QRectF& rect, const AnnotationItem& item)
 }
 
 void paintStamp(QPainter& painter, const QRectF& rect, const AnnotationItem& item, const BrushTip& tip);
+
+/// The tip scaled to fit `side` pixels and tinted with `color`. Imported tips
+/// can be thousands of pixels across, and every stamp stroke needs its dab on
+/// every repaint (each pen move, and every stroke of the frame when the frame
+/// is redrawn), so the result is kept rather than rescaled each time. Export
+/// threads render too, hence the lock; QImage copies are cheap and shared.
+QImage tintedDab(const BrushTip& tip, int side, const QColor& color)
+{
+    static QMutex mutex;
+    static QHash<QString, QImage> cache;
+    constexpr int kMaxEntries = 64; // a handful of tips, sizes and colours in use
+    const QString key = QStringLiteral("%1|%2|%3").arg(tip.id).arg(side).arg(color.rgba(), 8, 16);
+    {
+        QMutexLocker lock(&mutex);
+        const auto it = cache.constFind(key);
+        if (it != cache.constEnd()) return *it;
+    }
+    const QImage scaledMask = tip.mask.scaled(side, side, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    QImage dab(scaledMask.size(), QImage::Format_ARGB32_Premultiplied);
+    for (int y = 0; y < dab.height(); ++y) {
+        const uchar* m = scaledMask.constScanLine(y);
+        auto* out = reinterpret_cast<QRgb*>(dab.scanLine(y));
+        for (int x = 0; x < dab.width(); ++x) {
+            const int a = m[x] * color.alpha() / 255;
+            out[x] = qRgba(color.red() * a / 255, color.green() * a / 255, color.blue() * a / 255, a);
+        }
+    }
+    QMutexLocker lock(&mutex);
+    if (cache.size() >= kMaxEntries) cache.clear();
+    cache.insert(key, dab);
+    return dab;
+}
 
 /// The layer a stroke renders into: its bounds, cut to the painter's clip
 /// (only the area being repainted, such as around the pen while drawing),
@@ -246,21 +280,11 @@ void paintStamp(QPainter& painter, const QRectF& rect, const AnnotationItem& ite
     const QSize layerSize(std::max(1, qCeil(clipped.width() * dpr)), std::max(1, qCeil(clipped.height() * dpr)));
     if (qint64(layerSize.width()) * layerSize.height() > 64LL * 1024 * 1024) return;
 
-    // Tint the tip once, at no more resolution than the largest dab needs.
+    // The tip tinted at no more resolution than the largest dab needs.
     const qreal maxDiameter = 2.0 * AnnotationRenderer::inkRadius(rect, item, 1.0);
     const int side = std::clamp(qCeil(maxDiameter * dpr), 2, 1024);
-    const QImage scaledMask = tip.mask.scaled(side, side, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-    QImage dab(scaledMask.size(), QImage::Format_ARGB32_Premultiplied);
-    const QColor c = item.color;
-    for (int y = 0; y < dab.height(); ++y) {
-        const uchar* m = scaledMask.constScanLine(y);
-        auto* out = reinterpret_cast<QRgb*>(dab.scanLine(y));
-        for (int x = 0; x < dab.width(); ++x) {
-            const int a = m[x] * c.alpha() / 255;
-            out[x] = qRgba(c.red() * a / 255, c.green() * a / 255, c.blue() * a / 255, a);
-        }
-    }
-    const qreal aspect = qreal(scaledMask.width()) / std::max(1, scaledMask.height());
+    const QImage dab = tintedDab(tip, side, item.color);
+    const qreal aspect = qreal(dab.width()) / std::max(1, dab.height());
 
     QImage layer(layerSize, QImage::Format_ARGB32_Premultiplied);
     layer.setDevicePixelRatio(dpr);
