@@ -91,6 +91,13 @@ void TestAnnotationTransform::shiftKeepsProportionsAndAltScalesFromTheCentre()
     const TransformBox proportional = draggedBox(start, 4, {140, 120}, {160, 120}, keep);
     QVERIFY(near(proportional.size, {100, 50})); // the further-moved side leads
     QVERIFY(near(proportional.handlePoint(0), {60, 80}));
+    // Shrinking works the same way: a drag inward along one side leads.
+    const TransformBox narrower = draggedBox(start, 4, {140, 120}, {120, 120}, keep);
+    QVERIFY(near(narrower.size, {60, 30}));
+    QVERIFY(near(narrower.handlePoint(0), {60, 80}));
+    // The side moved further leads, whichever way the other one went.
+    const TransformBox mixed = draggedBox(start, 4, {140, 120}, {100, 125}, keep);
+    QVERIFY(near(mixed.size, {40, 20}));
 
     TransformOptions centred;
     centred.fromCenter = true;

@@ -181,8 +181,11 @@ TransformBox draggedBox(const TransformBox& start, int handle, const QPointF& pr
 
     const bool corner = handle % 2 == 0;
     if (options.keepAspect && corner && w > kEpsilon && h > kEpsilon) {
-        // The side that moved further leads; the other follows in proportion.
-        qreal scale = std::max((right - left) / w, (bottom - top) / h);
+        // The side that changed more leads, growing or shrinking; the other
+        // follows in proportion.
+        const qreal sx = (right - left) / w;
+        const qreal sy = (bottom - top) / h;
+        qreal scale = std::abs(sx - 1.0) >= std::abs(sy - 1.0) ? sx : sy;
         scale = std::max({scale, minW / w, minH / h});
         const qreal newW = w * scale;
         const qreal newH = h * scale;
