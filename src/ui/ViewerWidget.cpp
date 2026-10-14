@@ -585,6 +585,16 @@ void ViewerWidget::setAnnotationTool(const annotation::AnnotationToolSettings& s
     update();
 }
 
+bool ViewerWidget::selectItem(quint64 id)
+{
+    if (id == 0 || !findItem(id)) return false;
+    if (m_selectedItemId != id) {
+        m_selectedItemId = id;
+        update();
+    }
+    return true;
+}
+
 void ViewerWidget::clearSelection()
 {
     if (m_selectedItemId == 0) return;

@@ -602,16 +602,29 @@ void MainWindow::buildMenus()
     m_commands->action(CommandId::UndoAnnotation)->setIcon(icons::icon(QStringLiteral("undo-2")));
     m_commands->action(CommandId::RedoAnnotation)->setIcon(icons::icon(QStringLiteral("redo-2")));
     m_commands->action(CommandId::ClearFrameAnnotations)->setIcon(icons::icon(QStringLiteral("trash-2")));
+    m_commands->action(CommandId::CopyAnnotations)->setIcon(icons::icon(QStringLiteral("copy")));
+    m_commands->action(CommandId::CutAnnotations)->setIcon(icons::icon(QStringLiteral("scissors")));
+    m_commands->action(CommandId::PasteAnnotations)->setIcon(icons::icon(QStringLiteral("clipboard-paste")));
+    m_commands->action(CommandId::CopyAnnotations)
+        ->setToolTip(tr("Copy the selected drawing, or everything on this frame"));
+    m_commands->action(CommandId::CutAnnotations)
+        ->setToolTip(tr("Cut the selected drawing, or everything on this frame"));
+    m_commands->action(CommandId::PasteAnnotations)
+        ->setToolTip(tr("Paste copied drawings and notes onto this frame"));
     m_commands->action(CommandId::RenameFromRoster)->setIcon(icons::icon(QStringLiteral("text-cursor-input")));
     m_reviewHeader->setRenameAction(m_commands->action(CommandId::RenameFromRoster));
     m_reviewHeader->setExportActions({m_commands->action(CommandId::ExportReview),
                                       m_commands->action(CommandId::ExportReviewNotes),
                                       m_commands->action(CommandId::ExportNotesVideo),
                                       m_commands->action(CommandId::ExportCurrentFrame)});
-    // Undo, redo and clear also sit on the drawing row, as the same commands.
+    // Undo, redo, clear, copy, cut and paste also sit on the drawing row, as
+    // the same commands.
     m_annotationToolbar->addEditActions({m_commands->action(CommandId::UndoAnnotation),
                                          m_commands->action(CommandId::RedoAnnotation),
-                                         m_commands->action(CommandId::ClearFrameAnnotations)});
+                                         m_commands->action(CommandId::ClearFrameAnnotations),
+                                         m_commands->action(CommandId::CopyAnnotations),
+                                         m_commands->action(CommandId::CutAnnotations),
+                                         m_commands->action(CommandId::PasteAnnotations)});
 
     for (const commands::CommandCategory category : categories) {
         QMenu* menu = menuBar()->addMenu(commands::categoryTitle(category));
@@ -778,6 +791,8 @@ void MainWindow::connectSignals()
             [this](qint64 frame, const annotation::FrameNote& note) { m_annotations->updateNote(frame, note); });
     connect(m_notesPanel, &NotesPanel::deleteNoteRequested, this,
             [this](qint64 frame, quint64 id) { m_annotations->removeNote(frame, id); });
+    connect(m_notesPanel, &NotesPanel::copyNoteRequested, this, &MainWindow::copyNote);
+    connect(m_timelineWidget, &TimelineWidget::annotatedFrameDropped, this, &MainWindow::moveAnnotatedFrame);
     connect(m_notesPanel, &NotesPanel::noteActivated, this, [this](qint64 frame) {
         if (frame != m_displayedFrameIndex) m_playback->seekFrame(frame);
     });
@@ -1184,6 +1199,13 @@ void MainWindow::onCommand(CommandId id, bool checked)
         return;
     case CommandId::ClearFrameAnnotations:
         if (m_displayedFrameIndex >= 0) m_annotations->clearFrame(m_displayedFrameIndex);
+        return;
+    case CommandId::CopyAnnotations:
+    case CommandId::CutAnnotations:
+        copyAnnotations(id == CommandId::CutAnnotations);
+        return;
+    case CommandId::PasteAnnotations:
+        pasteAnnotations();
         return;
     case CommandId::IncreaseBrushSize:
     case CommandId::DecreaseBrushSize: {
@@ -4195,6 +4217,124 @@ void MainWindow::updateAnnotationActions()
     if (!m_commands || !m_annotations) return;
     if (QAction* undo = m_commands->action(CommandId::UndoAnnotation)) undo->setEnabled(m_annotations->canUndo());
     if (QAction* redo = m_commands->action(CommandId::RedoAnnotation)) redo->setEnabled(m_annotations->canRedo());
+    if (QAction* paste = m_commands->action(CommandId::PasteAnnotations))
+        paste->setEnabled(!m_annotationClipboard.isEmpty());
+}
+
+namespace {
+
+/// "2 drawings and 1 note", "1 drawing", "3 notes".
+QString describeContent(qsizetype drawings, qsizetype notes)
+{
+    const QString drawingText = drawings == 1 ? MainWindow::tr("1 drawing")
+                                              : MainWindow::tr("%1 drawings").arg(drawings);
+    const QString noteText = notes == 1 ? MainWindow::tr("1 note") : MainWindow::tr("%1 notes").arg(notes);
+    if (drawings > 0 && notes > 0) return MainWindow::tr("%1 and %2").arg(drawingText, noteText);
+    return drawings > 0 ? drawingText : noteText;
+}
+
+} // namespace
+
+void MainWindow::copyAnnotations(bool cut)
+{
+    if (m_annotationSourceId.isNull() || m_displayedFrameIndex < 0) return;
+    const annotation::FrameAnnotation frame = m_annotations->frame(m_displayedFrameIndex);
+    annotation::FrameAnnotation copied;
+    copied.frame = frame.frame;
+    copied.mediaTimeUs = frame.mediaTimeUs;
+    // With a drawing picked by the Select tool, only that drawing; otherwise
+    // the whole frame, drawings and notes.
+    const quint64 selected = m_viewer->annotateMode() ? m_viewer->selectedItemId() : 0;
+    if (selected != 0) {
+        for (const annotation::AnnotationItem& item : frame.items)
+            if (item.id == selected) copied.items.append(item);
+    }
+    if (copied.items.isEmpty()) {
+        copied.items = frame.items;
+        copied.notes = frame.notes;
+    }
+    if (copied.isEmpty()) {
+        statusBar()->showMessage(tr("Nothing to %1 on this frame.").arg(cut ? tr("cut") : tr("copy")), 3000);
+        return;
+    }
+    m_annotationClipboard = copied;
+    updateAnnotationActions();
+    const QString what = describeContent(copied.items.size(), copied.notes.size());
+    if (cut) {
+        QVector<quint64> itemIds;
+        QVector<quint64> noteIds;
+        for (const annotation::AnnotationItem& item : copied.items) itemIds.append(item.id);
+        for (const annotation::FrameNote& note : copied.notes) noteIds.append(note.id);
+        m_viewer->clearSelection();
+        m_annotations->removeContent(m_displayedFrameIndex, itemIds, noteIds);
+        statusBar()->showMessage(tr("Cut %1. Go to another frame and paste (Ctrl+V).").arg(what), 4000);
+    } else {
+        statusBar()->showMessage(tr("Copied %1. Go to another frame and paste (Ctrl+V).").arg(what), 4000);
+    }
+}
+
+void MainWindow::copyNote(qint64 frame, quint64 noteId, bool cut)
+{
+    if (m_annotationSourceId.isNull()) return;
+    const annotation::FrameAnnotation content = m_annotations->frame(frame);
+    for (const annotation::FrameNote& note : content.notes) {
+        if (note.id != noteId) continue;
+        m_annotationClipboard = annotation::FrameAnnotation{};
+        m_annotationClipboard.frame = frame;
+        m_annotationClipboard.notes.append(note);
+        updateAnnotationActions();
+        if (cut) m_annotations->removeNote(frame, noteId);
+        statusBar()->showMessage(cut ? tr("Cut the note. Go to another frame and paste (Ctrl+V).")
+                                     : tr("Copied the note. Go to another frame and paste (Ctrl+V)."),
+                                 4000);
+        return;
+    }
+}
+
+void MainWindow::pasteAnnotations()
+{
+    if (m_annotationSourceId.isNull() || m_displayedFrameIndex < 0) return;
+    if (m_annotationClipboard.isEmpty()) {
+        statusBar()->showMessage(tr("Nothing to paste. Copy a drawing, a note or a frame first."), 3000);
+        return;
+    }
+    const QVector<quint64> ids = m_annotations->pasteContent(m_displayedFrameIndex,
+                                                             annotationMediaTimeUs(m_displayedFrameIndex),
+                                                             m_annotationClipboard.items,
+                                                             m_annotationClipboard.notes);
+    if (ids.isEmpty()) {
+        statusBar()->showMessage(tr("The copied drawings and notes could not be pasted (frame limit reached)."),
+                                 4000);
+        return;
+    }
+    // A single pasted drawing comes up selected, so it can be dragged into
+    // place straight away with the Select tool.
+    if (m_annotationClipboard.items.size() == 1 && m_viewer->annotateMode()
+        && m_viewer->annotationTool().tool == annotation::AnnotationTool::Select)
+        m_viewer->selectItem(ids.first());
+    statusBar()->showMessage(tr("Pasted %1 onto frame %2.")
+                                 .arg(describeContent(m_annotationClipboard.items.size(),
+                                                      m_annotationClipboard.notes.size()))
+                                 .arg(m_displayedFrameIndex + 1),
+                             3000);
+}
+
+void MainWindow::moveAnnotatedFrame(qint64 from, qint64 to, bool copy)
+{
+    if (m_annotationSourceId.isNull()) return;
+    const annotation::FrameAnnotation content = m_annotations->frame(from);
+    const QString what = describeContent(content.items.size(), content.notes.size());
+    if (!m_annotations->moveFrameContent(from, to, annotationMediaTimeUs(to), copy)) {
+        statusBar()->showMessage(tr("Frame %1's notes and drawings could not be %2 to frame %3 (frame limit reached).")
+                                     .arg(from + 1).arg(copy ? tr("copied") : tr("moved")).arg(to + 1),
+                                 4000);
+        return;
+    }
+    statusBar()->showMessage((copy ? tr("Copied %1 from frame %2 to frame %3.") : tr("Moved %1 from frame %2 to frame %3."))
+                                 .arg(what).arg(from + 1).arg(to + 1),
+                             3000);
+    // Show where they landed.
+    if (to != m_displayedFrameIndex) m_playback->seekFrame(to);
 }
 
 } // namespace atk::ui

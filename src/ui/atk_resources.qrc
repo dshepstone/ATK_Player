@@ -18,7 +18,9 @@
         <file alias="chevron-left.svg">../../assets/icons/lucide/chevron-left.svg</file>
         <file alias="chevron-right.svg">../../assets/icons/lucide/chevron-right.svg</file>
         <file alias="circle.svg">../../assets/icons/lucide/circle.svg</file>
+        <file alias="clipboard-paste.svg">../../assets/icons/lucide/clipboard-paste.svg</file>
         <file alias="clock.svg">../../assets/icons/lucide/clock.svg</file>
+        <file alias="copy.svg">../../assets/icons/lucide/copy.svg</file>
         <file alias="download.svg">../../assets/icons/lucide/download.svg</file>
         <file alias="ellipsis.svg">../../assets/icons/lucide/ellipsis.svg</file>
         <file alias="eraser.svg">../../assets/icons/lucide/eraser.svg</file>
@@ -60,6 +62,7 @@
         <file alias="repeat.svg">../../assets/icons/lucide/repeat.svg</file>
         <file alias="rewind.svg">../../assets/icons/lucide/rewind.svg</file>
         <file alias="scan.svg">../../assets/icons/lucide/scan.svg</file>
+        <file alias="scissors.svg">../../assets/icons/lucide/scissors.svg</file>
         <file alias="search.svg">../../assets/icons/lucide/search.svg</file>
         <file alias="settings.svg">../../assets/icons/lucide/settings.svg</file>
         <file alias="skip-back.svg">../../assets/icons/lucide/skip-back.svg</file>

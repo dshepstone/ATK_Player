@@ -152,6 +152,10 @@ public:
 
     /// Item picked by the Select tool on the displayed frame, or 0.
     quint64 selectedItemId() const { return m_selectedItemId; }
+    /// Selects `id` on the displayed frame (a pasted drawing, say) so it can be
+    /// moved and transformed at once. Returns false if the frame has no such
+    /// item; the selection is then unchanged.
+    bool selectItem(quint64 id);
     void clearSelection();
 
     /// Free transform of the selection. Handle ids are those of

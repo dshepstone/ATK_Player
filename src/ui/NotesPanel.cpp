@@ -593,6 +593,9 @@ void NotesPanel::showContextMenu(const QPoint& position)
     QAction* edit = menu.addAction(tr("Edit"));
     QAction* resolve = menu.addAction(copy.note.resolved ? tr("Reopen") : tr("Mark Resolved"));
     menu.addSeparator();
+    QAction* copyNote = menu.addAction(tr("Copy Note"));
+    QAction* cutNote = menu.addAction(tr("Cut Note"));
+    menu.addSeparator();
     QAction* remove = menu.addAction(tr("Delete"));
     QAction* chosen = menu.exec(m_list->viewport()->mapToGlobal(position));
     if (chosen == go) {
@@ -604,6 +607,8 @@ void NotesPanel::showContextMenu(const QPoint& position)
         annotation::FrameNote note = copy.note;
         note.resolved = !note.resolved;
         emit updateNoteRequested(copy.frame, note);
+    } else if (chosen == copyNote || chosen == cutNote) {
+        emit copyNoteRequested(copy.frame, copy.note.id, chosen == cutNote);
     } else if (chosen == remove) {
         emit deleteNoteRequested(copy.frame, copy.note.id);
     }

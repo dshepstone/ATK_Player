@@ -105,6 +105,8 @@ private slots:
     void exportsOpenOnlyOnceTheFileIsReady();
     void watchingASavedProjectNeverAsksToSave();
     void exportProgressWindowCancelsAndCloses();
+    void copyCutAndPasteBetweenFrames();
+    void dragTimelineMarkersToMoveOrCopyAFrame();
 };
 
 void TestAnnotationWorkflow::drawModeNeedsMedia()
@@ -888,6 +890,208 @@ void TestAnnotationWorkflow::exportProgressWindowCancelsAndCloses()
     QVERIFY(progress.isVisible());
     progress.finish();
     QVERIFY(!progress.isVisible());
+}
+
+namespace {
+void seekAndWait(atk::ui::MainWindow& window, qint64 frame)
+{
+    window.playbackController()->seekFrame(frame);
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->currentFrame(), frame, 5000);
+    auto* panel = window.findChild<atk::ui::NotesPanel*>();
+    QTRY_COMPARE(panel->currentFrame(), frame);
+}
+
+/// Drags the drawing marker under the timeline from one frame to another.
+bool dragMarker(atk::ui::TimelineWidget* timeline, qint64 from, qint64 to, Qt::KeyboardModifiers modifiers)
+{
+    const int x = timeline->positionForFrame(from);
+    int y = -1;
+    for (int candidate = 0; candidate < timeline->height(); ++candidate)
+        if (timeline->annotatedFrameAtPosition(QPoint(x, candidate)) == from) { y = candidate; break; }
+    if (y < 0) return false;
+    QTest::mousePress(timeline, Qt::LeftButton, modifiers, QPoint(x, y));
+    const QPoint end(timeline->positionForFrame(to), y);
+    for (int i = 1; i <= 4; ++i) {
+        const QPoint p(x + (end.x() - x) * i / 4, y);
+        QMouseEvent move(QEvent::MouseMove, p, timeline->mapToGlobal(p), Qt::NoButton, Qt::LeftButton, modifiers);
+        QApplication::sendEvent(timeline, &move);
+    }
+    if (timeline->markerDropFrame() != to) return false;
+    QTest::mouseRelease(timeline, Qt::LeftButton, modifiers, end);
+    return true;
+}
+} // namespace
+
+void TestAnnotationWorkflow::copyCutAndPasteBetweenFrames()
+{
+    QTemporaryDir directory;
+    const QString projectPath = writeProject(directory);
+    atk::ui::MainWindow window(directory.filePath(QStringLiteral("settings.ini")));
+    window.resize(1400, 800);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    QVERIFY(openAt(window, projectPath, 30));
+    auto* viewer = window.findChild<atk::ui::ViewerWidget*>();
+    auto* toolbar = window.findChild<atk::ui::AnnotationToolbar*>();
+    auto* panel = window.findChild<atk::ui::NotesPanel*>();
+    QVERIFY(viewer && toolbar && panel);
+    const auto annotations = [&] { return window.project()->entries().at(0).annotations; };
+
+    // Copy, cut and paste are buttons on the drawing row and the usual keys.
+    command(window, "draw.annotateMode")->trigger();
+    QAction* copy = command(window, "draw.copy");
+    QAction* cut = command(window, "draw.cut");
+    QAction* paste = command(window, "draw.paste");
+    QVERIFY(copy && cut && paste);
+    for (QAction* action : {copy, cut, paste}) {
+        QVERIFY2(toolbar->actions().contains(action), qPrintable(action->objectName()));
+        QVERIFY(!action->icon().isNull());
+    }
+    QCOMPARE(copy->shortcut(), QKeySequence(QStringLiteral("Ctrl+C")));
+    QCOMPARE(cut->shortcut(), QKeySequence(QStringLiteral("Ctrl+X")));
+    QCOMPARE(paste->shortcut(), QKeySequence(QStringLiteral("Ctrl+V")));
+    QVERIFY(!paste->isEnabled()); // nothing copied yet
+
+    // A drawing and a note on frame 30.
+    drawStroke(viewer, {0.3, 0.4}, {0.6, 0.5});
+    panel->composer()->setFocus();
+    QTest::keyClicks(panel->composer(), QStringLiteral("hold longer"));
+    QTest::keyClick(panel->composer(), Qt::Key_Return, Qt::ControlModifier);
+    const atk::annotation::FrameAnnotation frame30 = annotations().frame(30);
+    QCOMPARE(frame30.items.size(), 1);
+    QCOMPARE(frame30.notes.size(), 1);
+
+    // With nothing selected, Copy takes the whole frame; Paste puts it on
+    // another frame in the same place, as one undo step.
+    copy->trigger();
+    QVERIFY(paste->isEnabled());
+    seekAndWait(window, 40);
+    paste->trigger();
+    const atk::annotation::FrameAnnotation frame40 = annotations().frame(40);
+    QCOMPARE(frame40.items.size(), 1);
+    QCOMPARE(frame40.notes.size(), 1);
+    QCOMPARE(frame40.items[0].points, frame30.items[0].points);
+    QVERIFY(frame40.items[0].id != frame30.items[0].id);
+    QCOMPARE(frame40.notes[0].text, QStringLiteral("hold longer"));
+    QCOMPARE(annotations().frame(30), frame30);
+    QTRY_COMPARE(viewer->annotationFrame().items.size(), 1);
+    QCOMPARE(panel->notes().size(), 2);
+    command(window, "draw.undo")->trigger();
+    QVERIFY(!annotations().hasFrame(40));
+
+    // Pick one drawing with the Select tool and cut it: only it goes, the
+    // note stays. Pasted on another frame it comes up selected, ready to drag.
+    seekAndWait(window, 30);
+    QTRY_COMPARE(viewer->annotationFrame().items.size(), 1);
+    auto tool = toolbar->settings();
+    tool.tool = atk::annotation::AnnotationTool::Select;
+    toolbar->setSettings(tool);
+    viewer->setAnnotationTool(tool);
+    const QPoint onInk = viewer->normalizedToWidget({0.45, 0.45}).toPoint();
+    QTest::mouseClick(viewer, Qt::LeftButton, {}, onInk);
+    QCOMPARE(viewer->selectedItemId(), frame30.items[0].id);
+    cut->trigger();
+    QVERIFY(annotations().frame(30).items.isEmpty());
+    QCOMPARE(annotations().frame(30).notes.size(), 1);
+    seekAndWait(window, 50);
+    paste->trigger();
+    QCOMPARE(annotations().frame(50).items.size(), 1);
+    QVERIFY(annotations().frame(50).notes.isEmpty());
+    QCOMPARE(viewer->selectedItemId(), annotations().frame(50).items[0].id);
+    drawStroke(viewer, {0.45, 0.45}, {0.55, 0.65}); // a drag moves the pasted drawing
+    QVERIFY(annotations().frame(50).items[0].points != frame30.items[0].points);
+
+    // Copy Note from the notes panel, then paste on another frame.
+    emit panel->copyNoteRequested(30, frame30.notes[0].id, false);
+    seekAndWait(window, 60);
+    paste->trigger();
+    QCOMPARE(annotations().frame(60).notes.size(), 1);
+    QVERIFY(annotations().frame(60).items.isEmpty());
+    QCOMPARE(annotations().frame(60).notes[0].text, QStringLiteral("hold longer"));
+    // Cut Note removes it from its frame.
+    emit panel->copyNoteRequested(60, annotations().frame(60).notes[0].id, true);
+    QVERIFY(!annotations().hasFrame(60));
+
+    // Copy with an empty frame copies nothing and keeps the clipboard.
+    seekAndWait(window, 70);
+    copy->trigger();
+    paste->trigger();
+    QCOMPARE(annotations().frame(70).notes.size(), 1);
+
+    // In a text field the keys keep their usual meaning: Ctrl+X and Ctrl+V
+    // edit the text and leave the drawings alone.
+    QVERIFY(QTest::qWaitForWindowActive(&window));
+    const atk::annotation::SourceAnnotations beforeTyping = annotations();
+    panel->composer()->setFocus();
+    QTest::keyClicks(panel->composer(), QStringLiteral("abc"));
+    QTest::keyClick(panel->composer(), Qt::Key_A, Qt::ControlModifier);
+    QTest::keyClick(panel->composer(), Qt::Key_X, Qt::ControlModifier);
+    QVERIFY(panel->composer()->toPlainText().isEmpty());
+    QTest::keyClick(panel->composer(), Qt::Key_V, Qt::ControlModifier);
+    QCOMPARE(panel->composer()->toPlainText(), QStringLiteral("abc"));
+    QCOMPARE(annotations(), beforeTyping);
+    // Over the picture, Ctrl+V pastes.
+    viewer->setFocus();
+    QTest::keyClick(viewer, Qt::Key_V, Qt::ControlModifier);
+    QCOMPARE(annotations().frame(70).notes.size(), 2);
+}
+
+void TestAnnotationWorkflow::dragTimelineMarkersToMoveOrCopyAFrame()
+{
+    QTemporaryDir directory;
+    const QString projectPath = writeProject(directory);
+    atk::ui::MainWindow window(directory.filePath(QStringLiteral("settings.ini")));
+    window.resize(1400, 800);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    QVERIFY(openAt(window, projectPath, 30));
+    auto* viewer = window.findChild<atk::ui::ViewerWidget*>();
+    auto* timeline = window.findChild<atk::ui::TimelineWidget*>();
+    auto* panel = window.findChild<atk::ui::NotesPanel*>();
+    QVERIFY(viewer && timeline && panel);
+    const auto annotations = [&] { return window.project()->entries().at(0).annotations; };
+
+    command(window, "draw.annotateMode")->trigger();
+    drawStroke(viewer, {0.3, 0.4}, {0.6, 0.5});
+    panel->composer()->setFocus();
+    QTest::keyClicks(panel->composer(), QStringLiteral("spacing"));
+    QTest::keyClick(panel->composer(), Qt::Key_Return, Qt::ControlModifier);
+    const atk::annotation::FrameAnnotation original = annotations().frame(30);
+    QCOMPARE(timeline->annotatedFrames(), QVector<int64_t>({30}));
+
+    // Drag the marker: the frame's drawings and notes move, and the player
+    // follows them.
+    QVERIFY(dragMarker(timeline, 30, 90, Qt::NoModifier));
+    QVERIFY(!annotations().hasFrame(30));
+    QCOMPARE(annotations().frame(90).items, original.items);
+    QCOMPARE(annotations().frame(90).notes, original.notes);
+    QCOMPARE(timeline->annotatedFrames(), QVector<int64_t>({90}));
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->currentFrame(), qint64(90), 5000);
+    QTRY_COMPARE(viewer->annotationFrame().items.size(), 1);
+
+    // Ctrl+drag copies; the original stays.
+    QVERIFY(dragMarker(timeline, 90, 120, Qt::ControlModifier));
+    QCOMPARE(timeline->annotatedFrames(), QVector<int64_t>({90, 120}));
+    QCOMPARE(annotations().frame(120).items.size(), 1);
+    QCOMPARE(annotations().frame(120).notes.size(), 1);
+
+    // Each drag is one undo step.
+    command(window, "draw.undo")->trigger();
+    QCOMPARE(timeline->annotatedFrames(), QVector<int64_t>({90}));
+    command(window, "draw.undo")->trigger();
+    QCOMPARE(timeline->annotatedFrames(), QVector<int64_t>({30}));
+    QCOMPARE(annotations().frame(30), original);
+
+    // A click on a marker without dragging just goes to that frame.
+    seekAndWait(window, 10);
+    const int x = timeline->positionForFrame(30);
+    int y = -1;
+    for (int candidate = 0; candidate < timeline->height() && y < 0; ++candidate)
+        if (timeline->annotatedFrameAtPosition(QPoint(x, candidate)) == 30) y = candidate;
+    QVERIFY(y >= 0);
+    QTest::mouseClick(timeline, Qt::LeftButton, {}, QPoint(x, y));
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->currentFrame(), qint64(30), 5000);
+    QCOMPARE(annotations().frame(30), original);
 }
 
 QTEST_MAIN(TestAnnotationWorkflow)

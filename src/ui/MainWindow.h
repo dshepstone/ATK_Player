@@ -276,6 +276,14 @@ private:
     void refreshNotesPanel();
     void removeBrushSet(const QString& name);
     void updateAnnotationActions();
+    /// Copy / Cut: the drawing picked with the Select tool, or else every
+    /// drawing and note on the frame on screen. Paste adds the clipboard to
+    /// the frame on screen as one undo step.
+    void copyAnnotations(bool cut);
+    void pasteAnnotations();
+    void copyNote(qint64 frame, quint64 noteId, bool cut);
+    /// A drawing marker dragged along the timeline from one frame to another.
+    void moveAnnotatedFrame(qint64 from, qint64 to, bool copy);
 
 
     std::unique_ptr<ApplicationSettings> m_settings;
@@ -303,6 +311,9 @@ private:
     /// Decoded presentation time of that frame; stored with new drawings.
     qint64 m_displayedFramePtsUs = 0;
     qint64 annotationMediaTimeUs(qint64 frameIndex) const;
+    /// Drawings and notes copied or cut, ready to paste on any frame or clip.
+    /// Positions are normalised to the picture, so they land in the same place.
+    annotation::FrameAnnotation m_annotationClipboard;
 
     CommandRegistry* m_commands = nullptr;
     BookmarkPanel* m_bookmarks = nullptr;
