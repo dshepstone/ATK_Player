@@ -10,6 +10,7 @@
 #include <QPainterPath>
 #include <QPainterPathStroker>
 #include <QTextLayout>
+#include <QTransform>
 #include <QtMath>
 
 #include <algorithm>
@@ -78,6 +79,21 @@ qreal distanceToSegment(const QPointF& p, const QPointF& a, const QPointF& b)
     t = std::clamp(t, 0.0, 1.0);
     const QPointF closest = a + ab * t;
     return std::hypot(p.x() - closest.x(), p.y() - closest.y());
+}
+
+/// A rectangle's or ellipse's outline, turned by its rotation.
+QPainterPath shapeOutline(const QRectF& rect, const AnnotationItem& item)
+{
+    const QRectF box = QRectF(toPainter(rect, item.points[0]), toPainter(rect, item.points[1])).normalized();
+    QPainterPath outline;
+    if (item.tool == AnnotationTool::Rectangle) outline.addRect(box);
+    else outline.addEllipse(box);
+    if (qFuzzyIsNull(item.rotation)) return outline;
+    QTransform turn;
+    turn.translate(box.center().x(), box.center().y());
+    turn.rotate(item.rotation);
+    turn.translate(-box.center().x(), -box.center().y());
+    return turn.map(outline);
 }
 
 QRectF textRect(const QRectF& rect, const AnnotationItem& item)
@@ -367,11 +383,17 @@ void paintShape(QPainter& painter, const QRectF& rect, const AnnotationItem& ite
         break;
     }
     case AnnotationTool::Rectangle:
-        painter.drawRect(QRectF(a, b).normalized());
+    case AnnotationTool::Ellipse: {
+        // Drawn in the shape's own turned frame so a rotated rectangle keeps
+        // its round joins exactly as an upright one does.
+        const QRectF box = QRectF(a, b).normalized();
+        painter.translate(box.center());
+        painter.rotate(item.rotation);
+        const QRectF local(-box.width() / 2.0, -box.height() / 2.0, box.width(), box.height());
+        if (item.tool == AnnotationTool::Rectangle) painter.drawRect(local);
+        else painter.drawEllipse(local);
         break;
-    case AnnotationTool::Ellipse:
-        painter.drawEllipse(QRectF(a, b).normalized());
-        break;
+    }
     default:
         break;
     }
@@ -486,6 +508,10 @@ QRectF AnnotationRenderer::itemBounds(const QRectF& imageRect, const AnnotationI
 {
     if (item.points.isEmpty()) return {};
     if (item.tool == AnnotationTool::Text) return textRect(imageRect, item);
+    if (!qFuzzyIsNull(item.rotation)) {
+        const qreal pad = baseRadius(imageRect, item);
+        return shapeOutline(imageRect, item).boundingRect().adjusted(-pad - 1, -pad - 1, pad + 1, pad + 1);
+    }
     qreal minX = 1e18, minY = 1e18, maxX = -1e18, maxY = -1e18;
     for (const StrokePoint& p : item.points) {
         const QPointF q = toPainter(imageRect, p);
@@ -530,9 +556,7 @@ bool AnnotationRenderer::hitTest(const QRectF& imageRect, const AnnotationItem& 
     if (item.tool == AnnotationTool::Line || item.tool == AnnotationTool::Arrow)
         return distanceToSegment(position, a, b) <= reach;
 
-    QPainterPath outline;
-    if (item.tool == AnnotationTool::Rectangle) outline.addRect(QRectF(a, b).normalized());
-    else outline.addEllipse(QRectF(a, b).normalized());
+    const QPainterPath outline = shapeOutline(imageRect, item);
     QPainterPathStroker stroker;
     stroker.setWidth(2.0 * reach);
     return stroker.createStroke(outline).contains(position);

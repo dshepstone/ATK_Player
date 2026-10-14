@@ -26,6 +26,7 @@ set(ATK_TEST_SOURCES
     tst_annotationghosting.cpp
     tst_annotationproject.cpp
     tst_annotationrenderer.cpp
+    tst_annotationtransform.cpp
     tst_abrreader.cpp
     tst_reviewlibrary.cpp
     tst_roster.cpp

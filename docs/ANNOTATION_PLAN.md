@@ -246,6 +246,21 @@ OS-specific code. `ROADMAP.md` still lists "Drawn annotations over frames" under
   the picture), Delete/Backspace removes it, and a double-click (mouse, or two quick pen
   taps) on text edits it. `AnnotationStore::replaceItem` keeps the id and order; each
   move or edit is one undo step.
+- **Free transform** (Select tool, like Photoshop's): the selection shows handles.
+  Geometry lives in `annotation/AnnotationTransform` (headless, tested) and works in
+  picture space -- the displayed proportions, not 0..1 -- so turns stay rigid on a
+  non-square picture.
+  - Strokes, rectangles and ellipses: eight handles scale (Shift keeps proportions,
+    Alt scales from the centre), and a knob above the box, or a drag just outside a
+    corner, rotates (Shift snaps to 15 degrees). A turned box scales along its own
+    sides. Strokes take the turn into their points; rectangles and ellipses keep a
+    true outline and store `AnnotationItem::rotation`.
+  - Lines and arrows: a handle on each end. Text: corner handles scale the type,
+    keeping proportions; text does not rotate.
+  - Line weight and brush size are kept, as in review tools; only geometry changes.
+  - The handle box is never drawn thinner than 24 px, so the handles of a thin
+    stroke sit clear of its ink. A press inside the box but on no ink moves the
+    selection. Escape mid-drag puts it back. Each transform is one undo step.
 - Entering Draw on Frame pauses playback, and a stroke always lands on the frame it
   started on. Draw mode is unavailable during A/B comparison and when no clip is open.
 - New drawings store the displayed frame's decoded `ptsUs` as `mediaTimeUs`. The frame
@@ -348,7 +363,9 @@ struct FrameAnnotation { int64_t frame; int64_t mediaTimeUs; QVector<AnnotationI
   **version 2**, so older builds refuse it rather than open it, ignore the
   drawings and save them away; projects without drawings stay version 1. The
   reader accepts both, including version 1 files with drawings from pre-release
-  builds. Malformed data (including an explicit `null` or ids above 2^53)
+  builds. A project holding a rotated rectangle or ellipse is **version 4** (after
+  version 3, review statuses), for the same reason: an older build would show the
+  shape upright and save it that way. Malformed data (including an explicit `null` or ids above 2^53)
   rejects the project rather than silently dropping drawings. No pixels are
   stored, only vectors.
 - Scoped to **stills and sequences too** (they are sources with frame indices).

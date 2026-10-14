@@ -142,6 +142,7 @@ private slots:
     void usedBrushTipsTravelWithTheProject();
     void notesRoundTripIncludingNoteOnlyFrames();
     void projectsWithDrawingsAreVersionTwoSoOlderBuildsRefuseThem();
+    void rotatedShapesRoundTripAsVersionFour();
     void nullAnnotationsAndHugeIdsAreRejected();
 };
 
@@ -221,6 +222,16 @@ void TestAnnotationProject::rejectsMalformedAnnotationData_data()
     negativeSeed[QStringLiteral("seed")] = -1;
     QJsonObject textOnStroke = validItemJson();
     textOnStroke[QStringLiteral("text")] = QStringLiteral("stray");
+    QJsonObject rotatedStroke = validItemJson(); // only rectangles and ellipses turn
+    rotatedStroke[QStringLiteral("rotation")] = 30.0;
+    QJsonObject rectangle = validItemJson();
+    rectangle[QStringLiteral("tool")] = QStringLiteral("rectangle");
+    QJsonArray corners{QJsonArray{0.1, 0.2, 1.0}, QJsonArray{0.4, 0.5, 1.0}};
+    rectangle[QStringLiteral("points")] = corners;
+    QJsonObject textRotation = rectangle;
+    textRotation[QStringLiteral("rotation")] = QStringLiteral("30");
+    QJsonObject wideRotation = rectangle;
+    wideRotation[QStringLiteral("rotation")] = 270.0;
 
     QTest::newRow("not-an-array") << QJsonValue(QStringLiteral("nope"));
     QTest::newRow("frame-not-object") << QJsonValue(QJsonArray{1});
@@ -238,6 +249,9 @@ void TestAnnotationProject::rejectsMalformedAnnotationData_data()
     QTest::newRow("non-numeric-id") << QJsonValue(oneFrame(badId));
     QTest::newRow("huge-size") << QJsonValue(oneFrame(hugeSize));
     QTest::newRow("negative-seed") << QJsonValue(oneFrame(negativeSeed));
+    QTest::newRow("rotated-stroke") << QJsonValue(oneFrame(rotatedStroke));
+    QTest::newRow("non-numeric-rotation") << QJsonValue(oneFrame(textRotation));
+    QTest::newRow("rotation-out-of-range") << QJsonValue(oneFrame(wideRotation));
     QTest::newRow("text-on-stroke") << QJsonValue(oneFrame(textOnStroke));
 
     QJsonArray duplicateFrame = oneFrame(validItemJson());
@@ -496,14 +510,45 @@ void TestAnnotationProject::projectsWithDrawingsAreVersionTwoSoOlderBuildsRefuse
     QVERIFY(project::ProjectSerializer::load(fromDevBuild, fx.projectPath).ok);
     QCOMPARE(fromDevBuild.entries()[0].annotations, sampleAnnotations());
 
-    // Anything newer than this build is refused, not half-read. (Version 3,
-    // review metadata, is the newest this build reads.)
-    root.insert(QStringLiteral("version"), 4);
+    // Anything newer than this build is refused, not half-read. (Version 4,
+    // rotated shapes, is the newest this build reads.)
+    root.insert(QStringLiteral("version"), 5);
     writeProject(fx.projectPath, root);
     project::Project newer;
     const auto result = project::ProjectSerializer::load(newer, fx.projectPath);
     QVERIFY(!result.ok);
     QVERIFY(result.errorMessage.contains(QStringLiteral("newer")));
+}
+
+void TestAnnotationProject::rotatedShapesRoundTripAsVersionFour()
+{
+    // A version 3 reader would show a turned shape upright and save it that
+    // way, so a project holding one is version 4; without one it stays lower.
+    Fixture fx;
+    project::Project original;
+    original.addSource(std::make_shared<media::MediaSource>(fx.mediaPath));
+    annotation::SourceAnnotations annotations = sampleAnnotations();
+    annotation::FrameAnnotation frame = annotations.frame(132);
+    frame.items[0].rotation = -37.5; // the ellipse
+    annotations.setFrame(frame);
+    QVERIFY(original.setAnnotations(original.entries()[0].id, annotations));
+    QVERIFY(project::ProjectSerializer::save(original, fx.projectPath).ok);
+    QCOMPARE(readProject(fx.projectPath).value(QStringLiteral("version")).toInt(), 4);
+
+    project::Project loaded;
+    const auto result = project::ProjectSerializer::load(loaded, fx.projectPath);
+    QVERIFY2(result.ok, qPrintable(result.errorMessage));
+    QCOMPARE(loaded.entries()[0].annotations, annotations);
+    QCOMPARE(loaded.entries()[0].annotations.frame(132).items[0].rotation, -37.5);
+
+    // Turned back upright, the key is dropped and the version falls back.
+    frame.items[0].rotation = 0.0;
+    annotations.setFrame(frame);
+    QVERIFY(original.setAnnotations(original.entries()[0].id, annotations));
+    QVERIFY(project::ProjectSerializer::save(original, fx.projectPath).ok);
+    const QJsonObject root = readProject(fx.projectPath);
+    QCOMPARE(root.value(QStringLiteral("version")).toInt(), 2);
+    QVERIFY(!QJsonDocument(root).toJson().contains("rotation"));
 }
 
 void TestAnnotationProject::nullAnnotationsAndHugeIdsAreRejected()

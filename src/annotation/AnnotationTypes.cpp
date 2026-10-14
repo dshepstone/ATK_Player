@@ -65,6 +65,9 @@ bool isValidItem(const AnnotationItem& item)
     if (!std::isfinite(item.opacity) || item.opacity < 0.0 || item.opacity > 1.0) return false;
     if (item.text.size() > AnnotationLimits::kMaxTextLength) return false;
     if (item.brushId.size() > 200 || (!item.brushId.isEmpty() && item.tool != AnnotationTool::Stamp)) return false;
+    if (!std::isfinite(item.rotation) || item.rotation <= -180.0 || item.rotation > 180.0) return false;
+    if (item.rotation != 0.0 && item.tool != AnnotationTool::Rectangle && item.tool != AnnotationTool::Ellipse)
+        return false;
 
     const int count = int(item.points.size());
     if (count > AnnotationLimits::kMaxPointsPerItem) return false;

@@ -28,6 +28,9 @@ constexpr int kAnnotatedVersion = 2;
 // Version 3 marks a project carrying review metadata (clip statuses), for
 // the same reason: a version 2 reader would drop it and save over it.
 constexpr int kReviewVersion = 3;
+// Version 4 marks a project with a rotated rectangle or ellipse: a version 3
+// reader would ignore the turn, show the shape upright and save it that way.
+constexpr int kRotatedShapeVersion = 4;
 /// Ids above this are refused on load, so allocating the next id can never
 /// wrap round to the reserved 0.
 constexpr quint64 kMaxAnnotationId = quint64(1) << 53;
@@ -162,6 +165,7 @@ QJsonObject annotationItemJson(const annotation::AnnotationItem& item)
                        {QStringLiteral("points"), points}};
     if (!item.text.isEmpty()) object.insert(QStringLiteral("text"), item.text);
     if (!item.brushId.isEmpty()) object.insert(QStringLiteral("brush"), item.brushId);
+    if (item.rotation != 0.0) object.insert(QStringLiteral("rotation"), item.rotation);
     return object;
 }
 
@@ -212,6 +216,12 @@ bool readAnnotationItem(const QJsonValue& value, annotation::AnnotationItem* out
     item.textureSeed = static_cast<quint32>(seed);
     item.text = object.value(QStringLiteral("text")).toString();
     item.brushId = object.value(QStringLiteral("brush")).toString();
+    // Optional: absent in projects from before free transform, and for
+    // anything not turned.
+    if (object.contains(QStringLiteral("rotation"))) {
+        if (!object.value(QStringLiteral("rotation")).isDouble()) return false;
+        item.rotation = object.value(QStringLiteral("rotation")).toDouble();
+    }
     if (!object.value(QStringLiteral("points")).isArray()) return false;
     const QJsonArray points = object.value(QStringLiteral("points")).toArray();
     if (points.size() > annotation::AnnotationLimits::kMaxPointsPerItem) return false;
@@ -339,7 +349,16 @@ static SerializerResult saveWithName(const Project& project, const QString& file
                                        [](const SourceEntry& entry) { return !entry.annotations.isEmpty(); });
     const bool reviewed = std::any_of(project.entries().cbegin(), project.entries().cend(),
                                       [](const SourceEntry& entry) { return entry.status != ClipStatus::NotReviewed; });
-    const int version = reviewed ? kReviewVersion : annotated ? kAnnotatedVersion : kVersion;
+    const bool rotated = std::any_of(project.entries().cbegin(), project.entries().cend(), [](const SourceEntry& entry) {
+        for (const annotation::FrameAnnotation& frame : entry.annotations.frames())
+            for (const annotation::AnnotationItem& item : frame.items)
+                if (item.rotation != 0.0) return true;
+        return false;
+    });
+    const int version = rotated ? kRotatedShapeVersion
+        : reviewed             ? kReviewVersion
+        : annotated            ? kAnnotatedVersion
+                               : kVersion;
     QJsonObject root{{QStringLiteral("format"), QStringLiteral("ATKProject")},
         {QStringLiteral("version"), version}, {QStringLiteral("name"), projectName},
         {QStringLiteral("currentSourceId"), project.currentSourceId().toString(QUuid::WithoutBraces)},
@@ -397,8 +416,8 @@ SerializerResult ProjectSerializer::load(Project& project, const QString& filePa
     if (!root.value(QStringLiteral("version")).isDouble())
         return SerializerResult::failure(QStringLiteral("The project version is missing."));
     const int version = root.value(QStringLiteral("version")).toInt();
-    if (version != kVersion && version != kAnnotatedVersion && version != kReviewVersion)
-        return SerializerResult::failure(version > kReviewVersion
+    if (version < kVersion || version > kRotatedShapeVersion)
+        return SerializerResult::failure(version > kRotatedShapeVersion
             ? QStringLiteral("This project was created by a newer version of ATK Player.")
             : QStringLiteral("This project version is not supported."));
     if (!root.value(QStringLiteral("sources")).isArray())

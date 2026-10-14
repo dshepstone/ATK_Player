@@ -2,6 +2,7 @@
 
 #include "annotation/AnnotationGhosting.h"
 #include "annotation/AnnotationToolSettings.h"
+#include "annotation/AnnotationTransform.h"
 #include "annotation/AnnotationTypes.h"
 #include "media/VideoFrame.h"
 #include "ui/ViewerTransform.h"
@@ -153,6 +154,12 @@ public:
     quint64 selectedItemId() const { return m_selectedItemId; }
     void clearSelection();
 
+    /// Free transform of the selection. Handle ids are those of
+    /// annotation::TransformHandle; kNoHandle when `widgetPosition` is on none.
+    /// A handle's widget position is for tests and the cursor.
+    int transformHandleAt(const QPointF& widgetPosition) const;
+    std::optional<QPointF> transformHandlePosition(int handle) const;
+
     /// In-place text editing (Text tool, or double-click on text with Select).
     /// The editor is a child text field over the picture; committing emits
     /// annotationItemDrawn (new text) or annotationItemChanged (edited text).
@@ -204,7 +211,7 @@ private:
 
     // Annotation input and painting.
     struct ActiveStroke {
-        enum class Kind { Draw, Erase, Move, TextBox, TextFrame };
+        enum class Kind { Draw, Erase, Move, Transform, TextBox, TextFrame };
         Kind kind = Kind::Draw;
         qint64 frameIndex = -1;
         bool fromTablet = false;
@@ -214,7 +221,12 @@ private:
         QPointF lastWidgetPosition; // eraser: previous sample, to sweep the gap
         QPointF pressNormalized;    // Move / TextBox
         QPointF currentNormalized;  // Move / TextBox
-        int handle = -1;            // TextFrame: 0..7 resize handle, 8 = move by the border
+        int handle = -1;            // TextFrame: 0..7 resize handle, 8 = move by the border;
+                                    // Transform: an annotation::TransformHandle
+        annotation::TransformBox box;           // Transform: the box at the press
+        annotation::TransformBox currentBox;    // Transform: the box as dragged
+        QPointF pressPicture;                   // Transform: press in picture space
+        annotation::AnnotationItem transformed; // Transform: the item as dragged
         bool isEraser() const { return kind == Kind::Erase; }
     };
     struct TextEditState {
@@ -226,6 +238,17 @@ private:
     quint64 itemAt(const QPointF& widgetPosition, bool textOnly) const;
     std::optional<annotation::AnnotationItem> findItem(quint64 id) const;
     std::optional<annotation::AnnotationItem> movePreview() const;
+    /// Picture space: the on-screen picture, unflipped, origin at its top-left
+    /// and one unit per widget pixel -- the space free transform works in.
+    QSizeF pictureSize() const;
+    QPointF widgetToPicture(const QPointF& position) const;
+    QPointF pictureToWidget(const QPointF& picture) const;
+    /// The selected item's transform box as shown (the dragged box mid-drag).
+    std::optional<annotation::TransformBox> selectionBox() const;
+    /// Where the rotate knob sits, in picture space.
+    QPointF rotateKnob(const annotation::TransformBox& box) const;
+    void updateSelectCursor(const QPointF& position);
+    void paintSelection(QPainter& painter, const QRectF& target, const annotation::AnnotationItem& item);
     void beginTextEdit(qint64 frameIndex, const annotation::AnnotationItem& item, bool existing);
     void finishTextEdit(bool commit);
     void positionTextEditor();

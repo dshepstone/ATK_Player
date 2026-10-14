@@ -125,6 +125,10 @@ private slots:
     void clickingExistingTextEditsIt();
     void selectDragMovesAnItem();
     void deleteKeyRemovesTheSelection();
+    void cornerHandleScalesTheSelection();
+    void rotateKnobTurnsAShape();
+    void lineEndsAreDraggedDirectly();
+    void escapeMidTransformPutsItBack();
     void doublePressOnTextWithSelectEdits();
     void changingFrameFinishesText();
     void typedTextShowsAtItsFinalSize();
@@ -544,6 +548,138 @@ void TestAnnotationViewer::selectDragMovesAnItem()
     QTest::mouseClick(&f.viewer, Qt::LeftButton, {}, f.at(0.5, 0.5));
     QCOMPARE(f.viewer.selectedItemId(), quint64(5));
     QCOMPARE(changed.count(), before);
+}
+
+namespace {
+AnnotationItem rectangleItem(quint64 id)
+{
+    AnnotationItem rect;
+    rect.id = id;
+    rect.tool = AnnotationTool::Rectangle;
+    rect.size = 0.01;
+    rect.points = {{0.25f, 0.25f, 1, 0, 0}, {0.75f, 0.75f, 1, 0, 0}};
+    return rect;
+}
+
+/// Shows `item` alone on the fixture's frame and selects it by clicking `at`.
+void showAndSelect(Fixture& f, const AnnotationItem& item, QPoint at)
+{
+    annotation::FrameAnnotation existing;
+    existing.frame = 12;
+    existing.items = {item};
+    f.viewer.setAnnotationFrame(existing);
+    useTool(f.viewer, AnnotationTool::Select);
+    f.viewer.setAnnotateMode(true);
+    QTest::mouseClick(&f.viewer, Qt::LeftButton, {}, at);
+    QCOMPARE(f.viewer.selectedItemId(), item.id);
+}
+
+bool nearPoint(QPointF a, QPointF b, qreal tolerance = 1.5)
+{
+    return std::abs(a.x() - b.x()) <= tolerance && std::abs(a.y() - b.y()) <= tolerance;
+}
+} // namespace
+
+void TestAnnotationViewer::cornerHandleScalesTheSelection()
+{
+    Fixture f;
+    const AnnotationItem rect = rectangleItem(7);
+    showAndSelect(f, rect, f.at(0.25, 0.5));
+    QSignalSpy changed(&f.viewer, &ViewerWidget::annotationItemChanged);
+
+    // Handles sit on the outline; the bottom-right one drags that corner only.
+    const auto corner = f.viewer.transformHandlePosition(4);
+    QVERIFY(corner);
+    QVERIFY(nearPoint(*corner, f.at(0.75, 0.75)));
+    QCOMPARE(f.viewer.transformHandleAt(*corner), 4);
+    QVERIFY(f.viewer.transformHandlePosition(1)); // edges too, for a shape
+    drag(f.viewer, corner->toPoint(), f.at(0.85, 0.85));
+    QCOMPARE(changed.count(), 1);
+    const auto scaled = changed.at(0).at(1).value<AnnotationItem>();
+    QCOMPARE(scaled.id, quint64(7));
+    QCOMPARE(scaled.points[0], rect.points[0]);
+    QVERIFY(std::abs(scaled.points[1].x - 0.85f) < 0.01f && std::abs(scaled.points[1].y - 0.85f) < 0.01f);
+    QCOMPARE(scaled.size, rect.size); // the line weight is kept
+
+    // A press inside the box but on no ink (the middle of the outline) still
+    // grabs the selection and moves it.
+    drag(f.viewer, f.at(0.5, 0.5), f.at(0.5, 0.6));
+    QCOMPARE(changed.count(), 2);
+    const auto moved = changed.at(1).at(1).value<AnnotationItem>();
+    QVERIFY(std::abs(moved.points[0].y - 0.35f) < 0.01f && std::abs(moved.points[1].y - 0.85f) < 0.01f);
+    QCOMPARE(f.viewer.selectedItemId(), quint64(7));
+}
+
+void TestAnnotationViewer::rotateKnobTurnsAShape()
+{
+    Fixture f;
+    const AnnotationItem rect = rectangleItem(8);
+    showAndSelect(f, rect, f.at(0.25, 0.5));
+    QSignalSpy changed(&f.viewer, &ViewerWidget::annotationItemChanged);
+
+    const auto knob = f.viewer.transformHandlePosition(annotation::kRotateHandle);
+    QVERIFY(knob);
+    QVERIFY(knob->y() < f.at(0.5, 0.25).y()); // above the box
+    QCOMPARE(f.viewer.transformHandleAt(*knob), int(annotation::kRotateHandle));
+    // Just outside a corner rotates too.
+    QCOMPARE(f.viewer.transformHandleAt(*f.viewer.transformHandlePosition(0) + QPointF(-14, -6)),
+             int(annotation::kRotateHandle));
+
+    // From straight above the centre round to straight right of it: a quarter turn.
+    const QPointF center = f.viewer.normalizedToWidget({0.5, 0.5});
+    drag(f.viewer, knob->toPoint(), (center + QPointF(90, 0)).toPoint());
+    QCOMPARE(changed.count(), 1);
+    const auto turned = changed.at(0).at(1).value<AnnotationItem>();
+    QVERIFY2(std::abs(turned.rotation - 90.0) < 1.5, qPrintable(QString::number(turned.rotation)));
+    QCOMPARE(turned.points, rect.points);
+
+    // Once the owner applies it, the handles follow the turned outline: the
+    // top-left corner of a 200 x 100 px box turned a quarter sits up and right.
+    annotation::FrameAnnotation applied;
+    applied.frame = 12;
+    applied.items = {turned};
+    f.viewer.setAnnotationFrame(applied);
+    QCOMPARE(f.viewer.selectedItemId(), quint64(8));
+    QVERIFY(nearPoint(*f.viewer.transformHandlePosition(0), center + QPointF(50, -100), 3.0));
+}
+
+void TestAnnotationViewer::lineEndsAreDraggedDirectly()
+{
+    Fixture f;
+    AnnotationItem line;
+    line.id = 9;
+    line.tool = AnnotationTool::Arrow;
+    line.size = 0.01;
+    line.points = {{0.2f, 0.5f, 1, 0, 0}, {0.6f, 0.5f, 1, 0, 0}};
+    showAndSelect(f, line, f.at(0.4, 0.5));
+    QSignalSpy changed(&f.viewer, &ViewerWidget::annotationItemChanged);
+
+    QVERIFY(!f.viewer.transformHandlePosition(0)); // ends, not a box
+    QVERIFY(!f.viewer.transformHandlePosition(annotation::kRotateHandle));
+    QCOMPARE(f.viewer.transformHandleAt(f.at(0.6, 0.5)), int(annotation::kEndPointHandle));
+    drag(f.viewer, f.at(0.6, 0.5), f.at(0.6, 0.8));
+    QCOMPARE(changed.count(), 1);
+    const auto moved = changed.at(0).at(1).value<AnnotationItem>();
+    QCOMPARE(moved.points[0], line.points[0]);
+    QVERIFY(std::abs(moved.points[1].x - 0.6f) < 0.01f && std::abs(moved.points[1].y - 0.8f) < 0.01f);
+}
+
+void TestAnnotationViewer::escapeMidTransformPutsItBack()
+{
+    Fixture f;
+    showAndSelect(f, rectangleItem(10), f.at(0.25, 0.5));
+    QSignalSpy changed(&f.viewer, &ViewerWidget::annotationItemChanged);
+    const QPoint corner = f.viewer.transformHandlePosition(4)->toPoint();
+    QTest::mousePress(&f.viewer, Qt::LeftButton, {}, corner);
+    const QPoint far = f.at(0.9, 0.9);
+    QMouseEvent move(QEvent::MouseMove, far, f.viewer.mapToGlobal(far), Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+    QApplication::sendEvent(&f.viewer, &move);
+    QVERIFY(f.viewer.isDrawing());
+    QTest::keyClick(&f.viewer, Qt::Key_Escape);
+    QVERIFY(!f.viewer.isDrawing());
+    QTest::mouseRelease(&f.viewer, Qt::LeftButton, {}, far);
+    QCOMPARE(changed.count(), 0);
+    QCOMPARE(f.viewer.selectedItemId(), quint64(10));
 }
 
 void TestAnnotationViewer::deleteKeyRemovesTheSelection()

@@ -74,6 +74,10 @@ struct AnnotationItem {
     QString text;
     /// Stamp only: id of the BrushTip to repeat along the stroke.
     QString brushId;
+    /// Rectangle and Ellipse only: degrees clockwise on screen, about the
+    /// centre of the outline `points` describe, in (-180, 180]. Other items
+    /// that are rotated carry the turn in their points.
+    qreal rotation = 0.0;
 
     friend bool operator==(const AnnotationItem&, const AnnotationItem&) = default;
 };
