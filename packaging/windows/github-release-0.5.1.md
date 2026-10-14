@@ -1,0 +1,71 @@
+Adjust drawings after you make them: select a drawing to resize, rotate or reshape it with handles, the way Free Transform works in Photoshop.
+
+## Download
+
+**[Download ATK-Player-v0.5.1-Windows.zip](https://github.com/dshepstone/ATK_Player/releases/download/v0.5.1/ATK-Player-v0.5.1-Windows.zip)**
+
+1. Download the ZIP.
+2. Extract all files.
+3. Open the extracted folder and double-click `ATK-Player-0.5.1-Windows-x64.msi`.
+4. Follow the setup wizard.
+
+After installation, launch ATK Player from the Windows Start Menu or use the installer's **Launch ATK Player** checkbox.
+
+The ZIP contains the Windows MSI installer, installation instructions and licence notices. It is about **130 MB** because the MSI includes licence notices and matching source materials for the application and its dependencies.
+
+## What's new
+
+- **Free transform for drawings.** Choose the select tool in the drawing row and click a drawing to show its handles.
+  - **Resize** strokes, rectangles and ellipses with the square handles. Hold **Shift** to keep the proportions, or **Alt** to resize from the centre.
+  - **Rotate** with the round knob above the drawing, or by dragging just outside a corner. Hold **Shift** to snap to 15&deg; steps.
+  - **Lines and arrows** have a handle on each end.
+  - **Text** resizes from its corners, and the lettering scales with it.
+  - Press **Esc** during a drag to put the drawing back. Each change is one undo step.
+- Rotated drawings appear the same way in ghosts, the annotated MP4 and the Review Notes PDF.
+
+Full notes: [RELEASE_NOTES_0.5.1.md](https://github.com/dshepstone/ATK_Player/blob/v0.5.1/docs/RELEASE_NOTES_0.5.1.md). Walkthrough: [User Guide](https://github.com/dshepstone/ATK_Player/blob/v0.5.1/docs/USER_GUIDE.md).
+
+## Upgrading
+
+Install the 0.5.1 MSI over 0.5.0, 0.4.x or 0.3.0. It upgrades in place and keeps your preferences, projects and media.
+
+A project with a rotated rectangle or ellipse is saved as project version 4. ATK Player 0.5.0 and earlier can't open it; they report that the project was made by a newer version instead of showing the shape upright. Projects without rotated shapes are saved exactly as before.
+
+## Requirements
+
+- Windows 11 x64 (the currently verified release platform)
+- Microsoft Visual C++ 2015&ndash;2022 x64 Redistributable
+
+## Unsigned Build Notice
+
+The Windows 0.5.1 MSI and executable are unsigned. Windows may show an Unknown Publisher or Microsoft Defender SmartScreen warning. Click **More info &rarr; Run anyway**, or right-click the MSI &rarr; **Properties** &rarr; tick **Unblock**. Verify the download against the published SHA-256 checksum.
+
+## Verify your download
+
+In PowerShell, run this from the folder containing the downloaded ZIP:
+
+~~~powershell
+Get-FileHash .\ATK-Player-v0.5.1-Windows.zip -Algorithm SHA256
+~~~
+
+Expected ZIP SHA-256:
+
+~~~text
+{{ZIP_SHA256}}
+~~~
+
+After extracting, you can also verify the MSI:
+
+~~~powershell
+Get-FileHash .\ATK-Player-0.5.1-Windows-x64.msi -Algorithm SHA256
+~~~
+
+Expected MSI SHA-256:
+
+~~~text
+{{MSI_SHA256}}
+~~~
+
+## Code signing policy
+
+ATK Player is preparing to apply to SignPath Foundation. Approval and signing integration are pending; the attached Windows artifacts remain unsigned. See the [Code signing policy](https://github.com/dshepstone/ATK_Player/blob/main/CODE_SIGNING_POLICY.md) for maintainer roles, manual release approval, and privacy information.

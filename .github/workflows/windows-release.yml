@@ -87,3 +87,43 @@ jobs:
             build/package/windows/*.sha256
           if-no-files-found: error
           retention-days: 14
+
+  publish:
+    name: Publish GitHub release
+    # Only a final release tag (vX.Y.Z, no suffix) publishes. Pushing that
+    # tag is the maintainer's release approval; rc tags and manual runs only
+    # build the MSI above.
+    if: github.ref_type == 'tag' && !contains(github.ref_name, '-')
+    needs: package
+    runs-on: windows-2022
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out exact ref
+        uses: actions/checkout@v4
+
+      - name: Download the tested MSI
+        uses: actions/download-artifact@v4
+        with:
+          name: ATK-Player-Windows-x64-${{ github.sha }}
+          path: build/package/windows
+
+      - name: Package the release ZIP and text
+        id: zip
+        shell: pwsh
+        run: |
+          $version = '${{ github.ref_name }}'.TrimStart('v')
+          $template = "packaging/windows/github-release-$version.md"
+          if (-not (Test-Path -LiteralPath $template)) { throw "Missing release text $template." }
+          .\packaging\windows\make-release-zip.ps1 -ReleaseBodyTemplate $template
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Create the GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = '${{ steps.zip.outputs.version }}'
+          gh release create '${{ github.ref_name }}' "build/package/release/ATK-Player-v$version-Windows.zip" `
+            --verify-tag --title "ATK Player $version" --notes-file "build/package/release/RELEASE_BODY_v$version.md"

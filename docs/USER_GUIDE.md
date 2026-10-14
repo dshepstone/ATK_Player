@@ -142,6 +142,12 @@ and A/B comparison work as described in the README.
   custom (imported Photoshop) brushes, line, arrow, rectangle, ellipse, text,
   eraser and select, with colour and size (`[` / `]`). Tracing paper (`T`) and
   ghosts (`G`) sit in the bottom bar.
+- **Adjust a drawing** with the select tool: click it to show its handles.
+  Drag the square handles to resize it (`Shift` keeps its proportions, `Alt`
+  resizes from the centre) and the round knob above it to rotate it (`Shift`
+  snaps to 15°). Lines and arrows have a handle on each end; text resizes from
+  its corners. Drag the drawing itself to move it, press `Esc` during a drag to
+  put it back, and `Ctrl+Z` to undo.
 - The **Notes** panel (`F6`, or **Notes** at the top right) starts closed so
   the picture stays large. Notes can be searched and sorted; `Ctrl+.` and
   `Ctrl+,` jump between frames with notes or drawings.
