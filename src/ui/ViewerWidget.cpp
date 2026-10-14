@@ -13,15 +13,20 @@
 #include <QTextEdit>
 #include <QTimer>
 #include <QFontMetrics>
+#include <QGuiApplication>
+#include <QPixmap>
 #include <QMouseEvent>
 #include <QPaintEvent>
 #include <QPainter>
+#include <QPainterPath>
 #include <QResizeEvent>
 #include <QTabletEvent>
 #include <QWheelEvent>
+#include <QtMath>
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 namespace atk::ui {
 
@@ -375,6 +380,8 @@ void ViewerWidget::mouseMoveEvent(QMouseEvent* event)
             const int handle = textFrameHandleAt(event->position());
             if (handle >= 0) setCursor(shapes[handle]);
             else updateAnnotateCursor();
+        } else if (!m_stroke) {
+            updateSelectCursor(event->position());
         }
         setHoverPosition(event->position());
         if (m_stroke && !m_stroke->fromTablet)
@@ -466,6 +473,7 @@ void ViewerWidget::tabletEvent(QTabletEvent* event)
             m_hoverIsEraser = eraserPointer;
             update();
         }
+        if (!m_stroke && !m_textEdit) updateSelectCursor(position);
         setHoverPosition(position);
         if (m_stroke && m_stroke->fromTablet)
             continueStroke(position, float(event->pressure()), float(event->xTilt()),
@@ -584,6 +592,203 @@ void ViewerWidget::clearSelection()
     update();
 }
 
+namespace {
+constexpr qreal kTransformHandleReach = 8.0; // widget pixels either side of a handle
+constexpr qreal kRotateKnobOffset = 22.0;    // knob distance above the box's top edge
+constexpr qreal kRotateZone = 22.0;          // just outside a corner also rotates
+// The handle box is never thinner than this, so the handles of a thin stroke
+// sit clear of its ink and a press on the ink still moves it.
+constexpr qreal kMinimumBoxSize = 24.0;
+
+annotation::TransformBox handleBox(annotation::TransformBox box)
+{
+    box.size = QSizeF(std::max(box.size.width(), kMinimumBoxSize), std::max(box.size.height(), kMinimumBoxSize));
+    return box;
+}
+
+/// A curved arrow, since Qt has no rotate cursor.
+QCursor rotateCursor()
+{
+    static const QCursor cursor = [] {
+        QPixmap pixmap(24, 24);
+        pixmap.fill(Qt::transparent);
+        QPainter p(&pixmap);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        QPainterPath arrow;
+        arrow.arcMoveTo(QRectF(5, 5, 14, 14), 120);
+        arrow.arcTo(QRectF(5, 5, 14, 14), 120, -260);
+        const QPointF tip = arrow.currentPosition();
+        QPainterPath head;
+        head.moveTo(tip + QPointF(-4.5, -1.0));
+        head.lineTo(tip + QPointF(1.5, 0.5));
+        head.lineTo(tip + QPointF(-1.5, 5.0));
+        const std::pair<QColor, qreal> passes[] = {{QColor(0, 0, 0, 200), 3.5}, {QColor(Qt::white), 1.5}};
+        for (const auto& [color, width] : passes) {
+            p.setPen(QPen(color, width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+            p.setBrush(Qt::NoBrush);
+            p.drawPath(arrow);
+            p.drawPath(head);
+        }
+        p.end();
+        return QCursor(pixmap, 12, 12);
+    }();
+    return cursor;
+}
+} // namespace
+
+QSizeF ViewerWidget::pictureSize() const { return m_transform.imageRect().size(); }
+
+QPointF ViewerWidget::widgetToPicture(const QPointF& position) const
+{
+    const QPointF n = widgetToNormalized(position);
+    const QSizeF size = pictureSize();
+    return {n.x() * size.width(), n.y() * size.height()};
+}
+
+QPointF ViewerWidget::pictureToWidget(const QPointF& picture) const
+{
+    const QSizeF size = pictureSize();
+    if (size.isEmpty()) return {};
+    return normalizedToWidget(QPointF(picture.x() / size.width(), picture.y() / size.height()));
+}
+
+std::optional<annotation::TransformBox> ViewerWidget::selectionBox() const
+{
+    if (m_stroke && m_stroke->kind == ActiveStroke::Kind::Transform && m_stroke->handle >= 0
+        && m_stroke->handle <= annotation::kRotateHandle)
+        return m_stroke->currentBox;
+    std::optional<annotation::AnnotationItem> item = movePreview();
+    if (!item) item = findItem(m_selectedItemId);
+    if (!item || !annotation::hasBoxHandles(*item) || pictureSize().isEmpty()) return std::nullopt;
+    return handleBox(annotation::transformBox(*item, pictureSize()));
+}
+
+QPointF ViewerWidget::rotateKnob(const annotation::TransformBox& box) const
+{
+    return box.toPicture(QPointF(0.0, -box.size.height() / 2.0 - kRotateKnobOffset));
+}
+
+std::optional<QPointF> ViewerWidget::transformHandlePosition(int handle) const
+{
+    if (m_tool.tool != annotation::AnnotationTool::Select || m_textEdit) return std::nullopt;
+    const auto item = findItem(m_selectedItemId);
+    if (!item) return std::nullopt;
+    if (annotation::hasEndPointHandles(*item)) {
+        if (handle != annotation::kStartPointHandle && handle != annotation::kEndPointHandle) return std::nullopt;
+        const annotation::StrokePoint& p = item->points[handle == annotation::kStartPointHandle ? 0 : 1];
+        return normalizedToWidget(QPointF(p.x, p.y));
+    }
+    const auto box = selectionBox();
+    if (!box) return std::nullopt;
+    if (handle == annotation::kRotateHandle) {
+        if (!annotation::canRotate(*item)) return std::nullopt;
+        return pictureToWidget(rotateKnob(*box));
+    }
+    if (handle < 0 || handle > 7 || (handle % 2 == 1 && !annotation::hasEdgeHandles(*item))) return std::nullopt;
+    return pictureToWidget(box->handlePoint(handle));
+}
+
+int ViewerWidget::transformHandleAt(const QPointF& widgetPosition) const
+{
+    if (!m_annotateMode || m_tool.tool != annotation::AnnotationTool::Select || m_textEdit) return annotation::kNoHandle;
+    const auto item = findItem(m_selectedItemId);
+    if (!item) return annotation::kNoHandle;
+    auto near = [&](int handle) {
+        const auto at = transformHandlePosition(handle);
+        if (!at) return false;
+        const QPointF d = widgetPosition - *at;
+        return std::abs(d.x()) <= kTransformHandleReach && std::abs(d.y()) <= kTransformHandleReach;
+    };
+    // The end a line was drawn to is on top, as it is in the picture.
+    for (int handle : {int(annotation::kEndPointHandle), int(annotation::kStartPointHandle),
+                       int(annotation::kRotateHandle)})
+        if (near(handle)) return handle;
+    for (int handle = 0; handle < 8; ++handle)
+        if (near(handle)) return handle;
+    // Just outside a corner rotates, as in Photoshop.
+    if (annotation::canRotate(*item)) {
+        const auto box = selectionBox();
+        const QPointF p = widgetToPicture(widgetPosition);
+        if (box && !box->polygon().containsPoint(p, Qt::OddEvenFill)) {
+            for (int corner = 0; corner < 8; corner += 2) {
+                const QPointF d = p - box->handlePoint(corner);
+                if (std::hypot(d.x(), d.y()) <= kRotateZone) return annotation::kRotateHandle;
+            }
+        }
+    }
+    return annotation::kNoHandle;
+}
+
+void ViewerWidget::updateSelectCursor(const QPointF& position)
+{
+    if (!m_annotateMode || m_middlePanning || m_tool.tool != annotation::AnnotationTool::Select) return;
+    const int handle = transformHandleAt(position);
+    if (handle == annotation::kNoHandle) {
+        setCursor(Qt::ArrowCursor);
+    } else if (handle == annotation::kRotateHandle) {
+        setCursor(rotateCursor());
+    } else if (handle == annotation::kStartPointHandle || handle == annotation::kEndPointHandle) {
+        setCursor(Qt::CrossCursor);
+    } else if (const auto box = selectionBox()) {
+        // A resize arrow pointing the way this handle faces on screen, so a
+        // turned box still shows the right one.
+        const QPointF d = pictureToWidget(box->handlePoint(handle)) - pictureToWidget(box->center);
+        const qreal angle = std::fmod(qRadiansToDegrees(std::atan2(d.y(), d.x())) + 360.0, 180.0);
+        static const Qt::CursorShape shapes[4] = {Qt::SizeHorCursor, Qt::SizeFDiagCursor, Qt::SizeVerCursor,
+                                                  Qt::SizeBDiagCursor};
+        setCursor(shapes[int(std::floor((angle + 22.5) / 45.0)) % 4]);
+    }
+}
+
+void ViewerWidget::paintSelection(QPainter& painter, const QRectF& target, const annotation::AnnotationItem& item)
+{
+    // Painter space here is the unflipped picture (the flip is on the painter).
+    const QPointF origin = target.topLeft();
+    painter.save();
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    auto outline = [&](const QPolygonF& polygon) {
+        painter.setBrush(Qt::NoBrush);
+        painter.setPen(QPen(QColor(0, 0, 0, 170), 3.0));
+        painter.drawPolygon(polygon);
+        painter.setPen(QPen(QColor(255, 255, 255, 230), 1.0, Qt::DashLine));
+        painter.drawPolygon(polygon);
+    };
+    auto handle = [&](const QPointF& at, bool round) {
+        painter.setPen(QPen(QColor(0, 0, 0, 200), 1.0));
+        painter.setBrush(QColor(255, 255, 255, 235));
+        const QRectF r(at - QPointF(3.5, 3.5), QSizeF(7.0, 7.0));
+        if (round) painter.drawEllipse(r.adjusted(-0.5, -0.5, 0.5, 0.5));
+        else painter.drawRect(r);
+    };
+    const QSizeF size = pictureSize();
+    if (annotation::hasEndPointHandles(item)) {
+        for (const annotation::StrokePoint& p : item.points)
+            handle(origin + QPointF(p.x * size.width(), p.y * size.height()), true);
+    } else if (const auto box = selectionBox()) {
+        outline(box->polygon().translated(origin));
+        if (annotation::canRotate(item)) {
+            const QPointF top = origin + box->handlePoint(1);
+            const QPointF knob = origin + rotateKnob(*box);
+            painter.setPen(QPen(QColor(0, 0, 0, 170), 3.0));
+            painter.drawLine(top, knob);
+            painter.setPen(QPen(QColor(255, 255, 255, 230), 1.0));
+            painter.drawLine(top, knob);
+            handle(knob, true);
+        }
+        // While turning, the box shows the turn without handles; once let go
+        // it hugs the result again (a stroke's box is always upright).
+        const bool rotating = m_stroke && m_stroke->kind == ActiveStroke::Kind::Transform
+            && m_stroke->handle == annotation::kRotateHandle;
+        if (!rotating) {
+            for (int i = 0; i < 8; ++i)
+                if (i % 2 == 0 || annotation::hasEdgeHandles(item)) handle(origin + box->handlePoint(i), false);
+        }
+    } else {
+        outline(QPolygonF(annotation::AnnotationRenderer::itemBounds(target, item).adjusted(-3, -3, 3, 3)));
+    }
+    painter.restore();
+}
+
 QPointF ViewerWidget::widgetToNormalized(const QPointF& point) const
 {
     const QRectF target = m_transform.imageRect();
@@ -614,6 +819,7 @@ std::optional<annotation::AnnotationItem> ViewerWidget::strokePreview() const
 
 std::optional<annotation::AnnotationItem> ViewerWidget::movePreview() const
 {
+    if (m_stroke && m_stroke->kind == ActiveStroke::Kind::Transform) return m_stroke->transformed;
     if (!m_stroke || m_stroke->kind != ActiveStroke::Kind::Move) return std::nullopt;
     return annotation::translatedItem(m_stroke->item, m_stroke->currentNormalized - m_stroke->pressNormalized);
 }
@@ -716,7 +922,30 @@ bool ViewerWidget::beginStroke(const QPointF& position, float pressure, float ti
     }
 
     if (m_tool.tool == AnnotationTool::Select) {
-        const quint64 hit = itemAt(position, false);
+        // The selection's handles come first: they can sit over other items.
+        if (const auto selected = findItem(m_selectedItemId)) {
+            const int handle = transformHandleAt(position);
+            if (handle != annotation::kNoHandle) {
+                stroke.kind = Kind::Transform;
+                stroke.item = *selected;
+                stroke.handle = handle;
+                if (const auto shown = selectionBox()) stroke.box = *shown; // none for a line's ends
+                stroke.currentBox = stroke.box;
+                stroke.pressPicture = widgetToPicture(position);
+                stroke.transformed = *selected;
+                m_stroke = stroke;
+                update();
+                return true;
+            }
+        }
+        quint64 hit = itemAt(position, false);
+        // Inside the selection's box but on no item (the middle of an
+        // outline, say) still grabs the selection, as in Photoshop.
+        if (hit == 0 && m_selectedItemId != 0) {
+            const auto box = selectionBox();
+            if (box && box->polygon().containsPoint(widgetToPicture(position), Qt::OddEvenFill))
+                hit = m_selectedItemId;
+        }
         const auto item = findItem(hit);
         if (isDoublePress(position, hit) && item && item->tool == AnnotationTool::Text) {
             m_selectedItemId = hit;
@@ -789,6 +1018,26 @@ void ViewerWidget::continueStroke(const QPointF& position, float pressure, float
             ++m_annotationGeneration;
         }
         break;
+    case Kind::Transform: {
+        ActiveStroke& s = *m_stroke;
+        if (s.handle == annotation::kStartPointHandle || s.handle == annotation::kEndPointHandle) {
+            s.transformed = annotation::movedEndPoint(s.item, s.handle, n);
+        } else {
+            const Qt::KeyboardModifiers modifiers = QGuiApplication::keyboardModifiers();
+            annotation::TransformOptions options;
+            options.keepAspect = (modifiers & Qt::ShiftModifier) || s.item.tool == annotation::AnnotationTool::Text;
+            options.fromCenter = modifiers & Qt::AltModifier;
+            options.snapAngle = modifiers & Qt::ShiftModifier;
+            s.currentBox = annotation::draggedBox(s.box, s.handle, s.pressPicture, widgetToPicture(position), options);
+            s.transformed = annotation::transformedItem(s.item, pictureSize(), s.box, s.currentBox);
+        }
+        // As with a move, the original hides only once something changes.
+        if (m_hiddenItemId != s.item.id && s.transformed != s.item) {
+            m_hiddenItemId = s.item.id;
+            ++m_annotationGeneration;
+        }
+        break;
+    }
     case Kind::TextBox:
         m_stroke->currentNormalized = QPointF(std::clamp(n.x(), 0.0, 1.0), std::clamp(n.y(), 0.0, 1.0));
         break;
@@ -860,6 +1109,14 @@ void ViewerWidget::finishStroke()
         }
         break;
     }
+    case Kind::Transform:
+        if (stroke.transformed != stroke.item && annotation::isValidItem(stroke.transformed))
+            emit annotationItemChanged(stroke.frameIndex, stroke.transformed);
+        if (m_hiddenItemId == stroke.item.id) {
+            m_hiddenItemId = 0;
+            ++m_annotationGeneration;
+        }
+        break;
     case Kind::TextFrame:
         // Keep typing where the reviewer left off.
         if (m_textEditor) m_textEditor->setFocus(Qt::OtherFocusReason);
@@ -902,7 +1159,8 @@ void ViewerWidget::cancelStroke()
     if (!m_stroke) return;
     const ActiveStroke stroke = std::move(*m_stroke);
     m_stroke.reset();
-    if (stroke.kind == ActiveStroke::Kind::Move && m_hiddenItemId == stroke.item.id) {
+    if ((stroke.kind == ActiveStroke::Kind::Move || stroke.kind == ActiveStroke::Kind::Transform)
+        && m_hiddenItemId == stroke.item.id) {
         m_hiddenItemId = 0;
         ++m_annotationGeneration;
     }
@@ -1129,6 +1387,15 @@ bool ViewerWidget::eventFilter(QObject* watched, QEvent* event)
 
 void ViewerWidget::keyPressEvent(QKeyEvent* event)
 {
+    // Escape mid-drag puts the selection back where it was.
+    if (m_stroke && event->key() == Qt::Key_Escape
+        && (m_stroke->kind == ActiveStroke::Kind::Move || m_stroke->kind == ActiveStroke::Kind::Transform)) {
+        cancelStroke();
+        updateAnnotateCursor();
+        update();
+        event->accept();
+        return;
+    }
     if (m_annotateMode && m_selectedItemId != 0 && findItem(m_selectedItemId)
         && (event->key() == Qt::Key_Delete || event->key() == Qt::Key_Backspace)) {
         const quint64 id = m_selectedItemId;
@@ -1328,7 +1595,7 @@ void ViewerWidget::paintAnnotations(QPainter& painter, const QRectF& target)
     };
     std::optional<annotation::AnnotationItem> selected = moving ? moving : findItem(m_selectedItemId);
     if (selected && m_tool.tool == annotation::AnnotationTool::Select && !m_textEdit)
-        dashed(annotation::AnnotationRenderer::itemBounds(target, *selected).adjusted(-3, -3, 3, 3));
+        paintSelection(painter, target, *selected);
     if (m_stroke && m_stroke->kind == ActiveStroke::Kind::TextBox) {
         const QPointF a(target.left() + m_stroke->pressNormalized.x() * target.width(),
                         target.top() + m_stroke->pressNormalized.y() * target.height());
