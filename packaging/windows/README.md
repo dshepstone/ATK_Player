@@ -32,9 +32,9 @@ tests, prepares dependency notices/corresponding source, installs to `build/pack
 builds/verifies the MSI, and writes SHA-256.
 
 RC output is
-`build/package/windows/ATK-Player-0.5.0-rc1-Windows-x64.msi`. After acceptance,
-the same script supports `-VersionSuffix ""` for final 0.5.0, producing
-`ATK-Player-0.5.0-Windows-x64.msi`.
+`build/package/windows/ATK-Player-0.5.1-rc1-Windows-x64.msi`. After acceptance,
+the same script supports `-VersionSuffix ""` for final 0.5.1, producing
+`ATK-Player-0.5.1-Windows-x64.msi`.
 
 ## Installed product
 
@@ -49,7 +49,7 @@ the same script supports `-VersionSuffix ""` for final 0.5.0, producing
 - Start Menu `ATK Player\ATK Player`; no desktop shortcut
 - `.atkproj` → `ATK Player Project`; no media associations
 - Publisher: David Shepstone
-- MSI and EXE ProductVersion `0.5.0`; RC identity remains in artifact name,
+- MSI and EXE ProductVersion `0.5.1`; RC identity remains in artifact name,
   application display version and Installed Apps comments
 - Permanent UpgradeCode shown above; major upgrades remove older products,
   same-version upgrades support RC→final, and numeric downgrades are blocked
@@ -91,10 +91,13 @@ the SmartScreen warning.
 `verify-installer.ps1` inspects MSI metadata and validates x64 identity,
 UpgradeCode, shortcut, association, runtime/license contents, and prohibited
 file absence. `.github/workflows/windows-release.yml` supports manual and `v*`
-tag builds, uploads MSI/checksum artifacts, and never publishes a release.
+tag builds and uploads MSI/checksum artifacts. A final `vX.Y.Z` tag also runs
+`make-release-zip.ps1` on the tested MSI and publishes the GitHub release with
+the ZIP and the text from `github-release-<version>.md`; rc tags and manual runs
+never publish.
 
 Install interactively with `Start-Process "<absolute-msi-path>"`. Uninstall
 through Windows Installed Apps or `msiexec.exe /x "{PRODUCT-CODE}"`; verify
 installer-created files are gone and user data remains, then reinstall RC1.
-Install the 0.5.0 MSI over an installed 0.4.1 (and over RC1 when one was
+Install the 0.5.1 MSI over an installed 0.5.0 (and over RC1 when one was
 tested) and confirm a major upgrade using the same UpgradeCode. Do not create a fake public final release for this test.

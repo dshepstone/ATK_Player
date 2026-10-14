@@ -5,7 +5,7 @@ param(
     # output for the version in CMakeLists.txt.
     [string]$MsiPath,
     # Shown in INSTALL.txt: the releases this one installs over in place.
-    [string]$UpgradesFrom = "0.4.x or 0.3.0",
+    [string]$UpgradesFrom = "0.5.0, 0.4.x or 0.3.0",
     # Optional GitHub release text with {{ZIP_SHA256}} and {{MSI_SHA256}}
     # placeholders; a filled copy is written beside the ZIP.
     [string]$ReleaseBodyTemplate,
