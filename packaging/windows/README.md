@@ -94,8 +94,8 @@ file absence. `.github/workflows/windows-release.yml` supports manual and `v*`
 tag builds and uploads MSI/checksum artifacts. A final `vX.Y.Z` tag also runs
 `make-release-zip.ps1` on the tested MSI and publishes the GitHub release with
 the ZIP and the text from `github-release-<version>.md`. A manual run on `main`
-with an empty version suffix and **publish** ticked does the same and creates the
-`vX.Y.Z` tag (the version in `CMakeLists.txt`) on the tested commit; it stops if
+with **publish** ticked builds the final version (the suffix is ignored), does the
+same and creates the `vX.Y.Z` tag (the version in `CMakeLists.txt`) on the tested commit; it stops if
 that tag already exists. rc tags and other manual runs never publish.
 
 Install interactively with `Start-Process "<absolute-msi-path>"`. Uninstall
