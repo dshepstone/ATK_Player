@@ -86,6 +86,27 @@ public:
     /// Removes everything for the source. Returns false if already empty.
     bool clearAll();
 
+    // --- Copy, cut, paste and moving between frames ------------------------
+
+    /// Adds copies of `items` and `notes` on top of what `frame` already has,
+    /// each with a fresh id, as one undo step. Returns the new ids (items
+    /// first, then notes, in the order given). Returns an empty list and
+    /// changes nothing when there is nothing to add, any item or note is
+    /// invalid, or a per-frame / per-source limit would be exceeded.
+    QVector<quint64> pasteContent(int64_t frame, int64_t mediaTimeUs, const QVector<AnnotationItem>& items,
+                                  const QVector<FrameNote>& notes);
+
+    /// Removes the listed drawings and notes from `frame` as one undo step
+    /// (a cut). Unknown ids are ignored. Returns false if nothing was removed.
+    bool removeContent(int64_t frame, const QVector<quint64>& itemIds, const QVector<quint64>& noteIds);
+
+    /// Moves every drawing and note on `from` onto `to`, on top of what `to`
+    /// has, as one undo step. With `copy` the originals stay and the copies
+    /// get fresh ids; a move keeps the ids. Returns false and changes nothing
+    /// when `from` equals `to`, either is negative, `from` is empty, or a limit
+    /// would be exceeded.
+    bool moveFrameContent(int64_t from, int64_t to, int64_t toMediaTimeUs, bool copy);
+
     bool canUndo() const { return !m_undo.isEmpty(); }
     bool canRedo() const { return !m_redo.isEmpty(); }
     /// Reverts / reapplies the latest edit. Return false when there is nothing.
@@ -114,6 +135,9 @@ private:
     void commit(Edit edit);
     void apply(const Edit& edit, bool forward);
     quint64 allocateId();
+    /// Whether `target` (a frame's current content) can take `itemCount`
+    /// more drawings and `noteCount` more notes without passing a limit.
+    bool canAccept(const FrameAnnotation& target, qsizetype itemCount, qsizetype noteCount) const;
 
     SourceAnnotations m_annotations;
     QVector<Edit> m_undo;

@@ -7,6 +7,11 @@ on:
         description: 'Version suffix (rc1 for acceptance; empty for final)'
         required: false
         default: 'rc1'
+      publish:
+        description: 'Publish the GitHub release (main only, empty suffix). Creates the vX.Y.Z tag from CMakeLists.txt on this commit.'
+        type: boolean
+        required: false
+        default: false
   push:
     tags: ['v*']
 
@@ -90,10 +95,15 @@ jobs:
 
   publish:
     name: Publish GitHub release
-    # Only a final release tag (vX.Y.Z, no suffix) publishes. Pushing that
-    # tag is the maintainer's release approval; rc tags and manual runs only
-    # build the MSI above.
-    if: github.ref_type == 'tag' && !contains(github.ref_name, '-')
+    # Only a final release publishes, approved by the maintainer one of two
+    # ways: pushing the final tag (vX.Y.Z, no suffix), or running this
+    # workflow by hand on main with an empty suffix and Publish ticked, which
+    # creates that tag on the tested commit. rc tags and other manual runs
+    # only build the MSI above.
+    if: >-
+      (github.ref_type == 'tag' && !contains(github.ref_name, '-'))
+      || (github.event_name == 'workflow_dispatch' && inputs.publish &&
+      github.ref == 'refs/heads/main' && inputs.version_suffix == '')
     needs: package
     runs-on: windows-2022
     permissions:
@@ -113,7 +123,13 @@ jobs:
         id: zip
         shell: pwsh
         run: |
-          $version = '${{ github.ref_name }}'.TrimStart('v')
+          if ('${{ github.ref_type }}' -eq 'tag') {
+            $version = '${{ github.ref_name }}'.TrimStart('v')
+          } else {
+            $match = Select-String -Path CMakeLists.txt -Pattern '^\s*VERSION\s+(\d+\.\d+\.\d+)\s*$' | Select-Object -First 1
+            if (-not $match) { throw 'No project VERSION found in CMakeLists.txt.' }
+            $version = $match.Matches[0].Groups[1].Value
+          }
           $template = "packaging/windows/github-release-$version.md"
           if (-not (Test-Path -LiteralPath $template)) { throw "Missing release text $template." }
           .\packaging\windows\make-release-zip.ps1 -ReleaseBodyTemplate $template
@@ -125,5 +141,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $version = '${{ steps.zip.outputs.version }}'
-          gh release create '${{ github.ref_name }}' "build/package/release/ATK-Player-v$version-Windows.zip" `
-            --verify-tag --title "ATK Player $version" --notes-file "build/package/release/RELEASE_BODY_v$version.md"
+          $tag = "v$version"
+          if ('${{ github.ref_type }}' -eq 'tag') {
+            $where = @('--verify-tag')
+          } else {
+            # A manual publish makes the tag itself, on the commit just built
+            # and tested. An existing tag means this version is already out.
+            if (git ls-remote --tags origin "refs/tags/$tag") { throw "Tag $tag already exists." }
+            $where = @('--target', '${{ github.sha }}')
+          }
+          gh release create $tag "build/package/release/ATK-Player-v$version-Windows.zip" `
+            @where --title "ATK Player $version" --notes-file "build/package/release/RELEASE_BODY_v$version.md"

@@ -93,6 +93,13 @@ bool TimelineWidget::event(QEvent* event)
             QToolTip::showText(help->globalPos(), text, this);
             return true;
         }
+        if (annotatedFrameAtPosition(help->pos()) >= 0) {
+            QToolTip::showText(help->globalPos(),
+                               tr("Notes or drawings on this frame.\nDrag to move them to another frame; "
+                                  "hold Ctrl to copy."),
+                               this);
+            return true;
+        }
         QToolTip::hideText();
     }
     return QWidget::event(event);
@@ -263,6 +270,7 @@ void TimelineWidget::paintEvent(QPaintEvent* event)
     paintFrameLabels(painter);
     paintPlayhead(painter);
     paintScrubFrameLabel(painter);
+    paintMarkerDrag(painter);
 }
 
 void TimelineWidget::paintWaveform(QPainter& painter)
@@ -457,6 +465,60 @@ void TimelineWidget::paintAnnotatedFrames(QPainter& painter)
         const QPointF tip(x + 0.5, track.bottom() + 1.0);
         painter.drawPolygon(QPolygonF{tip, tip + QPointF(-3.5, 5.0), tip + QPointF(3.5, 5.0)});
     }
+    painter.restore();
+}
+
+int64_t TimelineWidget::annotatedFrameAtPosition(const QPoint& point) const
+{
+    if (m_model == nullptr || m_annotatedFrames.isEmpty()) return -1;
+    // The wedge is 7 px wide and 5 px tall; the reach is a little more so it
+    // is easy to pick up, and the nearest marker wins where several crowd.
+    constexpr int kReachX = 5;
+    const QRect track = trackRect();
+    if (point.y() < track.bottom() || point.y() > track.bottom() + 12) return -1;
+    int64_t best = -1;
+    int bestDistance = kReachX + 1;
+    for (const int64_t frame : m_annotatedFrames) {
+        const int x = xForFrame(frame);
+        if (x < 0) continue;
+        const int distance = std::abs(point.x() - x);
+        if (distance < bestDistance) {
+            bestDistance = distance;
+            best = frame;
+        }
+    }
+    return best;
+}
+
+void TimelineWidget::paintMarkerDrag(QPainter& painter)
+{
+    if (m_markerDragFrom < 0 || m_markerDragTo < 0 || m_markerDragTo == m_markerDragFrom) return;
+    const int x = xForFrame(m_markerDragTo);
+    if (x < 0) return;
+    const QRect track = trackRect();
+    painter.save();
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    // A dashed guide through the track and a solid wedge where the drop lands.
+    QPen guide(theme::playhead(), 1, Qt::DashLine);
+    painter.setPen(guide);
+    painter.drawLine(QPointF(x + 0.5, track.top()), QPointF(x + 0.5, track.bottom() + 1.0));
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(theme::playhead());
+    const QPointF tip(x + 0.5, track.bottom() + 1.0);
+    painter.drawPolygon(QPolygonF{tip, tip + QPointF(-4.5, 6.5), tip + QPointF(4.5, 6.5)});
+
+    QFont bold = font();
+    bold.setBold(true);
+    painter.setFont(bold);
+    const QString text = (m_markerDragCopy ? tr("Copy to %1") : tr("Move to %1")).arg(m_markerDragTo + 1);
+    const QFontMetrics metrics(bold);
+    const int width = metrics.horizontalAdvance(text) + 2 * kScrubLabelPadding;
+    const int height = metrics.height() + 4;
+    const int left = std::clamp(x - width / 2, 0, std::max(0, rect().width() - width));
+    const QRect badge(left, track.top() - 4 - height, width, height);
+    painter.drawRoundedRect(badge, 3, 3);
+    painter.setPen(theme::timelineTrack());
+    painter.drawText(badge, Qt::AlignCenter, text);
     painter.restore();
 }
 
@@ -692,6 +754,14 @@ void TimelineWidget::mousePressEvent(QMouseEvent* event)
     }
     const int clickX = event->position().toPoint().x();
     if (m_model) {
+        const int64_t marker = annotatedFrameAtPosition(event->position().toPoint());
+        if (marker >= 0) {
+            m_markerDragFrom = marker;
+            m_markerDragTo = marker;
+            m_markerDragCopy = event->modifiers().testFlag(Qt::ControlModifier);
+            setCursor(Qt::ClosedHandCursor);
+            return;
+        }
         const quint64 id = bookmarkAtPosition(event->position().toPoint());
         if (id != 0) {
             setSelectedBookmark(id);
@@ -723,6 +793,17 @@ void TimelineWidget::mouseMoveEvent(QMouseEvent* event)
         if (delta != 0) { m_model->panViewport(delta); m_lastPanX = x; }
         return;
     }
+    if (m_markerDragFrom >= 0) {
+        const int64_t frame = std::clamp<int64_t>(frameForX(event->position().toPoint().x()), 0, lastFrame());
+        const bool copy = event->modifiers().testFlag(Qt::ControlModifier);
+        if (frame != m_markerDragTo || copy != m_markerDragCopy) {
+            m_markerDragTo = frame;
+            m_markerDragCopy = copy;
+            setCursor(copy ? Qt::DragCopyCursor : Qt::ClosedHandCursor);
+            update();
+        }
+        return;
+    }
     if (!m_scrubbing) {
         QWidget::mouseMoveEvent(event);
         return;
@@ -746,6 +827,26 @@ void TimelineWidget::mouseReleaseEvent(QMouseEvent* event)
     if (event->button() == Qt::MiddleButton && m_panning) {
         m_panning = false;
         unsetCursor();
+        return;
+    }
+    if (event->button() == Qt::LeftButton && m_markerDragFrom >= 0) {
+        const int64_t from = m_markerDragFrom;
+        const int64_t to = m_markerDragTo;
+        const bool copy = event->modifiers().testFlag(Qt::ControlModifier);
+        m_markerDragFrom = -1;
+        m_markerDragTo = -1;
+        m_markerDragCopy = false;
+        unsetCursor();
+        update();
+        if (to >= 0 && to != from) {
+            emit annotatedFrameDropped(from, to, copy);
+        } else {
+            // A click on a marker without dragging goes to that frame.
+            m_scrubFrame = from;
+            m_lastRequestedFrame = from;
+            emit scrubStarted();
+            emit scrubFinished(from);
+        }
         return;
     }
     if (event->button() == Qt::LeftButton && m_scrubbing) {

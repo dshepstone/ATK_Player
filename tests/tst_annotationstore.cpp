@@ -45,6 +45,11 @@ private slots:
     void replaceItemKeepsIdOrderAndUndo();
     void notesAddUpdateRemoveAndUndo();
     void clearFrameKeepsNotes();
+    void pasteAddsFreshCopiesAsOneUndoStep();
+    void pasteIsAllOrNothing();
+    void removeContentCutsSelectedItemsAndNotes();
+    void moveFrameContentMovesOrCopiesWithOneUndo();
+    void moveFrameContentRespectsLimits();
 };
 
 void TestAnnotationStore::toolNamesRoundTripAndRejectUnknown()
@@ -532,6 +537,158 @@ void TestAnnotationStore::clearFrameKeepsNotes()
     store.addItem(3, 0, stroke());
     QVERIFY(store.eraseDiscs(3, {{0.55, 0.55}}, 5000, QSizeF(100, 100), EraserMode::Area));
     QCOMPARE(store.frame(3).notes.size(), 1);
+}
+
+namespace {
+FrameNote note(const QString& text)
+{
+    FrameNote n;
+    n.text = text;
+    n.author = QStringLiteral("Reviewer");
+    n.createdMsUtc = 1700000000000;
+    return n;
+}
+} // namespace
+
+void TestAnnotationStore::pasteAddsFreshCopiesAsOneUndoStep()
+{
+    AnnotationStore store;
+    const quint64 a = store.addItem(1, 1000, stroke(0.2f, 0.2f));
+    const quint64 b = store.addItem(1, 1000, stroke(0.4f, 0.4f));
+    const quint64 n = store.addNote(1, 1000, note(QStringLiteral("Hold this pose")));
+    QVERIFY(a && b && n);
+    const FrameAnnotation copied = store.frame(1);
+
+    // Onto an empty frame: every copy gets a new id, the content is the same.
+    QSignalSpy history(&store, &AnnotationStore::historyChanged);
+    const QVector<quint64> ids = store.pasteContent(5, 5000, copied.items, copied.notes);
+    QCOMPARE(ids.size(), 3);
+    QCOMPARE(history.size(), 1);
+    const FrameAnnotation pasted = store.frame(5);
+    QCOMPARE(pasted.mediaTimeUs, qint64(5000));
+    QCOMPARE(pasted.items.size(), 2);
+    QCOMPARE(pasted.notes.size(), 1);
+    QCOMPARE(pasted.items[0].id, ids[0]);
+    QCOMPARE(pasted.items[1].id, ids[1]);
+    QCOMPARE(pasted.notes[0].id, ids[2]);
+    for (const quint64 id : ids) QVERIFY(id != a && id != b && id != n);
+    QCOMPARE(pasted.items[0].points, copied.items[0].points);
+    QCOMPARE(pasted.notes[0].text, copied.notes[0].text);
+    QCOMPARE(store.frame(1), copied); // the original is untouched
+
+    // Onto a frame that already has drawings: added on top.
+    QVERIFY(!store.pasteContent(1, 1000, {copied.items[0]}, {}).isEmpty());
+    QCOMPARE(store.frame(1).items.size(), 3);
+
+    // Each paste is one undo step.
+    QVERIFY(store.undo());
+    QCOMPARE(store.frame(1), copied);
+    QVERIFY(store.undo());
+    QVERIFY(!store.hasAnnotations(5));
+    QVERIFY(store.redo());
+    QCOMPARE(store.frame(5), pasted);
+}
+
+void TestAnnotationStore::pasteIsAllOrNothing()
+{
+    AnnotationStore store;
+    QVERIFY(store.pasteContent(0, 0, {}, {}).isEmpty());
+    QVERIFY(store.pasteContent(-1, 0, {stroke()}, {}).isEmpty());
+    AnnotationItem invalid = stroke();
+    invalid.points.clear();
+    QVERIFY(store.pasteContent(0, 0, {stroke(), invalid}, {}).isEmpty());
+    QVERIFY(store.pasteContent(0, 0, {stroke()}, {FrameNote{}}).isEmpty()); // blank note
+    QVERIFY(store.annotations().isEmpty());
+    QVERIFY(!store.canUndo());
+
+    // A paste that would pass the per-frame limit adds nothing at all.
+    QVector<AnnotationItem> many(AnnotationLimits::kMaxItemsPerFrame - 1, stroke());
+    QCOMPARE(store.pasteContent(2, 0, many, {}).size(), many.size());
+    QVERIFY(store.pasteContent(2, 0, {stroke(), stroke()}, {}).isEmpty());
+    QCOMPARE(store.frame(2).items.size(), AnnotationLimits::kMaxItemsPerFrame - 1);
+    QCOMPARE(store.pasteContent(2, 0, {stroke()}, {}).size(), 1);
+}
+
+void TestAnnotationStore::removeContentCutsSelectedItemsAndNotes()
+{
+    AnnotationStore store;
+    const quint64 a = store.addItem(3, 0, stroke(0.1f, 0.1f));
+    const quint64 b = store.addItem(3, 0, stroke(0.3f, 0.3f));
+    const quint64 n = store.addNote(3, 0, note(QStringLiteral("Too floaty")));
+    const FrameAnnotation before = store.frame(3);
+
+    QVERIFY(!store.removeContent(3, {999}, {}));
+    QVERIFY(!store.removeContent(4, {a}, {}));
+    QVERIFY(store.removeContent(3, {a}, {}));
+    QCOMPARE(store.frame(3).items.size(), 1);
+    QCOMPARE(store.frame(3).items[0].id, b);
+
+    // Cutting everything removes the frame; one undo brings it all back.
+    QVERIFY(store.removeContent(3, {b}, {n}));
+    QVERIFY(!store.hasAnnotations(3));
+    QVERIFY(store.undo());
+    QVERIFY(store.undo());
+    QCOMPARE(store.frame(3), before);
+}
+
+void TestAnnotationStore::moveFrameContentMovesOrCopiesWithOneUndo()
+{
+    AnnotationStore store;
+    const quint64 a = store.addItem(2, 200, stroke(0.2f, 0.2f));
+    const quint64 n = store.addNote(2, 200, note(QStringLiteral("Arc is flat")));
+    const quint64 existing = store.addItem(9, 900, stroke(0.7f, 0.7f));
+    const FrameAnnotation source = store.frame(2);
+    const FrameAnnotation target = store.frame(9);
+
+    // Move onto an empty frame: ids are kept and the source frame empties.
+    QSignalSpy history(&store, &AnnotationStore::historyChanged);
+    QVERIFY(store.moveFrameContent(2, 4, 400, false));
+    QCOMPARE(history.size(), 1);
+    QVERIFY(!store.hasAnnotations(2));
+    QCOMPARE(store.frame(4).items, source.items);
+    QCOMPARE(store.frame(4).notes, source.notes);
+    QCOMPARE(store.frame(4).mediaTimeUs, qint64(400));
+    QCOMPARE(store.annotatedFrames(), (QVector<int64_t>{4, 9}));
+
+    // Undo puts both frames back in one step.
+    QVERIFY(store.undo());
+    QCOMPARE(store.frame(2), source);
+    QVERIFY(!store.hasAnnotations(4));
+    QVERIFY(store.redo());
+    QVERIFY(!store.hasAnnotations(2));
+    QVERIFY(store.undo());
+
+    // Copy onto a frame that has a drawing: added on top with fresh ids.
+    QVERIFY(store.moveFrameContent(2, 9, 900, true));
+    QCOMPARE(store.frame(2), source);
+    const FrameAnnotation merged = store.frame(9);
+    QCOMPARE(merged.items.size(), 2);
+    QCOMPARE(merged.items[0].id, existing);
+    QVERIFY(merged.items[1].id != a);
+    QCOMPARE(merged.items[1].points, source.items[0].points);
+    QCOMPARE(merged.notes.size(), 1);
+    QVERIFY(merged.notes[0].id != n);
+    QCOMPARE(merged.mediaTimeUs, target.mediaTimeUs); // the target keeps its own time
+    QVERIFY(store.undo());
+    QCOMPARE(store.frame(9), target);
+
+    // Nothing to move, or no move at all.
+    QVERIFY(!store.moveFrameContent(2, 2, 0, false));
+    QVERIFY(!store.moveFrameContent(5, 6, 0, false));
+    QVERIFY(!store.moveFrameContent(-1, 6, 0, true));
+    QVERIFY(!store.moveFrameContent(2, -1, 0, true));
+}
+
+void TestAnnotationStore::moveFrameContentRespectsLimits()
+{
+    AnnotationStore store;
+    QVector<AnnotationItem> many(AnnotationLimits::kMaxItemsPerFrame, stroke());
+    QCOMPARE(store.pasteContent(1, 0, many, {}).size(), many.size());
+    QVERIFY(store.addItem(2, 0, stroke()) != 0);
+    const SourceAnnotations before = store.annotations();
+    QVERIFY(!store.moveFrameContent(2, 1, 0, false)); // the target frame is full
+    QVERIFY(!store.moveFrameContent(2, 1, 0, true));
+    QCOMPARE(store.annotations(), before);
 }
 
 QTEST_APPLESS_MAIN(TestAnnotationStore)

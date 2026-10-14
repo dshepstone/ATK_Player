@@ -69,6 +69,11 @@ public:
     /// see where notes are and step to them.
     void setAnnotatedFrames(QVector<int64_t> frames);
     const QVector<int64_t>& annotatedFrames() const { return m_annotatedFrames; }
+    /// The annotated frame whose marker (the wedge under the track) is at
+    /// `point`, or -1. Dragging a marker moves that frame's notes and drawings.
+    int64_t annotatedFrameAtPosition(const QPoint& point) const;
+    /// Where a marker drag would drop, or -1 when no marker is being dragged.
+    int64_t markerDropFrame() const { return m_markerDragFrom >= 0 ? m_markerDragTo : -1; }
     quint64 selectedBookmarkId() const { return m_selectedBookmarkId; }
     /// Badge above the playhead showing the frame under the pointer while a
     /// scrub drag is in progress. Empty when not scrubbing.
@@ -91,6 +96,10 @@ signals:
     void bookmarkSelected(quint64 id);
     /// A point marker or range band was double-clicked.
     void bookmarkActivated(quint64 id);
+    /// A drawing marker was dragged from `fromFrame` and let go over `toFrame`
+    /// (zero-based). `copy` is true when Ctrl was held at release: copy the
+    /// frame's notes and drawings rather than move them.
+    void annotatedFrameDropped(qint64 fromFrame, qint64 toFrame, bool copy);
 
 protected:
     bool event(QEvent* event) override;
@@ -121,6 +130,7 @@ private:
     void paintPlayhead(QPainter& painter);
     void paintFrameLabels(QPainter& painter);
     void paintScrubFrameLabel(QPainter& painter);
+    void paintMarkerDrag(QPainter& painter);
 
     /// Emits a seek request, but no more often than the throttle interval
     /// while a drag is in progress.
@@ -156,6 +166,11 @@ private:
     bool m_bookmarkSnapEnabled = true;
     quint64 m_selectedBookmarkId = 0;
     QVector<int64_t> m_annotatedFrames;
+    // Drawing-marker drag: the frame picked up and where it would land; -1
+    // when no marker is held. m_markerDragCopy follows Ctrl during the drag.
+    int64_t m_markerDragFrom = -1;
+    int64_t m_markerDragTo = -1;
+    bool m_markerDragCopy = false;
 };
 
 } // namespace atk::ui

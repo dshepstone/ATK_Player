@@ -77,6 +77,9 @@ signals:
     void addNoteRequested(qint64 frame, const QString& text);
     void updateNoteRequested(qint64 frame, const atk::annotation::FrameNote& note);
     void deleteNoteRequested(qint64 frame, quint64 noteId);
+    /// Copy Note / Cut Note from a note's menu: the owner puts the note on the
+    /// annotation clipboard (and with `cut`, removes it), for Paste on another frame.
+    void copyNoteRequested(qint64 frame, quint64 noteId, bool cut);
     void noteActivated(qint64 frame);
     void reviewerNameChanged(const QString& name);
     /// The panel's export shortcuts: a Review Notes PDF, or the annotated video.

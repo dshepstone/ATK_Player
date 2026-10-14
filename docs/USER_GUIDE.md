@@ -148,6 +148,19 @@ and A/B comparison work as described in the README.
   snaps to 15°). Lines and arrows have a handle on each end; text resizes from
   its corners. Drag the drawing itself to move it, press `Esc` during a drag to
   put it back, and `Ctrl+Z` to undo.
+- **Copy, cut and paste between frames** with the copy, cut and paste buttons
+  on the drawing row, or `Ctrl+C`, `Ctrl+X` and `Ctrl+V`. With a drawing
+  picked by the select tool, they copy or cut just that drawing; with nothing
+  picked, everything on the frame, drawings and notes. Go to another frame,
+  or another clip, and paste: everything lands in the same place on the
+  picture. A single pasted drawing comes up selected, so you can drag it into
+  position straight away. To copy one written note, right-click it in the
+  Notes panel and choose **Copy Note** or **Cut Note**, then paste.
+- **Drag a frame's notes and drawings to another frame** on the timeline: the
+  small orange marks under the track show which frames have them. Drag a mark
+  to another frame to move everything there; hold `Ctrl` while you let go to
+  copy instead. Clicking a mark without dragging goes to that frame. Each
+  paste, cut or drag is one undo step.
 - The **Notes** panel (`F6`, or **Notes** at the top right) starts closed so
   the picture stays large. Notes can be searched and sorted; `Ctrl+.` and
   `Ctrl+,` jump between frames with notes or drawings.
@@ -176,6 +189,7 @@ The **File** menu has all of these plus **Export Image Sequence…**.
 | Previous / Next Frame | `Left` / `Right` |
 | Loop on/off | `L` |
 | Draw on Frame | `D` |
+| Copy / Cut / Paste drawings and notes | `Ctrl+C` / `Ctrl+X` / `Ctrl+V` |
 | Brush size | `[` / `]` |
 | Tracing Paper / Ghosts | `T` / `G` |
 | Next / Previous note or drawing | `Ctrl+.` / `Ctrl+,` |

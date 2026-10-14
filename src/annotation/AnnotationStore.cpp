@@ -152,6 +152,91 @@ bool AnnotationStore::clearAll()
     return true;
 }
 
+bool AnnotationStore::canAccept(const FrameAnnotation& target, qsizetype itemCount, qsizetype noteCount) const
+{
+    if (target.items.size() + itemCount > AnnotationLimits::kMaxItemsPerFrame) return false;
+    if (target.notes.size() + noteCount > AnnotationLimits::kMaxNotesPerFrame) return false;
+    return !target.isEmpty() || m_annotations.frameCount() < AnnotationLimits::kMaxAnnotatedFrames;
+}
+
+QVector<quint64> AnnotationStore::pasteContent(int64_t frame, int64_t mediaTimeUs,
+                                               const QVector<AnnotationItem>& items,
+                                               const QVector<FrameNote>& notes)
+{
+    if (frame < 0 || (items.isEmpty() && notes.isEmpty())) return {};
+    if (!std::all_of(items.cbegin(), items.cend(), isValidItem)
+        || !std::all_of(notes.cbegin(), notes.cend(), isValidNote))
+        return {};
+    FrameAnnotation before = m_annotations.frame(frame);
+    if (!canAccept(before, items.size(), notes.size())) return {};
+
+    FrameAnnotation after = before;
+    if (after.isEmpty()) after.mediaTimeUs = mediaTimeUs;
+    QVector<quint64> ids;
+    ids.reserve(items.size() + notes.size());
+    for (AnnotationItem item : items) {
+        item.id = allocateId();
+        ids.append(item.id);
+        after.items.append(std::move(item));
+    }
+    for (FrameNote note : notes) {
+        note.id = allocateId();
+        ids.append(note.id);
+        after.notes.append(std::move(note));
+    }
+    commit({{frame, std::move(before), std::move(after)}});
+    return ids;
+}
+
+bool AnnotationStore::removeContent(int64_t frame, const QVector<quint64>& itemIds, const QVector<quint64>& noteIds)
+{
+    const FrameAnnotation* found = m_annotations.find(frame);
+    if (!found) return false;
+    FrameAnnotation before = *found;
+    FrameAnnotation after = before;
+    after.items.removeIf([&](const AnnotationItem& i) { return itemIds.contains(i.id); });
+    after.notes.removeIf([&](const FrameNote& n) { return noteIds.contains(n.id); });
+    if (after == before) return false;
+    commit({{frame, std::move(before), std::move(after)}});
+    return true;
+}
+
+bool AnnotationStore::moveFrameContent(int64_t from, int64_t to, int64_t toMediaTimeUs, bool copy)
+{
+    if (from < 0 || to < 0 || from == to) return false;
+    const FrameAnnotation* source = m_annotations.find(from);
+    if (!source || source->isEmpty()) return false;
+
+    FrameAnnotation targetBefore = m_annotations.frame(to);
+    // A move empties `from`, so it never adds to the number of annotated frames.
+    const bool frameLimitApplies = copy || !targetBefore.isEmpty();
+    if (targetBefore.items.size() + source->items.size() > AnnotationLimits::kMaxItemsPerFrame
+        || targetBefore.notes.size() + source->notes.size() > AnnotationLimits::kMaxNotesPerFrame
+        || (frameLimitApplies && !canAccept(targetBefore, 0, 0)))
+        return false;
+
+    FrameAnnotation targetAfter = targetBefore;
+    if (targetAfter.isEmpty()) targetAfter.mediaTimeUs = toMediaTimeUs;
+    for (AnnotationItem item : source->items) {
+        if (copy) item.id = allocateId();
+        targetAfter.items.append(std::move(item));
+    }
+    for (FrameNote note : source->notes) {
+        if (copy) note.id = allocateId();
+        targetAfter.notes.append(std::move(note));
+    }
+
+    Edit edit;
+    if (!copy) {
+        FrameAnnotation emptied;
+        emptied.frame = from;
+        edit.append({from, *source, std::move(emptied)});
+    }
+    edit.append({to, std::move(targetBefore), std::move(targetAfter)});
+    commit(std::move(edit));
+    return true;
+}
+
 void AnnotationStore::commit(Edit edit)
 {
     apply(edit, true);
