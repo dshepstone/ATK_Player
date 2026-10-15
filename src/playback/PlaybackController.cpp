@@ -197,6 +197,7 @@ PlaybackController::PlaybackController(timeline::TimelineModel* timeline, QObjec
                 if (!m_compareAudioOverride || generation != m_compareAudioGeneration
                     || m_state != PlayerState::Playing) return;
                 m_lastAudioEpochUs = masterEpochUs;
+                if (m_playbackSpeed != 1.0) return; // silent; video is already on the clock
                 if (bufferedMs > 0 && m_audioActive) m_audioOutput->start(masterEpochUs);
                 m_monotonicStartNs = monotonicNowNs();
                 startDisplayTimer();
@@ -1088,7 +1089,9 @@ void PlaybackController::onAudioPrimed(int bufferedMs, qint64 mediaOriginUs,
     if (mediaOriginUs >= 0) {
         m_lastAudioEpochUs = mediaOriginUs;
     }
-    if (!m_audioActive) return;
+    // Away from normal speed video already runs on the monotonic clock (see
+    // play()); the primed audio is not played.
+    if (!m_audioActive || m_playbackSpeed != 1.0) return;
 
     qCInfo(log::playback).noquote()
         << QStringLiteral("Starting audio output with %1 ms primed").arg(bufferedMs);
@@ -1267,6 +1270,11 @@ bool PlaybackController::usingAudioClock() const
 
 int64_t PlaybackController::masterPositionUs() const
 {
+    // Away from normal speed the audio is silent, so it cannot be the clock.
+    if (m_playbackSpeed != 1.0) {
+        const double elapsedUs = double(monotonicNowNs() - m_monotonicStartNs) / 1000.0;
+        return m_playbackStartUs + static_cast<int64_t>(std::llround(elapsedUs * m_playbackSpeed));
+    }
     if (usingAudioClock()) {
         const int64_t audioPosition = m_audioOutput->positionUs();
         if (audioPosition >= 0) {
@@ -1303,7 +1311,7 @@ int PlaybackController::displayIntervalMs() const
     if (fps <= 0.0) {
         return kIdleDisplayIntervalMs;
     }
-    const int interval = static_cast<int>(500.0 / fps);
+    const int interval = static_cast<int>(500.0 / (fps * std::max(1.0, m_playbackSpeed)));
     return std::clamp(interval, 1, kMaxDisplayIntervalMs);
 }
 
@@ -1460,7 +1468,7 @@ void PlaybackController::play()
     }
 
     setState(PlayerState::Playing);
-    if (inPlaceholderMode() || !m_audioActive
+    if (inPlaceholderMode() || !m_audioActive || m_playbackSpeed != 1.0
         || (m_compareAudioOverride && !m_compareAudioAvailable)) {
         m_playbackEpochDirty = false;
         m_playbackReanchorInProgress = false;
@@ -1901,6 +1909,45 @@ void PlaybackController::setLoopEnabled(bool enabled)
     emit loopEnabledChanged(m_loopEnabled);
 }
 
+const QVector<double>& PlaybackController::playbackSpeeds()
+{
+    static const QVector<double> speeds{0.1, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0};
+    return speeds;
+}
+
+void PlaybackController::setPlaybackSpeed(double speed)
+{
+    if (!std::isfinite(speed) || speed <= 0.0) speed = 1.0;
+    const QVector<double>& speeds = playbackSpeeds();
+    const double snapped = *std::min_element(speeds.cbegin(), speeds.cend(), [speed](double a, double b) {
+        return std::abs(a - speed) < std::abs(b - speed);
+    });
+    if (snapped == m_playbackSpeed) return;
+
+    // Re-anchor a running transport at the frame on screen, so the change
+    // takes effect from here and audio starts or stops cleanly with it.
+    const bool playing = isPlaying();
+    if (playing) pause();
+    m_playbackSpeed = snapped;
+    qCInfo(log::playback) << "Playback speed" << m_playbackSpeed;
+    emit playbackSpeedChanged(m_playbackSpeed);
+    if (playing) play();
+}
+
+void PlaybackController::increasePlaybackSpeed()
+{
+    const QVector<double>& speeds = playbackSpeeds();
+    const auto it = std::upper_bound(speeds.cbegin(), speeds.cend(), m_playbackSpeed);
+    if (it != speeds.cend()) setPlaybackSpeed(*it);
+}
+
+void PlaybackController::decreasePlaybackSpeed()
+{
+    const QVector<double>& speeds = playbackSpeeds();
+    const auto it = std::lower_bound(speeds.cbegin(), speeds.cend(), m_playbackSpeed);
+    if (it != speeds.cbegin()) setPlaybackSpeed(*(it - 1));
+}
+
 void PlaybackController::setPlaybackRange(int64_t startFrame, int64_t endFrame)
 {
     timeline::PlaybackRange range;
@@ -1956,7 +2003,7 @@ void PlaybackController::restartSelectedAudioAt(qint64 sourceATimeUs)
 {
     if (!m_compareAudioOverride || !m_compareAudioAvailable) return;
     m_lastCompareAudioTargetUs = comparisonProviderTimeUs(sourceATimeUs);
-    if (!m_audioActive) return;
+    if (!m_audioActive || m_playbackSpeed != 1.0) return;
     m_audioOutput->stop();
     m_playbackStartUs = sourceATimeUs;
     m_monotonicStartNs = monotonicNowNs();

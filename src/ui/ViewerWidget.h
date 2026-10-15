@@ -78,6 +78,9 @@ public:
     void setFitMode(FitMode mode);
     void fitImage();
     void showActualSize();
+    /// Zooms to `percent` (100 = one picture pixel per screen pixel) about
+    /// the centre of the viewer.
+    void zoomToPercent(qreal percent);
     void zoomIn();
     void zoomOut();
     void resetNavigationToFit();

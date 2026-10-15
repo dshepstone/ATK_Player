@@ -115,10 +115,10 @@ open, nothing is renamed and you are told which file.
 
 ## 4. Playing the review
 
-The **playlist** on the left shows a card for each clip: its number, a
-thumbnail, the frame count, and badges for notes, drawings and status. The
-loaded clip has an accent bar. Drag cards to reorder; `F4` shows or hides the
-panel.
+The **playlist** on the left shows a card for each clip: its number in a
+strip down the left edge, a thumbnail, the frame count, and badges for notes,
+drawings and status. The loaded clip's number strip is filled with the accent
+colour. Drag cards to reorder; `F4` shows or hides the panel.
 
 What happens at the end of each clip is set with the arrow beside the
 **Loop** button (also in the **Playback** menu):
@@ -133,6 +133,16 @@ What happens at the end of each clip is set with the arrow beside the
 The **Loop** button itself (`L`) switches between your loop choice and your
 non-loop choice, and both choices are remembered.
 
+**Playback speed**: the speed button beside Loop shows the rate the clip
+plays at, such as `24fps`, or `12fps` at half speed. Its menu offers 0.1x to
+2x; `<` and `>` step slower and faster, and `K` returns to normal speed. Away
+from normal speed the clip plays without sound. Frame stepping and scrubbing
+are not affected.
+
+**Zoom**: the zoom button near the right of the bottom bar shows the zoom level
+(**Fit**, or a percentage). Its menu zooms in and out, fits the picture, or
+picks 25%, 50%, 100%, 200% or 400%. The button beside it fits the picture.
+
 Frame stepping (`Left` / `Right`), review ranges (`I` / `O`), bookmarks (`B`)
 and A/B comparison work as described in the README.
 
@@ -140,8 +150,18 @@ and A/B comparison work as described in the README.
 
 - **Draw on Frame** (`D`) shows the drawing row: pencil, pen, brush, marker,
   custom (imported Photoshop) brushes, line, arrow, rectangle, ellipse, text,
-  eraser and select, with colour and size (`[` / `]`). Tracing paper (`T`) and
-  ghosts (`G`) sit in the bottom bar.
+  eraser and select, with colour and size (`[` / `]`). Tracing paper (`T`),
+  ghosts (`G`), Hold Drawings, Drag Markers and Flip Canvas (`H`) sit in the
+  bottom bar; Flip Canvas is also on the drawing row.
+- **Hold Drawings** (`Shift+H`, the pin button): a drawing stays on screen on
+  the frames after it until the next drawing, like a held key drawing, and a
+  faint bar under the timeline shows how far each one holds. The arrow beside
+  the button chooses what drawing on a held frame does: **Add to Current
+  Drawing** adds the strokes to the held drawing, on the frame it was drawn
+  on; **Add New Drawing** starts a new drawing on the frame on screen, which
+  then holds from there. Erasing, moving or clearing a held drawing changes it
+  where it was drawn. **Don't Hold Drawings** turns it off. Holding is a view
+  setting: exports keep their own "keep on screen" choice.
 - **Adjust a drawing** with the select tool: click it to show its handles.
   Drag the square handles to resize it (`Shift` keeps its proportions, `Alt`
   resizes from the centre) and the round knob above it to rotate it (`Shift`
@@ -157,10 +177,12 @@ and A/B comparison work as described in the README.
   position straight away. To copy one written note, right-click it in the
   Notes panel and choose **Copy Note** or **Cut Note**, then paste.
 - **Drag a frame's notes and drawings to another frame** on the timeline: the
-  small orange marks under the track show which frames have them. Drag a mark
-  to another frame to move everything there; hold `Ctrl` while you let go to
-  copy instead. Clicking a mark without dragging goes to that frame. Each
-  paste, cut or drag is one undo step.
+  small orange marks under the track show which frames have them. Turn on
+  **Drag Markers** (the button with arrows pointing apart; off by default) and
+  the marks grow into handles: drag one to another frame to move everything
+  there, or hold `Ctrl` while you let go to copy instead. Clicking a mark goes
+  to that frame whether Drag Markers is on or off. Each paste, cut or drag is
+  one undo step.
 - The **Notes** panel (`F6`, or **Notes** at the top right) starts closed so
   the picture stays large. Notes can be searched and sorted; `Ctrl+.` and
   `Ctrl+,` jump between frames with notes or drawings.
@@ -192,6 +214,10 @@ The **File** menu has all of these plus **Export Image Sequence…**.
 | Copy / Cut / Paste drawings and notes | `Ctrl+C` / `Ctrl+X` / `Ctrl+V` |
 | Brush size | `[` / `]` |
 | Tracing Paper / Ghosts | `T` / `G` |
+| Hold Drawings on/off | `Shift+H` |
+| Flip Canvas | `H` |
+| Slower / Faster / Normal speed | `<` / `>` / `K` |
+| Zoom in / out / Fit / 100% | `Ctrl+=` / `Ctrl+-` / `Ctrl+0` / `Ctrl+1` |
 | Next / Previous note or drawing | `Ctrl+.` / `Ctrl+,` |
 | Playlist / Bookmarks / Notes panels | `F4` / `F5` / `F6` |
 

@@ -11,6 +11,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QVector>
 
 #include <cstdint>
 #include <deque>
@@ -145,6 +146,19 @@ public:
     void setLoopEnabled(bool enabled);
     bool isLoopEnabled() const { return m_loopEnabled; }
 
+    /// Playback speed as a multiple of the media's own rate (1.0 = real time).
+    /// Away from 1.0 the monotonic clock drives playback at that rate and the
+    /// audio is silent, since it cannot be stretched without being heard; it
+    /// returns at normal speed. Stepping and scrubbing are unaffected.
+    /// Values are snapped to the nearest of playbackSpeeds().
+    void setPlaybackSpeed(double speed);
+    double playbackSpeed() const { return m_playbackSpeed; }
+    /// The offered speeds, slowest first. Contains 1.0.
+    static const QVector<double>& playbackSpeeds();
+    /// The next offered speed above / below the current one (clamped).
+    void increasePlaybackSpeed();
+    void decreasePlaybackSpeed();
+
     void setPlaybackRange(int64_t startFrame, int64_t endFrame);
     void clearPlaybackRange();
     /// Applies the single active review range and lands exactly on its start.
@@ -197,6 +211,7 @@ public:
 signals:
     void stateChanged(atk::playback::PlayerState state);
     void loopEnabledChanged(bool enabled);
+    void playbackSpeedChanged(double speed);
     void mediaOpened(const atk::media::MediaMetadata& metadata);
     void mediaClosed();
 
@@ -398,6 +413,7 @@ private:
     PlayerState m_state = PlayerState::Empty;
     bool m_hasMedia = false;
     bool m_loopEnabled = false;
+    double m_playbackSpeed = 1.0;
     bool m_resumeAfterSeek = false;
     /// Jump-to-End while playing presents the requested boundary and then
     /// follows the normal loop/end policy instead of resuming from that frame.

@@ -54,6 +54,9 @@ constexpr auto kGhostBefore = "draw/ghostBefore";
 constexpr auto kGhostAfter = "draw/ghostAfter";
 constexpr auto kGhostMode = "draw/ghostMode";
 constexpr auto kGhostTint = "draw/ghostTint";
+constexpr auto kHoldDrawings = "draw/holdDrawings";
+constexpr auto kHoldDrawingsOnMode = "draw/holdDrawingsOnMode";
+constexpr auto kDragMarkers = "timeline/dragMarkers";
 
 QString curveName(annotation::PressureCurve curve)
 {
@@ -311,6 +314,32 @@ annotation::GhostSettings ApplicationSettings::ghostSettings() const
         result.mode = annotation::GhostSettings::Mode::Drawings;
     result.tint = readBool(kGhostTint, result.tint);
     return result;
+}
+
+annotation::HoldMode ApplicationSettings::holdDrawings() const
+{
+    return annotation::holdModeFromKey(m_settings->value(QString::fromLatin1(kHoldDrawings)).toString());
+}
+
+annotation::HoldMode ApplicationSettings::holdDrawingsOnMode() const
+{
+    const annotation::HoldMode mode = annotation::holdModeFromKey(
+        m_settings->value(QString::fromLatin1(kHoldDrawingsOnMode)).toString(), annotation::HoldMode::AddToCurrent);
+    return mode == annotation::HoldMode::Off ? annotation::HoldMode::AddToCurrent : mode;
+}
+
+void ApplicationSettings::setHoldDrawings(annotation::HoldMode mode)
+{
+    m_settings->setValue(QString::fromLatin1(kHoldDrawings), annotation::holdModeKey(mode));
+    if (mode != annotation::HoldMode::Off)
+        m_settings->setValue(QString::fromLatin1(kHoldDrawingsOnMode), annotation::holdModeKey(mode));
+}
+
+bool ApplicationSettings::dragMarkersEnabled() const { return readBool(kDragMarkers, false); }
+
+void ApplicationSettings::setDragMarkersEnabled(bool enabled)
+{
+    m_settings->setValue(QString::fromLatin1(kDragMarkers), enabled);
 }
 
 bool ApplicationSettings::openExportsWhenDone() const { return readBool(kOpenExportsWhenDone, true); }

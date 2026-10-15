@@ -44,6 +44,7 @@ set(ATK_CORE_SOURCES
     annotation/AnnotationTypes.cpp
     annotation/AnnotationTransform.cpp
     annotation/AnnotationGhosting.cpp
+    annotation/AnnotationHold.cpp
     annotation/AnnotationStore.cpp
     annotation/AnnotationEraser.cpp
     annotation/AbrReader.cpp
@@ -120,6 +121,7 @@ set(ATK_CORE_HEADERS
     annotation/AnnotationTypes.h
     annotation/AnnotationTransform.h
     annotation/AnnotationGhosting.h
+    annotation/AnnotationHold.h
     annotation/AnnotationStore.h
     annotation/AnnotationEraser.h
     annotation/AbrReader.h

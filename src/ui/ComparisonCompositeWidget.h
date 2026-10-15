@@ -21,6 +21,7 @@ public:
     int blendAmount() const { return m_blendAmount; }
     void fitImage();
     void showActualSize();
+    void zoomToPercent(qreal percent);
     void zoomIn();
     void zoomOut();
     void restoreTransform(const ViewerTransform& transform);

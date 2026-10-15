@@ -2,6 +2,7 @@
 
 #include "timeline/TimelineModel.h"
 
+#include <QElapsedTimer>
 #include <QSignalSpy>
 #include <QTest>
 
@@ -65,7 +66,68 @@ private slots:
     void transportIsInertWithoutAnExtent();
     void frameStepAudioIsOffAndIndependentByDefault();
     void timestampSkipClampsToReviewRange();
+
+    void playbackSpeedSnapsAndSteps();
+    void playbackSpeedChangesTheClockRate();
 };
+
+void TestPlaybackController::playbackSpeedSnapsAndSteps()
+{
+    Fixture fixture;
+    QSignalSpy changed(&fixture.playback, &PlaybackController::playbackSpeedChanged);
+    QCOMPARE(fixture.playback.playbackSpeed(), 1.0);
+
+    // Values snap to the offered speeds; repeating one emits nothing.
+    fixture.playback.setPlaybackSpeed(0.49);
+    QCOMPARE(fixture.playback.playbackSpeed(), 0.5);
+    fixture.playback.setPlaybackSpeed(0.5);
+    QCOMPARE(changed.count(), 1);
+    fixture.playback.setPlaybackSpeed(-3.0); // invalid: normal speed
+    QCOMPARE(fixture.playback.playbackSpeed(), 1.0);
+
+    // Faster and slower walk the list and stop at its ends.
+    fixture.playback.increasePlaybackSpeed();
+    QCOMPARE(fixture.playback.playbackSpeed(), 1.25);
+    for (int i = 0; i < 10; ++i) fixture.playback.increasePlaybackSpeed();
+    QCOMPARE(fixture.playback.playbackSpeed(), PlaybackController::playbackSpeeds().constLast());
+    for (int i = 0; i < 20; ++i) fixture.playback.decreasePlaybackSpeed();
+    QCOMPARE(fixture.playback.playbackSpeed(), PlaybackController::playbackSpeeds().constFirst());
+    QVERIFY(PlaybackController::playbackSpeeds().contains(1.0));
+}
+
+void TestPlaybackController::playbackSpeedChangesTheClockRate()
+{
+    // The placeholder extent runs on the monotonic clock, as media without
+    // sound does: at 2x it covers twice the frames in the same time.
+    const auto framesAfter = [](double speed, int waitMs, qint64* elapsedMs) {
+        Fixture fixture(100000, 24);
+        fixture.playback.setPlaybackSpeed(speed);
+        QElapsedTimer timer;
+        timer.start();
+        fixture.playback.play();
+        QTest::qWait(waitMs);
+        const qint64 frame = fixture.playback.currentFrame();
+        *elapsedMs = timer.elapsed();
+        fixture.playback.pause();
+        return frame;
+    };
+    qint64 elapsed = 0;
+    const qint64 fast = framesAfter(2.0, 500, &elapsed);
+    // At least the frames due 500 ms in at 48 fps, give or take a tick.
+    QVERIFY2(fast >= 500 * 48 / 1000 - 2, qPrintable(QString::number(fast)));
+    QVERIFY2(fast <= elapsed * 48 / 1000 + 2, qPrintable(QString::number(fast)));
+    const qint64 slow = framesAfter(0.25, 500, &elapsed);
+    QVERIFY2(slow <= elapsed * 6 / 1000 + 2, qPrintable(QString::number(slow)));
+
+    // Changing speed while playing keeps playing from the same frame.
+    Fixture fixture(100000, 24);
+    fixture.playback.seekFrame(100);
+    fixture.playback.play();
+    QTest::qWait(100);
+    fixture.playback.setPlaybackSpeed(0.5);
+    QVERIFY(fixture.playback.isPlaying());
+    QVERIFY(fixture.playback.currentFrame() >= 100);
+}
 
 void TestPlaybackController::timestampSkipClampsToReviewRange()
 {
