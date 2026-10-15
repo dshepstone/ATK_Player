@@ -1,0 +1,64 @@
+Fixes ATK Player not starting after it was closed maximized, and confirms in the status bar when a project is saved.
+
+## Download
+
+**[Download ATK-Player-v0.5.4-Windows.zip](https://github.com/dshepstone/ATK_Player/releases/download/v0.5.4/ATK-Player-v0.5.4-Windows.zip)**
+
+1. Download the ZIP.
+2. Extract all files.
+3. Open the extracted folder and double-click `ATK-Player-0.5.4-Windows-x64.msi`.
+4. Follow the setup wizard.
+
+After installation, launch ATK Player from the Windows Start Menu or use the installer's **Launch ATK Player** checkbox.
+
+The ZIP contains the Windows MSI installer, installation instructions and licence notices. It is about **130 MB** because the MSI includes licence notices and matching source materials for the application and its dependencies.
+
+## What's new
+
+- **Fixed: ATK Player starts again after being closed maximized.** In 0.5.3, once ATK Player had been closed while maximized, every later start failed with no window and no message. Your saved window layout is kept; nothing needs to be cleared.
+- **Saving says so.** The status bar shows **Saving name.atkproj…** while a project saves and **Saved name.atkproj at** the time when it is done. A failed save says the project was not saved.
+
+Full notes: [RELEASE_NOTES_0.5.4.md](https://github.com/dshepstone/ATK_Player/blob/v0.5.4/docs/RELEASE_NOTES_0.5.4.md). Walkthrough: [User Guide](https://github.com/dshepstone/ATK_Player/blob/v0.5.4/docs/USER_GUIDE.md).
+
+## Upgrading
+
+Install the 0.5.4 MSI over 0.5.3, 0.5.2, 0.5.1, 0.5.0, 0.4.x or 0.3.0. It upgrades in place and keeps your preferences, projects and media. The project format is unchanged from 0.5.3.
+
+## Requirements
+
+- Windows 11 x64 (the currently verified release platform)
+- Microsoft Visual C++ 2015&ndash;2022 x64 Redistributable
+
+## Unsigned Build Notice
+
+The Windows 0.5.4 MSI and executable are unsigned. Windows may show an Unknown Publisher or Microsoft Defender SmartScreen warning. Click **More info &rarr; Run anyway**, or right-click the MSI &rarr; **Properties** &rarr; tick **Unblock**. Verify the download against the published SHA-256 checksum.
+
+## Verify your download
+
+In PowerShell, run this from the folder containing the downloaded ZIP:
+
+~~~powershell
+Get-FileHash .\ATK-Player-v0.5.4-Windows.zip -Algorithm SHA256
+~~~
+
+Expected ZIP SHA-256:
+
+~~~text
+{{ZIP_SHA256}}
+~~~
+
+After extracting, you can also verify the MSI:
+
+~~~powershell
+Get-FileHash .\ATK-Player-0.5.4-Windows-x64.msi -Algorithm SHA256
+~~~
+
+Expected MSI SHA-256:
+
+~~~text
+{{MSI_SHA256}}
+~~~
+
+## Code signing policy
+
+ATK Player is preparing to apply to SignPath Foundation. Approval and signing integration are pending; the attached Windows artifacts remain unsigned. See the [Code signing policy](https://github.com/dshepstone/ATK_Player/blob/main/CODE_SIGNING_POLICY.md) for maintainer roles, manual release approval, and privacy information.
