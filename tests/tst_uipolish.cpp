@@ -10,12 +10,15 @@
 #include <QAbstractItemView>
 #include <QAbstractSlider>
 #include <QComboBox>
+#include <QHash>
 #include <QListWidget>
 #include <QPushButton>
+#include <QSettings>
 #include <QSignalSpy>
 #include <QLineEdit>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QToolBar>
 
 using namespace atk;
 
@@ -59,6 +62,17 @@ QStringList unnamedControls(const QWidget* root)
     return unnamed;
 }
 
+/// The review header has the top row to itself, with the drawing tools on the
+/// row below it.
+bool headerAboveDrawingTools(const ui::MainWindow& window)
+{
+    auto* header = window.findChild<QToolBar*>(QStringLiteral("ReviewHeaderToolbar"));
+    auto* drawing = window.findChild<QToolBar*>(QStringLiteral("annotationToolbar"));
+    return header && drawing && header->isVisible() && window.toolBarArea(header) == Qt::TopToolBarArea
+        && window.toolBarArea(drawing) == Qt::TopToolBarArea && !window.toolBarBreak(header)
+        && window.toolBarBreak(drawing);
+}
+
 } // namespace
 
 class TestUiPolish : public QObject {
@@ -69,6 +83,8 @@ private slots:
     void dialogsHaveNamedControls();
     void reviewLibraryWorksFromTheKeyboard();
     void iconsAreSharpOnHighDpiScreens();
+    void aMaximizedLayoutReopens();
+    void aLayoutWithTheHeaderElsewhereIsReset();
 };
 
 void TestUiPolish::everyControlHasAName()
@@ -159,6 +175,73 @@ void TestUiPolish::iconsAreSharpOnHighDpiScreens()
         for (int y = 0; y < image.height(); ++y)
             for (int x = 0; x < image.width(); ++x) opaque += qAlpha(image.pixel(x, y)) > 200;
         QVERIFY2(opaque > 0, qPrintable(QStringLiteral("no crisp pixels at %1x").arg(dpr)));
+    }
+}
+
+void TestUiPolish::aMaximizedLayoutReopens()
+{
+    // Closing the window maximized saves a maximized layout. The next start
+    // restores it while the window is still hidden, and Qt finishes applying
+    // it when the window is shown at its maximized size. 0.5.3 crashed there
+    // on every start after the first.
+    QTemporaryDir directory;
+    const QString settings = directory.filePath(QStringLiteral("settings.ini"));
+    {
+        ui::MainWindow window(settings);
+        window.showMaximized();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        QTRY_VERIFY(window.isMaximized());
+        QVERIFY(window.close());
+    }
+    QVERIFY(!QSettings(settings, QSettings::IniFormat).value(QStringLiteral("ui/mainWindowState")).toByteArray().isEmpty());
+    for (int start = 0; start < 3; ++start) {
+        ui::MainWindow window(settings);
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        QVERIFY(window.isMaximized());
+        QVERIFY(headerAboveDrawingTools(window));
+        QVERIFY(window.close());
+    }
+}
+
+void TestUiPolish::aLayoutWithTheHeaderElsewhereIsReset()
+{
+    // A layout saved with the review header somewhere else -- as layouts from
+    // before the header did -- opens with the header on its own top row.
+    // Saved maximized, so it is restored while the window is still hidden.
+    QTemporaryDir directory;
+    const QString settings = directory.filePath(QStringLiteral("settings.ini"));
+    {
+        ui::MainWindow window(settings);
+        window.showMaximized();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        QTRY_VERIFY(window.isMaximized());
+        auto* header = window.findChild<QToolBar*>(QStringLiteral("ReviewHeaderToolbar"));
+        QVERIFY(header);
+        window.removeToolBar(header);
+        window.addToolBar(Qt::TopToolBarArea, header); // after the drawing tools, on their row
+        header->show();
+        QVERIFY(!headerAboveDrawingTools(window));
+        QVERIFY(window.close());
+    }
+    const QStringList layoutKeys{QStringLiteral("ui/mainWindowGeometry"), QStringLiteral("ui/mainWindowState")};
+    QHash<QString, QByteArray> saved;
+    {
+        const QSettings ini(settings, QSettings::IniFormat);
+        for (const QString& key : layoutKeys) saved.insert(key, ini.value(key).toByteArray());
+    }
+    QVERIFY(!saved.value(layoutKeys.last()).isEmpty());
+    for (int start = 0; start < 2; ++start) {
+        {
+            QSettings ini(settings, QSettings::IniFormat);
+            for (const QString& key : layoutKeys) ini.setValue(key, saved.value(key));
+        }
+        ui::MainWindow window(settings);
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        QVERIFY(window.isMaximized());
+        QVERIFY(headerAboveDrawingTools(window));
+        QVERIFY(window.close());
     }
 }
 

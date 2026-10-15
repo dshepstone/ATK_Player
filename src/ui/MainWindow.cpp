@@ -236,6 +236,26 @@ QString exportBaseName(const exporter::ExportSource& source)
                                      : QFileInfo(source.path).completeBaseName();
 }
 
+/// Whether a saved main-window state puts the review header on the top row by
+/// itself, with the drawing tools on the row below. Read from a stand-in
+/// window with toolbars of the same names, so the real window never has to
+/// restore a state and then rearrange it.
+bool savedStateKeepsHeaderOnTop(const QByteArray& state, const QString& headerName, const QString& drawingName)
+{
+    QMainWindow standIn;
+    auto* header = new QToolBar(&standIn);
+    header->setObjectName(headerName);
+    auto* drawing = new QToolBar(&standIn);
+    drawing->setObjectName(drawingName);
+    standIn.addToolBar(Qt::TopToolBarArea, header);
+    standIn.addToolBar(Qt::TopToolBarArea, drawing);
+    if (!standIn.restoreState(state)) return false;
+    // With only these two toolbars, this is exactly "header row, then the
+    // drawing tools' row".
+    return standIn.toolBarArea(header) == Qt::TopToolBarArea && standIn.toolBarArea(drawing) == Qt::TopToolBarArea
+        && !standIn.toolBarBreak(header) && standIn.toolBarBreak(drawing);
+}
+
 MainWindow::MainWindow(const QString& settingsIniPath, QWidget* parent)
     : QMainWindow(parent)
 {
@@ -1641,8 +1661,22 @@ void MainWindow::restoreApplicationLayout()
         if (QScreen* screen = QGuiApplication::primaryScreen())
             move(screen->availableGeometry().center() - rect().center());
     }
+    // The review header always has the top row to itself, above the drawing
+    // tools. A saved layout that puts it anywhere else (one from before the
+    // header existed) is not restored; the built-in arrangement stays.
+    //
+    // That is decided before restoring, never fixed up after: a window
+    // restored while hidden and about to be maximized keeps a copy of the
+    // restored layout that Qt applies once it is shown, and moving a toolbar
+    // (or restoring a second state) deletes layout items that copy still
+    // points to. 0.5.3 moved the header here and crashed on every start after
+    // the window was closed maximized.
     const QByteArray state = m_settings->windowState();
-    if (!state.isEmpty() && !restoreState(state)) {
+    const bool restorable = !state.isEmpty()
+        && (!m_reviewHeaderToolbar || !m_annotationToolbar
+            || savedStateKeepsHeaderOnTop(state, m_reviewHeaderToolbar->objectName(),
+                                          m_annotationToolbar->objectName()));
+    if (restorable && !restoreState(state)) {
         addDockWidget(Qt::LeftDockWidgetArea, m_sourcesDock);
         addDockWidget(Qt::RightDockWidgetArea, m_bookmarksDock);
     }
@@ -1651,14 +1685,7 @@ void MainWindow::restoreApplicationLayout()
     if (m_annotationToolbar) m_annotationToolbar->setVisible(m_viewer->annotateMode());
     // Notes always start closed, whatever the last session left open.
     if (m_notesDock) m_notesDock->hide();
-    // The review header always has the top row to itself, above the drawing
-    // tools, even when the saved layout predates it.
-    if (m_reviewHeaderToolbar && m_annotationToolbar) {
-        removeToolBar(m_reviewHeaderToolbar);
-        insertToolBar(m_annotationToolbar, m_reviewHeaderToolbar);
-        insertToolBarBreak(m_annotationToolbar);
-        m_reviewHeaderToolbar->show();
-    }
+    if (m_reviewHeaderToolbar) m_reviewHeaderToolbar->show();
 }
 
 void MainWindow::saveApplicationLayout()
@@ -2682,14 +2709,25 @@ bool MainWindow::saveProjectTo(const QString& path, bool saveAs, bool showError)
 {
     saveActiveReviewState();
     const QString absolutePath = QFileInfo(path).absoluteFilePath();
+    const QString fileName = QFileInfo(absolutePath).fileName();
+    // Say a save is under way, and then that it landed: a large project or a
+    // synced folder can take a moment, and silence leaves the user guessing.
+    statusBar()->showMessage(tr("Saving %1…").arg(fileName));
+    statusBar()->repaint();
+    QApplication::setOverrideCursor(Qt::WaitCursor);
     const auto result = saveAs
         ? project::ProjectSerializer::saveAs(*m_project, absolutePath)
         : project::ProjectSerializer::save(*m_project, absolutePath);
+    QApplication::restoreOverrideCursor();
     m_lastProjectSaveError = result.errorMessage;
     if (!result.ok) {
+        statusBar()->showMessage(tr("%1 was not saved.").arg(fileName), 8000);
         if (showError) QMessageBox::critical(this, tr("Save Project"), result.errorMessage);
         return false;
     }
+    statusBar()->showMessage(tr("Saved %1 at %2")
+                                 .arg(fileName, QLocale().toString(QTime::currentTime(), QLocale::ShortFormat)),
+                             6000);
     m_project->setFilePath(absolutePath);
     if (saveAs) m_project->setName(QFileInfo(absolutePath).completeBaseName());
     m_project->setModified(false);
