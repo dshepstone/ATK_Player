@@ -43,6 +43,7 @@ private slots:
     void releasedScrubFollowsSubsequentAuthoritativeNavigation();
     void activeAndFinalScrubPresentationRemainResponsive();
     void scrubShowsFrameNumberAbovePlayhead();
+    void holdSpansStayVisibleWhenZoomedIn();
 };
 
 void TestTimelineWidgets::timeRulerLabelsAreRoundAndDistinct()
@@ -546,6 +547,38 @@ void TestTimelineWidgets::scrubShowsFrameNumberAbovePlayhead()
     QTest::mouseRelease(&widget, Qt::LeftButton, Qt::NoModifier,
                         QPoint(widget.positionForFrame(99), y));
     QVERIFY(widget.scrubFrameLabelRect().isEmpty());
+}
+
+void TestTimelineWidgets::holdSpansStayVisibleWhenZoomedIn()
+{
+    TimelineModel model;
+    model.setFrameCount(100);
+    TimelineWidget widget;
+    widget.resize(1000, 130);
+    widget.setModel(&model);
+    // A marker finds the line under the track, where the hold bars sit.
+    widget.setAnnotatedFrames({45});
+    int trackBottom = -1;
+    for (int y = 0; y < widget.height() && trackBottom < 0; ++y)
+        if (widget.annotatedFrameAtPosition(QPoint(widget.positionForFrame(45), y)) == 45) trackBottom = y;
+    QVERIFY(trackBottom >= 0);
+
+    // A held drawing from 10 to 90, viewed zoomed in to 40-60: both ends are
+    // off screen, and the bar still crosses the view.
+    widget.setHoldSpans({{10, 90}});
+    model.setViewportRange(40, 60);
+    // grab() is in device pixels; sample the middle of the 2 px bar.
+    const auto sample = [&] {
+        const QImage image = widget.grab().toImage();
+        const qreal dpr = image.devicePixelRatio();
+        return image.pixelColor(qRound((widget.positionForFrame(55) + 0.5) * dpr), qRound((trackBottom + 2) * dpr));
+    };
+    const QColor bar = sample();
+    QVERIFY2(bar.red() > bar.green() + 40, qPrintable(bar.name()));
+    // Nothing is drawn where nothing is held.
+    widget.setHoldSpans({});
+    const QColor empty = sample();
+    QVERIFY2(empty.red() <= empty.green() + 40, qPrintable(empty.name()));
 }
 
 QTEST_MAIN(TestTimelineWidgets)

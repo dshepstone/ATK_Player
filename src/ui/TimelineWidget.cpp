@@ -479,11 +479,18 @@ void TimelineWidget::paintHoldSpans(QPainter& painter)
     const QRect track = trackRect();
     QColor bar = drawnFrameColor();
     bar.setAlpha(110);
+    // Clip each span to the frames in view, so a hold running off either end
+    // of a zoomed timeline still shows its visible part.
+    const int64_t visibleStart = m_model->viewport().startFrame();
+    const int64_t visibleEnd = m_model->viewport().endFrame();
     for (const annotation::HoldSpan& span : m_holdSpans) {
         if (span.last <= span.first) continue;
-        const int left = xForFrame(span.first);
-        const int right = xForFrame(span.last + 1 > lastFrame() ? span.last : span.last + 1);
-        if (right <= left) continue;
+        const int64_t first = std::max(span.first, visibleStart);
+        const int64_t end = std::min({span.last + 1, lastFrame(), visibleEnd});
+        if (end <= first) continue;
+        const int left = xForFrame(first);
+        const int right = xForFrame(end);
+        if (left < 0 || right <= left) continue;
         painter.fillRect(QRect(left, track.bottom() + 1, right - left, 2), bar);
     }
 }

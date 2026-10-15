@@ -736,6 +736,14 @@ void MainWindow::connectSignals()
         m_viewerZoomStatus->setText(fitMode ? tr("Fit %1").arg(value) : value);
         m_transport->setZoomText(fitMode ? tr("Fit") : value);
     });
+    // Pane B zooms on its own in side-by-side and stacked comparison; the
+    // readout follows it while it is the active pane.
+    connect(m_viewerB, &ViewerWidget::zoomChanged, this, [this](qreal percent, bool fitMode) {
+        if (activeViewer() != m_viewerB) return;
+        const QString value = tr("%1%").arg(qRound(percent));
+        m_viewerZoomStatus->setText(fitMode ? tr("Fit %1").arg(value) : value);
+        m_transport->setZoomText(fitMode ? tr("Fit") : value);
+    });
     connect(m_playback.get(), &playback::PlaybackController::playbackSpeedChanged, this, [this](double speed) {
         refreshPlaybackSpeed();
         statusBar()->showMessage(speed == 1.0 ? tr("Normal speed")
