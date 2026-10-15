@@ -356,6 +356,7 @@ private:
     /// Keeps the library's clip count and preview strip in step with the
     /// open project when it belongs to a review.
     void syncReviewLibraryEntry();
+    void addOpenedProjectToReviewLibrary();
     void requestPreviewThumbnail(const QString& clipPath);
     QString thumbnailCacheDirectory() const;
     // Playlist thumbnails: a worker on its own thread, like the probe worker.

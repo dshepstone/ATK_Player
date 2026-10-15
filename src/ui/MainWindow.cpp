@@ -599,6 +599,13 @@ void MainWindow::buildWidgets()
     m_viewerZoomStatus->setProperty("atkRole", "statusCaption");
     statusBar()->addPermanentWidget(m_viewerZoomStatus);
     statusBar()->setSizeGripEnabled(true);
+    // The readout fills the bar, leaving QStatusBar no room to draw messages,
+    // so they are shown in the readout. The Review Library hides the bar; it
+    // shows it again while a message is up, so a save there still says so.
+    connect(statusBar(), &QStatusBar::messageChanged, this, [this](const QString& message) {
+        m_statusInfo->setMessage(message);
+        if (isShowingReviewLibrary()) statusBar()->setVisible(!message.isEmpty());
+    });
 }
 
 void MainWindow::buildMenus()
@@ -2238,6 +2245,9 @@ void MainWindow::showReviewLibrary()
             widget->hide();
         }
     }
+    m_statusInfo->setReadoutVisible(false);
+    m_viewerZoomStatus->hide();
+    statusBar()->clearMessage();
     statusBar()->hide();
     m_pages->setCurrentWidget(m_libraryPage);
     m_libraryPage->refresh();
@@ -2249,6 +2259,8 @@ void MainWindow::showPlayer()
     m_pages->setCurrentWidget(m_playerPage);
     for (QWidget* widget : std::as_const(m_hiddenForLibrary)) widget->show();
     m_hiddenForLibrary.clear();
+    m_statusInfo->setReadoutVisible(true);
+    m_viewerZoomStatus->show();
     statusBar()->show();
 }
 
@@ -2700,9 +2712,38 @@ bool MainWindow::openProjectFile(const QString& path)
         m_project->setActiveIndex(-1);
     }
     m_settings->addRecentProject(path); refreshRecentProjectsMenu();
+    addOpenedProjectToReviewLibrary();
     startPlaylistProbes();
     showPlayer();
     updateWindowTitle(); return true;
+}
+
+void MainWindow::addOpenedProjectToReviewLibrary()
+{
+    // A project opened directly (Open Project, Recent Projects, Explorer) joins
+    // the Review Library too, so it is there next time. New Review and Open
+    // Review already list theirs; they only get their counts brought up to date.
+    if (m_project->filePath().isEmpty()) return;
+    const QString projectPath = QFileInfo(m_project->filePath()).absoluteFilePath();
+    if (!m_reviewLibrary->findByProject(projectPath)) {
+        review::ReviewInfo info;
+        // A project never named says "Untitled"; its file name says more.
+        const QString name = m_project->name();
+        info.name = name.isEmpty() || name == QLatin1StringView("Untitled") ? QFileInfo(projectPath).completeBaseName()
+                                                                            : name;
+        // The clips' folder when they share one, for Show Folder and for
+        // offering clips added there later; otherwise the project's own folder.
+        QSet<QString> clipFolders;
+        for (const project::SourceEntry& entry : m_project->entries())
+            if (entry.source) clipFolders.insert(QDir::cleanPath(QFileInfo(entry.source->filePath()).absolutePath()));
+        info.folder = clipFolders.size() == 1 ? *clipFolders.cbegin()
+                                              : QDir::cleanPath(QFileInfo(projectPath).absolutePath());
+        info.projectPath = projectPath;
+        info.createdMsUtc = info.openedMsUtc = QDateTime::currentMSecsSinceEpoch();
+        m_reviewLibrary->add(info);
+        saveReviewLibrary();
+    }
+    syncReviewLibraryEntry();
 }
 
 bool MainWindow::saveProjectTo(const QString& path, bool saveAs, bool showError)

@@ -877,6 +877,9 @@ void TestAnnotationWorkflow::savingAProjectSaysSo()
     const QString projectPath = writeProject(directory);
     QVERIFY(!projectPath.isEmpty());
     atk::ui::MainWindow window(directory.filePath(QStringLiteral("settings.ini")));
+    window.resize(1280, 800);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
     QVERIFY(openAt(window, projectPath, 0));
     window.statusBar()->clearMessage();
     command(window, "file.saveProject")->trigger();
@@ -885,6 +888,30 @@ void TestAnnotationWorkflow::savingAProjectSaysSo()
     QVERIFY2(message.startsWith(QStringLiteral("Saved draw.atkproj at ")), qPrintable(message));
     QVERIFY(!window.project()->isModified());
     QVERIFY(QApplication::overrideCursor() == nullptr);
+
+    // And it is on screen: the frame readout fills the status bar, which left
+    // QStatusBar no room to draw any message at all (0.5.4).
+    auto* shown = window.findChild<QLabel*>(QStringLiteral("StatusMessage"));
+    QVERIFY(shown);
+    QCOMPARE(shown->text(), message);
+    QVERIFY(window.statusBar()->isVisible() && shown->isVisible());
+    QTRY_VERIFY(shown->width() >= shown->fontMetrics().horizontalAdvance(message));
+
+    // From the Review Library too, where the status bar is otherwise hidden.
+    window.showReviewLibrary();
+    QVERIFY(!window.statusBar()->isVisible());
+    command(window, "file.saveProject")->trigger();
+    QVERIFY(shown->text().startsWith(QStringLiteral("Saved draw.atkproj at ")));
+    QVERIFY(window.statusBar()->isVisible() && shown->isVisible());
+    QVERIFY(!window.findChild<QLabel*>(QStringLiteral("StatusFrameValue"))->isVisible()); // no frame to report there
+    QTRY_VERIFY(shown->width() >= shown->fontMetrics().horizontalAdvance(shown->text()));
+    window.statusBar()->clearMessage();
+    QVERIFY(!window.statusBar()->isVisible());
+
+    // Back in the player, the readout returns.
+    window.showPlayer();
+    QVERIFY(window.statusBar()->isVisible());
+    QVERIFY(window.findChild<QLabel*>(QStringLiteral("StatusFrameValue"))->isVisible());
 }
 
 void TestAnnotationWorkflow::exportProgressWindowCancelsAndCloses()

@@ -24,8 +24,15 @@ StatusInfoBar::StatusInfoBar(QWidget* parent)
     m_fpsValue      = addField(tr("FPS"),      QStringLiteral("--"),     42);
     layout->addSpacing(16);
     m_mediaValue    = addField(tr("MEDIA"),    tr("no media"),           120);
+    layout->addSpacing(16);
 
-    layout->addStretch(1);
+    // Takes the free width, so a long message is clipped rather than pushing
+    // the readout around.
+    m_message = new QLabel(this);
+    m_message->setObjectName(QStringLiteral("StatusMessage"));
+    m_message->setProperty("atkRole", "statusValue");
+    m_message->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    layout->addWidget(m_message, 1);
 
     // The transport is usable in Phase 0 against a placeholder extent. Saying
     // so here is what keeps a moving frame counter from reading as an open file.
@@ -56,6 +63,7 @@ QLabel* StatusInfoBar::addField(const QString& caption,
     valueLabel->setMinimumWidth(minimumValueWidth);
     boxLayout->addWidget(valueLabel);
 
+    m_readout << captionLabel << valueLabel;
     return valueLabel;
 }
 
@@ -101,6 +109,19 @@ void StatusInfoBar::clearMediaInfo()
     refresh();
 }
 
+void StatusInfoBar::setMessage(const QString& message)
+{
+    m_message->setText(message);
+    m_message->setToolTip(message);
+}
+
+void StatusInfoBar::setReadoutVisible(bool visible)
+{
+    m_readoutVisible = visible;
+    for (QWidget* widget : std::as_const(m_readout)) widget->setVisible(visible);
+    refresh();
+}
+
 void StatusInfoBar::refresh()
 {
     if (m_model == nullptr) {
@@ -111,7 +132,7 @@ void StatusInfoBar::refresh()
         return;
     }
 
-    m_placeholderTag->setVisible(m_model->isPlaceholder());
+    m_placeholderTag->setVisible(m_readoutVisible && m_model->isPlaceholder());
 
     // A "~" in front of the total is the quiet signal that the count came from
     // duration x frame rate rather than from the container.

@@ -167,6 +167,21 @@ void TestReviewWorkflow::anyFileOpenedGoesStraightToThePlayer()
     window.showReviewLibrary();
     QVERIFY(window.openProjectFile(path));
     QVERIFY(!window.isShowingReviewLibrary());
+
+    // An opened project joins the library, once, so it is listed next time.
+    const review::ReviewInfo* listed = window.reviewLibrary()->findByProject(path);
+    QVERIFY(listed);
+    QCOMPARE(listed->name, QStringLiteral("p"));
+    QCOMPARE(listed->clipCount, 1);
+    QCOMPARE(QDir(listed->folder), QFileInfo(fixture("atk_review_10s.mkv")).absoluteDir()); // the clips' folder
+    const QUuid id = listed->id;
+    QVERIFY(window.openProjectFile(path));
+    QCOMPARE(window.reviewLibrary()->reviews().size(), 1);
+    window.showReviewLibrary();
+    QCOMPARE(window.reviewLibraryPage()->listedReviews(), QVector<QUuid>{id});
+    review::ReviewLibrary reread(window.reviewLibrary()->filePath());
+    QVERIFY(reread.load());
+    QVERIFY(reread.find(id));
 }
 
 void TestReviewWorkflow::newReviewDialogScansChoosesAndOrders()
