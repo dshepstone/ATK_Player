@@ -275,6 +275,12 @@ private:
     void exportReviewNotesBatch();
     exporter::ExportSpec notesPdfSpec(const project::SourceEntry& entry) const;
     exporter::ReviewNotesDocument notesPdfHeader(const exporter::ExportSpec& spec, bool includeResolved) const;
+    /// Every clip's spec, header and file name, decided before anything is
+    /// written. With `replaceExisting` off, names already in `folder` are
+    /// numbered on; repeated clips are numbered either way.
+    std::unique_ptr<NotesPdfBatch> planNotesPdfs(const QVector<QUuid>& clips, const QString& folder,
+                                                 const exporter::ReviewNotesOptions& options,
+                                                 bool replaceExisting) const;
     void startNextNotesPdf();
     void finishNotesPdfBatch(bool cancelled);
     bool notesPdfInProgress() const;

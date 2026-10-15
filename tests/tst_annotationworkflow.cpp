@@ -17,6 +17,7 @@
 #include "ui/TransportControls.h"
 #include "ui/ViewerWidget.h"
 
+#include <QAbstractButton>
 #include <QAction>
 #include <QApplication>
 #include <QCheckBox>
@@ -588,6 +589,34 @@ void TestAnnotationWorkflow::notesPdfsForPlaylistExportOnePerClip()
     QVERIFY(window.exportNotesPdfs({annaId}, out, options, true));
     QTRY_VERIFY_WITH_TIMEOUT(!window.notesPdfBatchInProgress(), 30000);
     QCOMPARE(QFileInfo(window.lastNotesPdfBatchSaved().value(0)).fileName(), QStringLiteral("anna_review_notes.pdf"));
+
+    // Only a numbered PDF left from before (the repeated clip's): the batch
+    // still asks before writing over it, and Keep Both numbers on past it.
+    QVERIFY(QFile::remove(QDir(out).filePath(QStringLiteral("anna_review_notes.pdf"))));
+    QVERIFY(QFile::remove(QDir(out).filePath(QStringLiteral("ben_review_notes.pdf"))));
+    QString asked;
+    QTimer again;
+    again.setInterval(20);
+    connect(&again, &QTimer::timeout, this, [&] {
+        QWidget* modal = QApplication::activeModalWidget();
+        if (auto* dialog = qobject_cast<atk::ui::BatchNotesPdfDialog*>(modal)) {
+            dialog->findChild<QLineEdit*>(QStringLiteral("BatchNotesFolder"))->setText(QDir::toNativeSeparators(out));
+            dialog->findChild<QPushButton*>(QStringLiteral("BatchNotesExport"))->click();
+        } else if (auto* box = qobject_cast<QMessageBox*>(modal)) {
+            asked = box->text();
+            for (QAbstractButton* button : box->buttons())
+                if (button->text() == QStringLiteral("Keep Both")) button->click();
+        }
+    });
+    again.start();
+    batch->trigger();
+    QTRY_VERIFY_WITH_TIMEOUT(!window.notesPdfBatchInProgress(), 60000);
+    again.stop();
+    QCOMPARE(asked, QStringLiteral("1 of these PDFs already exist in the folder."));
+    QStringList kept;
+    for (const QString& path : window.lastNotesPdfBatchSaved()) kept.append(QFileInfo(path).fileName());
+    QCOMPARE(kept, (QStringList{QStringLiteral("anna_review_notes.pdf"), QStringLiteral("ben_review_notes.pdf"),
+                                QStringLiteral("anna_review_notes (4).pdf")}));
 
     // A clip with nothing to list is reported, not exported.
     QVERIFY(!window.exportNotesPdfs({window.project()->entries().at(2).id}, out, options, true));

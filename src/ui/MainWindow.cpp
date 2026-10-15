@@ -3369,15 +3369,12 @@ void MainWindow::exportReviewNotesBatch()
         return;
     }
 
-    // One question for every PDF already there.
+    // One question for every PDF already there: the names the batch would
+    // write when replacing, numbered ones for repeated clips included.
     int existing = 0;
-    for (const QUuid& id : chosen) {
-        const int index = m_project->indexForId(id);
-        if (index < 0) continue;
-        const exporter::ExportSpec spec = notesPdfSpec(m_project->entries().at(index));
-        if (QFileInfo::exists(QDir(target).filePath(exportBaseName(spec.sourceA) + QStringLiteral("_review_notes.pdf"))))
-            ++existing;
-    }
+    if (const std::unique_ptr<NotesPdfBatch> plan = planNotesPdfs(chosen, target, dialog.options(), true))
+        for (const NotesPdfBatch::Item& item : std::as_const(plan->items))
+            if (QFileInfo::exists(item.outputPath)) ++existing;
     bool replace = true;
     if (existing > 0) {
         QMessageBox box(QMessageBox::Question, tr("Export Notes PDFs for Playlist"),
@@ -3401,10 +3398,35 @@ bool MainWindow::exportNotesPdfs(const QVector<QUuid>& clips, const QString& fol
                                  bool openFolderWhenDone)
 {
     if (notesPdfInProgress() || folder.isEmpty()) return false;
+    std::unique_ptr<NotesPdfBatch> batch = planNotesPdfs(clips, folder, options, replaceExisting);
+    batch->openFolderWhenDone = openFolderWhenDone;
+    if (batch->items.isEmpty()) {
+        m_lastNotesBatchSaved.clear();
+        m_lastNotesBatchFailed = batch->failed;
+        return false;
+    }
+    m_notesBatch = std::move(batch);
+    m_notesPdfProgress = new ExportProgressDialog(QStringLiteral("PDF"), tr("Exporting notes PDFs"),
+                                                  QDir::toNativeSeparators(m_notesBatch->folder), this);
+    m_notesPdfProgress->setWindowModality(Qt::NonModal);
+    connect(m_notesPdfProgress, &ExportProgressDialog::canceled, this, [this] {
+        if (!m_notesBatch) return;
+        m_notesBatch->cancelRequested = true;
+        if (m_notesPdfJob) m_notesPdfJob->cancel();
+    });
+    m_notesPdfProgress->show();
+    updateTransportEnabled();
+    startNextNotesPdf();
+    return true;
+}
+
+std::unique_ptr<NotesPdfBatch> MainWindow::planNotesPdfs(const QVector<QUuid>& clips, const QString& folder,
+                                                         const exporter::ReviewNotesOptions& options,
+                                                         bool replaceExisting) const
+{
     auto batch = std::make_unique<NotesPdfBatch>();
     batch->options = options;
     batch->folder = QDir::cleanPath(QFileInfo(folder).absoluteFilePath());
-    batch->openFolderWhenDone = openFolderWhenDone;
     QSet<QString> taken; // two clips with the same file name get (2), (3)...
     for (const QUuid& id : clips) {
         const int index = m_project->indexForId(id);
@@ -3431,24 +3453,7 @@ bool MainWindow::exportNotesPdfs(const QVector<QUuid>& clips, const QString& fol
         item.outputPath = path;
         batch->items.append(std::move(item));
     }
-    if (batch->items.isEmpty()) {
-        m_lastNotesBatchSaved.clear();
-        m_lastNotesBatchFailed = batch->failed;
-        return false;
-    }
-    m_notesBatch = std::move(batch);
-    m_notesPdfProgress = new ExportProgressDialog(QStringLiteral("PDF"), tr("Exporting notes PDFs"),
-                                                  QDir::toNativeSeparators(m_notesBatch->folder), this);
-    m_notesPdfProgress->setWindowModality(Qt::NonModal);
-    connect(m_notesPdfProgress, &ExportProgressDialog::canceled, this, [this] {
-        if (!m_notesBatch) return;
-        m_notesBatch->cancelRequested = true;
-        if (m_notesPdfJob) m_notesPdfJob->cancel();
-    });
-    m_notesPdfProgress->show();
-    updateTransportEnabled();
-    startNextNotesPdf();
-    return true;
+    return batch;
 }
 
 void MainWindow::startNextNotesPdf()
