@@ -2222,6 +2222,7 @@ void MainWindow::showReviewLibrary()
         connect(m_libraryPage, &ReviewLibraryPage::newReviewRequested, this, &MainWindow::newReviewDialog);
         connect(m_libraryPage, &ReviewLibraryPage::openReviewRequested, this, [this](const QUuid& id) { openReview(id); });
         connect(m_libraryPage, &ReviewLibraryPage::openProjectRequested, this, &MainWindow::openProjectDialog);
+        connect(m_libraryPage, &ReviewLibraryPage::addExistingRequested, this, &MainWindow::addExistingReviewDialog);
         connect(m_libraryPage, &ReviewLibraryPage::openMediaRequested, this, &MainWindow::openMediaDialog);
         connect(m_libraryPage, &ReviewLibraryPage::showFolderRequested, this,
                 [](const QString& folder) { QDesktopServices::openUrl(QUrl::fromLocalFile(folder)); });
@@ -2718,32 +2719,97 @@ bool MainWindow::openProjectFile(const QString& path)
     updateWindowTitle(); return true;
 }
 
+namespace {
+
+/// A library entry for a project that was not made with New Review.
+review::ReviewInfo reviewInfoForProject(const project::Project& project, const QString& projectPath)
+{
+    review::ReviewInfo info;
+    // A project never named says "Untitled"; its file name says more.
+    const QString name = project.name();
+    info.name = name.isEmpty() || name == QLatin1StringView("Untitled") ? QFileInfo(projectPath).completeBaseName()
+                                                                        : name;
+    // The clips' folder when they share one, for Show Folder and for offering
+    // clips added there later; otherwise the project's own folder.
+    QSet<QString> clipFolders;
+    for (const project::SourceEntry& entry : project.entries()) {
+        if (!entry.source) continue;
+        clipFolders.insert(QDir::cleanPath(QFileInfo(entry.source->filePath()).absolutePath()));
+        if (info.previewClips.size() < 5 && !entry.source->isImageSequence())
+            info.previewClips.append(entry.source->filePath());
+    }
+    info.folder = clipFolders.size() == 1 ? *clipFolders.cbegin()
+                                          : QDir::cleanPath(QFileInfo(projectPath).absolutePath());
+    info.projectPath = QFileInfo(projectPath).absoluteFilePath();
+    info.clipCount = int(project.entries().size());
+    info.createdMsUtc = info.openedMsUtc = QDateTime::currentMSecsSinceEpoch();
+    return info;
+}
+
+} // namespace
+
 void MainWindow::addOpenedProjectToReviewLibrary()
 {
     // A project opened directly (Open Project, Recent Projects, Explorer) joins
     // the Review Library too, so it is there next time. New Review and Open
     // Review already list theirs; they only get their counts brought up to date.
     if (m_project->filePath().isEmpty()) return;
-    const QString projectPath = QFileInfo(m_project->filePath()).absoluteFilePath();
-    if (!m_reviewLibrary->findByProject(projectPath)) {
-        review::ReviewInfo info;
-        // A project never named says "Untitled"; its file name says more.
-        const QString name = m_project->name();
-        info.name = name.isEmpty() || name == QLatin1StringView("Untitled") ? QFileInfo(projectPath).completeBaseName()
-                                                                            : name;
-        // The clips' folder when they share one, for Show Folder and for
-        // offering clips added there later; otherwise the project's own folder.
-        QSet<QString> clipFolders;
-        for (const project::SourceEntry& entry : m_project->entries())
-            if (entry.source) clipFolders.insert(QDir::cleanPath(QFileInfo(entry.source->filePath()).absolutePath()));
-        info.folder = clipFolders.size() == 1 ? *clipFolders.cbegin()
-                                              : QDir::cleanPath(QFileInfo(projectPath).absolutePath());
-        info.projectPath = projectPath;
-        info.createdMsUtc = info.openedMsUtc = QDateTime::currentMSecsSinceEpoch();
-        m_reviewLibrary->add(info);
+    if (!m_reviewLibrary->findByProject(m_project->filePath())) {
+        m_reviewLibrary->add(reviewInfoForProject(*m_project, m_project->filePath()));
         saveReviewLibrary();
     }
     syncReviewLibraryEntry();
+}
+
+int MainWindow::addExistingReviews(const QStringList& paths, QStringList* failed)
+{
+    int added = 0;
+    media::ImageSourceOptions defaultStill;
+    defaultStill.holdFrames = m_settings->stillImageHoldFrames();
+    defaultStill.frameRate = m_settings->imageSequenceFrameRate();
+    for (const QString& path : paths) {
+        // Read, not opened: the player keeps what it has.
+        project::Project loaded;
+        const auto result = project::ProjectSerializer::load(loaded, path, defaultStill);
+        if (!result.ok) {
+            if (failed) failed->append(QStringLiteral("%1: %2").arg(QFileInfo(path).fileName(), result.errorMessage));
+            continue;
+        }
+        review::ReviewInfo info = reviewInfoForProject(loaded, path);
+        if (const review::ReviewInfo* existing = m_reviewLibrary->findByProject(path)) {
+            // Already listed: bring it back from the archive and its counts up to date.
+            const review::ReviewInfo old = *existing;
+            info.id = old.id;
+            info.name = old.name;
+            info.starred = old.starred;
+            info.includeSubfolders = old.includeSubfolders;
+            info.folder = old.folder;
+            info.createdMsUtc = old.createdMsUtc;
+            info.openedMsUtc = old.openedMsUtc;
+            m_reviewLibrary->update(info);
+        } else {
+            m_reviewLibrary->add(info);
+        }
+        ++added;
+    }
+    if (added > 0) {
+        saveReviewLibrary();
+        if (m_libraryPage) m_libraryPage->refresh();
+        statusBar()->showMessage(tr("Added %n review(s) to the library.", nullptr, added), 6000);
+    }
+    return added;
+}
+
+void MainWindow::addExistingReviewDialog()
+{
+    const QStringList paths = QFileDialog::getOpenFileNames(this, tr("Add Existing Reviews"), m_lastMediaDirectory,
+                                                            project::ProjectSerializer::fileDialogFilter());
+    if (paths.isEmpty()) return;
+    QStringList failed;
+    addExistingReviews(paths, &failed);
+    if (!failed.isEmpty())
+        QMessageBox::warning(this, tr("Add Existing Reviews"),
+                             tr("These could not be read as ATK Player projects:\n\n%1").arg(failed.join(QLatin1Char('\n'))));
 }
 
 bool MainWindow::saveProjectTo(const QString& path, bool saveAs, bool showError)

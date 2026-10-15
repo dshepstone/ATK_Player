@@ -48,6 +48,7 @@ signals:
     void newReviewRequested();
     void openReviewRequested(const QUuid& id);
     void openProjectRequested();
+    void addExistingRequested();
     void openMediaRequested();
     void showFolderRequested(const QString& folder);
     /// The library changed (star, archive, remove); the owner saves it.

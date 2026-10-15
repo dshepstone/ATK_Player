@@ -101,6 +101,7 @@ private slots:
     void createdReviewIsSavedListedAndReopened();
     void libraryStarsArchivesAndSearches();
     void newClipsInTheFolderAreOffered();
+    void addExistingListsProjectsWithoutOpening();
     void classListRenamesShownNamesByDefault();
     void classListRenamesFilesOnDiskAndUndoes();
 };
@@ -359,6 +360,64 @@ void TestReviewWorkflow::newClipsInTheFolderAreOffered()
     QCOMPARE(window.project()->entries().last().source->filePath(), QDir(folder).filePath(QStringLiteral("student3.mp4")));
     QVERIFY(!window.project()->isModified()); // saved with the new clip
     QCOMPARE(window.reviewLibrary()->find(id)->clipCount, 4);
+}
+
+void TestReviewWorkflow::addExistingListsProjectsWithoutOpening()
+{
+    QTemporaryDir directory;
+    const QString folder = makeClassFolder(directory);
+    project::Project made;
+    made.setName(QStringLiteral("pendulum4"));
+    for (const review::FoundClip& clip : review::scanFolder(folder, false))
+        made.addSource(std::make_shared<media::MediaSource>(clip.path));
+    const QString path = QDir(folder).filePath(QStringLiteral("pendulum4.atkproj"));
+    QVERIFY(project::ProjectSerializer::save(made, path).ok);
+    const QString notAProject = directory.filePath(QStringLiteral("notes.atkproj"));
+    {
+        QFile file(notAProject);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        file.write("not json");
+    }
+
+    ui::MainWindow window(directory.filePath(QStringLiteral("settings.ini")));
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    window.showReviewLibrary();
+    auto* button = window.reviewLibraryPage()->findChild<QPushButton*>(QStringLiteral("ReviewLibraryAddExisting"));
+    QVERIFY(button && button->isVisible());
+
+    QStringList failed;
+    QCOMPARE(window.addExistingReviews({path, notAProject}, &failed), 1);
+    QCOMPARE(failed.size(), 1);
+    QVERIFY(failed.first().startsWith(QStringLiteral("notes.atkproj")));
+    QVERIFY(window.isShowingReviewLibrary()); // listed, not opened
+    QVERIFY(window.project()->filePath().isEmpty());
+
+    const review::ReviewInfo* info = window.reviewLibrary()->findByProject(path);
+    QVERIFY(info);
+    const QUuid id = info->id;
+    QCOMPARE(info->name, QStringLiteral("pendulum4"));
+    QCOMPARE(info->clipCount, 3);
+    QCOMPARE(QDir(info->folder), QDir(folder));
+    QCOMPARE(window.reviewLibraryPage()->listedReviews(), QVector<QUuid>{id});
+    QVERIFY(window.statusBar()->isVisible()); // says so on the library page
+    QVERIFY(window.findChild<QLabel*>(QStringLiteral("StatusMessage"))->text().startsWith(QStringLiteral("Added 1 review")));
+
+    // Adding it again lists it once, and brings it back from the archive.
+    review::ReviewInfo archived = *info;
+    archived.archived = true;
+    window.reviewLibrary()->update(archived);
+    QCOMPARE(window.addExistingReviews({path}), 1);
+    QCOMPARE(window.reviewLibrary()->reviews().size(), 1);
+    QVERIFY(!window.reviewLibrary()->find(id)->archived);
+
+    // Saved, and it opens like any review.
+    review::ReviewLibrary reread(window.reviewLibrary()->filePath());
+    QVERIFY(reread.load());
+    QVERIFY(reread.find(id));
+    QVERIFY(window.openReview(id, false));
+    QCOMPARE(window.project()->filePath(), QFileInfo(path).absoluteFilePath());
+    QCOMPARE(window.project()->entries().size(), 3);
 }
 
 void TestReviewWorkflow::classListRenamesShownNamesByDefault()
