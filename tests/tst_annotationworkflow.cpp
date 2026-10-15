@@ -30,6 +30,7 @@
 #include <QSettings>
 #include <QSignalSpy>
 #include <QSpinBox>
+#include <QStatusBar>
 #include <QTimer>
 #include <QToolButton>
 #include <QMouseEvent>
@@ -106,6 +107,7 @@ private slots:
     void fileMenuHasTheNotesExports();
     void exportsOpenOnlyOnceTheFileIsReady();
     void watchingASavedProjectNeverAsksToSave();
+    void savingAProjectSaysSo();
     void exportProgressWindowCancelsAndCloses();
     void copyCutAndPasteBetweenFrames();
     void dragTimelineMarkersToMoveOrCopyAFrame();
@@ -867,6 +869,22 @@ void TestAnnotationWorkflow::watchingASavedProjectNeverAsksToSave()
     QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->currentFrame(), qint64(60), 5000);
     command(window, "view.timelineZoomIn")->trigger();
     QVERIFY(!window.project()->needsSavePrompt());
+}
+
+void TestAnnotationWorkflow::savingAProjectSaysSo()
+{
+    QTemporaryDir directory;
+    const QString projectPath = writeProject(directory);
+    QVERIFY(!projectPath.isEmpty());
+    atk::ui::MainWindow window(directory.filePath(QStringLiteral("settings.ini")));
+    QVERIFY(openAt(window, projectPath, 0));
+    window.statusBar()->clearMessage();
+    command(window, "file.saveProject")->trigger();
+    // The save names the file it wrote, so the user knows it landed.
+    const QString message = window.statusBar()->currentMessage();
+    QVERIFY2(message.startsWith(QStringLiteral("Saved draw.atkproj at ")), qPrintable(message));
+    QVERIFY(!window.project()->isModified());
+    QVERIFY(QApplication::overrideCursor() == nullptr);
 }
 
 void TestAnnotationWorkflow::exportProgressWindowCancelsAndCloses()
