@@ -2,7 +2,7 @@
 
 ATK Player is an open-source, frame-accurate video playback and animation review application designed for animators, students, educators, and production workflows.
 
-**Latest release: ATK Player 0.5.2**
+**Latest release: ATK Player 0.5.3**
 
 ATK Player is **Animation Tool Kit — Media Player**, the companion application for the Animation Tool Kit Maya tools series. Created by David Shepstone.
 
@@ -24,8 +24,8 @@ The latest Windows release is available from:
 
 ### Windows Installer
 
-Download `ATK-Player-v0.5.2-Windows.zip` from the release, extract it, and run
-`ATK-Player-0.5.2-Windows-x64.msi` from the extracted folder. The ZIP also holds
+Download `ATK-Player-v0.5.3-Windows.zip` from the release, extract it, and run
+`ATK-Player-0.5.3-Windows-x64.msi` from the extracted folder. The ZIP also holds
 `INSTALL.txt`, the MSI's SHA-256 checksum and the licence notices.
 
 The installer:
@@ -47,7 +47,7 @@ ship the installer only.
 
 ### Unsigned Build Notice
 
-ATK Player 0.5.2 is currently distributed without a commercial Windows code-signing certificate.
+ATK Player 0.5.3 is currently distributed without a commercial Windows code-signing certificate.
 
 Windows may therefore display an **Unknown Publisher** or Microsoft Defender SmartScreen warning when launching the installer.
 
@@ -93,6 +93,7 @@ ATK Player is designed around frame-accurate animation review rather than approx
 - Timeline scrubbing with a live frame-number readout above the playhead
 - Review-range playback
 - Looping
+- Playback speed from 0.1x to 2x, shown as the frame rate played at (`<` / `>` / `K`)
 - Whole-clip playback
 - Quick ±10 second navigation
 
@@ -135,7 +136,7 @@ See [docs/STILL_IMAGE_SOURCES.md](docs/STILL_IMAGE_SOURCES.md) for the design.
 
 ### Flip Horizontal
 
-**View → Flip Horizontal** (`H`) mirrors the picture in the viewer, for video and images alike, including both A/B panes and the composite modes. It is a viewing aid only: it is reset when a source opens, is not saved, and never affects exports. A **FLIPPED H** badge shows while it is on.
+**View → Flip Horizontal** (`H`) mirrors the picture in the viewer, for video and images alike, including both A/B panes and the composite modes. It is a viewing aid only: it is reset when a source opens, is not saved, and never affects exports. A **FLIPPED H** badge shows while it is on. It has a button in the bottom bar and, as **Flip Canvas**, on the drawing row.
 
 ### Timeline and Review Ranges
 
@@ -220,6 +221,7 @@ The viewer includes animation-review navigation independent of playback timing.
 
 - Fit Viewer
 - True 100% pixel view
+- A zoom button in the bottom bar showing the level, with 25%, 50%, 200% and 400% presets
 - Mouse-wheel zoom
 - Middle-mouse pan
 - Cursor-anchored zoom
@@ -383,6 +385,8 @@ Harmony frames remain one-based while ATK's internal/API frame mapping remains z
 | New Review from Folder | `Ctrl+Shift+N` |
 | Play / Pause | `Space` |
 | Loop | `L` |
+| Slower / Faster / Normal Speed | `<` / `>` / `K` |
+| Hold Drawings | `Shift+H` |
 | Draw on Frame | `D` |
 | Notes Panel | `F6` |
 | Previous Frame | `Left` |
@@ -406,6 +410,13 @@ Shortcuts can be customized under:
 ---
 
 ## Current Release Status
+
+### ATK Player 0.5.3
+
+Hold drawings until the next drawing, a playback speed control, a zoom button,
+Flip Canvas on the drawing row, a numbered playlist, and a Drag Markers switch
+for moving notes and drawings along the timeline. See
+[docs/RELEASE_NOTES_0.5.3.md](docs/RELEASE_NOTES_0.5.3.md).
 
 ### ATK Player 0.5.2
 
