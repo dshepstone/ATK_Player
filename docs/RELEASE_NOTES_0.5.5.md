@@ -12,6 +12,10 @@ you already have can be added to the Review Library.
   **Saving name.atkproj…** and then **Saved name.atkproj at** the time; a
   failed save says the project was not saved. On the Review Library, where
   the status bar is normally hidden, it appears while a message is showing.
+- **A/B Comparison: B follows the offset when started early.** Starting a
+  comparison straight after opening a project, before ATK Player had finished
+  reading clip B, could hold B on its first frame whatever the B offset. B now
+  runs to its last frame.
 
 ## New
 

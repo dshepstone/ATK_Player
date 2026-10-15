@@ -15,6 +15,8 @@ class CompareVideoLane final : public QObject {
 public:
     explicit CompareVideoLane(QObject* parent = nullptr);
     ~CompareVideoLane() override;
+    /// A negative `rangeEndFrame` means the clip's last frame, taken from the
+    /// file once it is open: the playlist's own probe may not have finished.
     void open(const QUuid& sourceId, const std::shared_ptr<media::MediaSource>& source,
               qint64 rangeStartFrame, qint64 rangeEndFrame);
     void close();
@@ -56,6 +58,7 @@ private:
     QUuid m_sourceId;
     qint64 m_rangeStartFrame = 0;
     qint64 m_rangeEndFrame = 0;
+    bool m_rangeToLastFrame = false;
     qint64 m_latestTargetUs = 0;
     qint64 m_presentedPtsUs = -1;
     qint64 m_presentedFrameIndex = -1;

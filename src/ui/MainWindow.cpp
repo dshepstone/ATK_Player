@@ -3629,9 +3629,11 @@ void MainWindow::openComparisonSourceB()
     const int index = m_project->indexForId(m_compare->sourceBId());
     if (!sourceUsableForComparison(index)) return;
     const auto& entry = m_project->entries().at(index);
-    const qint64 last = std::max<qint64>(0, entry.source->metadata().effectiveFrameCount() - 1);
+    // Without a playback range, the lane runs to the last frame it finds when
+    // it opens the file. The playlist's probe may not have finished yet, and
+    // its frame count of 0 would hold B on its first frame (any offset).
     const qint64 start = entry.playbackRange.enabled ? entry.playbackRange.startFrame : 0;
-    const qint64 end = entry.playbackRange.enabled ? entry.playbackRange.endFrame : last;
+    const qint64 end = entry.playbackRange.enabled ? entry.playbackRange.endFrame : -1;
     m_viewerB->setCornerLabel(tr("B\n%1").arg(entry.displayName));
     m_compareLane->open(entry.id, entry.source, start, end);
 }
