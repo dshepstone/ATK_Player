@@ -4,6 +4,8 @@
 #include "media/MediaSource.h"
 #include "project/Project.h"
 #include "project/ProjectSerializer.h"
+#include "ui/BatchNotesPdfDialog.h"
+#include "export/ReviewNotesPdf.h"
 #include "ui/AnnotationToolbar.h"
 #include "ui/BrushSizePill.h"
 #include "ui/ExportDialog.h"
@@ -20,6 +22,8 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QFile>
+#include <QDir>
+#include <QDateTime>
 #include <QFileInfo>
 #include <QLabel>
 #include <QLineEdit>
@@ -36,6 +40,7 @@
 #include <QMouseEvent>
 #include <QTemporaryDir>
 #include <QTest>
+#include <algorithm>
 #include <QListWidget>
 #include <QPlainTextEdit>
 #include <QTextEdit>
@@ -99,6 +104,7 @@ private slots:
     void importedBrushesAppearInTheToolbar();
     void notesPanelWritesNotesWhileDrawing();
     void notesPanelExportsAReviewNotesPdf();
+    void notesPdfsForPlaylistExportOnePerClip();
     void notesComposerBelongsToTheFrame();
     void notesPanelSearchesAndSorts();
     void tracingPaperAndGhostingToggleAndPersist();
@@ -469,6 +475,123 @@ void TestAnnotationWorkflow::notesPanelExportsAReviewNotesPdf()
     QVERIFY(file.open(QIODevice::ReadOnly));
     QVERIFY(file.read(4) == "%PDF");
     QVERIFY(!QFile::exists(pdf + QStringLiteral(".partial")));
+}
+
+void TestAnnotationWorkflow::notesPdfsForPlaylistExportOnePerClip()
+{
+    QTemporaryDir directory;
+    // Four clips: two with notes, one without, and the first clip's file a
+    // second time (its PDF must not overwrite the first one's).
+    const auto copy = [&](const QString& name) {
+        const QString path = directory.filePath(name);
+        return QFile::copy(fixturePath(), path) ? path : QString();
+    };
+    const QString anna = copy(QStringLiteral("anna.mkv"));
+    const QString ben = copy(QStringLiteral("ben.mkv"));
+    const QString cara = copy(QStringLiteral("cara.mkv"));
+    QVERIFY(!anna.isEmpty() && !ben.isEmpty() && !cara.isEmpty());
+    const auto noted = [](qint64 frame, const QString& text, bool resolved = false) {
+        atk::annotation::FrameAnnotation annotation;
+        annotation.frame = frame;
+        atk::annotation::FrameNote note;
+        note.id = quint64(frame + 1);
+        note.text = text;
+        note.author = QStringLiteral("David");
+        note.createdMsUtc = QDateTime::currentMSecsSinceEpoch();
+        note.resolved = resolved;
+        annotation.notes.append(note);
+        return annotation;
+    };
+    atk::project::Project project;
+    project.setName(QStringLiteral("Class"));
+    for (const QString& clip : {anna, ben, cara, anna})
+        project.addSource(std::make_shared<atk::media::MediaSource>(clip));
+    project.mutableEntries()[0].annotations.setFrame(noted(10, QStringLiteral("watch the arc")));
+    project.mutableEntries()[0].annotations.setFrame(noted(20, QStringLiteral("done"), true));
+    project.mutableEntries()[1].annotations.setFrame(noted(5, QStringLiteral("spacing too large")));
+    project.mutableEntries()[3].annotations.setFrame(noted(7, QStringLiteral("second look")));
+    project.setActiveIndex(1);
+    const QString projectPath = directory.filePath(QStringLiteral("class.atkproj"));
+    QVERIFY(atk::project::ProjectSerializer::save(project, projectPath).ok);
+
+    atk::ui::MainWindow window(directory.filePath(QStringLiteral("settings.ini")));
+    window.resize(1400, 800);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    QVERIFY(openAt(window, projectPath, 0));
+    // Every clip read, so each has a frame count to export over.
+    QTRY_VERIFY_WITH_TIMEOUT(std::all_of(window.project()->entries().cbegin(), window.project()->entries().cend(),
+        [](const atk::project::SourceEntry& e) { return e.source && e.source->metadata().effectiveFrameCount() > 0; }),
+        20000);
+    QAction* batch = command(window, "file.exportReviewNotesBatch");
+    QVERIFY(batch && batch->isEnabled());
+    QCOMPARE(batch->text(), QStringLiteral("Export Notes PDFs for Playlist..."));
+
+    const QString out = directory.filePath(QStringLiteral("pdfs"));
+    int listed = 0;
+    bool caraLocked = false;
+    bool noneDisables = false;
+    QString summary;
+    QTimer driver;
+    driver.setInterval(20);
+    connect(&driver, &QTimer::timeout, this, [&] {
+        auto* dialog = qobject_cast<atk::ui::BatchNotesPdfDialog*>(QApplication::activeModalWidget());
+        if (!dialog) return;
+        driver.stop();
+        auto* list = dialog->findChild<QListWidget*>(QStringLiteral("BatchNotesClips"));
+        auto* exportButton = dialog->findChild<QPushButton*>(QStringLiteral("BatchNotesExport"));
+        listed = list->count();
+        caraLocked = !(list->item(2)->flags() & Qt::ItemIsEnabled) && list->item(2)->checkState() == Qt::Unchecked
+                     && list->item(2)->text().contains(QStringLiteral("nothing to list"));
+        dialog->findChild<QPushButton*>(QStringLiteral("BatchNotesSelectNone"))->click();
+        noneDisables = !exportButton->isEnabled() && dialog->chosenClips().isEmpty();
+        dialog->findChild<QPushButton*>(QStringLiteral("BatchNotesSelectAll"))->click();
+        summary = dialog->findChild<QLabel*>(QStringLiteral("BatchNotesSummary"))->text();
+        dialog->findChild<QLineEdit*>(QStringLiteral("BatchNotesFolder"))->setText(QDir::toNativeSeparators(out));
+        exportButton->click();
+    });
+    driver.start();
+    batch->trigger();
+    QTRY_VERIFY_WITH_TIMEOUT(!window.notesPdfBatchInProgress(), 60000);
+    QCOMPARE(listed, 4);
+    QVERIFY(caraLocked);   // nothing to list: cannot be chosen
+    QVERIFY(noneDisables);
+    QCOMPARE(summary, QStringLiteral("3 PDF(s) will be saved, one per clip."));
+
+    // One PDF per chosen clip, named after the clip; the repeat gets (2).
+    QStringList names;
+    for (const QString& path : window.lastNotesPdfBatchSaved()) {
+        names.append(QFileInfo(path).fileName());
+        QCOMPARE(QFileInfo(path).absolutePath(), QFileInfo(out).absoluteFilePath());
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QVERIFY(file.read(4) == "%PDF");
+    }
+    QCOMPARE(names, (QStringList{QStringLiteral("anna_review_notes.pdf"), QStringLiteral("ben_review_notes.pdf"),
+                                 QStringLiteral("anna_review_notes (2).pdf")}));
+    QVERIFY(window.lastNotesPdfBatchFailed().isEmpty());
+    QVERIFY(!QFile::exists(directory.filePath(QStringLiteral("pdfs/cara_review_notes.pdf"))));
+    QTRY_VERIFY(std::none_of(window.findChildren<atk::ui::ExportProgressDialog*>().cbegin(),
+                             window.findChildren<atk::ui::ExportProgressDialog*>().cend(),
+                             [](const QWidget* w) { return w->isVisible(); }));
+    QVERIFY(batch->isEnabled());
+
+    // Keep Both: the existing PDFs stay and the new one is numbered on.
+    atk::exporter::ReviewNotesOptions options;
+    const QUuid annaId = window.project()->entries().at(0).id;
+    QVERIFY(window.exportNotesPdfs({annaId}, out, options, false));
+    QTRY_VERIFY_WITH_TIMEOUT(!window.notesPdfBatchInProgress(), 30000);
+    QCOMPARE(window.lastNotesPdfBatchSaved().size(), 1);
+    QCOMPARE(QFileInfo(window.lastNotesPdfBatchSaved().first()).fileName(), QStringLiteral("anna_review_notes (3).pdf"));
+
+    // Replace: written over the clip's own PDF.
+    QVERIFY(window.exportNotesPdfs({annaId}, out, options, true));
+    QTRY_VERIFY_WITH_TIMEOUT(!window.notesPdfBatchInProgress(), 30000);
+    QCOMPARE(QFileInfo(window.lastNotesPdfBatchSaved().value(0)).fileName(), QStringLiteral("anna_review_notes.pdf"));
+
+    // A clip with nothing to list is reported, not exported.
+    QVERIFY(!window.exportNotesPdfs({window.project()->entries().at(2).id}, out, options, true));
+    QCOMPARE(window.lastNotesPdfBatchFailed().size(), 1);
 }
 
 void TestAnnotationWorkflow::notesComposerBelongsToTheFrame()

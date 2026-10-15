@@ -28,6 +28,7 @@ set(ATK_UI_SOURCES
     ReviewHeaderBar.cpp
     ReviewLibraryPage.cpp
     ReviewNotesDialog.cpp
+    BatchNotesPdfDialog.cpp
     PreferencesDialog.cpp
     Resources.cpp
     SourcesPanel.cpp
@@ -66,6 +67,7 @@ set(ATK_UI_HEADERS
     ReviewHeaderBar.h
     ReviewLibraryPage.h
     ReviewNotesDialog.h
+    BatchNotesPdfDialog.h
     PreferencesDialog.h
     Resources.h
     SourcesPanel.h

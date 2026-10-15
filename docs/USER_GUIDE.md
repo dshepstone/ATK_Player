@@ -201,6 +201,11 @@ The **Export** button in the review header holds:
 - **Export Notes PDF…**: one page per noted frame with its drawing. Switch
   **Include text notes** off for pictures only.
 - **Export Notes Video (MP4)…**: the clip with its drawings and notes burned in.
+- **Export Notes PDFs for Playlist…**: a Notes PDF for each clip you tick, all
+  saved into one folder as `<clip>_review_notes.pdf`, one after another. Clips
+  with nothing to list are greyed out. If some of the PDFs are already in the
+  folder, choose **Replace** or **Keep Both** (the new ones become
+  `name (2).pdf`).
 - **Export Review…** and **Export Current Frame…**, described in the README.
 
 The **File** menu has all of these plus **Export Image Sequence…**.

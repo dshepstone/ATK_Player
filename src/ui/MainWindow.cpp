@@ -45,6 +45,7 @@
 #include "ui/ReviewHeaderBar.h"
 #include "ui/ReviewLibraryPage.h"
 #include "ui/ReviewNotesDialog.h"
+#include "ui/BatchNotesPdfDialog.h"
 #include "ui/SourcesPanel.h"
 #include "ui/StatusInfoBar.h"
 #include "ui/Theme.h"
@@ -112,6 +113,26 @@
 #include <limits>
 
 namespace atk::ui {
+
+/// Export Notes PDFs for Playlist: everything decided up front (clips, header
+/// text, file names), then one ReviewNotesJob after another.
+struct NotesPdfBatch {
+    struct Item {
+        QString name;
+        exporter::ExportSpec spec;
+        exporter::ReviewNotesDocument header;
+        QString outputPath;
+    };
+    QVector<Item> items;
+    int next = 0;
+    exporter::ReviewNotesOptions options;
+    QString folder;
+    bool openFolderWhenDone = false;
+    bool cancelRequested = false;
+    QStringList saved;
+    QStringList failed;
+};
+
 namespace {
 using commands::CommandId;
 
@@ -565,6 +586,10 @@ void MainWindow::buildWidgets()
         QDesktopServices::openUrl(QUrl::fromLocalFile(folder));
     });
     connect(m_project.get(), &project::Project::entriesChanged, this, &MainWindow::refreshReviewHeader);
+    connect(m_project.get(), &project::Project::entriesChanged, this, [this] {
+        if (QAction* action = m_commands->action(CommandId::ExportReviewNotesBatch))
+            action->setEnabled(!m_project->entries().isEmpty() && !notesPdfInProgress());
+    });
     connect(m_project.get(), &project::Project::activeIndexChanged, this, [this](int) { refreshReviewHeader(); });
     connect(m_project.get(), &project::Project::nameChanged, this, [this](const QString&) { refreshReviewHeader(); });
     connect(m_project.get(), &project::Project::clipStatusChanged, this, [this](const QUuid&) { refreshReviewHeader(); });
@@ -646,6 +671,7 @@ void MainWindow::buildMenus()
     m_reviewHeader->setExportActions({m_commands->action(CommandId::ExportReview),
                                       m_commands->action(CommandId::ExportReviewNotes),
                                       m_commands->action(CommandId::ExportNotesVideo),
+                                      m_commands->action(CommandId::ExportReviewNotesBatch),
                                       m_commands->action(CommandId::ExportCurrentFrame)});
     // Undo, redo, clear, copy, cut and paste also sit on the drawing row, as
     // the same commands.
@@ -1525,6 +1551,7 @@ void MainWindow::onCommand(CommandId id, bool checked)
     case CommandId::ExportImageSequence: exportImageSequence(); return;
     case CommandId::ExportReviewNotes: exportReviewNotes(); return;
     case CommandId::ExportNotesVideo: exportReview(true); return;
+    case CommandId::ExportReviewNotesBatch: exportReviewNotesBatch(); return;
     }
 }
 
@@ -1791,6 +1818,8 @@ void MainWindow::updateTransportEnabled()
             action->setEnabled(m_playback->hasMedia() && !exportInProgress());
     if (QAction* action = m_commands->action(CommandId::ExportReviewNotes))
         action->setEnabled(m_playback->hasMedia() && !notesPdfInProgress());
+    if (QAction* action = m_commands->action(CommandId::ExportReviewNotesBatch))
+        action->setEnabled(!m_project->entries().isEmpty() && !notesPdfInProgress());
 
     if (QAction* action = m_commands->action(CommandId::ToggleVideoFullScreen)) {
         action->setEnabled(m_playback->hasMedia());
@@ -3191,7 +3220,7 @@ void MainWindow::openExportedFile(const QString& path)
 
 bool MainWindow::notesPdfInProgress() const
 {
-    return m_notesPdfJob && m_notesPdfJob->isRunning();
+    return (m_notesPdfJob && m_notesPdfJob->isRunning()) || m_notesBatch;
 }
 
 void MainWindow::exportReviewNotes()
@@ -3224,19 +3253,7 @@ void MainWindow::exportReviewNotes()
             QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes) return;
 
     // Header text, decided now on the UI thread.
-    exporter::ReviewNotesDocument header;
-    header.projectName = m_project->filePath().isEmpty() ? tr("Untitled project")
-                                                         : QFileInfo(m_project->filePath()).completeBaseName();
-    header.clipName = QFileInfo(spec.sourceA.path).fileName();
-    QStringList reviewers;
-    for (const annotation::FrameAnnotation& frame : spec.annotations.frames())
-        for (const annotation::FrameNote& note : frame.notes)
-            if ((options.includeResolved || !note.resolved) && !note.author.trimmed().isEmpty()
-                && !reviewers.contains(note.author.trimmed()))
-                reviewers.append(note.author.trimmed());
-    header.reviewers = reviewers.join(QStringLiteral(", "));
-    header.generatedText = tr("from %1").arg(QLocale().toString(QDateTime::currentDateTime(), QLocale::LongFormat));
-    header.footerLeft = QStringLiteral("ATK Player %1").arg(QString::fromLatin1(version::kString));
+    exporter::ReviewNotesDocument header = notesPdfHeader(spec, options.includeResolved);
 
     m_notesPdfJob = std::make_unique<exporter::ReviewNotesJob>(std::move(spec), std::move(header), options, this);
     m_notesPdfProgress = new ExportProgressDialog(QStringLiteral("PDF"), tr("Exporting notes PDF"),
@@ -3279,6 +3296,229 @@ void MainWindow::exportReviewNotes()
     updateTransportEnabled();
 }
 
+exporter::ReviewNotesDocument MainWindow::notesPdfHeader(const exporter::ExportSpec& spec, bool includeResolved) const
+{
+    exporter::ReviewNotesDocument header;
+    header.projectName = m_project->filePath().isEmpty() ? tr("Untitled project")
+                                                         : QFileInfo(m_project->filePath()).completeBaseName();
+    header.clipName = QFileInfo(spec.sourceA.path).fileName();
+    QStringList reviewers;
+    for (const annotation::FrameAnnotation& frame : spec.annotations.frames())
+        for (const annotation::FrameNote& note : frame.notes)
+            if ((includeResolved || !note.resolved) && !note.author.trimmed().isEmpty()
+                && !reviewers.contains(note.author.trimmed()))
+                reviewers.append(note.author.trimmed());
+    header.reviewers = reviewers.join(QStringLiteral(", "));
+    header.generatedText = tr("from %1").arg(QLocale().toString(QDateTime::currentDateTime(), QLocale::LongFormat));
+    header.footerLeft = QStringLiteral("ATK Player %1").arg(QString::fromLatin1(version::kString));
+    return header;
+}
+
+exporter::ExportSpec MainWindow::notesPdfSpec(const project::SourceEntry& entry) const
+{
+    // As Export Notes PDF: the clip on its own, over the whole clip. The open
+    // clip's notes come from the editor, the rest from the project.
+    exporter::ExportSpec spec;
+    spec.sourceA.id = entry.id;
+    spec.sourceA.path = entry.source ? entry.source->filePath() : entry.storedPath;
+    spec.sourceA.metadata = entry.source ? entry.source->metadata() : media::MediaMetadata{};
+    if (entry.source) spec.sourceA.still = entry.source->imageOptions();
+    spec.sourceA.rangeStartFrame = 0;
+    spec.sourceA.rangeEndFrame = std::max<qint64>(0, spec.sourceA.metadata.effectiveFrameCount() - 1);
+    spec.annotations = entry.id == m_annotationSourceId ? m_annotations->annotations() : entry.annotations;
+    return spec;
+}
+
+void MainWindow::exportReviewNotesBatch()
+{
+    if (notesPdfInProgress()) return;
+    if (m_project->entries().isEmpty()) {
+        QMessageBox::information(this, tr("Export Notes PDFs for Playlist"), tr("The playlist is empty."));
+        return;
+    }
+    QVector<BatchNotesClip> clips;
+    for (const project::SourceEntry& entry : m_project->entries()) {
+        BatchNotesClip clip;
+        clip.id = entry.id;
+        clip.name = entry.displayName.isEmpty() ? QFileInfo(entry.storedPath).fileName() : entry.displayName;
+        clip.annotations = entry.id == m_annotationSourceId ? m_annotations->annotations() : entry.annotations;
+        if (entry.missing || entry.availability == project::SourceAvailability::Missing)
+            clip.unavailableReason = tr("media missing");
+        else if (entry.availability == project::SourceAvailability::Error || !entry.source)
+            clip.unavailableReason = tr("cannot be read");
+        else if (entry.source->metadata().effectiveFrameCount() <= 0)
+            clip.unavailableReason = tr("still being read");
+        clips.append(std::move(clip));
+    }
+    // Beside the project, as the review's other files are.
+    const QString folder = !m_project->filePath().isEmpty() ? QFileInfo(m_project->filePath()).absolutePath()
+                         : !m_lastMediaDirectory.isEmpty()  ? m_lastMediaDirectory
+                                                            : QDir::homePath();
+    BatchNotesPdfDialog dialog(std::move(clips), folder, m_tracingPaper, this);
+    dialog.setOpenFolderWhenDone(m_settings->openExportsWhenDone());
+    dialog.setIncludeNoteText(m_settings->reviewNotesIncludeText());
+    if (dialog.exec() != QDialog::Accepted) return;
+    m_settings->setOpenExportsWhenDone(dialog.openFolderWhenDone());
+    m_settings->setReviewNotesIncludeText(dialog.includeNoteText());
+    const QVector<QUuid> chosen = dialog.chosenClips();
+    const QString target = dialog.folder();
+    if (chosen.isEmpty() || target.isEmpty()) return;
+    if (!QDir().mkpath(target)) {
+        QMessageBox::critical(this, tr("Export Notes PDFs for Playlist"),
+                              tr("The folder could not be created:\n%1").arg(QDir::toNativeSeparators(target)));
+        return;
+    }
+
+    // One question for every PDF already there.
+    int existing = 0;
+    for (const QUuid& id : chosen) {
+        const int index = m_project->indexForId(id);
+        if (index < 0) continue;
+        const exporter::ExportSpec spec = notesPdfSpec(m_project->entries().at(index));
+        if (QFileInfo::exists(QDir(target).filePath(exportBaseName(spec.sourceA) + QStringLiteral("_review_notes.pdf"))))
+            ++existing;
+    }
+    bool replace = true;
+    if (existing > 0) {
+        QMessageBox box(QMessageBox::Question, tr("Export Notes PDFs for Playlist"),
+                        tr("%n of these PDFs already exist in the folder.", nullptr, existing),
+                        QMessageBox::NoButton, this);
+        QPushButton* replaceButton = box.addButton(tr("Replace"), QMessageBox::AcceptRole);
+        QPushButton* keepButton = box.addButton(tr("Keep Both"), QMessageBox::AcceptRole);
+        box.addButton(QMessageBox::Cancel);
+        box.setInformativeText(tr("Keep Both saves the new ones as \"name (2).pdf\"."));
+        box.setDefaultButton(keepButton);
+        box.exec();
+        if (box.clickedButton() == replaceButton) replace = true;
+        else if (box.clickedButton() == keepButton) replace = false;
+        else return;
+    }
+    exportNotesPdfs(chosen, target, dialog.options(), replace, dialog.openFolderWhenDone());
+}
+
+bool MainWindow::exportNotesPdfs(const QVector<QUuid>& clips, const QString& folder,
+                                 const exporter::ReviewNotesOptions& options, bool replaceExisting,
+                                 bool openFolderWhenDone)
+{
+    if (notesPdfInProgress() || folder.isEmpty()) return false;
+    auto batch = std::make_unique<NotesPdfBatch>();
+    batch->options = options;
+    batch->folder = QDir::cleanPath(QFileInfo(folder).absoluteFilePath());
+    batch->openFolderWhenDone = openFolderWhenDone;
+    QSet<QString> taken; // two clips with the same file name get (2), (3)...
+    for (const QUuid& id : clips) {
+        const int index = m_project->indexForId(id);
+        if (index < 0) continue;
+        const project::SourceEntry& entry = m_project->entries().at(index);
+        NotesPdfBatch::Item item;
+        item.name = entry.displayName.isEmpty() ? QFileInfo(entry.storedPath).fileName() : entry.displayName;
+        item.spec = notesPdfSpec(entry);
+        if (exporter::ReviewNotesJob::framesToInclude(item.spec.annotations, options.includeResolved,
+                                                      options.includeNoteText).isEmpty()) {
+            batch->failed.append(tr("%1: nothing to list").arg(item.name));
+            continue;
+        }
+        if (!entry.source || item.spec.sourceA.metadata.effectiveFrameCount() <= 0) {
+            batch->failed.append(tr("%1: the media cannot be read").arg(item.name));
+            continue;
+        }
+        item.header = notesPdfHeader(item.spec, options.includeResolved);
+        const QString base = exportBaseName(item.spec.sourceA) + QStringLiteral("_review_notes");
+        QString path = QDir(batch->folder).filePath(base + QStringLiteral(".pdf"));
+        for (int n = 2; taken.contains(path.toCaseFolded()) || (!replaceExisting && QFileInfo::exists(path)); ++n)
+            path = QDir(batch->folder).filePath(QStringLiteral("%1 (%2).pdf").arg(base).arg(n));
+        taken.insert(path.toCaseFolded());
+        item.outputPath = path;
+        batch->items.append(std::move(item));
+    }
+    if (batch->items.isEmpty()) {
+        m_lastNotesBatchSaved.clear();
+        m_lastNotesBatchFailed = batch->failed;
+        return false;
+    }
+    m_notesBatch = std::move(batch);
+    m_notesPdfProgress = new ExportProgressDialog(QStringLiteral("PDF"), tr("Exporting notes PDFs"),
+                                                  QDir::toNativeSeparators(m_notesBatch->folder), this);
+    m_notesPdfProgress->setWindowModality(Qt::NonModal);
+    connect(m_notesPdfProgress, &ExportProgressDialog::canceled, this, [this] {
+        if (!m_notesBatch) return;
+        m_notesBatch->cancelRequested = true;
+        if (m_notesPdfJob) m_notesPdfJob->cancel();
+    });
+    m_notesPdfProgress->show();
+    updateTransportEnabled();
+    startNextNotesPdf();
+    return true;
+}
+
+void MainWindow::startNextNotesPdf()
+{
+    if (!m_notesBatch) return;
+    if (m_notesBatch->cancelRequested) { finishNotesPdfBatch(true); return; }
+    if (m_notesBatch->next >= m_notesBatch->items.size()) { finishNotesPdfBatch(false); return; }
+    const int index = m_notesBatch->next;
+    const int total = int(m_notesBatch->items.size());
+    const NotesPdfBatch::Item& item = m_notesBatch->items.at(index);
+    exporter::ReviewNotesOptions options = m_notesBatch->options;
+    options.outputPath = item.outputPath;
+    m_notesPdfJob = std::make_unique<exporter::ReviewNotesJob>(item.spec, item.header, options, this);
+    if (m_notesPdfProgress) {
+        m_notesPdfProgress->setLabelText(tr("Clip %1 of %2: %3").arg(index + 1).arg(total).arg(item.name));
+        m_notesPdfProgress->setValue(100 * index / total);
+    }
+    connect(m_notesPdfJob.get(), &exporter::ReviewNotesJob::progress, this, [this, index, total](int percent) {
+        if (m_notesPdfProgress) m_notesPdfProgress->setValue((100 * index + percent) / total);
+    });
+    // Each step joins the finished worker, then moves on from the event loop:
+    // the job that is reporting is not replaced inside its own signal.
+    const auto advance = [this] {
+        m_notesPdfJob->wait();
+        if (!m_notesBatch) return;
+        ++m_notesBatch->next;
+        QTimer::singleShot(0, this, &MainWindow::startNextNotesPdf);
+    };
+    connect(m_notesPdfJob.get(), &exporter::ReviewNotesJob::completed, this, [this, advance](const QString& path, int) {
+        if (m_notesBatch) m_notesBatch->saved.append(path);
+        advance();
+    });
+    connect(m_notesPdfJob.get(), &exporter::ReviewNotesJob::failed, this,
+            [this, advance, name = item.name](const QString& message) {
+        if (m_notesBatch) m_notesBatch->failed.append(QStringLiteral("%1: %2").arg(name, message));
+        advance();
+    });
+    connect(m_notesPdfJob.get(), &exporter::ReviewNotesJob::cancelled, this, [this] {
+        m_notesPdfJob->wait();
+        if (m_notesBatch) finishNotesPdfBatch(true);
+    });
+    m_notesPdfJob->start();
+}
+
+void MainWindow::finishNotesPdfBatch(bool cancelled)
+{
+    if (!m_notesBatch) return;
+    const std::unique_ptr<NotesPdfBatch> batch = std::move(m_notesBatch);
+    m_lastNotesBatchSaved = batch->saved;
+    m_lastNotesBatchFailed = batch->failed;
+    if (m_notesPdfProgress) {
+        m_notesPdfProgress->finish();
+        m_notesPdfProgress->deleteLater();
+        m_notesPdfProgress = nullptr;
+    }
+    updateTransportEnabled();
+    const QString folder = QDir::toNativeSeparators(batch->folder);
+    statusBar()->showMessage(cancelled
+        ? tr("Export cancelled after %n PDF(s).", nullptr, int(batch->saved.size()))
+        : tr("Exported %n notes PDF(s) to %1", nullptr, int(batch->saved.size())).arg(folder), 10000);
+    if (!cancelled && !batch->failed.isEmpty())
+        QMessageBox::warning(this, tr("Export Notes PDFs for Playlist"),
+                             tr("These clips were not exported:\n\n%1").arg(batch->failed.join(QLatin1Char('\n'))));
+    if (!cancelled && batch->openFolderWhenDone && !batch->saved.isEmpty()) {
+        m_lastOpenedExport = batch->folder;
+        if (!qEnvironmentVariableIsSet("ATK_NO_OPEN_EXPORTS")) // tests
+            QDesktopServices::openUrl(QUrl::fromLocalFile(batch->folder));
+    }
+}
+
 bool MainWindow::cancelExportForProjectChange()
 {
     if (!exportInProgress() && !notesPdfInProgress()) return true;
@@ -3288,6 +3528,7 @@ bool MainWindow::cancelExportForProjectChange()
     // Stop work, then join the worker, before the UI state it reports to goes.
     if (m_exportJob) { m_exportJob->cancel(); m_exportJob->wait(); }
     if (m_notesPdfJob) { m_notesPdfJob->cancel(); m_notesPdfJob->wait(); }
+    if (m_notesBatch) { m_lastNotesBatchSaved = m_notesBatch->saved; m_notesBatch.reset(); }
     if (m_exportProgress) { m_exportProgress->finish(); m_exportProgress->deleteLater(); m_exportProgress = nullptr; }
     if (m_notesPdfProgress) { m_notesPdfProgress->finish(); m_notesPdfProgress->deleteLater(); m_notesPdfProgress = nullptr; }
     updateTransportEnabled();
