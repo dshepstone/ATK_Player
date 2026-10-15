@@ -20,7 +20,11 @@ opens: every review you have made, newest first.
   was last opened. **Open** (or a double-click) opens it in the player; **⋯**
   has Show Folder, Archive and Remove from Library. Removing a review from the
   library never deletes its clips or its project file.
-- **Open Project…** and **Open Clips…** open files directly, as before.
+- **Add Existing…** lists `.atkproj` projects you already have (choose one or
+  several) without opening them; open them from the list as usual.
+- **Open Project…** and **Open Clips…** open files directly, as before. A
+  project opened this way (or from Recent Projects or Explorer) is added to
+  the library, so it is listed next time.
 
 Opening a clip from Explorer (double-click), from Maya or Harmony, or through
 the local API goes straight to the player; the library only appears when ATK

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QList>
 #include <QWidget>
 
 class QLabel;
@@ -33,6 +34,15 @@ public:
     /// Returns to the no-media readout.
     void clearMediaInfo();
 
+    /// Shows a status bar message (empty clears it). The strip fills the
+    /// status bar, so QStatusBar has no room to draw its own messages; they
+    /// are shown here instead.
+    void setMessage(const QString& message);
+
+    /// Hides or shows the frame, timecode, FPS and media fields. The message
+    /// stays: the Review Library has no frame to report, but saves still say so.
+    void setReadoutVisible(bool visible);
+
 private:
     /// Builds a caption + monospaced value pair and appends it to the layout.
     QLabel* addField(const QString& caption, const QString& initialValue, int minimumValueWidth);
@@ -46,7 +56,10 @@ private:
     /// rather than an open file.
     QLabel* m_placeholderTag = nullptr;
     QLabel* m_mediaValue = nullptr;
+    QLabel* m_message = nullptr;
+    QList<QWidget*> m_readout;
     bool m_frameCountIsExact = true;
+    bool m_readoutVisible = true;
 };
 
 } // namespace atk::ui

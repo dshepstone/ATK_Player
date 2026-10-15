@@ -107,6 +107,7 @@ private slots:
     void comparisonSourceSelectionsRemainAuthoritativeAcrossLayouts();
     void comparisonApiSourceAStaysAuthoritativeAcrossLayoutChange();
     void stillImageSourceBHoldsMappedFrameWithoutAudio();
+    void laneWithoutRangeRunsToTheClipsLastFrame();
 };
 
 void TestComparison::timestampMappingHasNoCumulativeDrift()
@@ -823,4 +824,24 @@ void TestComparison::stillImageSourceBHoldsMappedFrameWithoutAudio()
 }
 
 QTEST_MAIN(TestComparison)
+void TestComparison::laneWithoutRangeRunsToTheClipsLastFrame()
+{
+    // Comparison can start before the playlist has probed source B, when its
+    // frame count is still 0. That used to hold B on its first frame whatever
+    // the offset (and made offsetControlsUseExactTransientTimeAndReanchor flaky).
+    auto unprobed = std::make_shared<atk::media::MediaSource>(media("atk_compare_30fps.mkv"));
+    atk::playback::CompareVideoLane lane;
+    lane.open(QUuid::createUuid(), unprobed, 0, -1);
+    QTRY_VERIFY_WITH_TIMEOUT(lane.isReady(), 10000);
+    QVERIFY(lane.metadata().effectiveFrameCount() > 15);
+    lane.synchronizeTo(500'000); // half a second at 30 fps
+    QCOMPARE(lane.requestedFrame(), qint64(15));
+
+    // An explicit playback range still bounds it.
+    lane.open(QUuid::createUuid(), unprobed, 2, 6);
+    QTRY_VERIFY_WITH_TIMEOUT(lane.isReady(), 10000);
+    lane.synchronizeTo(500'000);
+    QCOMPARE(lane.requestedFrame(), qint64(6));
+}
+
 #include "tst_comparison.moc"

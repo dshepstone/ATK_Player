@@ -117,16 +117,21 @@ ReviewLibraryPage::ReviewLibraryPage(review::ReviewLibrary* library, QWidget* pa
     titleRow->addStretch(1);
     auto* openProject = new QPushButton(icons::icon(QStringLiteral("folder-open")), tr("Open Project…"), main);
     openProject->setObjectName(QStringLiteral("ReviewLibraryOpenProject"));
+    auto* addExisting = new QPushButton(icons::icon(QStringLiteral("library-big")), tr("Add Existing…"), main);
+    addExisting->setObjectName(QStringLiteral("ReviewLibraryAddExisting"));
+    addExisting->setToolTip(tr("List review projects (.atkproj) you already have, without opening them"));
     auto* openMedia = new QPushButton(icons::icon(QStringLiteral("film")), tr("Open Clips…"), main);
     openMedia->setObjectName(QStringLiteral("ReviewLibraryOpenMedia"));
     auto* newReview = new QPushButton(icons::icon(QStringLiteral("plus"), theme::textOnAccent()), tr("New Review"), main);
     newReview->setObjectName(QStringLiteral("ReviewLibraryNew"));
     newReview->setProperty("atkRole", "primary");
     newReview->setToolTip(tr("Make a review from a folder of clips"));
+    titleRow->addWidget(addExisting);
     titleRow->addWidget(openProject);
     titleRow->addWidget(openMedia);
     titleRow->addWidget(newReview);
     column->addLayout(titleRow);
+    connect(addExisting, &QPushButton::clicked, this, &ReviewLibraryPage::addExistingRequested);
     connect(openProject, &QPushButton::clicked, this, &ReviewLibraryPage::openProjectRequested);
     connect(openMedia, &QPushButton::clicked, this, &ReviewLibraryPage::openMediaRequested);
     connect(newReview, &QPushButton::clicked, this, &ReviewLibraryPage::newReviewRequested);
@@ -222,7 +227,7 @@ void ReviewLibraryPage::refresh()
     QString empty;
     if (m_library->reviews().isEmpty())
         empty = tr("No reviews yet.\nClick New Review and choose a folder of clips: each clip becomes an item in "
-                   "the review, in the order you choose.");
+                   "the review, in the order you choose.\nAlready have review projects? Click Add Existing to list them.");
     else if (shown.isEmpty() && !search.isEmpty())
         empty = tr("No reviews match \"%1\".").arg(search);
     else if (shown.isEmpty() && m_section == Section::Starred)

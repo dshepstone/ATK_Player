@@ -127,6 +127,10 @@ public:
                       const QVector<review::FoundClip>& clips, const QString& projectPath, bool interactive = true);
     /// Opens a library review; offers to add clips that appeared in its folder.
     bool openReview(const QUuid& id, bool interactive = true);
+    /// Lists existing .atkproj files in the library without opening them
+    /// (Add Existing). Returns how many were listed; unreadable files are
+    /// named in `failed`. One already listed is brought up to date instead.
+    int addExistingReviews(const QStringList& paths, QStringList* failed = nullptr);
     /// Applies a Rename from Team List decision (what the dialog returns):
     /// shown names, order, and, with `onDisk`, the checked file renames.
     /// False (and nothing changed on disk) when the renames failed.
@@ -215,6 +219,7 @@ private:
     void changeSourceFrameRate(int playlistIndex);
     void newProject();
     void openProjectDialog();
+    void addExistingReviewDialog();
     bool saveProject();
     bool saveProjectAs();
     bool saveProjectTo(const QString& path, bool saveAs = false, bool showError = true);
@@ -352,10 +357,11 @@ private:
     void retargetRenamedClips(const QHash<QString, QString>& moved);
     /// Offers to restore names from a rename in `folder` that never finished.
     void offerRenameRecovery(const QString& folder);
-    void saveReviewLibrary();
+    bool saveReviewLibrary();
     /// Keeps the library's clip count and preview strip in step with the
     /// open project when it belongs to a review.
     void syncReviewLibraryEntry();
+    void addOpenedProjectToReviewLibrary();
     void requestPreviewThumbnail(const QString& clipPath);
     QString thumbnailCacheDirectory() const;
     // Playlist thumbnails: a worker on its own thread, like the probe worker.

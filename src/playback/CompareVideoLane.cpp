@@ -41,6 +41,7 @@ void CompareVideoLane::open(const QUuid& id, const std::shared_ptr<media::MediaS
     close();
     if (id.isNull() || !source) return;
     m_sourceId = id; m_rangeStartFrame = std::max<qint64>(0, start); m_rangeEndFrame = std::max(m_rangeStartFrame, end);
+    m_rangeToLastFrame = end < 0;
     const quint64 generation = m_generations->bumpSource();
     m_cache.setSourceGeneration(generation);
     emit loadingChanged(true);
@@ -59,7 +60,7 @@ void CompareVideoLane::onOpened(const media::MediaMetadata& metadata, quint64 so
     m_metadata = metadata;
     const qint64 last = std::max<qint64>(0, metadata.effectiveFrameCount() - 1);
     m_rangeStartFrame = std::clamp(m_rangeStartFrame, qint64(0), last);
-    m_rangeEndFrame = std::clamp(m_rangeEndFrame, m_rangeStartFrame, last);
+    m_rangeEndFrame = m_rangeToLastFrame ? last : std::clamp(m_rangeEndFrame, m_rangeStartFrame, last);
     m_ready = true; emit loadingChanged(false); emit readyChanged(true); synchronizeTo(m_latestTargetUs);
 }
 void CompareVideoLane::onOpenFailed(const QString& message, quint64 generation)

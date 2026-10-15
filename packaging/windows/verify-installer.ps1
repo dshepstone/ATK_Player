@@ -2,8 +2,8 @@
 param(
     [Parameter(Mandatory)][string]$MsiPath,
     [Parameter(Mandatory)][string]$StageDir,
-    [string]$DisplayVersion = "0.5.4-rc1",
-    [string]$ProductVersion = "0.5.4",
+    [string]$DisplayVersion = "0.5.5-rc1",
+    [string]$ProductVersion = "0.5.5",
     [string]$UpgradeCode = "{6E41AAE8-13C4-4D46-AB5B-7F04E92E9B76}"
 )
 

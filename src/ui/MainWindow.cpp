@@ -599,6 +599,13 @@ void MainWindow::buildWidgets()
     m_viewerZoomStatus->setProperty("atkRole", "statusCaption");
     statusBar()->addPermanentWidget(m_viewerZoomStatus);
     statusBar()->setSizeGripEnabled(true);
+    // The readout fills the bar, leaving QStatusBar no room to draw messages,
+    // so they are shown in the readout. The Review Library hides the bar; it
+    // shows it again while a message is up, so a save there still says so.
+    connect(statusBar(), &QStatusBar::messageChanged, this, [this](const QString& message) {
+        m_statusInfo->setMessage(message);
+        if (isShowingReviewLibrary()) statusBar()->setVisible(!message.isEmpty());
+    });
 }
 
 void MainWindow::buildMenus()
@@ -2215,6 +2222,7 @@ void MainWindow::showReviewLibrary()
         connect(m_libraryPage, &ReviewLibraryPage::newReviewRequested, this, &MainWindow::newReviewDialog);
         connect(m_libraryPage, &ReviewLibraryPage::openReviewRequested, this, [this](const QUuid& id) { openReview(id); });
         connect(m_libraryPage, &ReviewLibraryPage::openProjectRequested, this, &MainWindow::openProjectDialog);
+        connect(m_libraryPage, &ReviewLibraryPage::addExistingRequested, this, &MainWindow::addExistingReviewDialog);
         connect(m_libraryPage, &ReviewLibraryPage::openMediaRequested, this, &MainWindow::openMediaDialog);
         connect(m_libraryPage, &ReviewLibraryPage::showFolderRequested, this,
                 [](const QString& folder) { QDesktopServices::openUrl(QUrl::fromLocalFile(folder)); });
@@ -2238,6 +2246,9 @@ void MainWindow::showReviewLibrary()
             widget->hide();
         }
     }
+    m_statusInfo->setReadoutVisible(false);
+    m_viewerZoomStatus->hide();
+    statusBar()->clearMessage();
     statusBar()->hide();
     m_pages->setCurrentWidget(m_libraryPage);
     m_libraryPage->refresh();
@@ -2249,13 +2260,18 @@ void MainWindow::showPlayer()
     m_pages->setCurrentWidget(m_playerPage);
     for (QWidget* widget : std::as_const(m_hiddenForLibrary)) widget->show();
     m_hiddenForLibrary.clear();
+    m_statusInfo->setReadoutVisible(true);
+    m_viewerZoomStatus->show();
     statusBar()->show();
 }
 
-void MainWindow::saveReviewLibrary()
+bool MainWindow::saveReviewLibrary()
 {
-    if (QString error; !m_reviewLibrary->save(&error))
+    if (QString error; !m_reviewLibrary->save(&error)) {
         statusBar()->showMessage(tr("The review library could not be saved: %1").arg(error), 6000);
+        return false;
+    }
+    return true;
 }
 
 void MainWindow::syncReviewLibraryEntry()
@@ -2700,9 +2716,114 @@ bool MainWindow::openProjectFile(const QString& path)
         m_project->setActiveIndex(-1);
     }
     m_settings->addRecentProject(path); refreshRecentProjectsMenu();
+    addOpenedProjectToReviewLibrary();
     startPlaylistProbes();
     showPlayer();
     updateWindowTitle(); return true;
+}
+
+namespace {
+
+/// A library entry for a project that was not made with New Review.
+review::ReviewInfo reviewInfoForProject(const project::Project& project, const QString& projectPath)
+{
+    review::ReviewInfo info;
+    // A project never named says "Untitled"; its file name says more.
+    const QString name = project.name();
+    info.name = name.isEmpty() || name == QLatin1StringView("Untitled") ? QFileInfo(projectPath).completeBaseName()
+                                                                        : name;
+    // The clips' folder when they share one, for Show Folder and for offering
+    // clips added there later; otherwise the project's own folder.
+    QSet<QString> clipFolders;
+    for (const project::SourceEntry& entry : project.entries()) {
+        if (!entry.source) continue;
+        clipFolders.insert(QDir::cleanPath(QFileInfo(entry.source->filePath()).absolutePath()));
+        if (info.previewClips.size() < 5 && !entry.source->isImageSequence())
+            info.previewClips.append(entry.source->filePath());
+    }
+    info.folder = clipFolders.size() == 1 ? *clipFolders.cbegin()
+                                          : QDir::cleanPath(QFileInfo(projectPath).absolutePath());
+    info.projectPath = QFileInfo(projectPath).absoluteFilePath();
+    info.clipCount = int(project.entries().size());
+    info.createdMsUtc = info.openedMsUtc = QDateTime::currentMSecsSinceEpoch();
+    return info;
+}
+
+} // namespace
+
+void MainWindow::addOpenedProjectToReviewLibrary()
+{
+    // A project opened directly (Open Project, Recent Projects, Explorer) joins
+    // the Review Library too, so it is there next time. New Review and Open
+    // Review already list theirs; they only get their counts brought up to date.
+    if (m_project->filePath().isEmpty()) return;
+    if (const review::ReviewInfo* listed = m_reviewLibrary->findByProject(m_project->filePath())) {
+        // Already listed: it was just opened, which the Latest order and the
+        // row's date go by.
+        review::ReviewInfo opened = *listed;
+        opened.openedMsUtc = QDateTime::currentMSecsSinceEpoch();
+        m_reviewLibrary->update(opened);
+    } else {
+        m_reviewLibrary->add(reviewInfoForProject(*m_project, m_project->filePath()));
+    }
+    saveReviewLibrary();
+    syncReviewLibraryEntry();
+}
+
+int MainWindow::addExistingReviews(const QStringList& paths, QStringList* failed)
+{
+    int added = 0;
+    media::ImageSourceOptions defaultStill;
+    defaultStill.holdFrames = m_settings->stillImageHoldFrames();
+    defaultStill.frameRate = m_settings->imageSequenceFrameRate();
+    for (const QString& path : paths) {
+        // Read, not opened: the player keeps what it has.
+        project::Project loaded;
+        const auto result = project::ProjectSerializer::load(loaded, path, defaultStill);
+        if (!result.ok) {
+            if (failed) failed->append(QStringLiteral("%1: %2").arg(QFileInfo(path).fileName(), result.errorMessage));
+            continue;
+        }
+        review::ReviewInfo info = reviewInfoForProject(loaded, path);
+        if (const review::ReviewInfo* existing = m_reviewLibrary->findByProject(path)) {
+            // Already listed: bring it back from the archive and its counts up to date.
+            const review::ReviewInfo old = *existing;
+            info.id = old.id;
+            info.name = old.name;
+            info.starred = old.starred;
+            info.includeSubfolders = old.includeSubfolders;
+            info.folder = old.folder;
+            info.createdMsUtc = old.createdMsUtc;
+            info.openedMsUtc = old.openedMsUtc;
+            m_reviewLibrary->update(info);
+        } else {
+            m_reviewLibrary->add(info);
+        }
+        ++added;
+    }
+    if (added > 0) {
+        if (m_libraryPage) m_libraryPage->refresh();
+        // Not written, they would be gone next time: leave the save error showing.
+        if (!saveReviewLibrary()) {
+            if (failed) failed->append(tr("The review library could not be saved, so the reviews will not be listed "
+                                          "next time."));
+            return 0;
+        }
+        statusBar()->showMessage(tr("Added %n review(s) to the library.", nullptr, added), 6000);
+    }
+    return added;
+}
+
+void MainWindow::addExistingReviewDialog()
+{
+    const QStringList paths = QFileDialog::getOpenFileNames(this, tr("Add Existing Reviews"), m_lastMediaDirectory,
+                                                            project::ProjectSerializer::fileDialogFilter());
+    if (paths.isEmpty()) return;
+    QStringList failed;
+    addExistingReviews(paths, &failed);
+    if (!failed.isEmpty())
+        QMessageBox::warning(this, tr("Add Existing Reviews"),
+                             tr("Not added:\n\n%1").arg(failed.join(QLatin1Char('\n'))));
 }
 
 bool MainWindow::saveProjectTo(const QString& path, bool saveAs, bool showError)
@@ -3508,9 +3629,11 @@ void MainWindow::openComparisonSourceB()
     const int index = m_project->indexForId(m_compare->sourceBId());
     if (!sourceUsableForComparison(index)) return;
     const auto& entry = m_project->entries().at(index);
-    const qint64 last = std::max<qint64>(0, entry.source->metadata().effectiveFrameCount() - 1);
+    // Without a playback range, the lane runs to the last frame it finds when
+    // it opens the file. The playlist's probe may not have finished yet, and
+    // its frame count of 0 would hold B on its first frame (any offset).
     const qint64 start = entry.playbackRange.enabled ? entry.playbackRange.startFrame : 0;
-    const qint64 end = entry.playbackRange.enabled ? entry.playbackRange.endFrame : last;
+    const qint64 end = entry.playbackRange.enabled ? entry.playbackRange.endFrame : -1;
     m_viewerB->setCornerLabel(tr("B\n%1").arg(entry.displayName));
     m_compareLane->open(entry.id, entry.source, start, end);
 }

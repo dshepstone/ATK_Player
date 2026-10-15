@@ -126,11 +126,26 @@ jobs:
         if: failure()
         shell: pwsh
         run: |
+          # Which suites failed, and how each report ends (a crash leaves no FAIL! line).
+          $failedLog = "build/${{ matrix.preset }}/Testing/Temporary/LastTestsFailed.log"
+          if (Test-Path $failedLog) {
+            Get-Content $failedLog | ForEach-Object {
+              $name = ($_ -split ':', 2)[-1]
+              $report = "build/${{ matrix.preset }}/bin/$name-results.txt"
+              $tail = if (Test-Path $report) { (Get-Content $report -Tail 6) -join ' | ' } else { 'no report' }
+              Write-Host "::error title=$name failed::$tail"
+            }
+          }
           Get-ChildItem "build/${{ matrix.preset }}/bin" -Filter "*-results.txt" | ForEach-Object {
             $lines = Get-Content $_.FullName
             if ($lines | Select-String -SimpleMatch "FAIL!") {
               Write-Host "===== $($_.Name) ====="
-              $lines | Select-String -SimpleMatch -Context 0,4 "FAIL!" | ForEach-Object { $_.ToString() }
+              $lines | Select-String -SimpleMatch -Context 0,4 "FAIL!" | ForEach-Object {
+                $_.ToString()
+                # Also as an annotation, readable without downloading the log.
+                $text = (@($_.Line) + $_.Context.PostContext) -join ' | '
+                Write-Host "::error title=$($_.Filename)::$text"
+              }
             }
           }
 
