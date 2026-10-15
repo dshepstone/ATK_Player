@@ -133,6 +133,13 @@ void ViewerWidget::showActualSize()
     update();
 }
 
+void ViewerWidget::zoomToPercent(qreal percent)
+{
+    m_transform.setZoomRatioAt(percent / 100.0, rect().center());
+    notifyNavigationChanged();
+    update();
+}
+
 void ViewerWidget::zoomIn()
 {
     m_transform.zoomAt(ViewerTransform::kWheelStepFactor, rect().center());
@@ -506,10 +513,11 @@ void ViewerWidget::setAnnotationFrame(const annotation::FrameAnnotation& frame)
 {
     // The usual edit while drawing is one stroke added on top: the cached
     // strokes stay valid and only the new one needs painting. A note edit
-    // leaves the drawings untouched altogether.
-    const bool sameFrame = frame.frame == m_annotationFrame.frame;
-    const bool sameItems = sameFrame && frame.items == m_annotationFrame.items;
-    const bool appended = sameFrame && !sameItems && frame.items.size() > m_annotationFrame.items.size()
+    // leaves the drawings untouched altogether. The cache holds only the
+    // items' pixels, so it also stays valid when a held drawing (the same
+    // items) moves on to the next frame.
+    const bool sameItems = frame.items == m_annotationFrame.items;
+    const bool appended = !sameItems && frame.items.size() > m_annotationFrame.items.size()
         && std::equal(m_annotationFrame.items.cbegin(), m_annotationFrame.items.cend(), frame.items.cbegin());
     const quint64 hiddenBefore = m_hiddenItemId;
     m_annotationFrame = frame;

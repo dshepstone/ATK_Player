@@ -95,8 +95,11 @@ bool TimelineWidget::event(QEvent* event)
         }
         if (annotatedFrameAtPosition(help->pos()) >= 0) {
             QToolTip::showText(help->globalPos(),
-                               tr("Notes or drawings on this frame.\nDrag to move them to another frame; "
-                                  "hold Ctrl to copy."),
+                               m_markerDragEnabled
+                                   ? tr("Notes or drawings on this frame.\nDrag to move them to another frame; "
+                                        "hold Ctrl to copy.")
+                                   : tr("Notes or drawings on this frame. Click to go there.\n"
+                                        "Turn on Drag Markers to move them to another frame."),
                                this);
             return true;
         }
@@ -266,6 +269,7 @@ void TimelineWidget::paintEvent(QPaintEvent* event)
     paintWaveform(painter);
     paintTrack(painter);
     paintBookmarks(painter);
+    paintHoldSpans(painter);
     paintAnnotatedFrames(painter);
     paintFrameLabels(painter);
     paintPlayhead(painter);
@@ -448,22 +452,60 @@ void TimelineWidget::setAnnotatedFrames(QVector<int64_t> frames)
     update();
 }
 
+namespace {
+// The pen colour of drawing markers and held-drawing bars.
+QColor drawnFrameColor() { return QColor(255, 96, 64); }
+} // namespace
+
+void TimelineWidget::setHoldSpans(QVector<annotation::HoldSpan> spans)
+{
+    if (spans == m_holdSpans) return;
+    m_holdSpans = std::move(spans);
+    update();
+}
+
+void TimelineWidget::setMarkerDragEnabled(bool enabled)
+{
+    if (m_markerDragEnabled == enabled) return;
+    m_markerDragEnabled = enabled;
+    update();
+}
+
+void TimelineWidget::paintHoldSpans(QPainter& painter)
+{
+    if (m_model == nullptr || m_holdSpans.isEmpty()) return;
+    // A thin bar just under the track, where the markers sit, from each
+    // drawing to the frame before the next one.
+    const QRect track = trackRect();
+    QColor bar = drawnFrameColor();
+    bar.setAlpha(110);
+    for (const annotation::HoldSpan& span : m_holdSpans) {
+        if (span.last <= span.first) continue;
+        const int left = xForFrame(span.first);
+        const int right = xForFrame(span.last + 1 > lastFrame() ? span.last : span.last + 1);
+        if (right <= left) continue;
+        painter.fillRect(QRect(left, track.bottom() + 1, right - left, 2), bar);
+    }
+}
+
 void TimelineWidget::paintAnnotatedFrames(QPainter& painter)
 {
     if (m_model == nullptr || m_annotatedFrames.isEmpty()) return;
     // A small pen-coloured wedge under the track: distinct from bookmark
     // markers above it, so "has a drawing" and "has a bookmark" never blur.
-    static const QColor kDrawnFrame(255, 96, 64);
+    // With Drag Markers on the wedges grow and gain an outline: handles.
     const QRect track = trackRect();
+    const qreal half = m_markerDragEnabled ? 4.5 : 3.5;
+    const qreal height = m_markerDragEnabled ? 7.0 : 5.0;
     painter.save();
     painter.setRenderHint(QPainter::Antialiasing, true);
-    painter.setPen(Qt::NoPen);
-    painter.setBrush(kDrawnFrame);
+    painter.setPen(m_markerDragEnabled ? QPen(QColor(255, 255, 255, 200), 1.0) : QPen(Qt::NoPen));
+    painter.setBrush(drawnFrameColor());
     for (const int64_t frame : m_annotatedFrames) {
         const int x = xForFrame(frame);
         if (x < 0) continue;
         const QPointF tip(x + 0.5, track.bottom() + 1.0);
-        painter.drawPolygon(QPolygonF{tip, tip + QPointF(-3.5, 5.0), tip + QPointF(3.5, 5.0)});
+        painter.drawPolygon(QPolygonF{tip, tip + QPointF(-half, height), tip + QPointF(half, height)});
     }
     painter.restore();
 }
@@ -755,6 +797,14 @@ void TimelineWidget::mousePressEvent(QMouseEvent* event)
     const int clickX = event->position().toPoint().x();
     if (m_model) {
         const int64_t marker = annotatedFrameAtPosition(event->position().toPoint());
+        if (marker >= 0 && !m_markerDragEnabled) {
+            // Markers are fixed: a click goes to that frame.
+            m_scrubFrame = marker;
+            m_lastRequestedFrame = marker;
+            emit scrubStarted();
+            emit scrubFinished(marker);
+            return;
+        }
         if (marker >= 0) {
             m_markerDragFrom = marker;
             m_markerDragTo = marker;

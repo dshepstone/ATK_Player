@@ -24,6 +24,7 @@ void ComparisonCompositeWidget::setWipePosition(int value) { value = std::clamp(
 void ComparisonCompositeWidget::setBlendAmount(int value) { value = std::clamp(value, 0, 100); if (m_blendAmount == value) return; m_blendAmount = value; if (m_mode == playback::CompareLayout::Blend) rebuild(); }
 void ComparisonCompositeWidget::fitImage() { m_transform.fit(); emit zoomChanged(m_transform.zoomRatio() * 100.0, true); update(); }
 void ComparisonCompositeWidget::showActualSize() { m_transform.setActualSize(); emit zoomChanged(m_transform.zoomRatio() * 100.0, false); update(); }
+void ComparisonCompositeWidget::zoomToPercent(qreal percent) { m_transform.setZoomRatioAt(percent / 100.0, rect().center()); emit zoomChanged(m_transform.zoomRatio() * 100.0, m_transform.isFit()); update(); }
 void ComparisonCompositeWidget::zoomIn() { m_transform.zoomAt(ViewerTransform::kWheelStepFactor, rect().center()); emit zoomChanged(m_transform.zoomRatio() * 100.0, m_transform.isFit()); update(); }
 void ComparisonCompositeWidget::zoomOut() { m_transform.zoomAt(1.0 / ViewerTransform::kWheelStepFactor, rect().center()); emit zoomChanged(m_transform.zoomRatio() * 100.0, m_transform.isFit()); update(); }
 void ComparisonCompositeWidget::restoreTransform(const ViewerTransform& value) { m_transform = value; m_transform.setDevicePixelRatio(devicePixelRatioF()); m_transform.setViewportSize(size()); update(); }

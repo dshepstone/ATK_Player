@@ -1,6 +1,7 @@
 #pragma once
 
 #include "annotation/AnnotationGhosting.h"
+#include "annotation/AnnotationHold.h"
 #include "annotation/AnnotationToolSettings.h"
 #include "core/commands/CommandDefinitions.h"
 #include "core/commands/CommandId.h"
@@ -271,6 +272,18 @@ private:
     /// the viewer, the toolbar, the menu check and the saved settings.
     void applyTracingPaper(int percent);
     void applyGhostSettings(const annotation::GhostSettings& settings);
+    /// Hold drawings until the next drawing (Off, Add to Current, Add New).
+    /// Updates the viewer, the timeline, the menu checks and the settings.
+    void applyHoldMode(annotation::HoldMode mode, bool announce = true);
+    void refreshHoldSpans();
+    /// The frame an edit on the frame on screen belongs to. While a held
+    /// drawing is on screen, edits to it go to the frame it was drawn on, and
+    /// so does a new drawing in Add to Current mode; in Add New mode a new
+    /// drawing goes on the frame on screen.
+    qint64 annotationEditFrame(qint64 frameIndex, bool newDrawing) const;
+    /// The speed button's label follows the speed and the media's rate.
+    void refreshPlaybackSpeed();
+    void zoomViewerToPercent(qreal percent);
     void seekAnnotatedFrame(int direction);
     void importBrushSet();
     void refreshNotesPanel();
@@ -353,6 +366,12 @@ private:
     int m_tracingPaper = 0;
     int m_tracingPaperLevel = 50;
     annotation::GhostSettings m_ghostSettings;
+    annotation::HoldMode m_holdMode = annotation::HoldMode::Off;
+    /// The mode Hold Drawings turns on with: the last one chosen.
+    annotation::HoldMode m_holdOnMode = annotation::HoldMode::AddToCurrent;
+    /// While the frame on screen shows a held drawing, the frame it was drawn
+    /// on; -1 otherwise.
+    qint64 m_heldSourceFrame = -1;
     NotesPanel* m_notesPanel = nullptr;
     QDockWidget* m_notesDock = nullptr;
 

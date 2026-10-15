@@ -20,10 +20,11 @@ enum : int {
 };
 } // namespace playlistrole
 
-/// Paints one playlist entry as a card: number, a 16:9 thumbnail with the
-/// frame count over it, the name, a details line, and small badges for notes
-/// and drawn frames. The loaded clip gets an accent bar, the selected one the
-/// selection fill. Colours come from the theme.
+/// Paints one playlist entry as a card: a numbered gutter, a 16:9 thumbnail
+/// with the frame count over it, the name, a details line, and small badges
+/// for notes and drawn frames. The loaded clip's gutter takes the accent
+/// colour, like SyncSketch; the selected card gets the selection fill.
+/// Colours come from the theme.
 class PlaylistCardDelegate final : public QStyledItemDelegate {
     Q_OBJECT
 
@@ -31,6 +32,9 @@ public:
     using QStyledItemDelegate::QStyledItemDelegate;
 
     static constexpr int kCardHeight = 74;
+
+    /// Width of the numbered gutter for `font`: room for three digits.
+    static int numberGutterWidth(const QFont& font);
 
     void paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const override;
     QSize sizeHint(const QStyleOptionViewItem& option, const QModelIndex& index) const override;

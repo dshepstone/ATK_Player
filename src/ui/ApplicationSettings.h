@@ -1,6 +1,7 @@
 #pragma once
 
 #include "annotation/AnnotationGhosting.h"
+#include "annotation/AnnotationHold.h"
 #include "annotation/AnnotationToolSettings.h"
 #include "media/ImageSource.h"
 
@@ -92,6 +93,13 @@ public:
     bool reviewNotesIncludeText() const;
     /// Ghosting (onion skin) of nearby frames' drawings.
     annotation::GhostSettings ghostSettings() const;
+    /// Hold drawings until the next drawing (default off), and the mode the
+    /// toggle turns it on with (default Add to Current Drawing).
+    annotation::HoldMode holdDrawings() const;
+    annotation::HoldMode holdDrawingsOnMode() const;
+    /// Drawing markers under the timeline can be dragged to another frame
+    /// (default off; a click still goes to the frame).
+    bool dragMarkersEnabled() const;
 
     void setRestoreWindowLayout(bool value);
     void setAudioScrubEnabled(bool value);
@@ -120,6 +128,8 @@ public:
     void setOpenExportsWhenDone(bool open);
     void setReviewNotesIncludeText(bool include);
     void setGhostSettings(const annotation::GhostSettings& settings);
+    void setHoldDrawings(annotation::HoldMode mode);
+    void setDragMarkersEnabled(bool enabled);
 
     QByteArray windowGeometry() const;
     QByteArray windowState() const;

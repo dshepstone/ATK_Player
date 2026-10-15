@@ -32,6 +32,13 @@ int drawBadge(QPainter* painter, const QPoint& at, const QString& iconName, int 
 
 } // namespace
 
+int PlaylistCardDelegate::numberGutterWidth(const QFont& font)
+{
+    QFont bold = font;
+    bold.setBold(true);
+    return std::max(26, QFontMetrics(bold).horizontalAdvance(QStringLiteral("000")) + 10);
+}
+
 QSize PlaylistCardDelegate::sizeHint(const QStyleOptionViewItem& option, const QModelIndex&) const
 {
     return QSize(option.rect.width() > 0 ? option.rect.width() : 240, kCardHeight);
@@ -53,25 +60,23 @@ void PlaylistCardDelegate::paint(QPainter* painter, const QStyleOptionViewItem& 
     QPainterPath shape;
     shape.addRoundedRect(card, theme::metrics::radiusMedium, theme::metrics::radiusMedium);
     painter->fillPath(shape, selected ? theme::cardSelected() : hovered ? theme::cardHover() : theme::cardBackground());
-    if (active) {
-        painter->save();
-        painter->setClipPath(shape);
-        painter->fillRect(QRectF(card.left(), card.top(), 3, card.height()), theme::accent());
-        painter->restore();
-    }
-
-    // Order number.
+    // Order number, in a gutter down the card's left edge: darker than the
+    // card, and the accent colour for the clip in the viewer.
     QFont numberFont = option.font;
     numberFont.setBold(true);
+    const QRectF numberRect(card.left(), card.top(), numberGutterWidth(numberFont), card.height());
+    painter->save();
+    painter->setClipPath(shape);
+    painter->fillRect(numberRect, active ? theme::accent() : QColor(0, 0, 0, 70));
+    painter->restore();
     painter->setFont(numberFont);
-    painter->setPen(active ? theme::accent() : theme::textSecondary());
-    const QRectF numberRect(card.left() + 4, card.top(), 20, card.height());
+    painter->setPen(active ? QColor(255, 255, 255) : unavailable ? theme::textDisabled() : theme::textPrimary());
     painter->drawText(numberRect, Qt::AlignCenter, QString::number(index.data(playlistrole::Order).toInt()));
 
     // Thumbnail: 16:9, letterboxed, with the frame count over its corner.
     const qreal thumbHeight = card.height() - 12;
     const qreal thumbWidth = std::min(thumbHeight * 16.0 / 9.0, std::max<qreal>(48.0, (card.width() - 26) * 0.45));
-    const QRectF thumb(numberRect.right() + 2, card.top() + 6, thumbWidth, thumbHeight);
+    const QRectF thumb(numberRect.right() + 6, card.top() + 6, thumbWidth, thumbHeight);
     QPainterPath thumbShape;
     thumbShape.addRoundedRect(thumb, theme::metrics::radiusSmall, theme::metrics::radiusSmall);
     painter->fillPath(thumbShape, QColor(0, 0, 0));

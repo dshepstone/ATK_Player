@@ -84,6 +84,12 @@ void ViewerTransform::zoomAt(qreal factor, const QPointF& viewerAnchor)
     setScaleAt(m_scale * factor, viewerAnchor);
 }
 
+void ViewerTransform::setZoomRatioAt(qreal ratio, const QPointF& viewerAnchor)
+{
+    if (!std::isfinite(ratio) || ratio <= 0.0) return;
+    setScaleAt(ratio / m_devicePixelRatio, viewerAnchor);
+}
+
 void ViewerTransform::panBy(const QPointF& delta)
 {
     if (!std::isfinite(delta.x()) || !std::isfinite(delta.y())) return;

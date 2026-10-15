@@ -61,6 +61,7 @@ class TestViewerTransform : public QObject {
 private slots:
     void fitScaleAndCentre();
     void actualSizeHonoursDevicePixels();
+    void zoomToARatio();
     void cursorAnchoredZoom();
     void panAndClamp();
     void smallImageAxesStayCentred();
@@ -89,6 +90,24 @@ void TestViewerTransform::fitScaleAndCentre()
     closeTo(transform.imageRect().top(), 218.75);
     closeTo(transform.imageRect().center().x(), 500.0);
     closeTo(transform.imageRect().center().y(), 500.0);
+}
+
+void TestViewerTransform::zoomToARatio()
+{
+    ViewerTransform transform;
+    transform.setDevicePixelRatio(2.0);
+    transform.setViewportSize({1000, 700});
+    transform.setSourceSize({1920, 1080}, true);
+    // 200% means two device pixels per picture pixel, whatever the DPR.
+    transform.setZoomRatioAt(2.0, {500, 350});
+    QVERIFY(!transform.isFit());
+    closeTo(transform.zoomRatio(), 2.0);
+    closeTo(transform.scale(), 1.0);
+    // Clamped to the zoom limits; nonsense is ignored.
+    transform.setZoomRatioAt(1000.0, {500, 350});
+    closeTo(transform.zoomRatio(), ViewerTransform::kMaximumZoom);
+    transform.setZoomRatioAt(-1.0, {500, 350});
+    closeTo(transform.zoomRatio(), ViewerTransform::kMaximumZoom);
 }
 
 void TestViewerTransform::actualSizeHonoursDevicePixels()

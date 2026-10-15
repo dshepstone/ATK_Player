@@ -31,6 +31,9 @@ public:
     void fit();
     void setActualSize();
     void zoomAt(qreal factor, const QPointF& viewerAnchor);
+    /// Sets the zoom so one source pixel covers `ratio` device pixels (1.0 =
+    /// 100%), keeping `viewerAnchor` over the same picture point. Clamped.
+    void setZoomRatioAt(qreal ratio, const QPointF& viewerAnchor);
     void panBy(const QPointF& delta);
 
     QRectF imageRect() const;

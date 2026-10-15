@@ -1,5 +1,6 @@
 #pragma once
 
+#include "annotation/AnnotationHold.h"
 #include "media/MediaMetadata.h"
 
 #include <QElapsedTimer>
@@ -69,6 +70,15 @@ public:
     /// see where notes are and step to them.
     void setAnnotatedFrames(QVector<int64_t> frames);
     const QVector<int64_t>& annotatedFrames() const { return m_annotatedFrames; }
+    /// Held drawings (see annotation::HoldMode), drawn as a faint bar under
+    /// the track from each drawn frame through the frames it holds over.
+    /// Empty when holding is off.
+    void setHoldSpans(QVector<annotation::HoldSpan> spans);
+    const QVector<annotation::HoldSpan>& holdSpans() const { return m_holdSpans; }
+    /// Whether drawing markers can be dragged to another frame (off by
+    /// default). Either way a click on a marker goes to its frame.
+    void setMarkerDragEnabled(bool enabled);
+    bool isMarkerDragEnabled() const { return m_markerDragEnabled; }
     /// The annotated frame whose marker (the wedge under the track) is at
     /// `point`, or -1. Dragging a marker moves that frame's notes and drawings.
     int64_t annotatedFrameAtPosition(const QPoint& point) const;
@@ -127,6 +137,7 @@ private:
     void paintTrack(QPainter& painter);
     void paintBookmarks(QPainter& painter);
     void paintAnnotatedFrames(QPainter& painter);
+    void paintHoldSpans(QPainter& painter);
     void paintPlayhead(QPainter& painter);
     void paintFrameLabels(QPainter& painter);
     void paintScrubFrameLabel(QPainter& painter);
@@ -166,6 +177,8 @@ private:
     bool m_bookmarkSnapEnabled = true;
     quint64 m_selectedBookmarkId = 0;
     QVector<int64_t> m_annotatedFrames;
+    QVector<annotation::HoldSpan> m_holdSpans;
+    bool m_markerDragEnabled = false;
     // Drawing-marker drag: the frame picked up and where it would land; -1
     // when no marker is held. m_markerDragCopy follows Ctrl during the drag.
     int64_t m_markerDragFrom = -1;

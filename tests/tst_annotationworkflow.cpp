@@ -12,6 +12,7 @@
 #include "ui/NotesPanel.h"
 #include "ui/ReviewNotesDialog.h"
 #include "ui/TimelineWidget.h"
+#include "ui/TransportControls.h"
 #include "ui/ViewerWidget.h"
 
 #include <QAction>
@@ -26,6 +27,7 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QSettings>
 #include <QSignalSpy>
 #include <QSpinBox>
 #include <QTimer>
@@ -107,6 +109,8 @@ private slots:
     void exportProgressWindowCancelsAndCloses();
     void copyCutAndPasteBetweenFrames();
     void dragTimelineMarkersToMoveOrCopyAFrame();
+    void holdDrawingsUntilTheNextDrawing();
+    void speedZoomAndFlipButtons();
 };
 
 void TestAnnotationWorkflow::drawModeNeedsMedia()
@@ -916,9 +920,9 @@ bool dragMarker(atk::ui::TimelineWidget* timeline, qint64 from, qint64 to, Qt::K
         QMouseEvent move(QEvent::MouseMove, p, timeline->mapToGlobal(p), Qt::NoButton, Qt::LeftButton, modifiers);
         QApplication::sendEvent(timeline, &move);
     }
-    if (timeline->markerDropFrame() != to) return false;
+    const bool picked = timeline->markerDropFrame() == to;
     QTest::mouseRelease(timeline, Qt::LeftButton, modifiers, end);
-    return true;
+    return picked;
 }
 } // namespace
 
@@ -1059,6 +1063,14 @@ void TestAnnotationWorkflow::dragTimelineMarkersToMoveOrCopyAFrame()
     const atk::annotation::FrameAnnotation original = annotations().frame(30);
     QCOMPARE(timeline->annotatedFrames(), QVector<int64_t>({30}));
 
+    // Drag Markers starts off, like SyncSketch: a marker cannot be picked up.
+    QVERIFY(!timeline->isMarkerDragEnabled());
+    QVERIFY(!command(window, "draw.dragMarkers")->isChecked());
+    QVERIFY(!dragMarker(timeline, 30, 90, Qt::NoModifier));
+    QCOMPARE(annotations().frame(30), original);
+    command(window, "draw.dragMarkers")->trigger();
+    QVERIFY(timeline->isMarkerDragEnabled());
+
     // Drag the marker: the frame's drawings and notes move, and the player
     // follows them.
     QVERIFY(dragMarker(timeline, 30, 90, Qt::NoModifier));
@@ -1092,6 +1104,126 @@ void TestAnnotationWorkflow::dragTimelineMarkersToMoveOrCopyAFrame()
     QTest::mouseClick(timeline, Qt::LeftButton, {}, QPoint(x, y));
     QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->currentFrame(), qint64(30), 5000);
     QCOMPARE(annotations().frame(30), original);
+}
+
+void TestAnnotationWorkflow::holdDrawingsUntilTheNextDrawing()
+{
+    QTemporaryDir directory;
+    const QString projectPath = writeProject(directory);
+    const QString settingsPath = directory.filePath(QStringLiteral("settings.ini"));
+    {
+        atk::ui::MainWindow window(settingsPath);
+        window.resize(1400, 800);
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        QVERIFY(openAt(window, projectPath, 30));
+        auto* viewer = window.findChild<atk::ui::ViewerWidget*>();
+        auto* timeline = window.findChild<atk::ui::TimelineWidget*>();
+        QVERIFY(viewer && timeline);
+        const auto annotations = [&] { return window.project()->entries().at(0).annotations; };
+        const qint64 lastFrame = window.playbackController()->metadata().effectiveFrameCount() - 1;
+        QVERIFY(lastFrame > 60);
+
+        command(window, "draw.annotateMode")->trigger();
+        drawStroke(viewer, {0.3, 0.4}, {0.6, 0.5});
+        QCOMPARE(annotations().frame(30).items.size(), 1);
+
+        // Off by default: a drawing shows on its own frame only.
+        QVERIFY(!command(window, "draw.holdDrawings")->isChecked());
+        QVERIFY(command(window, "draw.holdOff")->isChecked());
+        seekAndWait(window, 40);
+        QVERIFY(viewer->annotationFrame().items.isEmpty());
+        QVERIFY(timeline->holdSpans().isEmpty());
+
+        // On: frame 30's drawing holds over frame 40, and the timeline shows it.
+        command(window, "draw.holdDrawings")->trigger();
+        QVERIFY(command(window, "draw.holdAddToCurrent")->isChecked());
+        QTRY_COMPARE(viewer->annotationFrame().items.size(), 1);
+        QCOMPARE(timeline->holdSpans(), QVector<atk::annotation::HoldSpan>({{30, lastFrame}}));
+
+        // Add to Current: a stroke on the held frame joins frame 30's drawing.
+        drawStroke(viewer, {0.2, 0.2}, {0.4, 0.3});
+        QCOMPARE(annotations().frame(30).items.size(), 2);
+        QVERIFY(!annotations().hasFrame(40));
+        QTRY_COMPARE(viewer->annotationFrame().items.size(), 2);
+        command(window, "draw.undo")->trigger();
+        QCOMPARE(annotations().frame(30).items.size(), 1);
+
+        // Add New: a stroke on the held frame starts a drawing on frame 40,
+        // which then holds from there.
+        command(window, "draw.holdAddNew")->trigger();
+        QVERIFY(command(window, "draw.holdDrawings")->isChecked());
+        drawStroke(viewer, {0.2, 0.2}, {0.4, 0.3});
+        QCOMPARE(annotations().frame(40).items.size(), 1);
+        QCOMPARE(annotations().frame(30).items.size(), 1);
+        QCOMPARE(timeline->holdSpans(), QVector<atk::annotation::HoldSpan>({{30, 39}, {40, lastFrame}}));
+
+        // Erasing a held drawing erases it where it was drawn.
+        seekAndWait(window, 45);
+        QTRY_COMPARE(viewer->annotationFrame().items.size(), 1);
+        command(window, "draw.clearFrame")->trigger();
+        QVERIFY(!annotations().hasFrame(40));
+        QVERIFY(!annotations().hasFrame(45));
+        QTRY_COMPARE(viewer->annotationFrame().items, annotations().frame(30).items);
+
+        // Off and on again: the toggle remembers Add New.
+        command(window, "draw.holdDrawings")->trigger();
+        QTRY_VERIFY(viewer->annotationFrame().items.isEmpty());
+        QVERIFY(timeline->holdSpans().isEmpty());
+        command(window, "draw.holdDrawings")->trigger();
+        QVERIFY(command(window, "draw.holdAddNew")->isChecked());
+    }
+    // The choice is saved.
+    QSettings settings(settingsPath, QSettings::IniFormat);
+    QCOMPARE(settings.value(QStringLiteral("draw/holdDrawings")).toString(), QStringLiteral("addNew"));
+}
+
+void TestAnnotationWorkflow::speedZoomAndFlipButtons()
+{
+    QTemporaryDir directory;
+    const QString projectPath = writeProject(directory);
+    atk::ui::MainWindow window(directory.filePath(QStringLiteral("settings.ini")));
+    window.resize(1400, 800);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    QVERIFY(openAt(window, projectPath, 30));
+    auto* viewer = window.findChild<atk::ui::ViewerWidget*>();
+    auto* speed = window.findChild<QToolButton*>(QStringLiteral("TransportSpeedButton"));
+    auto* zoom = window.findChild<QToolButton*>(QStringLiteral("TransportZoomButton"));
+    auto* toolbar = window.findChild<atk::ui::AnnotationToolbar*>();
+    QVERIFY(viewer && speed && zoom && toolbar);
+    QVERIFY(window.findChild<QToolButton*>(QStringLiteral("TransportHoldButton")));
+    QVERIFY(window.findChild<QToolButton*>(QStringLiteral("TransportDragMarkersButton")));
+
+    // The speed button names the rate it plays at, from the media's own rate.
+    const atk::media::FrameRate rate = window.playbackController()->metadata().frameRate;
+    QVERIFY(rate.isValid());
+    QCOMPARE(speed->text(), atk::ui::TransportControls::speedLabel(1.0, rate));
+    command(window, "playback.speedDown")->trigger();
+    QCOMPARE(window.playbackController()->playbackSpeed(), 0.75);
+    QCOMPARE(speed->text(), atk::ui::TransportControls::speedLabel(0.75, rate));
+    command(window, "playback.speedReset")->trigger();
+    QCOMPARE(window.playbackController()->playbackSpeed(), 1.0);
+
+    // The zoom button shows the level; a menu preset zooms the viewer.
+    QCOMPARE(zoom->text(), QStringLiteral("Fit"));
+    QAction* twoHundred = nullptr;
+    for (QAction* action : zoom->menu()->actions())
+        if (action->text() == QStringLiteral("200%")) twoHundred = action;
+    QVERIFY(twoHundred);
+    twoHundred->trigger();
+    QCOMPARE(qRound(viewer->transform().zoomRatio() * 100.0), 200);
+    QCOMPARE(zoom->text(), QStringLiteral("200%"));
+    command(window, "view.zoomFit")->trigger();
+    QCOMPARE(zoom->text(), QStringLiteral("Fit"));
+
+    // Flip canvas is a quick button on the drawing row as well.
+    QAction* flip = command(window, "view.flipHorizontal");
+    QVERIFY(toolbar->actions().contains(flip));
+    flip->trigger();
+    QVERIFY(viewer->isFlippedHorizontally());
+    flip->trigger();
+    QVERIFY(!viewer->isFlippedHorizontally());
 }
 
 QTEST_MAIN(TestAnnotationWorkflow)

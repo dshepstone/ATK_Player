@@ -456,6 +456,9 @@ void MainWindow::buildWidgets()
         m_playback->setVolume(value / 100.0); m_settings->setVolume(value / 100.0);
         if (m_volumeSlider && m_volumeSlider->value() != value) m_volumeSlider->setValue(value);
     });
+    connect(m_transport, &TransportControls::playbackSpeedRequested, this,
+            [this](double speed) { m_playback->setPlaybackSpeed(speed); });
+    connect(m_transport, &TransportControls::zoomPercentRequested, this, &MainWindow::zoomViewerToPercent);
     column->addWidget(m_transport);
 
     // The player is one page; the Review Library, built when first shown, is
@@ -625,6 +628,8 @@ void MainWindow::buildMenus()
                                          m_commands->action(CommandId::CopyAnnotations),
                                          m_commands->action(CommandId::CutAnnotations),
                                          m_commands->action(CommandId::PasteAnnotations)});
+    // Flip canvas, as a quick button on the drawing row too.
+    m_annotationToolbar->addEditActions({m_commands->action(CommandId::FlipHorizontal)});
 
     for (const commands::CommandCategory category : categories) {
         QMenu* menu = menuBar()->addMenu(commands::categoryTitle(category));
@@ -665,6 +670,19 @@ void MainWindow::buildMenus()
     m_tracingPaperLevel = m_settings->tracingPaperLevel();
     applyTracingPaper(m_settings->tracingPaper());
     applyGhostSettings(m_settings->ghostSettings());
+    {
+        auto* holdModes = new QActionGroup(this);
+        holdModes->setExclusive(true);
+        for (const CommandId id : {CommandId::HoldDrawingsAddToCurrent, CommandId::HoldDrawingsAddNew,
+                                   CommandId::HoldDrawingsOff})
+            if (QAction* action = m_commands->action(id)) holdModes->addAction(action);
+        m_holdOnMode = m_settings->holdDrawingsOnMode();
+        applyHoldMode(m_settings->holdDrawings(), false);
+    }
+    if (QAction* dragMarkers = m_commands->action(CommandId::ToggleDragMarkers)) {
+        dragMarkers->setChecked(m_settings->dragMarkersEnabled());
+        m_timelineWidget->setMarkerDragEnabled(m_settings->dragMarkersEnabled());
+    }
     if (QAction* notesAction = m_commands->action(CommandId::ToggleNotesPanel)) {
         notesAction->setChecked(false);
         notesAction->setIcon(icons::icon(QStringLiteral("message-square")));
@@ -716,7 +734,21 @@ void MainWindow::connectSignals()
             [this](qreal percent, bool fitMode) {
         const QString value = tr("%1%").arg(qRound(percent));
         m_viewerZoomStatus->setText(fitMode ? tr("Fit %1").arg(value) : value);
+        m_transport->setZoomText(fitMode ? tr("Fit") : value);
     });
+    connect(m_playback.get(), &playback::PlaybackController::playbackSpeedChanged, this, [this](double speed) {
+        refreshPlaybackSpeed();
+        statusBar()->showMessage(speed == 1.0 ? tr("Normal speed")
+                                              : tr("Playing at %1 (%2x), without sound")
+                                                    .arg(TransportControls::speedLabel(speed, m_timeline->frameRate()),
+                                                         QLocale::c().toString(speed, 'g', 3)),
+                                 2500);
+    });
+    connect(m_timeline.get(), &timeline::TimelineModel::frameRateChanged, this, [this] { refreshPlaybackSpeed(); });
+    connect(m_playback.get(), &playback::PlaybackController::mediaOpened, this, [this] { refreshPlaybackSpeed(); });
+    connect(m_playback.get(), &playback::PlaybackController::mediaClosed, this, [this] { refreshPlaybackSpeed(); });
+    connect(m_timeline.get(), &timeline::TimelineModel::frameCountChanged, this, [this] { refreshHoldSpans(); });
+    refreshPlaybackSpeed();
     m_viewer->resetNavigationToFit();
 
     connect(m_playback.get(), &playback::PlaybackController::stateChanged,
@@ -754,6 +786,7 @@ void MainWindow::connectSignals()
     connect(m_viewer, &ViewerWidget::annotationItemDrawn, this,
             [this](qint64 frameIndex, const annotation::AnnotationItem& item) {
                 if (m_annotationSourceId.isNull() || frameIndex < 0) return;
+                frameIndex = annotationEditFrame(frameIndex, true);
                 if (m_annotations->addItem(frameIndex, annotationMediaTimeUs(frameIndex), item) == 0)
                     statusBar()->showMessage(tr("This drawing could not be added (frame limit reached)."), 4000);
             });
@@ -764,15 +797,17 @@ void MainWindow::connectSignals()
             [this] { m_annotations->endEditGroup(); });
     connect(m_viewer, &ViewerWidget::annotationEraseRequested, this,
             [this](qint64 frameIndex, const QVector<QPointF>& centers, qreal radius, const QSizeF& imageSize) {
-                m_annotations->eraseDiscs(frameIndex, centers, radius, imageSize,
+                m_annotations->eraseDiscs(annotationEditFrame(frameIndex, false), centers, radius, imageSize,
                                           m_annotationToolbar->settings().eraserMode);
             });
     connect(m_viewer, &ViewerWidget::annotationItemChanged, this,
             [this](qint64 frameIndex, const annotation::AnnotationItem& item) {
-                m_annotations->replaceItem(frameIndex, item);
+                m_annotations->replaceItem(annotationEditFrame(frameIndex, false), item);
             });
     connect(m_viewer, &ViewerWidget::annotationItemDeleteRequested, this,
-            [this](qint64 frameIndex, quint64 id) { m_annotations->removeItem(frameIndex, id); });
+            [this](qint64 frameIndex, quint64 id) {
+                m_annotations->removeItem(annotationEditFrame(frameIndex, false), id);
+            });
     connect(m_annotationToolbar, &AnnotationToolbar::settingsChanged, this, &MainWindow::applyAnnotationTool);
     connect(m_annotationToolbar, &AnnotationToolbar::importBrushesRequested, this, &MainWindow::importBrushSet);
 
@@ -816,12 +851,17 @@ void MainWindow::connectSignals()
             m_project->setAnnotations(m_annotationSourceId, m_annotations->annotations());
     });
     connect(m_annotations.get(), &annotation::AnnotationStore::frameChanged, this, [this](qint64 frame) {
-        // Ghosts show nearby frames too, so any edit may change what is on screen.
-        if (frame == m_displayedFrameIndex || m_ghostSettings.enabled) refreshViewerAnnotations();
+        // Ghosts show nearby frames too, and a held drawing comes from an
+        // earlier frame, so then any edit may change what is on screen.
+        if (frame == m_displayedFrameIndex || m_ghostSettings.enabled || m_holdMode != annotation::HoldMode::Off)
+            refreshViewerAnnotations();
     });
     connect(m_annotations.get(), &annotation::AnnotationStore::annotationsReset, this,
             &MainWindow::refreshViewerAnnotations);
-    auto markDrawnFrames = [this] { m_timelineWidget->setAnnotatedFrames(m_annotations->annotatedFrames()); };
+    auto markDrawnFrames = [this] {
+        m_timelineWidget->setAnnotatedFrames(m_annotations->annotatedFrames());
+        refreshHoldSpans();
+    };
     connect(m_annotations.get(), &annotation::AnnotationStore::annotationsEdited, this, markDrawnFrames);
     connect(m_annotations.get(), &annotation::AnnotationStore::annotationsReset, this, markDrawnFrames);
     connect(m_annotations.get(), &annotation::AnnotationStore::historyChanged, this,
@@ -840,7 +880,10 @@ void MainWindow::connectSignals()
     connect(m_viewerB, &ViewerWidget::activated, this,
             [this] { if (isComparisonActive()) m_compare->setActivePane(playback::ComparePane::B); });
     connect(m_compareComposite, &ComparisonCompositeWidget::zoomChanged, this,
-            [this](qreal percent, bool fit) { m_viewerZoomStatus->setText(fit ? tr("Fit %1%").arg(qRound(percent)) : tr("%1%").arg(qRound(percent))); });
+            [this](qreal percent, bool fit) {
+                m_viewerZoomStatus->setText(fit ? tr("Fit %1%").arg(qRound(percent)) : tr("%1%").arg(qRound(percent)));
+                m_transport->setZoomText(fit ? tr("Fit") : tr("%1%").arg(qRound(percent)));
+            });
     connect(m_compareBar, &CompareBar::sourceASelected, this, &MainWindow::selectComparisonSourceA);
     connect(m_compareBar, &CompareBar::sourceBSelected, this, &MainWindow::selectComparisonSourceB);
     connect(m_compareBar, &CompareBar::audioModeSelected, this, &MainWindow::applyComparisonAudioMode);
@@ -1125,6 +1168,12 @@ void MainWindow::onCommand(CommandId id, bool checked)
         m_playback->skipBySeconds(-10); return;
     case CommandId::SkipForward10Seconds:
         m_playback->skipBySeconds(10); return;
+    case CommandId::DecreasePlaybackSpeed:
+        m_playback->decreasePlaybackSpeed(); return;
+    case CommandId::IncreasePlaybackSpeed:
+        m_playback->increasePlaybackSpeed(); return;
+    case CommandId::ResetPlaybackSpeed:
+        m_playback->setPlaybackSpeed(1.0); return;
     case CommandId::PreviousPlaylistItem:
         activatePlaylistIndex(m_project->activeIndex() - 1, m_playback->isPlaying()); return;
     case CommandId::NextPlaylistItem:
@@ -1198,7 +1247,8 @@ void MainWindow::onCommand(CommandId id, bool checked)
         m_annotations->redo();
         return;
     case CommandId::ClearFrameAnnotations:
-        if (m_displayedFrameIndex >= 0) m_annotations->clearFrame(m_displayedFrameIndex);
+        // A held drawing on screen is cleared where it was drawn.
+        if (m_displayedFrameIndex >= 0) m_annotations->clearFrame(annotationEditFrame(m_displayedFrameIndex, false));
         return;
     case CommandId::CopyAnnotations:
     case CommandId::CutAnnotations:
@@ -1238,6 +1288,26 @@ void MainWindow::onCommand(CommandId id, bool checked)
                                          : tr("Ghosting off"), 1500);
         return;
     }
+    case CommandId::ToggleHoldDrawings:
+        applyHoldMode(checked ? m_holdOnMode : annotation::HoldMode::Off);
+        return;
+    case CommandId::HoldDrawingsAddToCurrent:
+        applyHoldMode(annotation::HoldMode::AddToCurrent);
+        return;
+    case CommandId::HoldDrawingsAddNew:
+        applyHoldMode(annotation::HoldMode::AddNew);
+        return;
+    case CommandId::HoldDrawingsOff:
+        applyHoldMode(annotation::HoldMode::Off);
+        return;
+    case CommandId::ToggleDragMarkers:
+        m_timelineWidget->setMarkerDragEnabled(checked);
+        m_settings->setDragMarkersEnabled(checked);
+        statusBar()->showMessage(checked ? tr("Drag markers on: drag a marker under the timeline to move that "
+                                              "frame's notes and drawings; hold Ctrl to copy.")
+                                         : tr("Drag markers off"),
+                                 3000);
+        return;
     case CommandId::NextAnnotatedFrame:
         seekAnnotatedFrame(1);
         return;
@@ -4102,11 +4172,83 @@ void MainWindow::refreshNotesPanel()
 
 void MainWindow::refreshViewerAnnotations()
 {
-    m_viewer->setAnnotationFrame(m_displayedFrameIndex >= 0 ? m_annotations->frame(m_displayedFrameIndex)
-                                                            : annotation::FrameAnnotation{});
+    annotation::FrameAnnotation shown = m_displayedFrameIndex >= 0 ? m_annotations->frame(m_displayedFrameIndex)
+                                                                   : annotation::FrameAnnotation{};
+    // With holding on, a frame without drawings of its own shows the latest
+    // earlier drawing. The viewer gets it as this frame's, so it paints,
+    // selects and erases it as usual; annotationEditFrame() sends the edits
+    // back to the frame it was drawn on. Notes stay with their own frame.
+    m_heldSourceFrame = -1;
+    if (m_holdMode != annotation::HoldMode::Off && m_displayedFrameIndex >= 0 && !shown.hasDrawings()) {
+        const qint64 held = annotation::heldDrawingFrame(m_annotations->annotations(), m_displayedFrameIndex);
+        if (held >= 0 && held != m_displayedFrameIndex) {
+            m_heldSourceFrame = held;
+            shown.items = m_annotations->frame(held).items;
+        }
+    }
+    m_viewer->setAnnotationFrame(shown);
     m_viewer->setGhostFrames(m_displayedFrameIndex,
                              annotation::ghostFramesFor(m_annotations->annotations(), m_displayedFrameIndex,
                                                         m_ghostSettings));
+}
+
+qint64 MainWindow::annotationEditFrame(qint64 frameIndex, bool newDrawing) const
+{
+    if (m_heldSourceFrame < 0 || frameIndex != m_displayedFrameIndex) return frameIndex;
+    if (newDrawing && m_holdMode == annotation::HoldMode::AddNew) return frameIndex;
+    return m_heldSourceFrame;
+}
+
+void MainWindow::applyHoldMode(annotation::HoldMode mode, bool announce)
+{
+    m_holdMode = mode;
+    if (mode != annotation::HoldMode::Off) m_holdOnMode = mode;
+    const auto check = [this](CommandId id, bool on) {
+        if (QAction* action = m_commands->action(id)) {
+            QSignalBlocker blocker(action);
+            action->setChecked(on);
+        }
+    };
+    check(CommandId::ToggleHoldDrawings, mode != annotation::HoldMode::Off);
+    check(CommandId::HoldDrawingsAddToCurrent, mode == annotation::HoldMode::AddToCurrent);
+    check(CommandId::HoldDrawingsAddNew, mode == annotation::HoldMode::AddNew);
+    check(CommandId::HoldDrawingsOff, mode == annotation::HoldMode::Off);
+    m_settings->setHoldDrawings(mode);
+    refreshViewerAnnotations();
+    refreshHoldSpans();
+    if (!announce) return;
+    switch (mode) {
+    case annotation::HoldMode::Off:
+        statusBar()->showMessage(tr("Drawings show on their own frame only"), 2500);
+        break;
+    case annotation::HoldMode::AddToCurrent:
+        statusBar()->showMessage(tr("Holding drawings: drawing on a held frame adds to the held drawing"), 2500);
+        break;
+    case annotation::HoldMode::AddNew:
+        statusBar()->showMessage(tr("Holding drawings: drawing on a held frame starts a new drawing there"), 2500);
+        break;
+    }
+}
+
+void MainWindow::refreshHoldSpans()
+{
+    m_timelineWidget->setHoldSpans(
+        m_holdMode == annotation::HoldMode::Off || m_annotationSourceId.isNull()
+            ? QVector<annotation::HoldSpan>{}
+            : annotation::holdSpans(m_annotations->annotations(), std::max<qint64>(0, m_timeline->frameCount() - 1)));
+}
+
+void MainWindow::refreshPlaybackSpeed()
+{
+    m_transport->setPlaybackSpeed(m_playback->playbackSpeed(),
+                                  m_playback->hasMedia() ? m_timeline->frameRate() : media::FrameRate{});
+}
+
+void MainWindow::zoomViewerToPercent(qreal percent)
+{
+    if (isComparisonActive() && m_compare->layout() != playback::CompareLayout::SideBySide
+        && m_compare->layout() != playback::CompareLayout::Stacked) m_compareComposite->zoomToPercent(percent);
+    else activeViewer()->zoomToPercent(percent);
 }
 
 void MainWindow::applyTracingPaper(int percent)
@@ -4238,7 +4380,10 @@ QString describeContent(qsizetype drawings, qsizetype notes)
 void MainWindow::copyAnnotations(bool cut)
 {
     if (m_annotationSourceId.isNull() || m_displayedFrameIndex < 0) return;
-    const annotation::FrameAnnotation frame = m_annotations->frame(m_displayedFrameIndex);
+    // What is on screen: a held drawing counts as this frame's.
+    annotation::FrameAnnotation frame = m_annotations->frame(m_displayedFrameIndex);
+    const qint64 drawingFrame = annotationEditFrame(m_displayedFrameIndex, false);
+    if (drawingFrame != m_displayedFrameIndex) frame.items = m_annotations->frame(drawingFrame).items;
     annotation::FrameAnnotation copied;
     copied.frame = frame.frame;
     copied.mediaTimeUs = frame.mediaTimeUs;
@@ -4266,7 +4411,15 @@ void MainWindow::copyAnnotations(bool cut)
         for (const annotation::AnnotationItem& item : copied.items) itemIds.append(item.id);
         for (const annotation::FrameNote& note : copied.notes) noteIds.append(note.id);
         m_viewer->clearSelection();
-        m_annotations->removeContent(m_displayedFrameIndex, itemIds, noteIds);
+        if (drawingFrame == m_displayedFrameIndex) {
+            m_annotations->removeContent(m_displayedFrameIndex, itemIds, noteIds);
+        } else {
+            // A held drawing is cut from the frame it was drawn on; one undo.
+            m_annotations->beginEditGroup();
+            if (!itemIds.isEmpty()) m_annotations->removeContent(drawingFrame, itemIds, {});
+            if (!noteIds.isEmpty()) m_annotations->removeContent(m_displayedFrameIndex, {}, noteIds);
+            m_annotations->endEditGroup();
+        }
         statusBar()->showMessage(tr("Cut %1. Go to another frame and paste (Ctrl+V).").arg(what), 4000);
     } else {
         statusBar()->showMessage(tr("Copied %1. Go to another frame and paste (Ctrl+V).").arg(what), 4000);
