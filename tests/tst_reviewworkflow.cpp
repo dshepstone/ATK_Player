@@ -176,8 +176,11 @@ void TestReviewWorkflow::anyFileOpenedGoesStraightToThePlayer()
     QCOMPARE(listed->clipCount, 1);
     QCOMPARE(QDir(listed->folder), QFileInfo(fixture("atk_review_10s.mkv")).absoluteDir()); // the clips' folder
     const QUuid id = listed->id;
+    const qint64 firstOpened = listed->openedMsUtc;
+    QTest::qWait(20);
     QVERIFY(window.openProjectFile(path));
     QCOMPARE(window.reviewLibrary()->reviews().size(), 1);
+    QVERIFY(window.reviewLibrary()->find(id)->openedMsUtc > firstOpened); // reopened counts for Latest
     window.showReviewLibrary();
     QCOMPARE(window.reviewLibraryPage()->listedReviews(), QVector<QUuid>{id});
     review::ReviewLibrary reread(window.reviewLibrary()->filePath());

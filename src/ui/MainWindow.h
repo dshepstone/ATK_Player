@@ -357,7 +357,7 @@ private:
     void retargetRenamedClips(const QHash<QString, QString>& moved);
     /// Offers to restore names from a rename in `folder` that never finished.
     void offerRenameRecovery(const QString& folder);
-    void saveReviewLibrary();
+    bool saveReviewLibrary();
     /// Keeps the library's clip count and preview strip in step with the
     /// open project when it belongs to a review.
     void syncReviewLibraryEntry();

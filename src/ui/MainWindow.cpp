@@ -2265,10 +2265,13 @@ void MainWindow::showPlayer()
     statusBar()->show();
 }
 
-void MainWindow::saveReviewLibrary()
+bool MainWindow::saveReviewLibrary()
 {
-    if (QString error; !m_reviewLibrary->save(&error))
+    if (QString error; !m_reviewLibrary->save(&error)) {
         statusBar()->showMessage(tr("The review library could not be saved: %1").arg(error), 6000);
+        return false;
+    }
+    return true;
 }
 
 void MainWindow::syncReviewLibraryEntry()
@@ -2754,10 +2757,16 @@ void MainWindow::addOpenedProjectToReviewLibrary()
     // the Review Library too, so it is there next time. New Review and Open
     // Review already list theirs; they only get their counts brought up to date.
     if (m_project->filePath().isEmpty()) return;
-    if (!m_reviewLibrary->findByProject(m_project->filePath())) {
+    if (const review::ReviewInfo* listed = m_reviewLibrary->findByProject(m_project->filePath())) {
+        // Already listed: it was just opened, which the Latest order and the
+        // row's date go by.
+        review::ReviewInfo opened = *listed;
+        opened.openedMsUtc = QDateTime::currentMSecsSinceEpoch();
+        m_reviewLibrary->update(opened);
+    } else {
         m_reviewLibrary->add(reviewInfoForProject(*m_project, m_project->filePath()));
-        saveReviewLibrary();
     }
+    saveReviewLibrary();
     syncReviewLibraryEntry();
 }
 
@@ -2793,8 +2802,13 @@ int MainWindow::addExistingReviews(const QStringList& paths, QStringList* failed
         ++added;
     }
     if (added > 0) {
-        saveReviewLibrary();
         if (m_libraryPage) m_libraryPage->refresh();
+        // Not written, they would be gone next time: leave the save error showing.
+        if (!saveReviewLibrary()) {
+            if (failed) failed->append(tr("The review library could not be saved, so the reviews will not be listed "
+                                          "next time."));
+            return 0;
+        }
         statusBar()->showMessage(tr("Added %n review(s) to the library.", nullptr, added), 6000);
     }
     return added;
@@ -2809,7 +2823,7 @@ void MainWindow::addExistingReviewDialog()
     addExistingReviews(paths, &failed);
     if (!failed.isEmpty())
         QMessageBox::warning(this, tr("Add Existing Reviews"),
-                             tr("These could not be read as ATK Player projects:\n\n%1").arg(failed.join(QLatin1Char('\n'))));
+                             tr("Not added:\n\n%1").arg(failed.join(QLatin1Char('\n'))));
 }
 
 bool MainWindow::saveProjectTo(const QString& path, bool saveAs, bool showError)
