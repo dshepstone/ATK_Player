@@ -38,6 +38,7 @@ constexpr std::array kCommands{
     CommandDefinition{ CommandId::ExportImageSequence,"file.exportImageSequence",QT_TRANSLATE_NOOP("Command", "Export Image Sequence..."),C::File,  nullptr,        false },
     CommandDefinition{ CommandId::ExportReviewNotes,  "file.exportReviewNotes", QT_TRANSLATE_NOOP("Command", "Export Notes PDF..."),  C::File,     nullptr,        false },
     CommandDefinition{ CommandId::ExportNotesVideo,   "file.exportNotesVideo", QT_TRANSLATE_NOOP("Command", "Export Notes Video (MP4)..."),C::File,nullptr,      false },
+    CommandDefinition{ CommandId::ExportReviewNotesBatch,"file.exportReviewNotesBatch",QT_TRANSLATE_NOOP("Command", "Export Notes PDFs for Playlist..."),C::File,nullptr,false },
     CommandDefinition{ CommandId::CloseSource,        "file.closeSource",      QT_TRANSLATE_NOOP("Command", "Close Source"),         C::File,     "Ctrl+W",       false },
     CommandDefinition{ CommandId::Quit,               "file.quit",             QT_TRANSLATE_NOOP("Command", "Quit"),                 C::File,     "Ctrl+Q",       false },
 

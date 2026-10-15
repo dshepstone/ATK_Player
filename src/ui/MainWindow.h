@@ -39,15 +39,16 @@ namespace atk::annotation { class AnnotationStore; class BrushLibrary; }
 namespace atk::api { class ApiServer; }
 namespace atk::api { struct ApiResponse; }
 namespace atk::playback { class CompareSession; class CompareVideoLane; enum class CompareLayout; enum class CompareAudioMode; }
-namespace atk::project { class Project; }
+namespace atk::project { class Project; struct SourceEntry; }
 namespace atk::media { class PlaylistProbeWorker; class ThumbnailWorker; }
-namespace atk::exporter { class ExportJob; class ReviewNotesJob; }
+namespace atk::exporter { class ExportJob; class ReviewNotesJob; struct ReviewNotesOptions; struct ReviewNotesDocument; }
 namespace atk::timeline { class TimelineModel; }
 namespace atk::review { class ReviewLibrary; struct FoundClip; struct RenameDecision; }
 
 namespace atk::ui {
 
 class AnnotationToolbar;
+struct NotesPdfBatch;
 class NotesPanel;
 class ExportProgressDialog;
 class CommandRegistry;
@@ -179,6 +180,17 @@ public:
     /// Opens a finished PDF or video in the system viewer once the file is
     /// free (a sync app such as Google Drive may hold it for a moment).
     void openExportedFile(const QString& path);
+    /// Export Notes PDFs for Playlist without the dialog: one PDF per clip in
+    /// `clips` (playlist ids), named after the clip, into `folder`, one after
+    /// another. An existing PDF is replaced, or with `replaceExisting` off the
+    /// new one is saved as "name (2).pdf". False when nothing could start.
+    bool exportNotesPdfs(const QVector<QUuid>& clips, const QString& folder,
+                         const exporter::ReviewNotesOptions& options, bool replaceExisting,
+                         bool openFolderWhenDone = false);
+    bool notesPdfBatchInProgress() const { return m_notesBatch != nullptr; }
+    /// PDFs the last batch saved, and the clips it could not export (tests).
+    QStringList lastNotesPdfBatchSaved() const { return m_lastNotesBatchSaved; }
+    QStringList lastNotesPdfBatchFailed() const { return m_lastNotesBatchFailed; }
     api::ApiServer* apiServer() const { return m_apiServer.get(); }
 
 protected:
@@ -260,6 +272,17 @@ private:
     void exportCurrentFrame();
     void exportImageSequence();
     void exportReviewNotes();
+    void exportReviewNotesBatch();
+    exporter::ExportSpec notesPdfSpec(const project::SourceEntry& entry) const;
+    exporter::ReviewNotesDocument notesPdfHeader(const exporter::ExportSpec& spec, bool includeResolved) const;
+    /// Every clip's spec, header and file name, decided before anything is
+    /// written. With `replaceExisting` off, names already in `folder` are
+    /// numbered on; repeated clips are numbered either way.
+    std::unique_ptr<NotesPdfBatch> planNotesPdfs(const QVector<QUuid>& clips, const QString& folder,
+                                                 const exporter::ReviewNotesOptions& options,
+                                                 bool replaceExisting) const;
+    void startNextNotesPdf();
+    void finishNotesPdfBatch(bool cancelled);
     bool notesPdfInProgress() const;
     void startExport(exporter::ExportSpec spec, bool showProgressUi = true);
     api::ApiResponse handleApiApplicationCommand(const QString& command,
@@ -316,6 +339,10 @@ private:
     std::unique_ptr<api::ApiServer> m_apiServer;
     std::unique_ptr<exporter::ExportJob> m_exportJob;
     std::unique_ptr<exporter::ReviewNotesJob> m_notesPdfJob;
+    /// Export Notes PDFs for Playlist: the clips still to do, one job at a time.
+    std::unique_ptr<NotesPdfBatch> m_notesBatch;
+    QStringList m_lastNotesBatchSaved;
+    QStringList m_lastNotesBatchFailed;
     std::unique_ptr<annotation::AnnotationStore> m_annotations;
     /// Imported brush sets. Kept beside the settings file when one is given
     /// (tests), otherwise in the per-user application data folder.

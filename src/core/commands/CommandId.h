@@ -24,6 +24,7 @@ enum class CommandId {
     ExportImageSequence,
     ExportReviewNotes,
     ExportNotesVideo,
+    ExportReviewNotesBatch,
     CloseSource,
     Quit,
 
