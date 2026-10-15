@@ -7,6 +7,7 @@
 #include "ui/commands/CommandRegistry.h"
 
 #include <QAction>
+#include <QFontMetrics>
 #include <QActionGroup>
 #include <QLocale>
 #include <QHBoxLayout>
@@ -21,6 +22,19 @@
 #include <cmath>
 
 namespace atk::ui {
+namespace {
+
+/// Gives a text-beside-icon button the width of its widest label, so the
+/// label changing (a new frame rate, a zoom level) never changes the bar's
+/// size and with it the window's minimum width.
+void fixWidthForText(QToolButton* button, const QString& widest)
+{
+    const QFontMetrics metrics(button->font());
+    const int width = button->iconSize().width() + metrics.horizontalAdvance(widest) + 28;
+    button->setFixedWidth(width);
+}
+
+} // namespace
 
 TransportControls::TransportControls(CommandRegistry* registry, QWidget* parent)
     : QWidget(parent)
@@ -100,6 +114,7 @@ TransportControls::TransportControls(CommandRegistry* registry, QWidget* parent)
         m_speedActions.append(action);
     }
     m_speedButton->setMenu(speedMenu);
+    fixWidthForText(m_speedButton, QStringLiteral("99.999fps"));
     layout->addWidget(m_speedButton);
 
     layout->addStretch(1);
@@ -173,6 +188,7 @@ TransportControls::TransportControls(CommandRegistry* registry, QWidget* parent)
     }
     m_zoomButton->setMenu(zoomMenu);
     setZoomText(tr("Fit"));
+    fixWidthForText(m_zoomButton, QStringLiteral("800%"));
     layout->addWidget(m_zoomButton);
     layout->addWidget(makeCommandButton(commands::CommandId::ZoomFit,
         icons::icon(QStringLiteral("scan")), tr("Fit the picture to the viewer")));
