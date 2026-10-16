@@ -5,10 +5,12 @@
 
 #include "EventLoopWait.h"
 
+#include <QAudioDevice>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFileInfo>
 #include <QHash>
+#include <QMediaDevices>
 #include <QSignalSpy>
 #include <QTest>
 
@@ -631,6 +633,15 @@ void TestPlaybackInteraction::explicitSeekResetsLogicalTarget()
 
 void TestPlaybackInteraction::realTimePlaybackCrossesLoopBoundary()
 {
+    // Playback follows the audio device's clock. GitHub's Intel macOS runners
+    // have only the "Null Audio Device", whose reported play time runs about
+    // twice as fast as real time: the clip's end is reached halfway through,
+    // and after the loop the clock is far ahead of decoding. That measures
+    // the runner, not ATK Player, so the real-time check needs a real device.
+    const QString device = QMediaDevices::defaultAudioOutput().description();
+    if (device.contains(QStringLiteral("Null Audio Device"), Qt::CaseInsensitive))
+        QSKIP(qPrintable(QStringLiteral("Audio output is \"%1\", whose clock does not run in real time").arg(device)));
+
     Fixture fixture;
     QVERIFY(fixture.open());
     QTRY_COMPARE_WITH_TIMEOUT(fixture.playback.currentVideoFrame().frameIndex, qint64(0), 5000);
