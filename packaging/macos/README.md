@@ -95,4 +95,14 @@ check audio output and pen-tablet input on a signed build before release.
   minimum macOS 12
 - Qt frameworks and plugins, dynamically linked
 - FFmpeg dylibs (LGPL build) with install names rewritten to `@rpath`
-- Licence texts in `Contents/Resources/licenses`
+- Licence texts and `THIRD_PARTY_NOTICES.txt` (this folder's, not the Windows
+  one) in `Contents/Resources/licenses`
+
+## Before a public release: dependency source materials
+
+The Windows package ships the corresponding source and build records for Qt,
+FFmpeg and zlib under `licenses/dependencies`
+(`packaging/windows/prepare-dependency-materials.py`). The macOS bundle does not
+yet; its notice points to the upstream source and the pinned vcpkg recipe
+instead. Extend that script for the macOS triplets and install its output into
+the bundle before distributing the `.dmg` publicly.

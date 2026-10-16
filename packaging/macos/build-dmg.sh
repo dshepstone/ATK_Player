@@ -74,10 +74,11 @@ if [ "$skip_build" -eq 0 ]; then
     # installed tree.
     export ATK_VCPKG_INSTALLED_DIR="${ATK_VCPKG_INSTALLED_DIR:-$build_dir/vcpkg_installed}"
 
-    step "Configuring $preset"
-    (cd "$repo" && cmake --preset "$preset" -DATK_VERSION_SUFFIX="${ATK_VERSION_SUFFIX-dev}")
-    step "Building $preset"
-    (cd "$repo" && cmake --build --preset "$preset")
+    # -B so --build-dir is honoured; the preset still supplies everything else.
+    step "Configuring $preset in $build_dir"
+    (cd "$repo" && cmake --preset "$preset" -B "$build_dir" -DATK_VERSION_SUFFIX="${ATK_VERSION_SUFFIX-dev}")
+    step "Building $build_dir"
+    cmake --build "$build_dir"
 fi
 
 [ -f "$build_dir/CMakeCache.txt" ] || fail "No configured build at $build_dir"

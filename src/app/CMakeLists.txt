@@ -180,8 +180,9 @@ if(WIN32)
         install(DIRECTORY "${ATK_DEPENDENCY_MATERIALS_DIR}/" DESTINATION licenses/dependencies)
     endif()
 elseif(APPLE)
-    # Licence texts travel inside the bundle. The Windows texts are the same
-    # licences for the same components, so they are shared, not copied.
+    # Licence texts travel inside the bundle. The licence texts are the same
+    # for both platforms and shared; the notice is macOS's own, because the
+    # Windows one describes DLLs, the MSI and its source materials.
     set(_atk_bundle_licenses "ATKPlayer.app/Contents/Resources/licenses")
     install(FILES
         "${PROJECT_SOURCE_DIR}/LICENSE"
@@ -191,7 +192,7 @@ elseif(APPLE)
         "${PROJECT_SOURCE_DIR}/packaging/windows/licenses/Qt-LGPL-3.0.txt"
         "${PROJECT_SOURCE_DIR}/packaging/windows/licenses/FFmpeg-LGPL-2.1.txt"
         "${PROJECT_SOURCE_DIR}/packaging/windows/licenses/zlib.txt"
-        "${PROJECT_SOURCE_DIR}/packaging/windows/THIRD_PARTY_NOTICES.txt"
+        "${PROJECT_SOURCE_DIR}/packaging/macos/THIRD_PARTY_NOTICES.txt"
         DESTINATION ${_atk_bundle_licenses})
 endif()
 
