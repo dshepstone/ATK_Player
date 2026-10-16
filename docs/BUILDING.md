@@ -458,30 +458,75 @@ signing inputs, prerequisites, install/uninstall and upgrade acceptance.
 
 ## Building on macOS
 
-macOS support is new (milestone M7) and so far built and tested only on GitHub's
-macOS runners (`.github/workflows/macos.yml`). The steps mirror Windows:
+ATK Player is free and open source (MIT), and building it yourself is the free
+way to run it on a Mac. An app you build on your own machine is not quarantined,
+so Gatekeeper never asks about it: no signing, no Apple account, no warnings.
 
-| Requirement | Notes |
+The macOS build (milestone M7) is built and tested on every pull request on
+GitHub's Apple silicon and Intel runners (`.github/workflows/macos.yml`).
+
+### Prerequisites
+
+| Requirement | How to get it |
 |---|---|
-| Xcode command line tools | `xcode-select --install`. Apple Clang builds the C++20 code. |
-| CMake 3.25+, Ninja, nasm, pkgconf | `brew install cmake ninja nasm pkgconf`. nasm and pkgconf are for vcpkg's FFmpeg build. |
-| Qt 6.9 for macOS | The `macos` (clang_64) package with **Qt Multimedia**. It is universal, so one install covers both architectures. |
-| vcpkg | Cloned at the commit `vcpkg.json` pins, like on Windows. |
+| macOS 12 or later, Apple silicon or Intel | |
+| Xcode command line tools (Apple Clang) | `xcode-select --install` |
+| Homebrew build tools | `brew install cmake ninja nasm pkgconf python` (nasm and pkgconf are for vcpkg's FFmpeg build) |
+| Qt 6.9 for macOS with **Qt Multimedia** | `aqtinstall`, below. Qt's macOS package is universal, so one install serves both architectures. |
+| vcpkg, at the commit `vcpkg.json` pins | below |
+
+Install Qt (no Qt account needed) and vcpkg, once:
+
+```bash
+python3 -m pip install --upgrade aqtinstall
+python3 -m aqt install-qt mac desktop 6.9.3 clang_64 -m qtmultimedia --outputdir ~/Qt
+
+git clone https://github.com/microsoft/vcpkg.git ~/dev/vcpkg
+git -C ~/dev/vcpkg checkout "$(python3 -c 'import json; print(json.load(open("vcpkg.json"))["builtin-baseline"])')"
+~/dev/vcpkg/bootstrap-vcpkg.sh -disableMetrics
+```
+
+Run the `git checkout` line from the ATK Player checkout, since it reads
+`vcpkg.json`. Then tell the presets where everything is; add these to `~/.zshrc`
+to keep them:
 
 ```bash
 export QT_ROOT=~/Qt/6.9.3/macos
 export VCPKG_ROOT=~/dev/vcpkg
 export ATK_VCPKG_INSTALLED_DIR=~/dev/atk-vcpkg-installed
-
-cmake --preset macos-arm64-debug      # macos-x64-debug on an Intel Mac
-cmake --build --preset macos-arm64-debug
-ctest --preset macos-arm64-debug
-open build/macos-arm64-debug/bin/ATKPlayer.app
 ```
 
-FFmpeg comes from vcpkg through the overlay triplets in `cmake/triplets/`
-(`arm64-osx-atk`, `x64-osx-atk`): dynamic libraries, built for macOS 12 like
-the rest of the app. The build-tree `ATKPlayer.app` finds Qt and FFmpeg through
-its build RPATH, so it runs without deployment. For a distributable `.dmg`, see
-[../packaging/macos/README.md](../packaging/macos/README.md).
+### Build and run
 
+One command, from the ATK Player checkout. Use `macos-x64-release` on an Intel Mac:
+
+```bash
+cmake --preset macos-arm64-release && cmake --build --preset macos-arm64-release && open build/macos-arm64-release/bin/ATKPlayer.app
+```
+
+The first configure builds FFmpeg from source through vcpkg, which takes about
+10–20 minutes; later builds take seconds to minutes. The resulting
+`ATKPlayer.app` runs straight from the build folder: it finds Qt and FFmpeg
+through its build RPATH, with nothing to deploy. To keep it, either drag it
+anywhere *on the same Mac* (it still needs that Qt and vcpkg tree), or make a
+self-contained copy as described below.
+
+Other presets: `macos-arm64-debug` and `macos-x64-debug` for development.
+`ctest --preset <name>` runs the tests.
+
+### A self-contained app or disk image
+
+```bash
+packaging/macos/build-dmg.sh --arch arm64 --skip-build --smoke-test
+```
+
+This turns the release build into a self-contained `ATKPlayer.app` (Qt and
+FFmpeg inside it, signed ad hoc) and an `out/macos/*.dmg` with the licence
+notices and corresponding source. Copy the app from `out/macos/stage-arm64/` to
+`/Applications`. See [../packaging/macos/README.md](../packaging/macos/README.md).
+Add `--no-source-materials` to skip downloading the dependency sources for a
+personal copy that you won't redistribute.
+
+FFmpeg comes from vcpkg through the overlay triplets in `cmake/triplets/`
+(`arm64-osx-atk`, `x64-osx-atk`): dynamic libraries, LGPL only, built for
+macOS 12 like the rest of the app.

@@ -56,6 +56,13 @@ jobs:
       - name: Point the build at the installed Qt
         run: echo "QT_ROOT=$QT_ROOT_DIR" >> "$GITHUB_ENV"
 
+      # prepare-dependency-materials.py (licence notices and corresponding
+      # source in the bundle) needs Python 3.12.
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
       # Ninja for the presets; nasm and pkgconf for vcpkg's FFmpeg build.
       - name: Install build tools
         run: brew install ninja nasm pkgconf
@@ -125,6 +132,14 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+      # The pinned Qt, FFmpeg and vcpkg source archives bundled as
+      # corresponding source; checksummed, so a cache hit is safe.
+      - name: Cache dependency source archives
+        uses: actions/cache@v4
+        with:
+          path: build/dependency-cache
+          key: dependency-sources-${{ hashFiles('packaging/windows/dependency-sources.json') }}
+
       # Install, make the bundle self-contained, sign, verify, launch it once
       # and build the .dmg. See packaging/macos/README.md.
       #
@@ -148,7 +163,8 @@ jobs:
           mount="$(mktemp -d)"
           hdiutil attach -nobrowse -readonly -mountpoint "$mount" "$dmg"
           status=0
-          packaging/macos/verify-app.sh "$mount/ATKPlayer.app" ${{ matrix.arch }} --expect-hardened || status=$?
+          packaging/macos/verify-app.sh "$mount/ATKPlayer.app" ${{ matrix.arch }} \
+            --expect-hardened --expect-source-materials || status=$?
           /usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' -c 'Print CFBundleShortVersionString' \
             -c 'Print CFBundleVersion' -c 'Print LSMinimumSystemVersion' "$mount/ATKPlayer.app/Contents/Info.plist" || status=1
           hdiutil detach "$mount"

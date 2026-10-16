@@ -4,7 +4,9 @@ ATK PLAYER THIRD-PARTY NOTICES (macOS)
 This file accompanies the ATK Player macOS application bundle (ATKPlayer.app
 and the .dmg it ships in). The project MIT, Qt LGPL v3, FFmpeg LGPL v2.1 and
 zlib licence texts are installed beside it in
-ATKPlayer.app/Contents/Resources/licenses.
+ATKPlayer.app/Contents/Resources/licenses. Additional license texts, component
+notices, build records and matching source are installed in
+licenses/dependencies. See dependencies/SOURCE_MATERIALS.md and SHA256SUMS.txt.
 
 ATK Player
 ----------
@@ -19,6 +21,10 @@ GNU Lesser General Public License, version 3 (Qt-LGPL-3.0.txt). The frameworks
 remain separate, replaceable files in ATKPlayer.app/Contents/Frameworks and
 ATKPlayer.app/Contents/PlugIns.
 Project and source: https://www.qt.io/ and https://code.qt.io/
+License text: Qt-LGPL-3.0.txt and dependencies/GPL-3.0.txt.
+Component notices: dependencies/Qt-qtbase-NOTICES.txt,
+Qt-qtmultimedia-NOTICES.txt and Qt-qtsvg-NOTICES.txt. Corresponding source:
+dependencies/sources.
 This software is based in part on the work of the Independent JPEG Group.
 Portions of this software are copyright (C) The FreeType Project
 (www.freetype.org). All rights reserved.
@@ -33,9 +39,12 @@ The dylibs remain separate, replaceable files in
 ATKPlayer.app/Contents/Frameworks. The bundle does not include the ffmpeg or
 ffprobe command-line tools, and Qt's own FFmpeg media plugin is removed.
 Project and source: https://ffmpeg.org/ and https://ffmpeg.org/download.html
-Build recipe: https://github.com/microsoft/vcpkg/tree/45f9f39362a4c52e2b1fbe57b7e649db7f3d96d4/ports/ffmpeg
+Build source: https://github.com/microsoft/vcpkg/tree/45f9f39362a4c52e2b1fbe57b7e649db7f3d96d4/ports/ffmpeg
 with the triplets in cmake/triplets of the ATK Player source (dynamic
 libraries, macOS 12 minimum).
+Component notices and configuration: dependencies/FFmpeg-NOTICES.txt and
+dependencies/FFmpeg-BUILD-CONFIGURATION.json. Corresponding patched source and
+the complete pinned vcpkg port/build source are included in dependencies/sources.
 
 zlib 1.3.2
 ----------
@@ -63,6 +72,15 @@ ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
 WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+Source archives and notice scope
+--------------------------------
+Source-only archives omit unrelated prebuilt binaries, unused font fixtures and
+test signing material; every exclusion is listed in
+dependencies/SOURCE-EXCLUSIONS.json. No application runtime file is removed.
+Complete upstream source-wide notices can describe build tools, tests and
+unselected GPL code; this does not enable those components or change the
+configured Qt/FFmpeg runtime licenses.
 
 macOS system libraries
 ----------------------

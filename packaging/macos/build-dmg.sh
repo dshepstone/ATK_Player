@@ -4,10 +4,15 @@
 #
 #   packaging/macos/build-dmg.sh [--arch arm64|x86_64] [--build-dir DIR]
 #                                [--skip-build] [--output DIR] [--smoke-test]
+#                                [--no-source-materials]
 #
 # Steps:
 #   1. configure and build the macos-<arch>-release preset (unless --skip-build)
-#   2. cmake --install into a staging folder; the install step runs
+#   2. generate the dependency notices and corresponding source (Qt, FFmpeg,
+#      vcpkg, ATK Player) with prepare-dependency-materials.py, exactly as
+#      the Windows package does; --no-source-materials skips this for a quick
+#      local test .dmg that must not be distributed. Needs Python 3.12+.
+#      Then cmake --install into a staging folder; the install step runs
 #      macdeployqt, which copies Qt and the FFmpeg dylibs into the bundle
 #   3. remove Qt's own FFmpeg media plugin (ATK Player decodes with its own
 #      FFmpeg; Qt Multimedia is only used for audio output), then make sure
@@ -49,6 +54,7 @@ build_dir=""
 skip_build=0
 output_dir="$repo/out/macos"
 smoke_test=0
+source_materials=1
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -57,6 +63,7 @@ while [ $# -gt 0 ]; do
         --skip-build) skip_build=1; shift ;;
         --output) output_dir="$2"; shift 2 ;;
         --smoke-test) smoke_test=1; shift ;;
+        --no-source-materials) source_materials=0; shift ;;
         -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
         *) echo "Unknown argument: $1" >&2; exit 2 ;;
     esac
@@ -107,8 +114,29 @@ done
 [ -n "$ffmpeg_lib_dir" ] || fail "Could not find the vcpkg lib directory for triplet $triplet"
 
 # ---------------------------------------------------------------------------
-# 2. Install (runs macdeployqt through qt_generate_deploy_app_script)
+# 2. Licence materials, then install (macdeployqt runs as part of install)
 # ---------------------------------------------------------------------------
+materials_dir=""
+if [ "$source_materials" -eq 1 ]; then
+    qt_prefix="$(cache_value ATK_QT_ROOT)"
+    [ -n "$qt_prefix" ] || qt_prefix="${QT_ROOT:-}"
+    [ -n "$qt_prefix" ] || fail "Cannot find the Qt prefix (ATK_QT_ROOT in the cache, or QT_ROOT)"
+    python="${PYTHON:-python3}"
+    "$python" -c 'import sys; sys.exit(sys.version_info < (3, 12))' \
+        || fail "$python is older than 3.12; set PYTHON to a newer one"
+    # Both must be under build/: the script refuses to write anywhere else.
+    materials_dir="$repo/build/dependency-materials-macos-$arch"
+    step "Preparing dependency notices and corresponding source"
+    "$python" "$repo/packaging/windows/prepare-dependency-materials.py" --platform macos \
+        --qt-root "$qt_prefix" --ffmpeg-runtime "$ffmpeg_lib_dir" \
+        --output "$materials_dir" --cache "$repo/build/dependency-cache"
+else
+    echo "warning: --no-source-materials: this .dmg lacks the corresponding source and must not be distributed" >&2
+fi
+# Recorded in the cache either way, so a later run without materials does not
+# keep installing a stale set.
+cmake "$build_dir" -DATK_DEPENDENCY_MATERIALS_DIR="$materials_dir" >/dev/null
+
 stage="$output_dir/stage-$arch"
 step "Installing into $stage"
 rm -rf "$stage"
@@ -321,6 +349,7 @@ codesign "${sign_args[@]}" --entitlements "$entitlements" "$app"
 step "Verifying"
 verify_args=("$app" "$arch")
 [ "$hardened" = "1" ] && verify_args+=(--expect-hardened)
+[ "$source_materials" -eq 1 ] && verify_args+=(--expect-source-materials)
 "$here/verify-app.sh" "${verify_args[@]}"
 rm -f "$macho_list"
 ls "$frameworks"

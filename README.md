@@ -57,6 +57,15 @@ ATK Player is preparing to apply to SignPath Foundation for trusted Windows code
 
 To install anyway: when **Windows protected your PC** appears, click **More info** → **Run anyway** (or right-click the MSI → **Properties** → tick **Unblock** first). See [packaging/windows/CODE_SIGNING.md](packaging/windows/CODE_SIGNING.md) for the plan to ship signed builds.
 
+### macOS
+
+macOS builds (Apple silicon and Intel, macOS 12 or later) are in development
+and not yet part of a release. ATK Player is free and open source, so you can
+build it on your own Mac. An app you build yourself is not quarantined, so
+macOS shows no Gatekeeper warning. See
+[Building on macOS](docs/BUILDING.md#building-on-macos): install the
+prerequisites once, then one command builds and opens the app.
+
 ---
 
 ## Features

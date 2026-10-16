@@ -4,6 +4,7 @@
 # notary service requires.
 #
 #   packaging/macos/verify-app.sh <ATKPlayer.app> <arch> [--expect-hardened]
+#                                 [--expect-source-materials]
 #
 # Fails when:
 #   - a Mach-O file lacks the <arch> slice
@@ -14,6 +15,9 @@
 #     codesign --verify --deep --strict
 #   - with --expect-hardened: the executable is not signed with the hardened
 #     runtime, or its entitlements are not the checked-in ATKPlayer.entitlements
+#   - a licence text or the third-party notice is missing from
+#     Contents/Resources/licenses; with --expect-source-materials, also when
+#     licenses/dependencies is missing or fails its SHA256SUMS.txt
 #
 # build-dmg.sh runs it on the staged app; CI runs it again on the app inside
 # the finished disk image. Written for the bash 3.2 that ships with macOS.
@@ -24,7 +28,14 @@ set -euo pipefail
 app="$(cd "$1" && pwd)"
 arch="$2"
 expect_hardened=0
-[ "${3:-}" = "--expect-hardened" ] && expect_hardened=1
+expect_materials=0
+for option in "${@:3}"; do
+    case "$option" in
+        --expect-hardened) expect_hardened=1 ;;
+        --expect-source-materials) expect_materials=1 ;;
+        *) echo "unknown option: $option" >&2; exit 2 ;;
+    esac
+done
 
 here="$(cd "$(dirname "$0")" && pwd)"
 contents="$app/Contents"
@@ -112,6 +123,27 @@ if [ "$expect_hardened" -eq 1 ]; then
         echo "  signed entitlements: ${actual:-<none>}"
         problem "the signed entitlements differ from packaging/macos/ATKPlayer.entitlements"
     fi
+fi
+
+# Licences: the same set the Windows package installs.
+licenses="$contents/Resources/licenses"
+for name in ATK-Player-MIT.txt Qt-LGPL-3.0.txt FFmpeg-LGPL-2.1.txt zlib.txt THIRD_PARTY_NOTICES.txt; do
+    [ -s "$licenses/$name" ] || problem "licenses/$name is missing"
+done
+if [ -f "$licenses/dependencies/SHA256SUMS.txt" ]; then
+    if (cd "$licenses/dependencies" && shasum -a 256 -c --quiet SHA256SUMS.txt); then
+        echo "  dependency notices and source: $(wc -l < "$licenses/dependencies/SHA256SUMS.txt" | tr -d ' ') files, checksums match"
+    else
+        problem "licenses/dependencies does not match its SHA256SUMS.txt"
+    fi
+    for name in GPL-3.0.txt Qt-qtbase-NOTICES.txt Qt-qtmultimedia-NOTICES.txt Qt-qtsvg-NOTICES.txt \
+                FFmpeg-NOTICES.txt FFmpeg-BUILD-CONFIGURATION.json SOURCE_MATERIALS.md \
+                sources/FFmpeg-9.0.1-patched-source.zip sources/qtbase-6.9.3-source.zip \
+                sources/ATK-Player-source.zip; do
+        [ -s "$licenses/dependencies/$name" ] || problem "licenses/dependencies/$name is missing"
+    done
+elif [ "$expect_materials" -eq 1 ]; then
+    problem "licenses/dependencies (notices and corresponding source) is missing"
 fi
 
 if [ "$problems" -ne 0 ]; then
