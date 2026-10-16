@@ -2,7 +2,6 @@
 
 #include "media/AudioBuffer.h"
 
-#include <QElapsedTimer>
 #include <QObject>
 
 #include <memory>
@@ -106,12 +105,6 @@ private:
 
     media::AudioFormat m_format;
     int64_t m_startPtsUs = -1;
-    /// positionUs() smoothing: the device's last processedUSecs() value, when
-    /// it last changed, and the last position handed out (never stepped back).
-    void resetClockSmoothing();
-    mutable int64_t m_lastProcessedUs = -1;
-    mutable QElapsedTimer m_sinceProcessedChange;
-    mutable int64_t m_lastReportedUs = -1;
     bool m_running = false;
     bool m_muted = false;
     qreal m_volume = 1.0;

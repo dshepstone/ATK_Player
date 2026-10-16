@@ -168,7 +168,7 @@ set(ATK_CORE_HEADERS
 if(WIN32)
     list(APPEND ATK_CORE_SOURCES platform/windows/PlatformInfo_Windows.cpp)
 elseif(APPLE)
-    list(APPEND ATK_CORE_SOURCES platform/macos/PlatformInfo_Mac.cpp)
+    list(APPEND ATK_CORE_SOURCES platform/macos/PlatformInfo_Mac.mm)
 elseif(UNIX)
     list(APPEND ATK_CORE_SOURCES platform/linux/PlatformInfo_Linux.cpp)
 else()
@@ -194,6 +194,8 @@ target_link_libraries(atk_core
         Qt6::Network
     PRIVATE
         ${FFMPEG_LIBRARIES}
+        # PlatformInfo_Mac.mm: NSProcessInfo playback activity.
+        $<$<PLATFORM_ID:Darwin>:-framework Foundation>
 )
 
 # PRIVATE: FFmpeg headers are an implementation detail of the media layer. The

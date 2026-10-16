@@ -677,7 +677,7 @@ Exactly one implementation is compiled, selected by CMake:
 
 ```cmake
 if(WIN32)       platform/windows/PlatformInfo_Windows.cpp
-elseif(APPLE)   platform/macos/PlatformInfo_Mac.cpp
+elseif(APPLE)   platform/macos/PlatformInfo_Mac.mm
 elseif(UNIX)    platform/linux/PlatformInfo_Linux.cpp
 ```
 

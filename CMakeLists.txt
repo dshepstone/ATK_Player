@@ -29,6 +29,11 @@ endif()
 
 message(STATUS "ATK Player version: ${ATK_VERSION_STRING}")
 
+# The macOS platform layer is Objective-C++ (src/platform/macos/*.mm).
+if(APPLE)
+    enable_language(OBJCXX)
+endif()
+
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 # ---------------------------------------------------------------------------

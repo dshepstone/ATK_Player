@@ -9,6 +9,7 @@
 #include "media/CompareAudioWorker.h"
 #include "media/WaveformWorker.h"
 #include "media/ffmpeg/FFmpegUtil.h"
+#include "platform/PlatformInfo.h"
 #include "timeline/TimelineModel.h"
 
 #include <QElapsedTimer>
@@ -2095,6 +2096,7 @@ void PlaybackController::setState(PlayerState state)
     }
     m_state = state;
     qCInfo(log::playback) << "State ->" << stateName(state);
+    platform::PlatformInfo::setDisplaySleepInhibited(state == PlayerState::Playing);
     emit stateChanged(m_state);
 }
 
