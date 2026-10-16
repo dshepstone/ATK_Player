@@ -8,6 +8,7 @@
 
 #include <QFileOpenEvent>
 #include <QIcon>
+#include <QStyleHints>
 
 namespace atk::app {
 
@@ -36,6 +37,11 @@ bool Application::initialize()
 
     parseArguments();
 
+#if defined(Q_OS_MACOS) && QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+    // The interface is dark; ask for the dark appearance so the native parts
+    // macOS draws itself (title bar, window chrome) match it in Light Mode too.
+    styleHints()->setColorScheme(Qt::ColorScheme::Dark);
+#endif
     setStyleSheet(ui::theme::styleSheet());
 
     qCInfo(log::app) << "Application initialised";
