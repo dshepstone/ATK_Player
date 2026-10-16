@@ -3,6 +3,8 @@
 
 #include "timeline/TimelineModel.h"
 
+#include "EventLoopWait.h"
+
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFileInfo>
@@ -652,7 +654,7 @@ void TestPlaybackInteraction::realTimePlaybackCrossesLoopBoundary()
     // The fixture is ten seconds. Run beyond two complete cycles and verify
     // both observed end-to-start transitions rather than inferring looping
     // from the final playhead position.
-    QTest::qWait(21'500);
+    atk::test::runEventLoopFor(21'500);
 
     const double seconds = elapsed.elapsed() / 1000.0;
     const double observedFps = frames.count() / seconds;
