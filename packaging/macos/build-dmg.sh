@@ -24,9 +24,9 @@
 #   5. verify with verify-app.sh: architectures, dependency closure, no
 #      Homebrew or absolute paths, every file signed, strict verification,
 #      hardened runtime and entitlements when expected
-#   6. optionally launch the staged app and check that it stays up and maps
+#   6. hdiutil a compressed .dmg with an /Applications link, and sign it
+#   7. optionally launch the staged app and check that it stays up and maps
 #      nothing from outside the bundle (--smoke-test)
-#   7. hdiutil a compressed .dmg with an /Applications link, and sign it
 #   8. notarise and staple the .dmg, only when ATK_NOTARY_PROFILE is set
 #
 # Environment:
@@ -355,7 +355,29 @@ rm -f "$macho_list"
 ls "$frameworks"
 
 # ---------------------------------------------------------------------------
-# 6. Smoke test
+# 6. Disk image
+# ---------------------------------------------------------------------------
+dmg_name="ATKPlayer-$version-macOS-$arch.dmg"
+dmg="$output_dir/$dmg_name"
+root="$output_dir/dmg-$arch"
+step "Creating $dmg_name"
+rm -rf "$root" "$dmg"
+mkdir -p "$root"
+cp -R "$app" "$root/"
+ln -s /Applications "$root/Applications"
+cp "$here/READ_ME_FIRST.txt" "$root/Read Me First.txt"
+hdiutil create -volname "ATK Player $version" -srcfolder "$root" -ov -format UDZO "$dmg"
+rm -rf "$root"
+
+# The disk image carries its own signature (no hardened runtime or
+# entitlements: those apply to code, not containers).
+dmg_sign_args=(--force --sign "$identity")
+if [ "$identity" = "-" ]; then dmg_sign_args+=(--timestamp=none); else dmg_sign_args+=(--timestamp); fi
+codesign "${dmg_sign_args[@]}" "$dmg"
+codesign --verify --strict --verbose=2 "$dmg"
+
+# ---------------------------------------------------------------------------
+# 7. Smoke test (after the disk image, so a failure here still leaves one)
 # ---------------------------------------------------------------------------
 if [ "$smoke_test" -eq 1 ]; then
     step "Launching the staged app"
@@ -391,28 +413,6 @@ if [ "$smoke_test" -eq 1 ]; then
     fi
     echo "  ATKPlayer started, stayed running and loaded $(grep -c "^$app/" "$images") bundled images and nothing else outside the OS"
 fi
-
-# ---------------------------------------------------------------------------
-# 7. Disk image
-# ---------------------------------------------------------------------------
-dmg_name="ATKPlayer-$version-macOS-$arch.dmg"
-dmg="$output_dir/$dmg_name"
-root="$output_dir/dmg-$arch"
-step "Creating $dmg_name"
-rm -rf "$root" "$dmg"
-mkdir -p "$root"
-cp -R "$app" "$root/"
-ln -s /Applications "$root/Applications"
-cp "$here/READ_ME_FIRST.txt" "$root/Read Me First.txt"
-hdiutil create -volname "ATK Player $version" -srcfolder "$root" -ov -format UDZO "$dmg"
-rm -rf "$root"
-
-# The disk image carries its own signature (no hardened runtime or
-# entitlements: those apply to code, not containers).
-dmg_sign_args=(--force --sign "$identity")
-if [ "$identity" = "-" ]; then dmg_sign_args+=(--timestamp=none); else dmg_sign_args+=(--timestamp); fi
-codesign "${dmg_sign_args[@]}" "$dmg"
-codesign --verify --strict --verbose=2 "$dmg"
 
 # ---------------------------------------------------------------------------
 # 8. Notarise and staple (only with ATK_NOTARY_PROFILE)

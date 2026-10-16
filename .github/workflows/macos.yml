@@ -100,6 +100,7 @@ jobs:
             done
 
       - name: Build
+        id: build
         run: cmake --build --preset ${{ matrix.preset }}
 
       # App Nap throttles timers in apps with no visible window, which is
@@ -109,11 +110,16 @@ jobs:
       - name: Disable App Nap for the tests
         run: defaults write NSGlobalDomain NSAppSleepDisabled -bool YES
 
+      # Tests run, but a failure no longer stops the job here: the disk image
+      # is still built and uploaded so there is always something to download
+      # and try. "Fail the job if tests failed" at the end keeps the run red.
       - name: Test
+        id: tests
+        continue-on-error: true
         run: ctest --preset ${{ matrix.preset }} --output-on-failure
 
       - name: Show failing test reports
-        if: failure()
+        if: steps.tests.outcome == 'failure'
         run: |
           for report in build/${{ matrix.preset }}/bin/*-results.txt; do
             [ -e "$report" ] || continue
@@ -122,14 +128,23 @@ jobs:
               grep -A4 'FAIL!' "$report"
             fi
           done
+          # Travels inside the disk-image artifact, so a download from a run
+          # with failing tests says so.
+          mkdir -p out/macos
+          {
+            echo "This build's tests did not all pass. Failed suites:"
+            cat "build/${{ matrix.preset }}/Testing/Temporary/LastTestsFailed.log" 2>/dev/null || true
+            echo
+            echo "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          } > out/macos/TESTS-FAILED.txt
 
       - name: Upload test reports
         uses: actions/upload-artifact@v4
-        if: failure()
+        if: steps.tests.outcome == 'failure'
         with:
           name: test-reports-${{ matrix.arch }}
           path: build/${{ matrix.preset }}/bin/*-results.txt
-          retention-days: 7
+          retention-days: 14
           if-no-files-found: ignore
 
       # The pinned Qt, FFmpeg and vcpkg source archives bundled as
@@ -140,23 +155,41 @@ jobs:
           path: build/dependency-cache
           key: dependency-sources-${{ hashFiles('packaging/windows/dependency-sources.json') }}
 
-      # Install, make the bundle self-contained, sign, verify, launch it once
-      # and build the .dmg. See packaging/macos/README.md.
+      # Install, make the bundle self-contained, sign, verify, build the .dmg,
+      # then launch the app once. See packaging/macos/README.md.
       #
       # There is no Developer ID yet, so the signature is ad hoc, but with the
       # hardened runtime and the checked-in entitlements: the same signing
       # path a notarised release takes, and the smoke test proves the app
       # still starts under it.
       - name: Package
+        id: package
         env:
           ATK_HARDENED_RUNTIME: '1'
         run: packaging/macos/build-dmg.sh --arch ${{ matrix.arch }} --skip-build --smoke-test
 
+      # Uploaded before the checks below, and whenever a .dmg was made, so a
+      # failing check still leaves the disk image to inspect. The name says
+      # when the tests failed; TESTS-FAILED.txt inside lists them.
+      - name: Upload disk image
+        uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        with:
+          name: ATKPlayer-macOS-${{ matrix.arch }}${{ steps.tests.outcome == 'failure' && '-TESTS-FAILED' || '' }}
+          path: |
+            out/macos/*.dmg
+            out/macos/*.sha256
+            out/macos/TESTS-FAILED.txt
+          retention-days: 14
+          if-no-files-found: warn
+
       # Check what users actually download: the app inside the disk image.
       # Fails on an unsigned file, a Homebrew or other absolute install name or
-      # RPATH, a missing hardened-runtime flag or unexpected entitlements.
-      # Notarisation itself cannot run here until there is a Developer ID.
+      # RPATH, a missing hardened-runtime flag, unexpected entitlements or
+      # missing licence material. Notarisation itself cannot run here until
+      # there is a Developer ID.
       - name: Verify the disk image
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
         run: |
           dmg="$(ls out/macos/*.dmg)"
           codesign --verify --strict --verbose=2 "$dmg"
@@ -170,16 +203,6 @@ jobs:
           hdiutil detach "$mount"
           exit $status
 
-      - name: Upload disk image
-        uses: actions/upload-artifact@v4
-        with:
-          name: ATKPlayer-macOS-${{ matrix.arch }}
-          path: |
-            out/macos/*.dmg
-            out/macos/*.sha256
-          retention-days: 7
-          if-no-files-found: error
-
       - name: Upload smoke-test log
         uses: actions/upload-artifact@v4
         if: always()
@@ -188,5 +211,11 @@ jobs:
           path: |
             out/macos/smoke-*.log
             out/macos/smoke-*-images.txt
-          retention-days: 7
+          retention-days: 14
           if-no-files-found: ignore
+
+      - name: Fail the job if tests failed
+        if: steps.tests.outcome == 'failure'
+        run: |
+          echo "::error title=Tests failed::The disk image was still uploaded (artifact name ends in -TESTS-FAILED); see the Test step."
+          exit 1
