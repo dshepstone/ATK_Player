@@ -158,10 +158,12 @@ jobs:
       # Install, make the bundle self-contained, sign, verify, build the .dmg,
       # then launch the app once. See packaging/macos/README.md.
       #
-      # There is no Developer ID yet, so the signature is ad hoc, but with the
-      # hardened runtime and the checked-in entitlements: the same signing
-      # path a notarised release takes, and the smoke test proves the app
-      # still starts under it.
+      # There is no Developer ID yet, so the signature is ad hoc. It is first
+      # signed and verified with the hardened runtime and the checked-in
+      # entitlements (the path a notarised release takes), then re-signed
+      # without the hardened runtime for the disk image: an ad-hoc signature
+      # has no Team ID, so under the hardened runtime another Mac refuses the
+      # bundled frameworks at launch. The smoke test launches that build.
       - name: Package
         id: package
         env:
@@ -194,8 +196,8 @@ jobs:
 
       # Check what users actually download: the app inside the disk image.
       # Fails on an unsigned file, a Homebrew or other absolute install name or
-      # RPATH, a missing hardened-runtime flag, unexpected entitlements or
-      # missing licence material. Notarisation itself cannot run here until
+      # RPATH, an ad-hoc signature with the hardened runtime, a missing
+      # QtSvg.framework or missing licence material. Notarisation itself cannot run here until
       # there is a Developer ID.
       - name: Verify the disk image
         if: ${{ !cancelled() && steps.package.outcome == 'success' }}
@@ -206,7 +208,7 @@ jobs:
           hdiutil attach -nobrowse -readonly -mountpoint "$mount" "$dmg"
           status=0
           packaging/macos/verify-app.sh "$mount/ATKPlayer.app" ${{ matrix.arch }} \
-            --expect-hardened --expect-source-materials || status=$?
+            --expect-source-materials || status=$?
           /usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' -c 'Print CFBundleShortVersionString' \
             -c 'Print CFBundleVersion' -c 'Print LSMinimumSystemVersion' "$mount/ATKPlayer.app/Contents/Info.plist" || status=1
           hdiutil detach "$mount"

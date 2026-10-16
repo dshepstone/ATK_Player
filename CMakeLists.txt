@@ -95,7 +95,8 @@ elseif(DEFINED ENV{QT_ROOT} AND NOT "$ENV{QT_ROOT}" STREQUAL "")
     message(STATUS "Qt prefix from QT_ROOT environment variable: $ENV{QT_ROOT}")
 endif()
 
-set(ATK_QT_COMPONENTS Core Gui Widgets Multimedia)
+# Svg: the button icons are drawn with QSvgRenderer (see ui/IconProvider.cpp).
+set(ATK_QT_COMPONENTS Core Gui Widgets Multimedia Svg)
 if(ATK_BUILD_TESTS)
     list(APPEND ATK_QT_COMPONENTS Test)
 endif()

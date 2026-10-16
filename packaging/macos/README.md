@@ -73,9 +73,12 @@ the unsigned Windows MSI.
   app, which alone carries the entitlements.
 - **Hardened runtime** (`--options runtime`) and a **secure timestamp**
   (`--timestamp`) whenever `ATK_CODESIGN_IDENTITY` is set. CI also signs its
-  ad-hoc build with the hardened runtime (`ATK_HARDENED_RUNTIME=1`), so the
-  release signing path, and the app starting under it, are tested on every
-  pull request.
+  ad-hoc build with the hardened runtime (`ATK_HARDENED_RUNTIME=1`) and
+  verifies it, so the release signing path is checked on every pull request;
+  the build is then re-signed without the hardened runtime for the disk image.
+  An ad-hoc signature has no Team ID, and under the hardened runtime library
+  validation refuses every bundled framework ("different Team IDs"), so an
+  ad-hoc + hardened app starts only on the Mac that signed it.
 - **Entitlements:** [ATKPlayer.entitlements](ATKPlayer.entitlements) is
   deliberately empty. Its comments explain why each candidate is not needed:
   no `disable-library-validation` (every bundled library is signed with the

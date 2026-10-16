@@ -15,6 +15,9 @@
 #     codesign --verify --deep --strict
 #   - with --expect-hardened: the executable is not signed with the hardened
 #     runtime, or its entitlements are not the checked-in ATKPlayer.entitlements
+#   - without it: an ad-hoc signature carries the hardened runtime (another Mac
+#     would refuse the bundled frameworks at launch)
+#   - QtSvg.framework is missing (the button icons are drawn with it)
 #   - a licence text or the third-party notice is missing from
 #     Contents/Resources/licenses; with --expect-source-materials, also when
 #     licenses/dependencies is missing or fails its SHA256SUMS.txt
@@ -124,6 +127,17 @@ if [ "$expect_hardened" -eq 1 ]; then
         problem "the signed entitlements differ from packaging/macos/ATKPlayer.entitlements"
     fi
 fi
+
+# An ad-hoc signature has no Team ID; with the hardened runtime as well,
+# library validation refuses every bundled framework ("different Team IDs")
+# and the app cannot start on any Mac but the one that signed it.
+if [ "$expect_hardened" -eq 0 ] && echo "$info" | grep -q '^Signature=adhoc' \
+    && echo "$info" | grep -E '^CodeDirectory' | grep -q 'runtime'; then
+    problem "signed ad hoc with the hardened runtime: other Macs would refuse its frameworks at launch"
+fi
+
+# The button icons are drawn with Qt SVG; without it every button is blank.
+[ -d "$frameworks/QtSvg.framework" ] || problem "QtSvg.framework is missing (the button icons need it)"
 
 # Licences: the same set the Windows package installs.
 licenses="$contents/Resources/licenses"

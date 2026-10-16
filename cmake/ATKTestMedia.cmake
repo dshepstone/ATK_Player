@@ -221,7 +221,30 @@ function(atk_add_test_media)
         VERBATIM
     )
 
-    add_custom_target(atk_test_media DEPENDS "${lossless}" "${lossy}" "${sync}" "${review}" "${compare30}" "${compare60}" "${external32}" "${export120}" "${export23976}" "${longgop}" ${still_outputs})
+    # AVI: the two codecs most often found in it in a class (Xvid-style
+    # MPEG-4 Part 2 with inter frames, and all-intra MJPEG), with PCM audio.
+    set(avi_mpeg4 "${ATK_TEST_MEDIA_DIR}/atk_avi_mpeg4_48f.avi")
+    set(avi_mjpeg "${ATK_TEST_MEDIA_DIR}/atk_avi_mjpeg_48f.avi")
+    add_custom_command(
+        OUTPUT "${avi_mpeg4}" "${avi_mjpeg}"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${ATK_TEST_MEDIA_DIR}"
+        COMMAND "${ATK_FFMPEG_EXECUTABLE}" -hide_banner -loglevel error -y
+                -f lavfi -i "testsrc2=size=640x360:rate=24:duration=2"
+                -f lavfi -i "sine=frequency=440:sample_rate=48000:duration=2"
+                -c:v mpeg4 -vtag xvid -pix_fmt yuv420p -q:v 3 -g 12
+                -c:a pcm_s16le
+                "${avi_mpeg4}"
+        COMMAND "${ATK_FFMPEG_EXECUTABLE}" -hide_banner -loglevel error -y
+                -f lavfi -i "testsrc2=size=640x360:rate=24:duration=2"
+                -f lavfi -i "sine=frequency=440:sample_rate=48000:duration=2"
+                -c:v mjpeg -pix_fmt yuvj420p -q:v 3
+                -c:a pcm_s16le
+                "${avi_mjpeg}"
+        COMMENT "Generating AVI test fixtures"
+        VERBATIM
+    )
+
+    add_custom_target(atk_test_media DEPENDS "${lossless}" "${lossy}" "${sync}" "${review}" "${compare30}" "${compare60}" "${external32}" "${export120}" "${export23976}" "${longgop}" "${avi_mpeg4}" "${avi_mjpeg}" ${still_outputs})
     set_target_properties(atk_test_media PROPERTIES FOLDER "Tests")
 
     # Validate what was produced rather than trusting the recipe. If a future

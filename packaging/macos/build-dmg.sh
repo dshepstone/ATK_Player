@@ -31,7 +31,10 @@
 #
 # Environment:
 #   ATK_CODESIGN_IDENTITY  "Developer ID Application: <name> (<team>)"; unset = ad hoc
-#   ATK_HARDENED_RUNTIME   1 = hardened runtime even when ad hoc (CI uses this)
+#   ATK_HARDENED_RUNTIME   1 = also sign and verify an ad-hoc build with the hardened
+#                          runtime (CI uses this); the .dmg is then re-signed
+#                          without it, since ad hoc + hardened cannot start on
+#                          another Mac
 #   ATK_NOTARY_PROFILE     notarytool keychain profile; unset = no notarisation
 #
 # Needs QT_ROOT and VCPKG_ROOT for a build (see docs/BUILDING.md). Written for
@@ -304,52 +307,58 @@ hardened="${ATK_HARDENED_RUNTIME:-0}"
 entitlements="$here/ATKPlayer.entitlements"
 plutil -lint "$entitlements" >/dev/null || fail "$entitlements is not a valid property list"
 
-sign_args=(--force --sign "$identity")
-if [ "$identity" = "-" ]; then
-    sign_args+=(--timestamp=none)
-    step "Signing ad hoc (no Developer ID; see packaging/macos/README.md)"
-else
-    # A secure timestamp is required for notarisation.
-    sign_args+=(--timestamp)
-    step "Signing with $identity"
-fi
-if [ "$hardened" = "1" ]; then
-    sign_args+=(--options runtime)
-    echo "  hardened runtime: on"
-fi
+# sign_bundle <hardened 0|1>: everything inside out, then the app.
+sign_bundle() {
+    sign_args=(--force --sign "$identity")
+    if [ "$identity" = "-" ]; then
+        sign_args+=(--timestamp=none)
+        step "Signing ad hoc (no Developer ID; see packaging/macos/README.md)"
+    else
+        # A secure timestamp is required for notarisation.
+        sign_args+=(--timestamp)
+        step "Signing with $identity"
+    fi
+    if [ "$1" = "1" ]; then
+        sign_args+=(--options runtime)
+        echo "  hardened runtime: on"
+    else
+        echo "  hardened runtime: off"
+    fi
 
-# Every Mach-O file that is not a framework's own binary or the app's
-# executable, deepest first: plugins, loose dylibs, any helper tools.
-refresh_macho_list
-while IFS= read -r f; do
-    case "$f" in
-        "$contents/MacOS/ATKPlayer") continue ;;
-        */*.framework/Versions/*/*)
-            # The framework's main binary is signed with its bundle below;
-            # anything else inside a framework (helpers) is signed here.
-            rest="${f#*.framework/Versions/}"; rest="${rest#*/}"
-            fw="${f%%.framework/*}"; fw="${fw##*/}"
-            [ "$rest" = "$fw" ] && continue ;;
-    esac
-    echo "$f"
-done < "$macho_list" | awk -F/ '{ print NF "\t" $0 }' | sort -rn | cut -f2- > "$macho_list.sign"
-# (Path depth via awk: macOS wc pads its count with spaces, which once broke
-# a space-delimited cut and handed codesign a path that does not exist.)
-while IFS= read -r f <&3; do
-    codesign "${sign_args[@]}" "$f"
-done 3< "$macho_list.sign"
-echo "  signed $(wc -l < "$macho_list.sign" | tr -d ' ') plugins and libraries"
-rm -f "$macho_list.sign"
+    # Every Mach-O file that is not a framework's own binary or the app's
+    # executable, deepest first: plugins, loose dylibs, any helper tools.
+    refresh_macho_list
+    while IFS= read -r f; do
+        case "$f" in
+            "$contents/MacOS/ATKPlayer") continue ;;
+            */*.framework/Versions/*/*)
+                # The framework's main binary is signed with its bundle below;
+                # anything else inside a framework (helpers) is signed here.
+                rest="${f#*.framework/Versions/}"; rest="${rest#*/}"
+                fw="${f%%.framework/*}"; fw="${fw##*/}"
+                [ "$rest" = "$fw" ] && continue ;;
+        esac
+        echo "$f"
+    done < "$macho_list" | awk -F/ '{ print NF "\t" $0 }' | sort -rn | cut -f2- > "$macho_list.sign"
+    # (Path depth via awk: macOS wc pads its count with spaces, which once broke
+    # a space-delimited cut and handed codesign a path that does not exist.)
+    while IFS= read -r f <&3; do
+        codesign "${sign_args[@]}" "$f"
+    done 3< "$macho_list.sign"
+    echo "  signed $(wc -l < "$macho_list.sign" | tr -d ' ') plugins and libraries"
+    rm -f "$macho_list.sign"
 
-find "$frameworks" -maxdepth 1 -name '*.framework' > "$macho_list"
-while IFS= read -r f <&3; do
-    codesign "${sign_args[@]}" "$f"
-done 3< "$macho_list"
-echo "  signed $(wc -l < "$macho_list" | tr -d ' ') frameworks"
+    find "$frameworks" -maxdepth 1 -name '*.framework' > "$macho_list"
+    while IFS= read -r f <&3; do
+        codesign "${sign_args[@]}" "$f"
+    done 3< "$macho_list"
+    echo "  signed $(wc -l < "$macho_list" | tr -d ' ') frameworks"
 
-# The app last, and only the app carries entitlements. No --deep: it would
-# re-sign nested code with the app's options instead of its own.
-codesign "${sign_args[@]}" --entitlements "$entitlements" "$app"
+    # The app last, and only the app carries entitlements. No --deep: it would
+    # re-sign nested code with the app's options instead of its own.
+    codesign "${sign_args[@]}" --entitlements "$entitlements" "$app"
+}
+sign_bundle "$hardened"
 
 # ---------------------------------------------------------------------------
 # 5. Verify
@@ -359,6 +368,19 @@ verify_args=("$app" "$arch")
 [ "$hardened" = "1" ] && verify_args+=(--expect-hardened)
 [ "$source_materials" -eq 1 ] && verify_args+=(--expect-source-materials)
 "$here/verify-app.sh" "${verify_args[@]}"
+
+# An ad-hoc signature has no Team ID, and under the hardened runtime library
+# validation then refuses every bundled framework ("different Team IDs"): the
+# app starts on the Mac that signed it but on no other. So an ad-hoc build is
+# checked with the hardened runtime above (the notarisation path), then
+# re-signed without it for the disk image testers install.
+if [ "$identity" = "-" ] && [ "$hardened" = "1" ]; then
+    step "Re-signing ad hoc without the hardened runtime for the test disk image"
+    sign_bundle 0
+    verify_args=("$app" "$arch")
+    [ "$source_materials" -eq 1 ] && verify_args+=(--expect-source-materials)
+    "$here/verify-app.sh" "${verify_args[@]}"
+fi
 rm -f "$macho_list"
 ls "$frameworks"
 

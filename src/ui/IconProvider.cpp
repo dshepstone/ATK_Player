@@ -4,14 +4,13 @@
 #include "ui/Resources.h"
 #include "ui/Theme.h"
 
-#include <QBuffer>
 #include <QFile>
 #include <QHash>
 #include <QIconEngine>
 #include <QImage>
-#include <QImageReader>
 #include <QPainter>
 #include <QPixmapCache>
+#include <QSvgRenderer>
 
 #include <algorithm>
 #include <cmath>
@@ -40,7 +39,7 @@ const QByteArray& svgSource(const QString& name)
 }
 
 /// Rasterises `name` at exactly `deviceSize` pixels in `color`, through the
-/// shared pixmap cache. Null for an unknown name or a missing SVG plugin.
+/// shared pixmap cache. Null for an unknown name or an unreadable SVG.
 QPixmap render(const QString& name, const QSize& deviceSize, const QColor& color)
 {
     if (deviceSize.isEmpty()) return {};
@@ -56,19 +55,23 @@ QPixmap render(const QString& name, const QSize& deviceSize, const QColor& color
     QByteArray tinted = source;
     tinted.replace("currentColor", color.name(QColor::HexRgb).toLatin1());
 
-    QBuffer buffer(&tinted);
-    buffer.open(QIODevice::ReadOnly);
-    QImageReader reader(&buffer, "svg");
-    reader.setScaledSize(deviceSize);
-    QImage image = reader.read();
-    if (image.isNull()) {
+    // Drawn with Qt SVG directly, not through the "svg" image-format plugin:
+    // a deployment without that plugin (macdeployqt left it out of the macOS
+    // bundle) otherwise shows every button blank.
+    QSvgRenderer renderer(tinted);
+    if (!renderer.isValid()) {
         static bool warned = false;
         if (!warned) {
             warned = true;
-            qCWarning(log::ui) << "Could not render icon" << name << ":" << reader.errorString()
-                               << "(is the Qt SVG image-format plugin deployed?)";
+            qCWarning(log::ui) << "Could not render icon" << name;
         }
         return {};
+    }
+    QImage image(deviceSize, QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::transparent);
+    {
+        QPainter painter(&image);
+        renderer.render(&painter, QRectF(QPointF(0, 0), QSizeF(deviceSize)));
     }
     // Lucide strokes are fully opaque; carry the colour's own alpha too.
     if (color.alpha() < 255) {
