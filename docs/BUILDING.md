@@ -228,6 +228,10 @@ rather than at configure time.
 | `windows-debug` | Ninja | Debug |
 | `windows-release` | Ninja | RelWithDebInfo |
 | `windows-vs2022` | Visual Studio 17 2022 | Multi-config (`-debug` / `-release` build presets) |
+| `macos-arm64-debug` / `macos-arm64-release` | Ninja | Debug / RelWithDebInfo, Apple silicon |
+| `macos-x64-debug` / `macos-x64-release` | Ninja | Debug / RelWithDebInfo, Intel |
+
+The macOS presets appear only on a Mac; see [Building on macOS](#building-on-macos).
 
 Build output goes to `build/<preset-name>/`, which `.gitignore` excludes.
 
@@ -449,3 +453,35 @@ Only after RC acceptance, use the same architecture for suffix-free final:
 
 See [Windows packaging](../packaging/windows/README.md) for installer identity,
 signing inputs, prerequisites, install/uninstall and upgrade acceptance.
+
+---
+
+## Building on macOS
+
+macOS support is new (milestone M7) and so far built and tested only on GitHub's
+macOS runners (`.github/workflows/macos.yml`). The steps mirror Windows:
+
+| Requirement | Notes |
+|---|---|
+| Xcode command line tools | `xcode-select --install`. Apple Clang builds the C++20 code. |
+| CMake 3.25+, Ninja, nasm, pkgconf | `brew install cmake ninja nasm pkgconf`. nasm and pkgconf are for vcpkg's FFmpeg build. |
+| Qt 6.9 for macOS | The `macos` (clang_64) package with **Qt Multimedia**. It is universal, so one install covers both architectures. |
+| vcpkg | Cloned at the commit `vcpkg.json` pins, like on Windows. |
+
+```bash
+export QT_ROOT=~/Qt/6.9.3/macos
+export VCPKG_ROOT=~/dev/vcpkg
+export ATK_VCPKG_INSTALLED_DIR=~/dev/atk-vcpkg-installed
+
+cmake --preset macos-arm64-debug      # macos-x64-debug on an Intel Mac
+cmake --build --preset macos-arm64-debug
+ctest --preset macos-arm64-debug
+open build/macos-arm64-debug/bin/ATKPlayer.app
+```
+
+FFmpeg comes from vcpkg through the overlay triplets in `cmake/triplets/`
+(`arm64-osx-atk`, `x64-osx-atk`): dynamic libraries, built for macOS 12 like
+the rest of the app. The build-tree `ATKPlayer.app` finds Qt and FFmpeg through
+its build RPATH, so it runs without deployment. For a distributable `.dmg`, see
+[../packaging/macos/README.md](../packaging/macos/README.md).
+

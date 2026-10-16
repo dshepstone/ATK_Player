@@ -6,6 +6,7 @@
 #include "ui/Theme.h"
 #include "ui/Resources.h"
 
+#include <QFileOpenEvent>
 #include <QIcon>
 
 namespace atk::app {
@@ -67,6 +68,19 @@ void Application::parseArguments()
         qCInfo(log::app).noquote() << "Media requested on the command line:"
                                    << m_requestedMediaPath;
     }
+}
+
+bool Application::event(QEvent* event)
+{
+    if (event->type() == QEvent::FileOpen) {
+        const QString path = static_cast<QFileOpenEvent*>(event)->file();
+        if (!path.isEmpty()) {
+            qCInfo(log::app).noquote() << "File open requested by the OS:" << path;
+            emit fileOpenRequested(path);
+        }
+        return true;
+    }
+    return QApplication::event(event);
 }
 
 QString Application::versionString()

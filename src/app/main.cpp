@@ -23,12 +23,19 @@ int main(int argc, char* argv[])
 
     // Opened after show() so the window is already up and can display the
     // loading state rather than appearing only once decoding finishes.
+    const auto openRequested = [&window](const QString& path) {
+        if (path.endsWith(QStringLiteral(".atkproj"), Qt::CaseInsensitive))
+            window.openProjectFile(path);
+        else
+            window.openMediaFile(path);
+    };
+    // macOS delivers Finder opens as events, including the one that launched
+    // the app; they arrive once the event loop runs.
+    QObject::connect(&application, &atk::app::Application::fileOpenRequested, &window, openRequested);
+
     const QString requested = application.requestedMediaPath();
     if (!requested.isEmpty()) {
-        if (requested.endsWith(QStringLiteral(".atkproj"), Qt::CaseInsensitive))
-            window.openProjectFile(requested);
-        else
-            window.openMediaFile(requested);
+        openRequested(requested);
     } else if (!window.reopenLastProjectIfEnabled()) {
         // Started on its own (no file from a double-click, Maya, Harmony or
         // --open): the Review Library, unless turned off in Preferences.

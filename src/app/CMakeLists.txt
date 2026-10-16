@@ -19,6 +19,27 @@ if(WIN32)
     set(ATK_WINDOWS_ICON "${PROJECT_SOURCE_DIR}/assets/icons/ATK_Player_Icon.ico")
     configure_file(ATKPlayer.rc.in "${CMAKE_CURRENT_BINARY_DIR}/ATKPlayer.rc" @ONLY)
     target_sources(ATKPlayer PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/ATKPlayer.rc")
+elseif(APPLE)
+    # Finder icon. The committed artwork is 32x32 (see assets/icons/README.md),
+    # so the .icns carries only the sizes that really exist; macOS scales it.
+    set(ATK_MACOS_ICON "${CMAKE_CURRENT_BINARY_DIR}/ATKPlayer.icns")
+    set(_atk_iconset "${CMAKE_CURRENT_BINARY_DIR}/ATKPlayer.iconset")
+    set(_atk_icon_source "${PROJECT_SOURCE_DIR}/assets/icons/ATK_Player_Icon.png")
+    add_custom_command(
+        OUTPUT "${ATK_MACOS_ICON}"
+        COMMAND "${CMAKE_COMMAND}" -E rm -rf "${_atk_iconset}"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${_atk_iconset}"
+        COMMAND sips -z 16 16 "${_atk_icon_source}" --out "${_atk_iconset}/icon_16x16.png"
+        COMMAND sips -z 32 32 "${_atk_icon_source}" --out "${_atk_iconset}/icon_16x16@2x.png"
+        COMMAND sips -z 32 32 "${_atk_icon_source}" --out "${_atk_iconset}/icon_32x32.png"
+        COMMAND iconutil -c icns "${_atk_iconset}" -o "${ATK_MACOS_ICON}"
+        DEPENDS "${_atk_icon_source}"
+        COMMENT "Building ATKPlayer.icns"
+        VERBATIM
+    )
+    set_source_files_properties("${ATK_MACOS_ICON}" PROPERTIES
+        MACOSX_PACKAGE_LOCATION Resources)
+    target_sources(ATKPlayer PRIVATE "${ATK_MACOS_ICON}")
 endif()
 
 target_link_libraries(ATKPlayer
@@ -37,7 +58,19 @@ set_target_properties(ATKPlayer PROPERTIES
     MACOSX_BUNDLE_BUNDLE_NAME "ATK Player"
     MACOSX_BUNDLE_GUI_IDENTIFIER "local.atkplayer.ATKPlayer"
     MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+    MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
+    MACOSX_BUNDLE_ICON_FILE "ATKPlayer.icns"
+    MACOSX_BUNDLE_COPYRIGHT "Copyright ${ATK_RELEASE_PUBLISHER}"
+    MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in"
 )
+
+if(APPLE)
+    # The installed bundle finds Qt and FFmpeg inside itself. The build tree
+    # keeps CMake's build RPATH (absolute paths to Qt and vcpkg), so it runs
+    # without deployment.
+    set_target_properties(ATKPlayer PROPERTIES
+        INSTALL_RPATH "@executable_path/../Frameworks")
+endif()
 
 # ---------------------------------------------------------------------------
 # Running from the build tree
@@ -146,6 +179,20 @@ if(WIN32)
         endif()
         install(DIRECTORY "${ATK_DEPENDENCY_MATERIALS_DIR}/" DESTINATION licenses/dependencies)
     endif()
+elseif(APPLE)
+    # Licence texts travel inside the bundle. The Windows texts are the same
+    # licences for the same components, so they are shared, not copied.
+    set(_atk_bundle_licenses "ATKPlayer.app/Contents/Resources/licenses")
+    install(FILES
+        "${PROJECT_SOURCE_DIR}/LICENSE"
+        DESTINATION ${_atk_bundle_licenses}
+        RENAME ATK-Player-MIT.txt)
+    install(FILES
+        "${PROJECT_SOURCE_DIR}/packaging/windows/licenses/Qt-LGPL-3.0.txt"
+        "${PROJECT_SOURCE_DIR}/packaging/windows/licenses/FFmpeg-LGPL-2.1.txt"
+        "${PROJECT_SOURCE_DIR}/packaging/windows/licenses/zlib.txt"
+        "${PROJECT_SOURCE_DIR}/packaging/windows/THIRD_PARTY_NOTICES.txt"
+        DESTINATION ${_atk_bundle_licenses})
 endif()
 
 set(_atk_deploy_app_arguments)
@@ -158,6 +205,13 @@ if(WIN32)
             --no-system-dxc-compiler
             --no-opengl-sw
             --exclude-plugins ffmpegmediaplugin)
+elseif(APPLE AND ATK_FFMPEG_RUNTIME_DIR)
+    # ATKPlayer links @rpath/libav*.dylib; tell macdeployqt where those are so
+    # it copies them into Contents/Frameworks. packaging/macos/build-dmg.sh
+    # then removes Qt's own FFmpeg media plugin and checks the result.
+    list(APPEND _atk_deploy_app_arguments
+        DEPLOY_TOOL_OPTIONS
+            "-libpath=${ATK_FFMPEG_RUNTIME_DIR}")
 endif()
 
 qt_generate_deploy_app_script(
