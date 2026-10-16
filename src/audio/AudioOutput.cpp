@@ -175,6 +175,7 @@ void AudioOutput::start(int64_t startPtsUs)
     m_device = device;
 
     m_startPtsUs = startPtsUs;
+    resetClockSmoothing();
     m_sink->start(m_device);
     m_running = true;
     applyVolume();
@@ -195,6 +196,14 @@ void AudioOutput::stop()
     }
     m_running = false;
     m_startPtsUs = -1;
+    resetClockSmoothing();
+}
+
+void AudioOutput::resetClockSmoothing()
+{
+    m_lastProcessedUs = -1;
+    m_lastReportedUs = -1;
+    m_sinceProcessedChange.invalidate();
 }
 
 void AudioOutput::pause()
@@ -210,6 +219,8 @@ void AudioOutput::resume()
     if (m_sink && !m_running && m_device != nullptr) {
         m_sink->resume();
         m_running = true;
+        // The pause is not elapsed playback.
+        if (m_sinceProcessedChange.isValid()) m_sinceProcessedChange.start();
     }
 }
 
@@ -248,7 +259,24 @@ int64_t AudioOutput::positionUs() const
     //
     // processedUSecs() is the device's own account of elapsed playback, which is
     // exactly the quantity video needs to follow.
-    return m_startPtsUs + static_cast<int64_t>(m_sink->processedUSecs());
+    //
+    // Some backends advance it only once per device buffer: Core Audio on
+    // macOS can report in steps of tens of milliseconds, so a 24 fps clip
+    // would see the playhead jump frames at a time. Between two reports the
+    // position is carried forward by real time, at most one step's worth, and
+    // is never allowed to go backwards when the next report lands.
+    constexpr int64_t kMaxExtrapolationUs = 100'000;
+    const auto processed = static_cast<int64_t>(m_sink->processedUSecs());
+    if (processed != m_lastProcessedUs) {
+        m_lastProcessedUs = processed;
+        m_sinceProcessedChange.start();
+    }
+    int64_t smoothed = processed;
+    if (m_running && m_sinceProcessedChange.isValid())
+        smoothed += std::min<int64_t>(m_sinceProcessedChange.nsecsElapsed() / 1000, kMaxExtrapolationUs);
+    smoothed = std::max(smoothed, m_lastReportedUs);
+    m_lastReportedUs = smoothed;
+    return m_startPtsUs + smoothed;
 }
 
 int64_t AudioOutput::bufferedMs() const
