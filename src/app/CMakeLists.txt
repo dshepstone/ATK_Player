@@ -9,6 +9,12 @@ option(ATK_CONSOLE_LOGGING
     "Build ATKPlayer as a console application so log output appears in the terminal (Windows)."
     OFF)
 
+# Reverse-DNS on a domain the publisher controls. It identifies the app to
+# Gatekeeper, notarisation, Launch Services and the .atkproj file type, so it
+# must not change between releases once one has shipped.
+set(ATK_MACOS_BUNDLE_ID "ca.shepstone.atkplayer" CACHE STRING
+    "macOS CFBundleIdentifier for ATKPlayer.app.")
+
 qt_add_executable(ATKPlayer
     main.cpp
     Application.cpp
@@ -56,7 +62,7 @@ set_target_properties(ATKPlayer PROPERTIES
     WIN32_EXECUTABLE $<NOT:$<BOOL:${ATK_CONSOLE_LOGGING}>>
     MACOSX_BUNDLE TRUE
     MACOSX_BUNDLE_BUNDLE_NAME "ATK Player"
-    MACOSX_BUNDLE_GUI_IDENTIFIER "local.atkplayer.ATKPlayer"
+    MACOSX_BUNDLE_GUI_IDENTIFIER "${ATK_MACOS_BUNDLE_ID}"
     MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
     MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
     MACOSX_BUNDLE_ICON_FILE "ATKPlayer.icns"

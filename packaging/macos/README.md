@@ -58,35 +58,88 @@ both slices in one pass. A universal download means building both, then
 bundle before signing. That is a follow-up once both single-architecture
 builds are known to work on real machines.
 
-## Signing and notarisation — not done yet
+## Signing and notarisation
 
-Like the Windows MSI, the macOS build is not yet signed with a publisher
-certificate. Apple silicon will not run unsigned code at all, so the script
-signs **ad hoc** by default. Gatekeeper still blocks an ad-hoc app downloaded
-from the internet until the user chooses Open from the Finder context menu;
-`READ_ME_FIRST.txt` explains this inside the disk image.
+ATK Player is distributed outside the Mac App Store (the website and Gumroad),
+so it needs a **Developer ID** signature and Apple **notarisation**, and no App
+Sandbox. The build is made to pass both as soon as there is a certificate,
+with no code changes; until then the default output is signed **ad hoc**, like
+the unsigned Windows MSI.
 
-For a proper release:
+### What the build already does
 
-1. Join the Apple Developer Program and create a **Developer ID Application**
-   certificate.
-2. Build with `ATK_CODESIGN_IDENTITY="Developer ID Application: <name> (<team>)"`.
-   The script then signs inside out with the hardened runtime and a secure
-   timestamp.
-3. Notarise and staple the disk image:
+- **Signs inside out** (no `--deep` when signing): every Qt plugin, FFmpeg and
+  other loose dylib, deepest first; then each Qt framework as a bundle; then the
+  app, which alone carries the entitlements.
+- **Hardened runtime** (`--options runtime`) and a **secure timestamp**
+  (`--timestamp`) whenever `ATK_CODESIGN_IDENTITY` is set. CI also signs its
+  ad-hoc build with the hardened runtime (`ATK_HARDENED_RUNTIME=1`), so the
+  release signing path, and the app starting under it, are tested on every
+  pull request.
+- **Entitlements:** [ATKPlayer.entitlements](ATKPlayer.entitlements) is
+  deliberately empty. Its comments explain why each candidate is not needed:
+  no `disable-library-validation` (every bundled library is signed with the
+  app's identity), no JIT or unsigned-memory (FFmpeg and Qt Widgets run
+  precompiled code only), and no microphone, camera or Apple Events. That is
+  also why `Info.plist` has no usage strings. The localhost API needs no
+  network entitlement outside the sandbox.
+- **Bundle metadata:** `CFBundleIdentifier` `ca.shepstone.atkplayer` (CMake
+  cache variable `ATK_MACOS_BUNDLE_ID`; never change it after the first
+  release). `CFBundleShortVersionString` and `CFBundleVersion` come from the
+  project version in `CMakeLists.txt`, with `LSMinimumSystemVersion` 12.0 and
+  `NSHighResolutionCapable`.
+- **[verify-app.sh](verify-app.sh)** fails if any Mach-O file is unsigned,
+  links or has an RPATH into `/opt/homebrew`, `/usr/local` or any other
+  absolute path outside the bundle and the OS, lacks the target architecture,
+  fails `codesign --verify --deep --strict`, or (when expected) lacks the
+  hardened-runtime flag or has entitlements other than the checked-in file.
+  `build-dmg.sh` runs it on the staged app, and CI runs it again on the app
+  inside the finished `.dmg`.
+- **Signs the `.dmg`** as well, and with `ATK_NOTARY_PROFILE` set it
+  **notarises and staples** it (`notarytool submit --wait`, `stapler staple`,
+  `stapler validate`, `spctl --assess`).
+
+### Release steps once enrolled
+
+1. **Enrol** in the Apple Developer Program (individual or organisation).
+2. **Create a Developer ID Application certificate** (Xcode > Settings >
+   Accounts > Manage Certificates, or developer.apple.com > Certificates) and
+   install it in the login keychain of the Mac that builds releases. Check it
+   with `security find-identity -v -p codesigning`.
+3. **Store notarisation credentials once** with an app-specific password (or an
+   App Store Connect API key):
 
    ```bash
-   xcrun notarytool submit ATKPlayer-<version>-macOS-arm64.dmg \
-       --keychain-profile atk-notary --wait
-   xcrun stapler staple ATKPlayer-<version>-macOS-arm64.dmg
+   xcrun notarytool store-credentials atk-notary \
+       --apple-id <apple-id-email> --team-id <TEAMID> --password <app-specific-password>
    ```
 
-4. Move steps 2 and 3 into a release workflow with the certificate and an App
-   Store Connect API key as repository secrets.
+4. **Build, sign, notarise and staple**, once per architecture:
 
-The hardened runtime may need entitlements once it is on (none are needed for
-the ad-hoc build). The local API listens on localhost only and needs none;
-check audio output and pen-tablet input on a signed build before release.
+   ```bash
+   export ATK_CODESIGN_IDENTITY="Developer ID Application: David Shepstone (<TEAMID>)"
+   export ATK_NOTARY_PROFILE=atk-notary
+   export ATK_VERSION_SUFFIX=            # empty for a final release
+   packaging/macos/build-dmg.sh --arch arm64 --smoke-test
+   packaging/macos/build-dmg.sh --arch x86_64 --smoke-test   # on an Intel Mac or runner
+   ```
+
+   The script fails, and prints Apple's log, if notarisation is not accepted.
+5. **Check on a second Mac:** download the `.dmg` from the website, open it
+   and launch the app. There should be no Gatekeeper warning beyond the usual
+   "downloaded from the internet" confirmation.
+6. **Later, in CI:** import the certificate (`.p12` and password) into a
+   temporary keychain from repository secrets and use an App Store Connect API
+   key for `notarytool`, then run step 4 in a release workflow like
+   `windows-release.yml`.
+
+### Not verified yet
+
+Notarisation itself cannot be tested without a Developer ID, so it has never
+been run. CI proves the parts that can be checked locally: hardened-runtime
+signing, strict verification, no stray install names, and the app starting
+under the hardened runtime. Apple's service can still reject things these
+checks do not cover. Its log (`notarytool log`) names the file and the reason.
 
 ## Contents
 

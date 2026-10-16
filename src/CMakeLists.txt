@@ -194,9 +194,13 @@ target_link_libraries(atk_core
         Qt6::Network
     PRIVATE
         ${FFMPEG_LIBRARIES}
-        # PlatformInfo_Mac.mm: NSProcessInfo playback activity.
-        $<$<PLATFORM_ID:Darwin>:-framework Foundation>
 )
+
+if(APPLE)
+    # PlatformInfo_Mac.mm: NSProcessInfo playback activity. A plain item, not
+    # a generator expression: inside one CMake splits it into -lFoundation.
+    target_link_libraries(atk_core PRIVATE "-framework Foundation")
+endif()
 
 # PRIVATE: FFmpeg headers are an implementation detail of the media layer. The
 # UI links atk_core but must not be able to include libav* -- that boundary is

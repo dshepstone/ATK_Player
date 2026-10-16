@@ -125,10 +125,34 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-      # Install, make the bundle self-contained, sign ad hoc, verify, launch it
-      # once and build the .dmg. See packaging/macos/README.md.
+      # Install, make the bundle self-contained, sign, verify, launch it once
+      # and build the .dmg. See packaging/macos/README.md.
+      #
+      # There is no Developer ID yet, so the signature is ad hoc, but with the
+      # hardened runtime and the checked-in entitlements: the same signing
+      # path a notarised release takes, and the smoke test proves the app
+      # still starts under it.
       - name: Package
+        env:
+          ATK_HARDENED_RUNTIME: '1'
         run: packaging/macos/build-dmg.sh --arch ${{ matrix.arch }} --skip-build --smoke-test
+
+      # Check what users actually download: the app inside the disk image.
+      # Fails on an unsigned file, a Homebrew or other absolute install name or
+      # RPATH, a missing hardened-runtime flag or unexpected entitlements.
+      # Notarisation itself cannot run here until there is a Developer ID.
+      - name: Verify the disk image
+        run: |
+          dmg="$(ls out/macos/*.dmg)"
+          codesign --verify --strict --verbose=2 "$dmg"
+          mount="$(mktemp -d)"
+          hdiutil attach -nobrowse -readonly -mountpoint "$mount" "$dmg"
+          status=0
+          packaging/macos/verify-app.sh "$mount/ATKPlayer.app" ${{ matrix.arch }} --expect-hardened || status=$?
+          /usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' -c 'Print CFBundleShortVersionString' \
+            -c 'Print CFBundleVersion' -c 'Print LSMinimumSystemVersion' "$mount/ATKPlayer.app/Contents/Info.plist" || status=1
+          hdiutil detach "$mount"
+          exit $status
 
       - name: Upload disk image
         uses: actions/upload-artifact@v4
@@ -145,6 +169,8 @@ jobs:
         if: always()
         with:
           name: smoke-log-${{ matrix.arch }}
-          path: out/macos/smoke-*.log
+          path: |
+            out/macos/smoke-*.log
+            out/macos/smoke-*-images.txt
           retention-days: 7
           if-no-files-found: ignore

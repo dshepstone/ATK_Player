@@ -13,18 +13,29 @@
 #      FFmpeg; Qt Multimedia is only used for audio output), then make sure
 #      every non-system library the bundle needs is inside it and referenced
 #      through @rpath
-#   4. sign: ad hoc by default, or with ATK_CODESIGN_IDENTITY when set
-#   5. verify: architectures, dependency closure, code signature
-#   6. optionally launch the staged app and check that it stays up and loads
+#   4. sign inside out: every plugin, dylib and framework, then the app with
+#      packaging/macos/ATKPlayer.entitlements. Ad hoc by default; Developer ID
+#      (hardened runtime, secure timestamp) when ATK_CODESIGN_IDENTITY is set
+#   5. verify with verify-app.sh: architectures, dependency closure, no
+#      Homebrew or absolute paths, every file signed, strict verification,
+#      hardened runtime and entitlements when expected
+#   6. optionally launch the staged app and check that it stays up and maps
 #      nothing from outside the bundle (--smoke-test)
-#   7. hdiutil a compressed .dmg with an /Applications link
+#   7. hdiutil a compressed .dmg with an /Applications link, and sign it
+#   8. notarise and staple the .dmg, only when ATK_NOTARY_PROFILE is set
+#
+# Environment:
+#   ATK_CODESIGN_IDENTITY  "Developer ID Application: <name> (<team>)"; unset = ad hoc
+#   ATK_HARDENED_RUNTIME   1 = hardened runtime even when ad hoc (CI uses this)
+#   ATK_NOTARY_PROFILE     notarytool keychain profile; unset = no notarisation
 #
 # Needs QT_ROOT and VCPKG_ROOT for a build (see docs/BUILDING.md). Written for
 # the bash 3.2 that ships with macOS.
 #
 # Signing and notarisation: like the Windows MSI, the default output is not
-# signed with a Developer ID. Apple silicon refuses to run unsigned code at all,
-# so it is signed ad hoc ("-"); Gatekeeper still blocks it on first launch until
+# signed with a Developer ID, but it is built to pass notarisation once one
+# exists. Apple silicon refuses to run unsigned code at all, so by default it
+# is signed ad hoc ("-"); Gatekeeper still blocks it on first launch until
 # the user chooses Open from the Finder context menu (or System Settings >
 # Privacy & Security > Open Anyway). See packaging/macos/README.md.
 # ---------------------------------------------------------------------------
@@ -246,53 +257,72 @@ while IFS= read -r f <&3; do
 done 3< "$macho_list"
 
 # ---------------------------------------------------------------------------
-# 4. Sign
+# 4. Sign, inside out
 # ---------------------------------------------------------------------------
+# With ATK_CODESIGN_IDENTITY set (a "Developer ID Application: ..." identity)
+# everything is signed for notarisation: hardened runtime, secure timestamp,
+# the checked-in entitlements. Without it the signature is ad hoc; the
+# hardened runtime can still be switched on with ATK_HARDENED_RUNTIME=1, which
+# is how CI exercises the notarisation path before there is a certificate.
 identity="${ATK_CODESIGN_IDENTITY:--}"
+hardened="${ATK_HARDENED_RUNTIME:-0}"
+[ "$identity" = "-" ] || hardened=1
+entitlements="$here/ATKPlayer.entitlements"
+plutil -lint "$entitlements" >/dev/null || fail "$entitlements is not a valid property list"
+
 sign_args=(--force --sign "$identity")
-if [ "$identity" != "-" ]; then
-    # Developer ID: hardened runtime and a secure timestamp, both required for
-    # notarisation.
-    sign_args+=(--options runtime --timestamp)
-    step "Signing with $identity"
-else
+if [ "$identity" = "-" ]; then
+    sign_args+=(--timestamp=none)
     step "Signing ad hoc (no Developer ID; see packaging/macos/README.md)"
+else
+    # A secure timestamp is required for notarisation.
+    sign_args+=(--timestamp)
+    step "Signing with $identity"
+fi
+if [ "$hardened" = "1" ]; then
+    sign_args+=(--options runtime)
+    echo "  hardened runtime: on"
 fi
 
-# Inside out: loose dylibs and plugins, then frameworks, then the app.
-find "$contents/Frameworks" "$contents/PlugIns" -type f -name '*.dylib' 2>/dev/null > "$macho_list" || true
+# Every Mach-O file that is not a framework's own binary or the app's
+# executable, deepest first: plugins, loose dylibs, any helper tools.
+refresh_macho_list
+while IFS= read -r f; do
+    case "$f" in
+        "$contents/MacOS/ATKPlayer") continue ;;
+        */*.framework/Versions/*/*)
+            # The framework's main binary is signed with its bundle below;
+            # anything else inside a framework (helpers) is signed here.
+            rest="${f#*.framework/Versions/}"; rest="${rest#*/}"
+            fw="${f%%.framework/*}"; fw="${fw##*/}"
+            [ "$rest" = "$fw" ] && continue ;;
+    esac
+    echo "$(echo "$f" | tr -cd '/' | wc -c) $f"
+done < "$macho_list" | sort -rn | cut -d' ' -f2- > "$macho_list.sign"
+while IFS= read -r f <&3; do
+    codesign "${sign_args[@]}" "$f"
+done 3< "$macho_list.sign"
+echo "  signed $(wc -l < "$macho_list.sign" | tr -d ' ') plugins and libraries"
+rm -f "$macho_list.sign"
+
+find "$frameworks" -maxdepth 1 -name '*.framework' > "$macho_list"
 while IFS= read -r f <&3; do
     codesign "${sign_args[@]}" "$f"
 done 3< "$macho_list"
-find "$contents/Frameworks" -maxdepth 1 -name '*.framework' > "$macho_list"
-while IFS= read -r f <&3; do
-    codesign "${sign_args[@]}" "$f"
-done 3< "$macho_list"
-codesign "${sign_args[@]}" "$app"
+echo "  signed $(wc -l < "$macho_list" | tr -d ' ') frameworks"
+
+# The app last, and only the app carries entitlements. No --deep: it would
+# re-sign nested code with the app's options instead of its own.
+codesign "${sign_args[@]}" --entitlements "$entitlements" "$app"
 
 # ---------------------------------------------------------------------------
 # 5. Verify
 # ---------------------------------------------------------------------------
 step "Verifying"
-problems=0
-refresh_macho_list
-while IFS= read -r f <&3; do
-    if ! lipo -archs "$f" | tr ' ' '\n' | grep -qx "$arch"; then
-        echo "  ! $(basename "$f") has no $arch slice ($(lipo -archs "$f"))"
-        problems=1
-    fi
-    for dep in $(dependencies "$f"); do
-        is_system "$dep" && continue
-        if [ -z "$(resolve "$dep" "$f")" ]; then
-            echo "  ! ${f#$app/} -> $dep does not resolve inside the bundle"
-            problems=1
-        fi
-    done
-done 3< "$macho_list"
+verify_args=("$app" "$arch")
+[ "$hardened" = "1" ] && verify_args+=(--expect-hardened)
+"$here/verify-app.sh" "${verify_args[@]}"
 rm -f "$macho_list"
-codesign --verify --deep --strict --verbose=2 "$app"
-[ "$problems" -eq 0 ] || fail "The bundle is not self-contained"
-echo "  bundle is self-contained for $arch"
 ls "$frameworks"
 
 # ---------------------------------------------------------------------------
@@ -303,7 +333,9 @@ if [ "$smoke_test" -eq 1 ]; then
     log="$output_dir/smoke-$arch.log"
     # A CI runner's Qt installer exports plugin paths; with them the app would
     # load the installer's plugins and the check below could not trust itself.
-    env -u QT_PLUGIN_PATH -u QML2_IMPORT_PATH -u QT_QPA_PLATFORM_PLUGIN_PATH         -u DYLD_LIBRARY_PATH -u DYLD_FRAMEWORK_PATH         DYLD_PRINT_LIBRARIES=1 "$contents/MacOS/ATKPlayer" >"$log" 2>&1 &
+    env -u QT_PLUGIN_PATH -u QML2_IMPORT_PATH -u QT_QPA_PLATFORM_PLUGIN_PATH \
+        -u DYLD_LIBRARY_PATH -u DYLD_FRAMEWORK_PATH \
+        "$contents/MacOS/ATKPlayer" >"$log" 2>&1 &
     pid=$!
     sleep 10
     if ! kill -0 "$pid" 2>/dev/null; then
@@ -311,18 +343,24 @@ if [ "$smoke_test" -eq 1 ]; then
         tail -n 40 "$log"
         fail "ATKPlayer exited on startup with code ${code:-0}"
     fi
+
+    # Every non-system image the running process has mapped must come from
+    # the bundle; anything else would break on a Mac without Qt or vcpkg.
+    # lsof rather than DYLD_PRINT_LIBRARIES, which the hardened runtime
+    # ignores.
+    images="$output_dir/smoke-$arch-images.txt"
+    lsof -p "$pid" -Fn 2>/dev/null | sed -n 's/^n//p' \
+        | grep -E '\.dylib$|\.framework/|/MacOS/' | sort -u > "$images" || true
     kill "$pid" 2>/dev/null || true
     wait "$pid" 2>/dev/null || true
-
-    # Every non-system image the process loaded must come from the bundle;
-    # anything else means it would break on a machine without Qt or vcpkg.
-    outside="$(grep 'dyld' "$log" | grep -o '/[^ ]*' | grep -v -e '^/System/' -e '^/usr/lib/' \
-        -e "^$app/" -e '^/Library/Apple/' -e '^/private/var/db/' | sort -u || true)"
+    grep -q "^$app/Contents/Frameworks/" "$images" || fail "lsof listed no bundled libraries; cannot check"
+    outside="$(grep -v -e '^/System/' -e '^/usr/lib/' -e "^$app/" -e '^/Library/Apple/' \
+        -e '^/private/var/db/' -e '^/usr/share/' "$images" || true)"
     if [ -n "$outside" ]; then
         echo "$outside"
         fail "The app loaded libraries from outside its bundle"
     fi
-    echo "  ATKPlayer started, stayed running and loaded only bundled libraries"
+    echo "  ATKPlayer started, stayed running and loaded $(grep -c "^$app/" "$images") bundled images and nothing else outside the OS"
 fi
 
 # ---------------------------------------------------------------------------
@@ -339,6 +377,36 @@ ln -s /Applications "$root/Applications"
 cp "$here/READ_ME_FIRST.txt" "$root/Read Me First.txt"
 hdiutil create -volname "ATK Player $version" -srcfolder "$root" -ov -format UDZO "$dmg"
 rm -rf "$root"
+
+# The disk image carries its own signature (no hardened runtime or
+# entitlements: those apply to code, not containers).
+dmg_sign_args=(--force --sign "$identity")
+if [ "$identity" = "-" ]; then dmg_sign_args+=(--timestamp=none); else dmg_sign_args+=(--timestamp); fi
+codesign "${dmg_sign_args[@]}" "$dmg"
+codesign --verify --strict --verbose=2 "$dmg"
+
+# ---------------------------------------------------------------------------
+# 8. Notarise and staple (only with ATK_NOTARY_PROFILE)
+# ---------------------------------------------------------------------------
+# ATK_NOTARY_PROFILE names credentials stored once with
+#   xcrun notarytool store-credentials <profile> --apple-id ... --team-id ...
+# See packaging/macos/README.md.
+if [ -n "${ATK_NOTARY_PROFILE:-}" ]; then
+    [ "$identity" != "-" ] || fail "ATK_NOTARY_PROFILE is set but the build is signed ad hoc; set ATK_CODESIGN_IDENTITY"
+    step "Notarising $dmg_name with profile $ATK_NOTARY_PROFILE"
+    xcrun notarytool submit "$dmg" --keychain-profile "$ATK_NOTARY_PROFILE" --wait \
+        --output-format json > "$output_dir/notary-$arch.json" || true
+    cat "$output_dir/notary-$arch.json"
+    if ! grep -q '"status" *: *"Accepted"' "$output_dir/notary-$arch.json"; then
+        submission="$(sed -n 's/.*"id" *: *"\([^"]*\)".*/\1/p' "$output_dir/notary-$arch.json" | head -n 1)"
+        [ -z "$submission" ] || xcrun notarytool log "$submission" --keychain-profile "$ATK_NOTARY_PROFILE" || true
+        fail "Notarisation was not accepted"
+    fi
+    xcrun stapler staple "$dmg"
+    xcrun stapler validate "$dmg"
+    spctl --assess --type open --context context:primary-signature --verbose=2 "$dmg"
+fi
+
 (cd "$output_dir" && shasum -a 256 "$dmg_name" > "$dmg_name.sha256")
 
 echo
