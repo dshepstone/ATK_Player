@@ -21,7 +21,8 @@ FFmpegExporter::~FFmpegExporter() { reset(); }
 
 QString FFmpegExporter::availableH264Encoder()
 {
-    for (const char* name : {"h264_mf", "h264_d3d12va"})
+    // Media Foundation and Direct3D 12 on Windows, VideoToolbox on macOS.
+    for (const char* name : {"h264_mf", "h264_d3d12va", "h264_videotoolbox"})
         if (avcodec_find_encoder_by_name(name)) return QString::fromLatin1(name);
     return {};
 }
@@ -61,6 +62,9 @@ bool FFmpegExporter::open(const ExportSpec& spec, bool includeAudio, QString* er
     if (m_format->oformat->flags & AVFMT_GLOBALHEADER) m_videoCodec->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
     av_opt_set(m_videoCodec->priv_data, "rate_control", "quality", 0);
     av_opt_set_int(m_videoCodec->priv_data, "quality", 75, 0);
+    // VideoToolbox: fall back to Apple's software encoder where there is no
+    // hardware one (virtual machines, including CI runners).
+    av_opt_set_int(m_videoCodec->priv_data, "allow_sw", 1, 0);
     rc = avcodec_open2(m_videoCodec.get(), video, nullptr);
     if (rc < 0) { if (error) *error = QStringLiteral("Unable to open H.264 encoder: %1").arg(errorString(rc)); return false; }
     qCDebug(log::exporting) << "H.264 negotiated" << videoName

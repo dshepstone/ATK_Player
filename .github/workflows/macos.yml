@@ -95,6 +95,13 @@ jobs:
       - name: Build
         run: cmake --build --preset ${{ matrix.preset }}
 
+      # App Nap throttles timers in apps with no visible window, which is
+      # every headless test process; playback then runs at a fraction of real
+      # time. A real ATK Player window is visible, or playing audio, so it is
+      # not napped.
+      - name: Disable App Nap for the tests
+        run: defaults write NSGlobalDomain NSAppSleepDisabled -bool YES
+
       - name: Test
         run: ctest --preset ${{ matrix.preset }} --output-on-failure
 
@@ -108,6 +115,15 @@ jobs:
               grep -A4 'FAIL!' "$report"
             fi
           done
+
+      - name: Upload test reports
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: test-reports-${{ matrix.arch }}
+          path: build/${{ matrix.preset }}/bin/*-results.txt
+          retention-days: 7
+          if-no-files-found: ignore
 
       # Install, make the bundle self-contained, sign ad hoc, verify, launch it
       # once and build the .dmg. See packaging/macos/README.md.

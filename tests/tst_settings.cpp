@@ -418,7 +418,9 @@ void TestSettings::transportIconsAndTooltipsReuseActions()
     QVERIFY(playButton);
     QVERIFY(playButton->toolTip().contains(play->shortcut().toString(QKeySequence::NativeText)));
     play->setShortcut(QKeySequence(QStringLiteral("Ctrl+Alt+P")));
-    QVERIFY(playButton->toolTip().contains(QStringLiteral("Ctrl+Alt+P")));
+    // Native text: "Ctrl+Alt+P" on Windows, the modifier symbols on macOS.
+    QVERIFY(playButton->toolTip().contains(
+        QKeySequence(QStringLiteral("Ctrl+Alt+P")).toString(QKeySequence::NativeText)));
 }
 
 void TestSettings::requiredM2ShortcutDefaultsRemainSafe()

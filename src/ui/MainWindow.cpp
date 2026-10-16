@@ -756,7 +756,12 @@ void MainWindow::buildMenus()
         };
         connect(notesAction, &QAction::changed, notesButton, refreshTip);
         refreshTip();
-        menuBar()->setCornerWidget(notesButton, Qt::TopRightCorner);
+        // A native menu bar (macOS) lives at the top of the screen and never
+        // shows corner widgets; there the button ends the review header row.
+        if (menuBar()->isNativeMenuBar() && m_reviewHeaderToolbar)
+            m_reviewHeaderToolbar->addWidget(notesButton);
+        else
+            menuBar()->setCornerWidget(notesButton, Qt::TopRightCorner);
     }
     if (QAction* scrubAction = m_commands->action(CommandId::ToggleAudioScrub)) {
         scrubAction->setChecked(m_settings->audioScrubEnabled());
