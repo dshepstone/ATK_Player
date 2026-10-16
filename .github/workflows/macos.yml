@@ -168,12 +168,21 @@ jobs:
           ATK_HARDENED_RUNTIME: '1'
         run: packaging/macos/build-dmg.sh --arch ${{ matrix.arch }} --skip-build --smoke-test
 
+      # Never an artifact without a disk image in it: when the build worked
+      # but no .dmg came out, say so here instead of uploading something that
+      # looks like a build.
+      - name: Check a disk image was made
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && hashFiles('out/macos/*.dmg') == '' }}
+        run: |
+          echo "::error title=No disk image::The Package step produced no .dmg, so nothing was uploaded. See the Package step log."
+          exit 1
+
       # Uploaded before the checks below, and whenever a .dmg was made, so a
       # failing check still leaves the disk image to inspect. The name says
       # when the tests failed; TESTS-FAILED.txt inside lists them.
       - name: Upload disk image
         uses: actions/upload-artifact@v4
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        if: ${{ !cancelled() && hashFiles('out/macos/*.dmg') != '' }}
         with:
           name: ATKPlayer-macOS-${{ matrix.arch }}${{ steps.tests.outcome == 'failure' && '-TESTS-FAILED' || '' }}
           path: |
@@ -181,7 +190,7 @@ jobs:
             out/macos/*.sha256
             out/macos/TESTS-FAILED.txt
           retention-days: 14
-          if-no-files-found: warn
+          if-no-files-found: error
 
       # Check what users actually download: the app inside the disk image.
       # Fails on an unsigned file, a Homebrew or other absolute install name or

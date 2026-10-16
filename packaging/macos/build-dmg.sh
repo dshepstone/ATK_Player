@@ -159,6 +159,12 @@ suffix="$(cache_value ATK_VERSION_SUFFIX)"
 step "Removing Qt's FFmpeg media plugin"
 find "$contents/PlugIns" -name 'libffmpegmediaplugin*.dylib' -print -delete 2>/dev/null || true
 
+# Qt Network's TLS backends: ATK Player makes no TLS connections (the local
+# API is plain HTTP on 127.0.0.1, and web links open in the browser), so the
+# plugins would only be more code to sign and notarise.
+step "Removing Qt's TLS plugins"
+rm -rfv "$contents/PlugIns/tls"
+
 is_macho() { file -b "$1" | grep -q 'Mach-O'; }
 
 macho_files() {
@@ -325,8 +331,10 @@ while IFS= read -r f; do
             fw="${f%%.framework/*}"; fw="${fw##*/}"
             [ "$rest" = "$fw" ] && continue ;;
     esac
-    echo "$(echo "$f" | tr -cd '/' | wc -c) $f"
-done < "$macho_list" | sort -rn | cut -d' ' -f2- > "$macho_list.sign"
+    echo "$f"
+done < "$macho_list" | awk -F/ '{ print NF "\t" $0 }' | sort -rn | cut -f2- > "$macho_list.sign"
+# (Path depth via awk: macOS wc pads its count with spaces, which once broke
+# a space-delimited cut and handed codesign a path that does not exist.)
 while IFS= read -r f <&3; do
     codesign "${sign_args[@]}" "$f"
 done 3< "$macho_list.sign"
