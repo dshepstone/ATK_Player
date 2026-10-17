@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Hardened-runtime entitlements for ATKPlayer.app (Developer ID, outside the
+  Mac App Store, so no App Sandbox). build-dmg.sh signs the executable with
+  this file; verify-app.sh checks the signed copy matches it.
+
+  It is deliberately empty. Each exception the hardened runtime offers was
+  checked against what ATK Player does:
+
+  com.apple.security.cs.disable-library-validation  NOT NEEDED
+      Library validation only lets the process load code signed by the same
+      team (or Apple). build-dmg.sh signs every bundled dylib, Qt framework
+      and Qt plugin with the same identity as the app, and nothing is loaded
+      from outside the bundle (the smoke test fails if it is).
+
+  com.apple.security.cs.allow-jit
+  com.apple.security.cs.allow-unsigned-executable-memory   NOT NEEDED
+      FFmpeg runs precompiled code only, and its runtime CPU detection picks
+      between functions already in the dylib. ATK Player is Qt Widgets with no
+      QML or JavaScript engine, so there is no JIT either.
+
+  com.apple.security.cs.allow-dyld-environment-variables   NOT NEEDED
+      Only the CI smoke test sets DYLD_PRINT_LIBRARIES, against the ad-hoc
+      build; a released app needs no DYLD_* variables.
+
+  com.apple.security.device.audio-input (microphone)
+  com.apple.security.device.camera                     NOT NEEDED
+      Audio is output only (QAudioSink); nothing records or captures. So there
+      are no NSMicrophoneUsageDescription or NSCameraUsageDescription strings
+      in Info.plist either.
+
+  com.apple.security.automation.apple-events            NOT NEEDED
+      Files and folders are opened through Launch Services
+      (QDesktopServices::openUrl), not Apple Events.
+
+  Network: the local API listens on 127.0.0.1. Network entitlements
+  (com.apple.security.network.server/client) belong to the App Sandbox only;
+  a hardened-runtime app outside the sandbox needs none.
+
+  If a future feature needs one of these, add it here with its reason.
+-->
+<plist version="1.0">
+<dict/>
+</plist>

@@ -9,6 +9,12 @@ option(ATK_CONSOLE_LOGGING
     "Build ATKPlayer as a console application so log output appears in the terminal (Windows)."
     OFF)
 
+# Reverse-DNS on a domain the publisher controls. It identifies the app to
+# Gatekeeper, notarisation, Launch Services and the .atkproj file type, so it
+# must not change between releases once one has shipped.
+set(ATK_MACOS_BUNDLE_ID "ca.shepstone.atkplayer" CACHE STRING
+    "macOS CFBundleIdentifier for ATKPlayer.app.")
+
 qt_add_executable(ATKPlayer
     main.cpp
     Application.cpp
@@ -19,6 +25,13 @@ if(WIN32)
     set(ATK_WINDOWS_ICON "${PROJECT_SOURCE_DIR}/assets/icons/ATK_Icon_Pack/ATK_Player_Icon.ico")
     configure_file(ATKPlayer.rc.in "${CMAKE_CURRENT_BINARY_DIR}/ATKPlayer.rc" @ONLY)
     target_sources(ATKPlayer PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/ATKPlayer.rc")
+elseif(APPLE)
+    # Finder and Dock icon: the multi-resolution .icns from the icon pack
+    # (16 to 1024 px, Retina sizes included).
+    set(ATK_MACOS_ICON "${PROJECT_SOURCE_DIR}/assets/icons/ATK_Icon_Pack/ATK_Player_Icon.icns")
+    set_source_files_properties("${ATK_MACOS_ICON}" PROPERTIES
+        MACOSX_PACKAGE_LOCATION Resources)
+    target_sources(ATKPlayer PRIVATE "${ATK_MACOS_ICON}")
 endif()
 
 target_link_libraries(ATKPlayer
@@ -35,9 +48,21 @@ set_target_properties(ATKPlayer PROPERTIES
     WIN32_EXECUTABLE $<NOT:$<BOOL:${ATK_CONSOLE_LOGGING}>>
     MACOSX_BUNDLE TRUE
     MACOSX_BUNDLE_BUNDLE_NAME "ATK Player"
-    MACOSX_BUNDLE_GUI_IDENTIFIER "local.atkplayer.ATKPlayer"
+    MACOSX_BUNDLE_GUI_IDENTIFIER "${ATK_MACOS_BUNDLE_ID}"
     MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+    MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
+    MACOSX_BUNDLE_ICON_FILE "ATK_Player_Icon.icns"
+    MACOSX_BUNDLE_COPYRIGHT "Copyright ${ATK_RELEASE_PUBLISHER}"
+    MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in"
 )
+
+if(APPLE)
+    # The installed bundle finds Qt and FFmpeg inside itself. The build tree
+    # keeps CMake's build RPATH (absolute paths to Qt and vcpkg), so it runs
+    # without deployment.
+    set_target_properties(ATKPlayer PROPERTIES
+        INSTALL_RPATH "@executable_path/../Frameworks")
+endif()
 
 # ---------------------------------------------------------------------------
 # Running from the build tree
@@ -88,6 +113,12 @@ endif()
 # ---------------------------------------------------------------------------
 include(GNUInstallDirs)
 
+# Packaging supplies notices and matching source (prepare-dependency-materials.py).
+# Ordinary dev builds do not download sources or change runtime
+# compilation/linkage.
+set(ATK_DEPENDENCY_MATERIALS_DIR "" CACHE PATH
+    "Generated dependency notices and corresponding-source directory for Windows and macOS packaging.")
+
 install(TARGETS ATKPlayer
     BUNDLE  DESTINATION .
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -136,15 +167,35 @@ if(WIN32)
         "${PROJECT_SOURCE_DIR}/packaging/windows/THIRD_PARTY_NOTICES.txt"
         DESTINATION licenses)
 
-    # Packaging supplies notices and matching source. Ordinary dev builds do
-    # not download sources or change runtime compilation/linkage.
-    set(ATK_DEPENDENCY_MATERIALS_DIR "" CACHE PATH
-        "Generated dependency notices and corresponding-source directory for Windows packaging.")
     if(ATK_DEPENDENCY_MATERIALS_DIR)
         if(NOT EXISTS "${ATK_DEPENDENCY_MATERIALS_DIR}/SHA256SUMS.txt")
             message(FATAL_ERROR "Dependency materials are incomplete; run prepare-dependency-materials.py.")
         endif()
         install(DIRECTORY "${ATK_DEPENDENCY_MATERIALS_DIR}/" DESTINATION licenses/dependencies)
+    endif()
+elseif(APPLE)
+    # Licence texts travel inside the bundle. The licence texts are the same
+    # for both platforms and shared; the notice is macOS's own, because the
+    # Windows one describes DLLs, the MSI and its source materials.
+    set(_atk_bundle_licenses "ATKPlayer.app/Contents/Resources/licenses")
+    install(FILES
+        "${PROJECT_SOURCE_DIR}/LICENSE"
+        DESTINATION ${_atk_bundle_licenses}
+        RENAME ATK-Player-MIT.txt)
+    install(FILES
+        "${PROJECT_SOURCE_DIR}/packaging/windows/licenses/Qt-LGPL-3.0.txt"
+        "${PROJECT_SOURCE_DIR}/packaging/windows/licenses/FFmpeg-LGPL-2.1.txt"
+        "${PROJECT_SOURCE_DIR}/packaging/windows/licenses/zlib.txt"
+        "${PROJECT_SOURCE_DIR}/packaging/macos/THIRD_PARTY_NOTICES.txt"
+        DESTINATION ${_atk_bundle_licenses})
+    # The same notices and corresponding source the Windows package ships;
+    # packaging/macos/build-dmg.sh generates them for every distributable .dmg.
+    if(ATK_DEPENDENCY_MATERIALS_DIR)
+        if(NOT EXISTS "${ATK_DEPENDENCY_MATERIALS_DIR}/SHA256SUMS.txt")
+            message(FATAL_ERROR "Dependency materials are incomplete; run prepare-dependency-materials.py.")
+        endif()
+        install(DIRECTORY "${ATK_DEPENDENCY_MATERIALS_DIR}/"
+                DESTINATION ${_atk_bundle_licenses}/dependencies)
     endif()
 endif()
 
@@ -158,6 +209,13 @@ if(WIN32)
             --no-system-dxc-compiler
             --no-opengl-sw
             --exclude-plugins ffmpegmediaplugin)
+elseif(APPLE AND ATK_FFMPEG_RUNTIME_DIR)
+    # ATKPlayer links @rpath/libav*.dylib; tell macdeployqt where those are so
+    # it copies them into Contents/Frameworks. packaging/macos/build-dmg.sh
+    # then removes Qt's own FFmpeg media plugin and checks the result.
+    list(APPEND _atk_deploy_app_arguments
+        DEPLOY_TOOL_OPTIONS
+            "-libpath=${ATK_FFMPEG_RUNTIME_DIR}")
 endif()
 
 qt_generate_deploy_app_script(

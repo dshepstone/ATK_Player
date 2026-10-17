@@ -500,13 +500,22 @@ void TestPlaylistEnd::aboutDialogUsesAnimationToolKitCopy()
     QTemporaryDir directory;
     atk::ui::MainWindow window(directory.filePath(QStringLiteral("settings.ini")));
     QString text;
-    QTimer::singleShot(0, [&text] {
-        auto* dialog = qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+    // Application modal everywhere except macOS, where Qt shows the about box
+    // as a modeless window and trigger() returns at once.
+    const auto aboutBox = [] {
+        if (auto* modal = qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) return modal;
+        for (QWidget* widget : QApplication::topLevelWidgets())
+            if (auto* box = qobject_cast<QMessageBox*>(widget); box && box->isVisible()) return box;
+        return static_cast<QMessageBox*>(nullptr);
+    };
+    QTimer::singleShot(0, [&text, aboutBox] {
+        auto* dialog = aboutBox();
         QVERIFY(dialog);
         text = dialog->text();
         dialog->accept();
     });
     command(window, "help.about")->trigger();
+    QTRY_VERIFY(!text.isEmpty());
     QVERIFY(text.contains(QStringLiteral("Animation Tool Kit - Media Player")));
     QVERIFY(text.contains(QStringLiteral("Animation Tool Kit - Maya tools series")));
     QVERIFY(text.contains(QStringLiteral("Created By David Shepstone")));

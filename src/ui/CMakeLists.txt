@@ -90,6 +90,8 @@ target_link_libraries(atk_ui
     PUBLIC
         ATK::core
         Qt6::Widgets
+    PRIVATE
+        Qt6::Svg
 )
 
 atk_set_compiler_warnings(atk_ui)

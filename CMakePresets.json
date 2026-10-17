@@ -88,6 +88,67 @@
         "lhs": "${hostSystemName}",
         "rhs": "Windows"
       }
+    },
+    {
+      "name": "macos-base",
+      "hidden": true,
+      "inherits": [
+        "qt",
+        "base"
+      ],
+      "generator": "Ninja",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      },
+      "cacheVariables": {
+        "VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/cmake/triplets"
+      }
+    },
+    {
+      "name": "macos-arm64-debug",
+      "displayName": "macOS Apple silicon (arm64) Debug (Ninja + Apple Clang)",
+      "description": "Development build. FFmpeg comes from vcpkg through the arm64-osx-atk overlay triplet (dynamic, macOS 12+).",
+      "inherits": "macos-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_OSX_ARCHITECTURES": "arm64",
+        "VCPKG_TARGET_TRIPLET": "arm64-osx-atk"
+      }
+    },
+    {
+      "name": "macos-arm64-release",
+      "displayName": "macOS Apple silicon (arm64) Release (Ninja + Apple Clang)",
+      "description": "Optimised build with debug information retained. FFmpeg comes from vcpkg through the arm64-osx-atk overlay triplet (dynamic, macOS 12+).",
+      "inherits": "macos-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_OSX_ARCHITECTURES": "arm64",
+        "VCPKG_TARGET_TRIPLET": "arm64-osx-atk"
+      }
+    },
+    {
+      "name": "macos-x64-debug",
+      "displayName": "macOS Intel (x86_64) Debug (Ninja + Apple Clang)",
+      "description": "Development build. FFmpeg comes from vcpkg through the x64-osx-atk overlay triplet (dynamic, macOS 12+).",
+      "inherits": "macos-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_OSX_ARCHITECTURES": "x86_64",
+        "VCPKG_TARGET_TRIPLET": "x64-osx-atk"
+      }
+    },
+    {
+      "name": "macos-x64-release",
+      "displayName": "macOS Intel (x86_64) Release (Ninja + Apple Clang)",
+      "description": "Optimised build with debug information retained. FFmpeg comes from vcpkg through the x64-osx-atk overlay triplet (dynamic, macOS 12+).",
+      "inherits": "macos-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_OSX_ARCHITECTURES": "x86_64",
+        "VCPKG_TARGET_TRIPLET": "x64-osx-atk"
+      }
     }
   ],
   "buildPresets": [
@@ -108,6 +169,22 @@
       "name": "windows-vs2022-release",
       "configurePreset": "windows-vs2022",
       "configuration": "RelWithDebInfo"
+    },
+    {
+      "name": "macos-arm64-debug",
+      "configurePreset": "macos-arm64-debug"
+    },
+    {
+      "name": "macos-arm64-release",
+      "configurePreset": "macos-arm64-release"
+    },
+    {
+      "name": "macos-x64-debug",
+      "configurePreset": "macos-x64-debug"
+    },
+    {
+      "name": "macos-x64-release",
+      "configurePreset": "macos-x64-release"
     }
   ],
   "testPresets": [
@@ -129,6 +206,34 @@
       "name": "windows-vs2022-debug",
       "configurePreset": "windows-vs2022",
       "configuration": "Debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "macos-arm64-debug",
+      "configurePreset": "macos-arm64-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "macos-arm64-release",
+      "configurePreset": "macos-arm64-release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "macos-x64-debug",
+      "configurePreset": "macos-x64-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "macos-x64-release",
+      "configurePreset": "macos-x64-release",
       "output": {
         "outputOnFailure": true
       }

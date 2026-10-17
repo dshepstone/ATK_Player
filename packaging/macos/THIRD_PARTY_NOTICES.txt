@@ -1,0 +1,88 @@
+ATK PLAYER THIRD-PARTY NOTICES (macOS)
+======================================
+
+This file accompanies the ATK Player macOS application bundle (ATKPlayer.app
+and the .dmg it ships in). The project MIT, Qt LGPL v3, FFmpeg LGPL v2.1 and
+zlib licence texts are installed beside it in
+ATKPlayer.app/Contents/Resources/licenses. Additional license texts, component
+notices, build records and matching source are installed in
+licenses/dependencies. See dependencies/SOURCE_MATERIALS.md and SHA256SUMS.txt.
+
+ATK Player
+----------
+Copyright (c) 2026 David Shepstone.
+Licensed under the MIT License (ATK-Player-MIT.txt).
+Project and source: https://github.com/dshepstone/ATK_Player
+
+Qt 6.9.3
+--------
+ATK Player dynamically links unmodified Qt frameworks distributed under the
+GNU Lesser General Public License, version 3 (Qt-LGPL-3.0.txt). The frameworks
+remain separate, replaceable files in ATKPlayer.app/Contents/Frameworks and
+ATKPlayer.app/Contents/PlugIns.
+Project and source: https://www.qt.io/ and https://code.qt.io/
+License text: Qt-LGPL-3.0.txt and dependencies/GPL-3.0.txt.
+Component notices: dependencies/Qt-qtbase-NOTICES.txt,
+Qt-qtmultimedia-NOTICES.txt and Qt-qtsvg-NOTICES.txt. Corresponding source:
+dependencies/sources.
+This software is based in part on the work of the Independent JPEG Group.
+Portions of this software are copyright (C) The FreeType Project
+(www.freetype.org). All rights reserved.
+
+FFmpeg 9.0.1 (vcpkg port revision 1)
+------------------------------------
+ATK Player dynamically links FFmpeg libraries (libavcodec, libavformat,
+libavutil, libswresample, libswscale) built by vcpkg under the GNU Lesser
+General Public License, version 2.1 or later (FFmpeg-LGPL-2.1.txt). The build
+disables GPL and nonfree components and does not enable x264, x265 or fdk-aac.
+The dylibs remain separate, replaceable files in
+ATKPlayer.app/Contents/Frameworks. The bundle does not include the ffmpeg or
+ffprobe command-line tools, and Qt's own FFmpeg media plugin is removed.
+Project and source: https://ffmpeg.org/ and https://ffmpeg.org/download.html
+Build source: https://github.com/microsoft/vcpkg/tree/45f9f39362a4c52e2b1fbe57b7e649db7f3d96d4/ports/ffmpeg
+with the triplets in cmake/triplets of the ATK Player source (dynamic
+libraries, macOS 12 minimum).
+Component notices and configuration: dependencies/FFmpeg-NOTICES.txt and
+dependencies/FFmpeg-BUILD-CONFIGURATION.json. Corresponding patched source and
+the complete pinned vcpkg port/build source are included in dependencies/sources.
+
+zlib 1.3.2
+----------
+FFmpeg is built with zlib so it can decode PNG, EXR and deflate-compressed TIFF
+still images. Copyright (C) 1995-2026 Jean-loup Gailly and Mark Adler.
+License: zlib license (permissive), zlib.txt. Project and source: https://zlib.net/
+
+Lucide icons 0.460.0
+--------------------
+The interface icons are Lucide outline icons, compiled into ATK Player and
+tinted at runtime. Source: https://lucide.dev/ and https://github.com/lucide-icons/lucide
+
+ISC License
+
+Copyright (c) for portions of Lucide are held by Cole Bemis 2013-2022 as part of Feather (MIT). All other copyright (c) for Lucide are held by Lucide Contributors 2022.
+
+Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+Source archives and notice scope
+--------------------------------
+Source-only archives omit unrelated prebuilt binaries, unused font fixtures and
+test signing material; every exclusion is listed in
+dependencies/SOURCE-EXCLUSIONS.json. No application runtime file is removed.
+Complete upstream source-wide notices can describe build tools, tests and
+unselected GPL code; this does not enable those components or change the
+configured Qt/FFmpeg runtime licenses.
+
+macOS system libraries
+----------------------
+macOS system frameworks and libraries are supplied by Apple as part of macOS
+and are not redistributed in ATK Player.

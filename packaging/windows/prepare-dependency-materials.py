@@ -1,4 +1,4 @@
-"""Prepare pinned license notices and corresponding source for Windows packaging.
+"""Prepare pinned license notices and corresponding source for Windows and macOS packaging.
 
 No application code is compiled or changed. Generated files stay in build output.
 Only checksummed upstream archives are used; dependency/version drift fails closed.
@@ -6,6 +6,7 @@ Only checksummed upstream archives are used; dependency/version drift fails clos
 from __future__ import annotations
 
 import argparse
+import contextlib
 import ctypes
 import hashlib
 import json
@@ -156,7 +157,28 @@ def zip_files(path: Path, files: dict[str, bytes]) -> None:
             archive.writestr(info, data)
 
 
-def ffmpeg_materials(archive: Path, vcpkg_archive: Path, runtime: Path, output: Path) -> None:
+def ffmpeg_runtime_libraries(runtime: Path, platform: str) -> dict[str, Path]:
+    """The five distributed FFmpeg libraries in a vcpkg runtime directory.
+
+    Windows: avcodec-63.dll. macOS: libavcodec.63.dylib, the name the app
+    bundle links (vcpkg also installs libavcodec.dylib and the full-version
+    file it points to; symlinks resolve to the same library).
+    """
+    found = {}
+    for prefix in ("avutil", "swresample", "swscale", "avcodec", "avformat"):
+        if platform == "windows":
+            paths = list(runtime.glob(prefix + "-*.dll"))
+        else:
+            paths = [p for p in runtime.glob("lib" + prefix + ".*.dylib")
+                     if re.fullmatch(r"lib" + prefix + r"\.\d+\.dylib", p.name)]
+        if len(paths) != 1:
+            raise ValueError(f"Expected exactly one {prefix} runtime")
+        found[prefix] = paths[0]
+    return found
+
+
+def ffmpeg_materials(archive: Path, vcpkg_archive: Path, runtime: Path, output: Path,
+                     platform: str = "windows") -> None:
     with zipfile.ZipFile(vcpkg_archive) as vcpkg:
         root = vcpkg.namelist()[0].split("/")[0]
         port_prefix = root + "/ports/ffmpeg/"
@@ -199,12 +221,14 @@ def ffmpeg_materials(archive: Path, vcpkg_archive: Path, runtime: Path, output: 
         write_text(output / "FFmpeg-NOTICES.txt", "\n".join(notes))
         zip_files(output / "sources" / "FFmpeg-vcpkg-port.zip", port_files)
     configurations = {}
-    with os.add_dll_directory(str(runtime)):
-        for prefix in ("avcodec", "avformat", "avutil", "swresample", "swscale"):
-            paths = list(runtime.glob(prefix + "-*.dll"))
-            if len(paths) != 1:
-                raise ValueError(f"Expected exactly one {prefix} runtime")
-            library = ctypes.CDLL(str(paths[0]))
+    libraries = ffmpeg_runtime_libraries(runtime, platform)
+    # Windows finds dependent DLLs through the added directory; macOS dylibs
+    # find each other through their own @loader_path RPATH, and loading in
+    # dependency order (avutil first) keeps that simple.
+    dll_directory = os.add_dll_directory(str(runtime)) if platform == "windows" else contextlib.nullcontext()
+    with dll_directory:
+        for prefix, path in libraries.items():
+            library = ctypes.CDLL(str(path))
             config = getattr(library, prefix + "_configuration")
             license_fn = getattr(library, prefix + "_license")
             config.restype = license_fn.restype = ctypes.c_char_p
@@ -214,14 +238,27 @@ def ffmpeg_materials(archive: Path, vcpkg_archive: Path, runtime: Path, output: 
                 raise ValueError("Unexpected FFmpeg runtime license/configuration")
             if not all(flag in text for flag in ("--disable-libx264", "--disable-libx265", "--disable-libfdk-aac")):
                 raise ValueError("Prohibited codec configuration")
-            configurations[paths[0].name] = dict(sha256=sha256(paths[0]), configuration=text, license=license_text)
+            configurations[path.name] = dict(sha256=sha256(path.resolve()), configuration=text, license=license_text)
     write_text(output / "FFmpeg-BUILD-CONFIGURATION.json", json.dumps(configurations, indent=2) + "\n")
+
+
+def wix_materials(archive: Path, output: Path) -> None:
+    with zipfile.ZipFile(archive) as wix:
+        license_text = wix.read("wix-4.0.6/LICENSE.TXT").decode()
+        write_text(output / "WiX-MS-RL.txt", license_text)
+        files = {n: wix.read(n) for n in wix.namelist() if not n.endswith("/") and
+                 ("/src/ext/Util/ca/" in n or "/src/ext/UI/ca/" in n or "/src/libs/" in n)}
+        write_text(output / "WiX-NOTICES.txt", "Copyright (c) .NET Foundation and contributors.\n"
+                   "WiX Toolset 4.0.6 installer custom actions and UI resources use MS-RL.\n\n" + license_text + license_headers(files))
 
 
 def prepare_contents(args: argparse.Namespace) -> None:
     lock = json.loads((HERE / "dependency-sources.json").read_text())
     manifest = json.loads((REPO / "vcpkg.json").read_text())
-    if manifest["builtin-baseline"] != lock["vcpkg_baseline"] or args.wix_version != lock["wix_version"]:
+    platform = getattr(args, "platform", "windows")
+    # WiX is part of the Windows MSI only; the macOS app bundle has no installer code.
+    with_wix = platform == "windows"
+    if manifest["builtin-baseline"] != lock["vcpkg_baseline"] or (with_wix and args.wix_version != lock["wix_version"]):
         raise ValueError("Dependency versions differ from the source lock; update and audit the lock")
     output, cache = args.output.resolve(), args.cache.resolve()
     # Temporary source trees are deleted by TemporaryDirectory: constrain both
@@ -231,22 +268,22 @@ def prepare_contents(args: argparse.Namespace) -> None:
     output.mkdir(parents=True, exist_ok=True)
     cache.mkdir(parents=True, exist_ok=True)
     (output / "sources").mkdir(exist_ok=True)
-    archives = {r["name"]: fetch(r, cache) for r in lock["archives"]}
+    archives = {r["name"]: fetch(r, cache) for r in lock["archives"]
+                if with_wix or not r["name"].startswith("wix-")}
     exclusions = {}
     for record in lock["archives"]:
         if record["name"].startswith("qt"):
             print(f"Preparing {record['name']} notices/source", flush=True)
             qt_materials(record, archives[record["name"]], args.qt_root.resolve(), output, exclusions)
     print("Applying pinned FFmpeg source patches", flush=True)
-    ffmpeg_materials(archives["ffmpeg-9.0.1.tar.gz"], archives["vcpkg-source.zip"], args.ffmpeg_runtime.resolve(), output)
-    with zipfile.ZipFile(archives["wix-4.0.6.zip"]) as wix:
-        license_text = wix.read("wix-4.0.6/LICENSE.TXT").decode()
-        write_text(output / "WiX-MS-RL.txt", license_text)
-        files = {n: wix.read(n) for n in wix.namelist() if not n.endswith("/") and
-                 ("/src/ext/Util/ca/" in n or "/src/ext/UI/ca/" in n or "/src/libs/" in n)}
-        write_text(output / "WiX-NOTICES.txt", "Copyright (c) .NET Foundation and contributors.\n"
-                   "WiX Toolset 4.0.6 installer custom actions and UI resources use MS-RL.\n\n" + license_text + license_headers(files))
-    for upstream_name, name in (("wix-4.0.6.zip", "WiX-4.0.6-source.zip"), ("vcpkg-source.zip", "vcpkg-build-source.zip")):
+    ffmpeg_materials(archives["ffmpeg-9.0.1.tar.gz"], archives["vcpkg-source.zip"], args.ffmpeg_runtime.resolve(), output,
+                     platform)
+    if with_wix:
+        wix_materials(archives["wix-4.0.6.zip"], output)
+    repacks = [("vcpkg-source.zip", "vcpkg-build-source.zip")]
+    if with_wix:
+        repacks.insert(0, ("wix-4.0.6.zip", "WiX-4.0.6-source.zip"))
+    for upstream_name, name in repacks:
         with zipfile.ZipFile(archives[upstream_name]) as upstream:
             files = {n: upstream.read(n) for n in upstream.namelist() if not n.endswith("/")}
         zip_files(output / "sources" / name, source_only(files, exclusions, name))
@@ -259,12 +296,13 @@ def prepare_contents(args: argparse.Namespace) -> None:
     tracked = subprocess.check_output(["git", "-C", str(REPO), "ls-files", "-z"]).decode().split("\0")
     tracked += ["packaging/windows/dependency-sources.json", "packaging/windows/prepare-dependency-materials.py",
                 "packaging/windows/SOURCE_MATERIALS.md", "packaging/windows/tests/test_dependency_materials.py",
-                "docs/SIGNPATH_READINESS_AUDIT.md"]
+                "docs/SIGNPATH_READINESS_AUDIT.md", "packaging/macos/SOURCE_MATERIALS.md"]
     # Include the actual current MIT source needed to rebuild/relink this app.
     app_files = {name: (REPO / name).read_bytes() for name in set(tracked) if name and (REPO / name).is_file()}
     zip_files(output / "sources" / "ATK-Player-source.zip", app_files)
     shutil.copyfile(HERE / "dependency-sources.json", output / "DEPENDENCY-SOURCE-LOCK.json")
-    shutil.copyfile(HERE / "SOURCE_MATERIALS.md", output / "SOURCE_MATERIALS.md")
+    source_guide = HERE / "SOURCE_MATERIALS.md" if with_wix else REPO / "packaging" / "macos" / "SOURCE_MATERIALS.md"
+    shutil.copyfile(source_guide, output / "SOURCE_MATERIALS.md")
     hashes = {p.relative_to(output).as_posix(): sha256(p) for p in sorted(output.rglob("*")) if p.is_file() and p.name != "SHA256SUMS.txt"}
     write_text(output / "SHA256SUMS.txt", "".join(f"{digest}  {name}\n" for name, digest in hashes.items()))
     print(f"Prepared {len(hashes)} dependency materials in {output}", flush=True)
@@ -297,7 +335,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--qt-root", type=Path, required=True)
     parser.add_argument("--ffmpeg-runtime", type=Path, required=True)
-    parser.add_argument("--wix-version", required=True)
+    parser.add_argument("--platform", choices=("windows", "macos"), default="windows")
+    parser.add_argument("--wix-version", help="Required for --platform windows")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--cache", type=Path, required=True)
-    prepare(parser.parse_args())
+    arguments = parser.parse_args()
+    if arguments.platform == "windows" and not arguments.wix_version:
+        parser.error("--wix-version is required for --platform windows")
+    prepare(arguments)

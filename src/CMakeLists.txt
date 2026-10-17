@@ -168,7 +168,7 @@ set(ATK_CORE_HEADERS
 if(WIN32)
     list(APPEND ATK_CORE_SOURCES platform/windows/PlatformInfo_Windows.cpp)
 elseif(APPLE)
-    list(APPEND ATK_CORE_SOURCES platform/macos/PlatformInfo_Mac.cpp)
+    list(APPEND ATK_CORE_SOURCES platform/macos/PlatformInfo_Mac.mm)
 elseif(UNIX)
     list(APPEND ATK_CORE_SOURCES platform/linux/PlatformInfo_Linux.cpp)
 else()
@@ -195,6 +195,12 @@ target_link_libraries(atk_core
     PRIVATE
         ${FFMPEG_LIBRARIES}
 )
+
+if(APPLE)
+    # PlatformInfo_Mac.mm: NSProcessInfo playback activity. A plain item, not
+    # a generator expression: inside one CMake splits it into -lFoundation.
+    target_link_libraries(atk_core PRIVATE "-framework Foundation")
+endif()
 
 # PRIVATE: FFmpeg headers are an implementation detail of the media layer. The
 # UI links atk_core but must not be able to include libav* -- that boundary is

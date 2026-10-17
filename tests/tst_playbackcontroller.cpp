@@ -2,6 +2,8 @@
 
 #include "timeline/TimelineModel.h"
 
+#include "EventLoopWait.h"
+
 #include <QElapsedTimer>
 #include <QSignalSpy>
 #include <QTest>
@@ -105,7 +107,7 @@ void TestPlaybackController::playbackSpeedChangesTheClockRate()
         QElapsedTimer timer;
         timer.start();
         fixture.playback.play();
-        QTest::qWait(waitMs);
+        atk::test::runEventLoopFor(waitMs);
         const qint64 frame = fixture.playback.currentFrame();
         *elapsedMs = timer.elapsed();
         fixture.playback.pause();
@@ -434,11 +436,11 @@ void TestPlaybackController::loopWrapsWithoutEscapingRange()
     fixture.playback.setLoopEnabled(true);
     QSignalSpy frames(&fixture.timeline, &TimelineModel::currentFrameChanged);
     fixture.playback.play();
-    QTRY_VERIFY_WITH_TIMEOUT([&] {
+    QVERIFY(atk::test::runEventLoopUntil([&] {
         int starts = 0;
         for (const auto& change : frames) starts += change.at(0).toLongLong() == 20;
         return starts >= 3;
-    }(), 2500);
+    }, 2500));
     fixture.playback.pause();
     bool presentedEnd = false;
     for (const auto& change : frames) {

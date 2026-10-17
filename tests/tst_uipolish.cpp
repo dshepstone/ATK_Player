@@ -5,17 +5,21 @@
 #include "ui/MainWindow.h"
 #include "ui/NewReviewDialog.h"
 #include "ui/ReviewLibraryPage.h"
+#include "ui/Theme.h"
 
 #include <QAbstractButton>
 #include <QAbstractItemView>
 #include <QAbstractSlider>
+#include <QApplication>
 #include <QComboBox>
 #include <QHash>
 #include <QListWidget>
 #include <QPushButton>
 #include <QSettings>
 #include <QSignalSpy>
+#include <QLabel>
 #include <QLineEdit>
+#include <QMainWindow>
 #include <QTemporaryDir>
 #include <QTest>
 #include <QToolBar>
@@ -80,6 +84,7 @@ class TestUiPolish : public QObject {
 private slots:
     void initTestCase() { qputenv("ATK_NO_OPEN_EXPORTS", "1"); }
     void everyControlHasAName();
+    void toolbarsAreDrawnInTheDarkTheme();
     void dialogsHaveNamedControls();
     void reviewLibraryWorksFromTheKeyboard();
     void iconsAreSharpOnHighDpiScreens();
@@ -243,6 +248,26 @@ void TestUiPolish::aLayoutWithTheHeaderElsewhereIsReset()
         QVERIFY(headerAboveDrawingTools(window));
         QVERIFY(window.close());
     }
+}
+
+// macOS drew a toolbar in the main window's top area natively, in its light
+// look, so the review header showed as a white band. The theme must paint
+// toolbars itself.
+void TestUiPolish::toolbarsAreDrawnInTheDarkTheme()
+{
+    qApp->setStyleSheet(ui::theme::styleSheet());
+    QMainWindow window;
+    QToolBar* bar = window.addToolBar(QStringLiteral("Header"));
+    bar->addWidget(new QLabel(QStringLiteral("Clip"), bar));
+    window.setCentralWidget(new QWidget(&window));
+    window.resize(480, 240);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    const QImage image = bar->grab().toImage();
+    qApp->setStyleSheet(QString());
+    // The empty end of the bar, away from the label.
+    const QColor color = image.pixelColor(image.width() - 8, image.height() / 2);
+    QVERIFY2(color.lightness() < 90, qPrintable(QStringLiteral("toolbar drawn %1").arg(color.name())));
 }
 
 QTEST_MAIN(TestUiPolish)

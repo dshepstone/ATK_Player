@@ -7,6 +7,8 @@
 #include "ui/IconProvider.h"
 #include "ui/Resources.h"
 
+#include <QFileOpenEvent>
+#include <QStyleHints>
 
 namespace atk::app {
 
@@ -35,6 +37,11 @@ bool Application::initialize()
 
     parseArguments();
 
+#if defined(Q_OS_MACOS) && QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+    // The interface is dark; ask for the dark appearance so the native parts
+    // macOS draws itself (title bar, window chrome) match it in Light Mode too.
+    styleHints()->setColorScheme(Qt::ColorScheme::Dark);
+#endif
     setStyleSheet(ui::theme::styleSheet());
 
     qCInfo(log::app) << "Application initialised";
@@ -67,6 +74,19 @@ void Application::parseArguments()
         qCInfo(log::app).noquote() << "Media requested on the command line:"
                                    << m_requestedMediaPath;
     }
+}
+
+bool Application::event(QEvent* event)
+{
+    if (event->type() == QEvent::FileOpen) {
+        const QString path = static_cast<QFileOpenEvent*>(event)->file();
+        if (!path.isEmpty()) {
+            qCInfo(log::app).noquote() << "File open requested by the OS:" << path;
+            emit fileOpenRequested(path);
+        }
+        return true;
+    }
+    return QApplication::event(event);
 }
 
 QString Application::versionString()
