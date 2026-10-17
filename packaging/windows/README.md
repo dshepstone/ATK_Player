@@ -32,9 +32,9 @@ tests, prepares dependency notices/corresponding source, installs to `build/pack
 builds/verifies the MSI, and writes SHA-256.
 
 RC output is
-`build/package/windows/ATK-Player-0.5.6-rc1-Windows-x64.msi`. After acceptance,
-the same script supports `-VersionSuffix ""` for final 0.5.6, producing
-`ATK-Player-0.5.6-Windows-x64.msi`.
+`build/package/windows/ATK-Player-0.5.7-rc1-Windows-x64.msi`. After acceptance,
+the same script supports `-VersionSuffix ""` for final 0.5.7, producing
+`ATK-Player-0.5.7-Windows-x64.msi`.
 
 ## Installed product
 
@@ -49,7 +49,7 @@ the same script supports `-VersionSuffix ""` for final 0.5.6, producing
 - Start Menu `ATK Player\ATK Player`; no desktop shortcut
 - `.atkproj` → `ATK Player Project`; no media associations
 - Publisher: David Shepstone
-- MSI and EXE ProductVersion `0.5.6`; RC identity remains in artifact name,
+- MSI and EXE ProductVersion `0.5.7`; RC identity remains in artifact name,
   application display version and Installed Apps comments
 - Permanent UpgradeCode shown above; major upgrades remove older products,
   same-version upgrades support RC→final, and numeric downgrades are blocked
@@ -101,5 +101,5 @@ that tag already exists. rc tags and other manual runs never publish.
 Install interactively with `Start-Process "<absolute-msi-path>"`. Uninstall
 through Windows Installed Apps or `msiexec.exe /x "{PRODUCT-CODE}"`; verify
 installer-created files are gone and user data remains, then reinstall RC1.
-Install the 0.5.6 MSI over an installed 0.5.5 (and over RC1 when one was
+Install the 0.5.7 MSI over an installed 0.5.7 (and over RC1 when one was
 tested) and confirm a major upgrade using the same UpgradeCode. Do not create a fake public final release for this test.
