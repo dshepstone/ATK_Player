@@ -16,7 +16,7 @@ qt_add_executable(ATKPlayer
 )
 
 if(WIN32)
-    set(ATK_WINDOWS_ICON "${PROJECT_SOURCE_DIR}/assets/icons/ATK_Player_Icon.ico")
+    set(ATK_WINDOWS_ICON "${PROJECT_SOURCE_DIR}/assets/icons/ATK_Icon_Pack/ATK_Player_Icon.ico")
     configure_file(ATKPlayer.rc.in "${CMAKE_CURRENT_BINARY_DIR}/ATKPlayer.rc" @ONLY)
     target_sources(ATKPlayer PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/ATKPlayer.rc")
 endif()

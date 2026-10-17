@@ -1,6 +1,19 @@
 <RCC>
     <qresource prefix="/icons">
-        <file alias="ATK_Player_Icon.png">../../assets/icons/ATK_Player_Icon.png</file>
+        <file alias="ATK_Player_Icon.png">../../assets/icons/ATK_Icon_Pack/png/ATK_Player_Icon_256x256.png</file>
+    </qresource>
+    <!-- Application icon at each size QIcon may ask for; see icons::applicationIcon(). -->
+    <qresource prefix="/icons/app">
+        <file alias="16.png">../../assets/icons/ATK_Icon_Pack/png/ATK_Player_Icon_16x16.png</file>
+        <file alias="20.png">../../assets/icons/ATK_Icon_Pack/png/ATK_Player_Icon_20x20.png</file>
+        <file alias="24.png">../../assets/icons/ATK_Icon_Pack/png/ATK_Player_Icon_24x24.png</file>
+        <file alias="32.png">../../assets/icons/ATK_Icon_Pack/png/ATK_Player_Icon_32x32.png</file>
+        <file alias="40.png">../../assets/icons/ATK_Icon_Pack/png/ATK_Player_Icon_40x40.png</file>
+        <file alias="48.png">../../assets/icons/ATK_Icon_Pack/png/ATK_Player_Icon_48x48.png</file>
+        <file alias="64.png">../../assets/icons/ATK_Icon_Pack/png/ATK_Player_Icon_64x64.png</file>
+        <file alias="96.png">../../assets/icons/ATK_Icon_Pack/png/ATK_Player_Icon_96x96.png</file>
+        <file alias="128.png">../../assets/icons/ATK_Icon_Pack/png/ATK_Player_Icon_128x128.png</file>
+        <file alias="256.png">../../assets/icons/ATK_Icon_Pack/png/ATK_Player_Icon_256x256.png</file>
     </qresource>
     <!-- Lucide outline icons (ISC), tinted at runtime by ui/IconProvider. -->
     <qresource prefix="/icons/lucide">

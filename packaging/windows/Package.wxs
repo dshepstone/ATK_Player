@@ -18,7 +18,7 @@
     <Property Id="ARPCOMMENTS" Value="ATK Player $(var.DisplayVersion)" />
     <Property Id="ARPURLINFOABOUT" Value="https://github.com/dshepstone/ATK_Player" />
     <Property Id="ARPPRODUCTICON" Value="ATKPlayer.ico" />
-    <Icon Id="ATKPlayer.ico" SourceFile="$(var.SourceDir)\assets\icons\ATK_Player_Icon.ico" />
+    <Icon Id="ATKPlayer.ico" SourceFile="$(var.SourceDir)\assets\icons\ATK_Icon_Pack\ATK_Player_Icon.ico" />
 
     <Property Id="VCRUNTIME_X64_INSTALLED">
       <RegistrySearch

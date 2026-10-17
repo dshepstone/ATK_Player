@@ -12,11 +12,11 @@ It is maintained alongside the source code so dependency versions, linkage choic
 
 ## Distribution Status
 
-ATK Player 0.5.6 is released as open-source software under the MIT License.
+ATK Player 0.5.7 is released as open-source software under the MIT License.
 
 Windows packaging supplies the project MIT, Qt LGPL v3 and FFmpeg LGPL v2.1 texts plus `licenses/dependencies`: GPL v3, WiX MS-RL, upstream component notices, build configuration/SBOM records, and matching Qt, patched FFmpeg, WiX and vcpkg source. These materials are installed inside the MSI and included in portable archives made from the same stage. See [SIGNPATH_READINESS_AUDIT.md](SIGNPATH_READINESS_AUDIT.md) and [SOURCE_MATERIALS.md](../packaging/windows/SOURCE_MATERIALS.md) for the verified inventory, rebuild/relink instructions and source-only fixture exclusions.
 
-The major redistributed components in ATK Player 0.5.6 are:
+The major redistributed components in ATK Player 0.5.7 are:
 
 - ATK Player — MIT License
 - Qt 6.9.3 — LGPL v3, dynamically linked
@@ -77,7 +77,7 @@ ATK Player uses FFmpeg for media decoding and processing.
 
 ATK Player dynamically links the application-required FFmpeg runtime libraries.
 
-The Windows 0.5.6 distribution includes:
+The Windows 0.5.7 distribution includes:
 
 ```text
 avcodec-63.dll
@@ -115,7 +115,7 @@ ffprobe.exe
 
 These utilities are used for development, testing, fixture generation, and validation.
 
-They are **not distributed** in the ATK Player 0.5.6 Windows MSI or portable package.
+They are **not distributed** in the ATK Player 0.5.7 Windows MSI or portable package.
 
 ### FFmpeg Licence Files
 
@@ -150,12 +150,10 @@ Windows system libraries used by ATK Player are supplied as part of Microsoft Wi
 The canonical ATK Player application artwork is stored at:
 
 ```text
-assets/icons/ATK_Player_Icon.png
+assets/icons/ATK_Icon_Pack/
 ```
 
-The Windows packaging process derives the required Windows icon resources from this repository-owned artwork.
-
-The current canonical image is 32×32 pixels.
+The pack holds the 1024×1024 master with the Windows `.ico`, macOS `.icns` and PNG sizes exported from it.
 
 David Shepstone confirmed on September 30, 2026 that the ATK Player application and UI icons are his own designs, created with assistance from AI tools. These project assets are distributed under the repository's MIT License. AI tools were used as design assistance; they are not credited as a separate asset owner.
 
@@ -206,7 +204,7 @@ Copyright © 2026 David Shepstone.
 
 The Windows ATK Player distribution includes a `licenses` directory containing the applicable project and third-party licence information.
 
-For ATK Player 0.5.6 this includes:
+For ATK Player 0.5.7 this includes:
 
 ```text
 ATK-Player-MIT.txt

@@ -4,9 +4,9 @@
 #include "media/MediaLibraryInfo.h"
 #include "core/Version.h"
 #include "ui/Theme.h"
+#include "ui/IconProvider.h"
 #include "ui/Resources.h"
 
-#include <QIcon>
 
 namespace atk::app {
 
@@ -27,7 +27,7 @@ bool Application::initialize()
     setApplicationVersion(versionString());
     setOrganizationName(QString::fromLatin1(version::kOrganizationName));
     setOrganizationDomain(QString::fromLatin1(version::kOrganizationDomain));
-    setWindowIcon(QIcon(QStringLiteral(":/icons/ATK_Player_Icon.png")));
+    setWindowIcon(ui::icons::applicationIcon());
 
     log::initialize();
 

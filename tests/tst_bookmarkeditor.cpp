@@ -2,6 +2,7 @@
 #include "timeline/TimelineModel.h"
 #include "playback/PlaybackController.h"
 #include "ui/BookmarkPanel.h"
+#include "ui/IconProvider.h"
 #include "ui/MainWindow.h"
 #include "ui/Resources.h"
 #include "ui/TimelineWidget.h"
@@ -47,6 +48,10 @@ void TestBookmarkEditor::iconResourceLoadsAndWindowUsesIt()
     QIcon icon(QStringLiteral(":/icons/ATK_Player_Icon.png"));
     QVERIFY(!icon.isNull());
     QVERIFY(!icon.pixmap(32, 32).isNull());
+    const QIcon appIcon = atk::ui::icons::applicationIcon();
+    QVERIFY(appIcon.availableSizes().contains(QSize(16, 16)));
+    QVERIFY(appIcon.availableSizes().contains(QSize(256, 256)));
+    QCOMPARE(appIcon.pixmap(QSize(256, 256)).size(), QSize(256, 256));
     MainWindow window;
     QVERIFY(!window.windowIcon().isNull());
 }
