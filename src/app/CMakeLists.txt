@@ -22,27 +22,13 @@ qt_add_executable(ATKPlayer
 )
 
 if(WIN32)
-    set(ATK_WINDOWS_ICON "${PROJECT_SOURCE_DIR}/assets/icons/ATK_Player_Icon.ico")
+    set(ATK_WINDOWS_ICON "${PROJECT_SOURCE_DIR}/assets/icons/ATK_Icon_Pack/ATK_Player_Icon.ico")
     configure_file(ATKPlayer.rc.in "${CMAKE_CURRENT_BINARY_DIR}/ATKPlayer.rc" @ONLY)
     target_sources(ATKPlayer PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/ATKPlayer.rc")
 elseif(APPLE)
-    # Finder icon. The committed artwork is 32x32 (see assets/icons/README.md),
-    # so the .icns carries only the sizes that really exist; macOS scales it.
-    set(ATK_MACOS_ICON "${CMAKE_CURRENT_BINARY_DIR}/ATKPlayer.icns")
-    set(_atk_iconset "${CMAKE_CURRENT_BINARY_DIR}/ATKPlayer.iconset")
-    set(_atk_icon_source "${PROJECT_SOURCE_DIR}/assets/icons/ATK_Player_Icon.png")
-    add_custom_command(
-        OUTPUT "${ATK_MACOS_ICON}"
-        COMMAND "${CMAKE_COMMAND}" -E rm -rf "${_atk_iconset}"
-        COMMAND "${CMAKE_COMMAND}" -E make_directory "${_atk_iconset}"
-        COMMAND sips -z 16 16 "${_atk_icon_source}" --out "${_atk_iconset}/icon_16x16.png"
-        COMMAND sips -z 32 32 "${_atk_icon_source}" --out "${_atk_iconset}/icon_16x16@2x.png"
-        COMMAND sips -z 32 32 "${_atk_icon_source}" --out "${_atk_iconset}/icon_32x32.png"
-        COMMAND iconutil -c icns "${_atk_iconset}" -o "${ATK_MACOS_ICON}"
-        DEPENDS "${_atk_icon_source}"
-        COMMENT "Building ATKPlayer.icns"
-        VERBATIM
-    )
+    # Finder and Dock icon: the multi-resolution .icns from the icon pack
+    # (16 to 1024 px, Retina sizes included).
+    set(ATK_MACOS_ICON "${PROJECT_SOURCE_DIR}/assets/icons/ATK_Icon_Pack/ATK_Player_Icon.icns")
     set_source_files_properties("${ATK_MACOS_ICON}" PROPERTIES
         MACOSX_PACKAGE_LOCATION Resources)
     target_sources(ATKPlayer PRIVATE "${ATK_MACOS_ICON}")
@@ -65,7 +51,7 @@ set_target_properties(ATKPlayer PROPERTIES
     MACOSX_BUNDLE_GUI_IDENTIFIER "${ATK_MACOS_BUNDLE_ID}"
     MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
     MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
-    MACOSX_BUNDLE_ICON_FILE "ATKPlayer.icns"
+    MACOSX_BUNDLE_ICON_FILE "ATK_Player_Icon.icns"
     MACOSX_BUNDLE_COPYRIGHT "Copyright ${ATK_RELEASE_PUBLISHER}"
     MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in"
 )

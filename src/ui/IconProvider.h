@@ -48,4 +48,9 @@ QIcon icon(const QString& name, const QColor& color);
 /// device pixel ratio. Null for an unknown name.
 QPixmap pixmap(const QString& name, const QSize& size, const QColor& color, qreal devicePixelRatio = 1.0);
 
+/// The full-colour ATK Player application icon, carrying every bundled size
+/// (16 to 256 pixels) so title bars, the taskbar and high-DPI displays each
+/// get an exact raster rather than a rescale of one image.
+QIcon applicationIcon();
+
 } // namespace atk::ui::icons

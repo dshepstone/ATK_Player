@@ -501,11 +501,11 @@ frames. Bookmark navigation also cancels any superseded pointer-preview overlay;
 the visible playhead then follows `TimelineModel::currentFrameChanged` from the
 controller's authoritative presented frame rather than retaining stale pixels.
 
-The runtime ATK icon is the original 32×32 PNG embedded at
-`:/icons/ATK_Player_Icon.png` and applied to `QApplication` and `MainWindow`.
-The resource survives build-tree runs and Qt deployment without absolute paths.
-It is intentionally not upscaled into a fake master; a proper multi-resolution
-Windows `.ico` remains M6 packaging work when a larger source is available.
+The runtime ATK icon is built by `icons::applicationIcon()` from the 16–256 px
+PNGs in `assets/icons/ATK_Icon_Pack/png`, embedded under `:/icons/app`, and
+applied to `QApplication` and `MainWindow`. The resource survives build-tree
+runs and Qt deployment without absolute paths. The executable embeds the
+pack's multi-resolution `ATK_Player_Icon.ico`.
 
 `Timecode` converts frames to SMPTE and back, non-drop-frame. For 23.976 and
 29.97 material this means displayed timecode drifts from wall-clock time — which

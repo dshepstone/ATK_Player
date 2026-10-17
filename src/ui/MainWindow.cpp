@@ -285,7 +285,7 @@ MainWindow::MainWindow(const QString& settingsIniPath, QWidget* parent)
         m_settings = std::make_unique<ApplicationSettings>(settingsIniPath);
     m_settingsIniPath = settingsIniPath;
     setObjectName(QStringLiteral("AtkMainWindow"));
-    setWindowIcon(QIcon(QStringLiteral(":/icons/ATK_Player_Icon.png")));
+    setWindowIcon(icons::applicationIcon());
     setAcceptDrops(true);
 
     buildModels();
