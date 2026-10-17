@@ -178,4 +178,14 @@ QPixmap pixmap(const QString& name, const QSize& size, const QColor& color, qrea
     return result;
 }
 
+QIcon applicationIcon()
+{
+    // Matches the :/icons/app entries in atk_resources.qrc.
+    static constexpr int kSizes[] = {16, 20, 24, 32, 40, 48, 64, 96, 128, 256};
+    QIcon result;
+    for (const int size : kSizes)
+        result.addFile(QStringLiteral(":/icons/app/%1.png").arg(size), QSize(size, size));
+    return result;
+}
+
 } // namespace atk::ui::icons

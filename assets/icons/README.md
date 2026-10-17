@@ -1,12 +1,17 @@
 # Icons
 
-`ATK_Player_Icon.png` is the canonical application artwork. The Windows M6
-packaging uses the derived `ATK_Player_Icon.ico` for the executable, MSI,
-Start Menu shortcut and `.atkproj` association.
+The application artwork lives in `ATK_Icon_Pack/` (see its `README.txt`).
+`ATK_Player_Icon_1024.png` is the high-resolution master.
 
-The current committed master is 32×32. The ICO deliberately preserves that
-real resolution rather than claiming invented high-resolution detail. Replace
-both from a genuine multi-resolution master in a future artwork pass.
+- `png/` sizes 16 to 256 are compiled into the UI resources under
+  `:/icons/app` and combined by `icons::applicationIcon()` for the window and
+  taskbar icon; `:/icons/ATK_Player_Icon.png` is the 256 px image for larger
+  in-app logos such as the welcome window.
+- `ATK_Player_Icon.ico` (16 to 256) is embedded in the executable and used by
+  the MSI, Start Menu shortcut and `.atkproj` association.
+- `ATK_Player_Icon.icns` and `macos/` are for the macOS bundle.
+- `packaging/windows/assets/make_installer_bitmaps.py` draws the installer
+  bitmaps from the 1024 px master.
 
 Interface icons live in `lucide/`: Lucide outline icons (ISC, see
 `lucide/LICENSE` and `docs/THIRD_PARTY_LICENSES.md`). They stroke with

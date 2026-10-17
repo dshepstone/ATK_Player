@@ -150,12 +150,10 @@ Windows system libraries used by ATK Player are supplied as part of Microsoft Wi
 The canonical ATK Player application artwork is stored at:
 
 ```text
-assets/icons/ATK_Player_Icon.png
+assets/icons/ATK_Icon_Pack/
 ```
 
-The Windows packaging process derives the required Windows icon resources from this repository-owned artwork.
-
-The current canonical image is 32×32 pixels.
+The pack holds the 1024×1024 master with the Windows `.ico`, macOS `.icns` and PNG sizes exported from it.
 
 David Shepstone confirmed on September 30, 2026 that the ATK Player application and UI icons are his own designs, created with assistance from AI tools. These project assets are distributed under the repository's MIT License. AI tools were used as design assistance; they are not credited as a separate asset owner.
 

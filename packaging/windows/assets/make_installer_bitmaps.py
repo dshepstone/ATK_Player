@@ -16,7 +16,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
-LOGO = REPO / "assets" / "icons" / "ATK_Player_Icon.png"
+LOGO = REPO / "assets" / "icons" / "ATK_Icon_Pack" / "ATK_Player_Icon_1024.png"
 
 PANEL = (0x21, 0x23, 0x26)
 TEXT = (0xDA, 0xDD, 0xE1)
