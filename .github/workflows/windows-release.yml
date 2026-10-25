@@ -8,7 +8,7 @@ on:
         required: false
         default: 'rc1'
       publish:
-        description: 'Publish the GitHub release (main only, empty suffix). Creates the vX.Y.Z tag from CMakeLists.txt on this commit.'
+        description: 'Publish the GitHub release (main only; builds the final version, ignoring the suffix). Creates the vX.Y.Z tag from CMakeLists.txt on this commit.'
         type: boolean
         required: false
         default: false
@@ -71,6 +71,9 @@ jobs:
         shell: pwsh
         run: |
           $suffix = '${{ inputs.version_suffix }}'
+          # Publishing is always a final build, whatever the suffix field held
+          # (an empty field can arrive as the 'rc1' default).
+          if ('${{ inputs.publish }}' -eq 'true') { $suffix = '' }
           if ('${{ github.ref_type }}' -eq 'tag') {
             $tag = '${{ github.ref_name }}'
             if ($tag -match '^v\d+\.\d+\.\d+-(.+)$') { $suffix = $Matches[1] }
@@ -97,13 +100,13 @@ jobs:
     name: Publish GitHub release
     # Only a final release publishes, approved by the maintainer one of two
     # ways: pushing the final tag (vX.Y.Z, no suffix), or running this
-    # workflow by hand on main with an empty suffix and Publish ticked, which
-    # creates that tag on the tested commit. rc tags and other manual runs
-    # only build the MSI above.
+    # workflow by hand on main with Publish ticked, which builds the final
+    # version and creates that tag on the tested commit. rc tags and other
+    # manual runs only build the MSI above.
     if: >-
       (github.ref_type == 'tag' && !contains(github.ref_name, '-'))
-      || (github.event_name == 'workflow_dispatch' && inputs.publish &&
-      github.ref == 'refs/heads/main' && inputs.version_suffix == '')
+      || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' &&
+      (inputs.publish == true || inputs.publish == 'true'))
     needs: package
     runs-on: windows-2022
     permissions:
