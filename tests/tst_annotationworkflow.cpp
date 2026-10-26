@@ -118,6 +118,7 @@ private slots:
     void exportProgressWindowCancelsAndCloses();
     void copyCutAndPasteBetweenFrames();
     void dragTimelineMarkersToMoveOrCopyAFrame();
+    void selectSeveralTimelineMarkersAndMoveThemTogether();
     void holdDrawingsUntilTheNextDrawing();
     void speedZoomAndFlipButtons();
 };
@@ -1301,6 +1302,82 @@ void TestAnnotationWorkflow::dragTimelineMarkersToMoveOrCopyAFrame()
     QTest::mouseClick(timeline, Qt::LeftButton, {}, QPoint(x, y));
     QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->currentFrame(), qint64(30), 5000);
     QCOMPARE(annotations().frame(30), original);
+}
+
+void TestAnnotationWorkflow::selectSeveralTimelineMarkersAndMoveThemTogether()
+{
+    QTemporaryDir directory;
+    const QString projectPath = writeProject(directory);
+    atk::ui::MainWindow window(directory.filePath(QStringLiteral("settings.ini")));
+    window.resize(1400, 800);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    QVERIFY(openAt(window, projectPath, 30));
+    auto* viewer = window.findChild<atk::ui::ViewerWidget*>();
+    auto* timeline = window.findChild<atk::ui::TimelineWidget*>();
+    QVERIFY(viewer && timeline);
+    const auto annotations = [&] { return window.project()->entries().at(0).annotations; };
+
+    // Drawings on frames 30, 40 and 90.
+    command(window, "draw.annotateMode")->trigger();
+    drawStroke(viewer, {0.3, 0.4}, {0.6, 0.5});
+    seekAndWait(window, 40);
+    drawStroke(viewer, {0.2, 0.2}, {0.4, 0.3});
+    seekAndWait(window, 90);
+    drawStroke(viewer, {0.5, 0.5}, {0.7, 0.6});
+    QCOMPARE(timeline->annotatedFrames(), QVector<int64_t>({30, 40, 90}));
+    const atk::annotation::FrameAnnotation frame30 = annotations().frame(30);
+    const atk::annotation::FrameAnnotation frame40 = annotations().frame(40);
+
+    // The marker row's height.
+    int y = -1;
+    for (int candidate = 0; candidate < timeline->height() && y < 0; ++candidate)
+        if (timeline->annotatedFrameAtPosition(QPoint(timeline->positionForFrame(30), candidate)) == 30)
+            y = candidate;
+    QVERIFY(y >= 0);
+    const auto at = [&](qint64 frame) { return QPoint(timeline->positionForFrame(frame), y); };
+    const auto moveTo = [&](QPoint p, Qt::KeyboardModifiers modifiers) {
+        QMouseEvent move(QEvent::MouseMove, p, timeline->mapToGlobal(p), Qt::NoButton, Qt::LeftButton, modifiers);
+        QApplication::sendEvent(timeline, &move);
+    };
+
+    // Shift+drag from 25 to 45 selects the markers on 30 and 40 -- with Drag
+    // Markers off, since the selection itself is the deliberate step.
+    QVERIFY(!timeline->isMarkerDragEnabled());
+    QTest::mousePress(timeline, Qt::LeftButton, Qt::ShiftModifier, at(25));
+    moveTo(at(35), Qt::ShiftModifier);
+    moveTo(at(45), Qt::ShiftModifier);
+    QTest::mouseRelease(timeline, Qt::LeftButton, Qt::ShiftModifier, at(45));
+    QCOMPARE(timeline->selectedMarkerFrames(), QVector<int64_t>({30, 40}));
+    QCOMPARE(timeline->markerSelectionRange().first, int64_t(25));
+    QCOMPARE(timeline->markerSelectionRange().second, int64_t(45));
+
+    // Drag inside the band by +20: both frames move, each keeping its own
+    // drawing, the one outside stays, and the selection follows.
+    QTest::mousePress(timeline, Qt::LeftButton, {}, at(35));
+    for (int i = 1; i <= 4; ++i) moveTo(at(35 + 5 * i), Qt::NoModifier);
+    QCOMPARE(timeline->groupDragOffset(), int64_t(20));
+    QTest::mouseRelease(timeline, Qt::LeftButton, {}, at(55));
+    QCOMPARE(timeline->annotatedFrames(), QVector<int64_t>({50, 60, 90}));
+    QCOMPARE(annotations().frame(50).items, frame30.items);
+    QCOMPARE(annotations().frame(60).items, frame40.items);
+    QCOMPARE(timeline->selectedMarkerFrames(), QVector<int64_t>({50, 60}));
+
+    // One undo puts the whole group back.
+    command(window, "draw.undo")->trigger();
+    QCOMPARE(timeline->annotatedFrames(), QVector<int64_t>({30, 40, 90}));
+    QCOMPARE(annotations().frame(30), frame30);
+    QCOMPARE(annotations().frame(40), frame40);
+
+    // Shift+click adds a single marker; a click outside the band clears it.
+    timeline->setSelectedMarkerFrames({30});
+    QTest::mouseClick(timeline, Qt::LeftButton, Qt::ShiftModifier, at(90));
+    QCOMPARE(timeline->selectedMarkerFrames(), QVector<int64_t>({30, 90}));
+    QTest::mouseClick(timeline, Qt::LeftButton, Qt::ShiftModifier, at(30));
+    QCOMPARE(timeline->selectedMarkerFrames(), QVector<int64_t>({90}));
+    QTest::mouseClick(timeline, Qt::LeftButton, {}, at(10));
+    QVERIFY(timeline->selectedMarkerFrames().isEmpty());
+    QCOMPARE(timeline->annotatedFrames(), QVector<int64_t>({30, 40, 90}));
 }
 
 void TestAnnotationWorkflow::holdDrawingsUntilTheNextDrawing()

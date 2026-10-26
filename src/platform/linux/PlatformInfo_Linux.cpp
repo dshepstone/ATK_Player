@@ -2,7 +2,11 @@
 
 #include "core/Logging.h"
 
+#include <QDesktopServices>
 #include <QDir>
+#include <QFileInfo>
+#include <QProcess>
+#include <QUrl>
 #include <QStandardPaths>
 #include <QSysInfo>
 
@@ -41,6 +45,13 @@ bool PlatformInfo::isFileOpenElsewhere(const QString& path)
     // has it open keeps reading its own copy safely.
     Q_UNUSED(path);
     return false;
+}
+
+bool PlatformInfo::revealInFileManager(const QString& filePath)
+{
+    // File managers differ in how (or whether) they select a file, so the
+    // folder is opened.
+    return QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(filePath).absolutePath()));
 }
 
 } // namespace atk::platform

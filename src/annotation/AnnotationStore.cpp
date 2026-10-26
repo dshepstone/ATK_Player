@@ -1,5 +1,7 @@
 #include "annotation/AnnotationStore.h"
 
+#include <QMap>
+
 #include <algorithm>
 #include <utility>
 
@@ -233,6 +235,64 @@ bool AnnotationStore::moveFrameContent(int64_t from, int64_t to, int64_t toMedia
         edit.append({from, *source, std::move(emptied)});
     }
     edit.append({to, std::move(targetBefore), std::move(targetAfter)});
+    commit(std::move(edit));
+    return true;
+}
+
+bool AnnotationStore::moveFramesContent(const QVector<int64_t>& frames, int64_t offset,
+                                        const std::function<int64_t(int64_t)>& mediaTimeUs, bool copy)
+{
+    if (offset == 0) return false;
+    // The sources, read before anything is written, so a frame that is both
+    // moved and moved onto keeps its own content.
+    QMap<int64_t, FrameAnnotation> sources;
+    for (const int64_t frame : frames) {
+        if (frame + offset < 0) return false;
+        const FrameAnnotation* source = m_annotations.find(frame);
+        if (source && !source->isEmpty()) sources.insert(frame, *source);
+    }
+    if (sources.isEmpty()) return false;
+
+    // Every frame the edit touches, as it will end up.
+    QMap<int64_t, FrameAnnotation> after;
+    const auto current = [&](int64_t frame) -> FrameAnnotation& {
+        auto it = after.find(frame);
+        if (it == after.end()) it = after.insert(frame, m_annotations.frame(frame));
+        return *it;
+    };
+    if (!copy) {
+        for (auto it = sources.cbegin(); it != sources.cend(); ++it) {
+            FrameAnnotation& emptied = current(it.key());
+            emptied.items.clear();
+            emptied.notes.clear();
+        }
+    }
+    for (auto it = sources.cbegin(); it != sources.cend(); ++it) {
+        const int64_t to = it.key() + offset;
+        FrameAnnotation& target = current(to);
+        if (target.isEmpty()) target.mediaTimeUs = mediaTimeUs ? mediaTimeUs(to) : 0;
+        for (AnnotationItem item : it->items) {
+            if (copy) item.id = allocateId();
+            target.items.append(std::move(item));
+        }
+        for (FrameNote note : it->notes) {
+            if (copy) note.id = allocateId();
+            target.notes.append(std::move(note));
+        }
+        if (target.items.size() > AnnotationLimits::kMaxItemsPerFrame
+            || target.notes.size() > AnnotationLimits::kMaxNotesPerFrame)
+            return false;
+    }
+
+    Edit edit;
+    int annotatedFrames = m_annotations.frameCount();
+    for (auto it = after.begin(); it != after.end(); ++it) {
+        FrameAnnotation before = m_annotations.frame(it.key());
+        if (before == *it) continue;
+        annotatedFrames += int(!it->isEmpty()) - int(!before.isEmpty());
+        edit.append({it.key(), std::move(before), std::move(*it)});
+    }
+    if (edit.isEmpty() || annotatedFrames > AnnotationLimits::kMaxAnnotatedFrames) return false;
     commit(std::move(edit));
     return true;
 }

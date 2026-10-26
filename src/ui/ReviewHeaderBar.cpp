@@ -116,11 +116,21 @@ ReviewHeaderBar::ReviewHeaderBar(QWidget* parent) : QWidget(parent)
     m_folder = iconButton(this, QStringLiteral("folder-open"), tr("Show the clip's folder"),
                           QStringLiteral("ReviewHeaderFolder"));
     connect(m_folder, &QToolButton::clicked, this, &ReviewHeaderBar::showInFolderRequested);
+    // The same, labelled and right beside the clip name, so it is easy to
+    // find: opens Explorer / Finder on the playing clip with it selected.
+    m_reveal = iconButton(this, QStringLiteral("folder-open"),
+                          tr("Open the folder holding the clip in the viewer, with the clip selected"),
+                          QStringLiteral("ReviewHeaderRevealClip"));
+    m_reveal->setText(tr("Open Folder"));
+    m_reveal->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    connect(m_reveal, &QToolButton::clicked, this, &ReviewHeaderBar::showInFolderRequested);
 
     layout->addWidget(m_home);
     layout->addWidget(m_project);
     layout->addWidget(m_separator);
-    layout->addWidget(m_clip, 1);
+    layout->addWidget(m_clip);
+    layout->addWidget(m_reveal);
+    layout->addStretch(1);
     layout->addWidget(m_status);
     layout->addSpacing(theme::metrics::spacingMedium);
     layout->addWidget(m_rename);
@@ -140,6 +150,7 @@ void ReviewHeaderBar::setLocation(const QString& projectName, const QString& cli
     m_status->setEnabled(hasClip);
     m_export->setEnabled(hasClip);
     m_folder->setEnabled(hasClip);
+    m_reveal->setEnabled(hasClip);
 }
 
 void ReviewHeaderBar::setStatus(ClipStatus status)

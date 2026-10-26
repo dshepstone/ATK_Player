@@ -4,6 +4,8 @@
 #include "media/MediaMetadata.h"
 
 #include <QElapsedTimer>
+#include <QPair>
+#include <QVector>
 #include <QWidget>
 
 #include <cstdint>
@@ -85,6 +87,21 @@ public:
     /// Where a marker drag would drop, or -1 when no marker is being dragged.
     int64_t markerDropFrame() const { return m_markerDragFrom >= 0 ? m_markerDragTo : -1; }
     quint64 selectedBookmarkId() const { return m_selectedBookmarkId; }
+
+    /// Several drawing markers picked at once, like keys in Maya's time
+    /// slider: Shift+drag across the timeline selects every marker in that
+    /// range (shown as a translucent blue band), Shift+click on a marker adds
+    /// or removes it. Dragging inside the band then moves the whole group by
+    /// the same number of frames, each frame keeping its own notes; Ctrl at
+    /// release copies. A click outside the band, or Esc, clears it.
+    const QVector<int64_t>& selectedMarkerFrames() const { return m_selectedMarkers; }
+    /// The frames the blue band covers, or {-1, -1} when nothing is selected.
+    QPair<int64_t, int64_t> markerSelectionRange() const;
+    void setSelectedMarkerFrames(QVector<int64_t> frames);
+    void clearMarkerSelection();
+    /// Frames the selected group would move by while it is being dragged;
+    /// 0 when no group drag is in progress.
+    int64_t groupDragOffset() const { return m_groupDragActive ? m_groupDragOffset : 0; }
     /// Badge above the playhead showing the frame under the pointer while a
     /// scrub drag is in progress. Empty when not scrubbing.
     QRect scrubFrameLabelRect() const;
@@ -110,6 +127,11 @@ signals:
     /// (zero-based). `copy` is true when Ctrl was held at release: copy the
     /// frame's notes and drawings rather than move them.
     void annotatedFrameDropped(qint64 fromFrame, qint64 toFrame, bool copy);
+    /// A group of selected drawing markers was dragged by `offset` frames.
+    /// `copy` is true when Ctrl was held at release.
+    void annotatedFramesDropped(const QVector<qint64>& frames, qint64 offset, bool copy);
+    /// The marker selection changed (count of selected frames).
+    void markerSelectionChanged(int count);
 
 protected:
     bool event(QEvent* event) override;
@@ -119,6 +141,7 @@ protected:
     void mouseReleaseEvent(QMouseEvent* event) override;
     void mouseDoubleClickEvent(QMouseEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
+    void keyPressEvent(QKeyEvent* event) override;
 
 private:
     /// The horizontal strip the track occupies, inset for the frame labels.
@@ -142,6 +165,13 @@ private:
     void paintFrameLabels(QPainter& painter);
     void paintScrubFrameLabel(QPainter& painter);
     void paintMarkerDrag(QPainter& painter);
+    void paintMarkerSelection(QPainter& painter);
+    void paintGroupDrag(QPainter& painter);
+    /// The band's pixel extent over the track and marker row, empty when
+    /// nothing is selected or it is scrolled out of view.
+    QRect markerSelectionRect() const;
+    /// The selection's group-drag offset clamped so no frame leaves the clip.
+    int64_t clampGroupOffset(int64_t offset) const;
 
     /// Emits a seek request, but no more often than the throttle interval
     /// while a drag is in progress.
@@ -184,6 +214,24 @@ private:
     int64_t m_markerDragFrom = -1;
     int64_t m_markerDragTo = -1;
     bool m_markerDragCopy = false;
+
+    // Multi-marker selection (sorted) and the band it shows; the band may be
+    // wider than the markers when it came from a Shift+drag.
+    QVector<int64_t> m_selectedMarkers;
+    int64_t m_selectionFirst = -1;
+    int64_t m_selectionLast = -1;
+    // Shift+drag in progress: where it started and where the pointer is.
+    bool m_rubberBanding = false;
+    int64_t m_rubberFrom = -1;
+    int64_t m_rubberTo = -1;
+    // Press inside the band: becomes a group drag once the pointer moves a
+    // few pixels, otherwise a click that seeks and clears the selection.
+    bool m_groupPressed = false;
+    bool m_groupDragActive = false;
+    int m_groupPressX = 0;
+    int64_t m_groupPressFrame = -1;
+    int64_t m_groupDragOffset = 0;
+    bool m_groupDragCopy = false;
 };
 
 } // namespace atk::ui

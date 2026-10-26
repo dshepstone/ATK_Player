@@ -2,7 +2,11 @@
 
 #include "core/Logging.h"
 
+#include <QDesktopServices>
 #include <QDir>
+#include <QFileInfo>
+#include <QProcess>
+#include <QUrl>
 #include <QStandardPaths>
 #include <QSysInfo>
 
@@ -39,6 +43,16 @@ bool PlatformInfo::isFileOpenElsewhere(const QString& path)
     // has it open keeps reading its own copy safely.
     Q_UNUSED(path);
     return false;
+}
+
+bool PlatformInfo::revealInFileManager(const QString& filePath)
+{
+    const QFileInfo info(filePath);
+    if (!info.exists()) {
+        return QDesktopServices::openUrl(QUrl::fromLocalFile(info.absolutePath()));
+    }
+    // "open -R" reveals the file in a Finder window, selected.
+    return QProcess::startDetached(QStringLiteral("/usr/bin/open"), {QStringLiteral("-R"), info.absoluteFilePath()});
 }
 
 } // namespace atk::platform

@@ -6,6 +6,7 @@
 #include "ui/Theme.h"
 
 #include <QFontMetrics>
+#include <QKeyEvent>
 #include <QMouseEvent>
 #include <QHelpEvent>
 #include <QPainter>
@@ -57,6 +58,16 @@ constexpr int kScrubLabelPadding = 6;
 /// position is never a throttled approximation.
 constexpr qint64 kScrubThrottleMs = 33;
 
+/// How far the pointer must travel after pressing inside the selection band
+/// before it counts as a group drag rather than a click.
+constexpr int kGroupDragThreshold = 4;
+/// How far below the track the marker row (and so the selection band) reaches.
+constexpr int kMarkerRowDepth = 12;
+
+/// The translucent blue of the multi-marker selection band.
+QColor selectionFill() { return QColor(64, 140, 255, 70); }
+QColor selectionEdge() { return QColor(90, 160, 255, 200); }
+
 QString rulerTime(int64_t us)
 {
     const int64_t totalSeconds = std::max<int64_t>(0, us) / 1'000'000;
@@ -82,6 +93,12 @@ TimelineWidget::~TimelineWidget() = default;
 
 bool TimelineWidget::event(QEvent* event)
 {
+    // Esc clears a marker selection before any window shortcut can take it.
+    if (event->type() == QEvent::ShortcutOverride && !m_selectedMarkers.isEmpty()
+        && static_cast<QKeyEvent*>(event)->key() == Qt::Key_Escape) {
+        event->accept();
+        return true;
+    }
     if (event->type() == QEvent::ToolTip && m_model) {
         auto* help = static_cast<QHelpEvent*>(event);
         const quint64 id = bookmarkAtPosition(help->pos());
@@ -97,9 +114,11 @@ bool TimelineWidget::event(QEvent* event)
             QToolTip::showText(help->globalPos(),
                                m_markerDragEnabled
                                    ? tr("Notes or drawings on this frame.\nDrag to move them to another frame; "
-                                        "hold Ctrl to copy.")
+                                        "hold Ctrl to copy.\nShift+drag across the timeline to select several "
+                                        "markers and move them together.")
                                    : tr("Notes or drawings on this frame. Click to go there.\n"
-                                        "Turn on Drag Markers to move them to another frame."),
+                                        "Turn on Drag Markers to move them to another frame.\nShift+drag across "
+                                        "the timeline to select several markers and move them together."),
                                this);
             return true;
         }
@@ -271,10 +290,12 @@ void TimelineWidget::paintEvent(QPaintEvent* event)
     paintBookmarks(painter);
     paintHoldSpans(painter);
     paintAnnotatedFrames(painter);
+    paintMarkerSelection(painter);
     paintFrameLabels(painter);
     paintPlayhead(painter);
     paintScrubFrameLabel(painter);
     paintMarkerDrag(painter);
+    paintGroupDrag(painter);
 }
 
 void TimelineWidget::paintWaveform(QPainter& painter)
@@ -449,7 +470,53 @@ void TimelineWidget::setAnnotatedFrames(QVector<int64_t> frames)
 {
     if (frames == m_annotatedFrames) return;
     m_annotatedFrames = std::move(frames);
+    // Markers that went away (undo, a clip change) drop out of the selection.
+    setSelectedMarkerFrames(m_selectedMarkers);
     update();
+}
+
+QPair<int64_t, int64_t> TimelineWidget::markerSelectionRange() const
+{
+    if (m_selectedMarkers.isEmpty()) return {-1, -1};
+    return {m_selectionFirst, m_selectionLast};
+}
+
+void TimelineWidget::setSelectedMarkerFrames(QVector<int64_t> frames)
+{
+    QVector<int64_t> kept;
+    for (const int64_t frame : frames)
+        if (m_annotatedFrames.contains(frame) && !kept.contains(frame)) kept.append(frame);
+    std::sort(kept.begin(), kept.end());
+    if (kept == m_selectedMarkers) return;
+    m_selectedMarkers = std::move(kept);
+    if (m_selectedMarkers.isEmpty()) {
+        m_selectionFirst = m_selectionLast = -1;
+    } else {
+        // Keep a wider Shift+drag band, but always cover every marker.
+        m_selectionFirst = m_selectionFirst < 0 ? m_selectedMarkers.first()
+                                                : std::min(m_selectionFirst, m_selectedMarkers.first());
+        m_selectionLast = m_selectionLast < 0 ? m_selectedMarkers.last()
+                                              : std::max(m_selectionLast, m_selectedMarkers.last());
+    }
+    update();
+    emit markerSelectionChanged(int(m_selectedMarkers.size()));
+}
+
+void TimelineWidget::clearMarkerSelection()
+{
+    m_selectionFirst = m_selectionLast = -1;
+    if (m_selectedMarkers.isEmpty()) { update(); return; }
+    m_selectedMarkers.clear();
+    update();
+    emit markerSelectionChanged(0);
+}
+
+int64_t TimelineWidget::clampGroupOffset(int64_t offset) const
+{
+    if (m_selectedMarkers.isEmpty()) return 0;
+    const int64_t lowest = -m_selectedMarkers.first();
+    const int64_t highest = std::max<int64_t>(0, lastFrame() - m_selectedMarkers.last());
+    return std::clamp(offset, lowest, highest);
 }
 
 namespace {
@@ -537,6 +604,123 @@ int64_t TimelineWidget::annotatedFrameAtPosition(const QPoint& point) const
         }
     }
     return best;
+}
+
+namespace {
+/// The band over frames [first, last] across the track and the marker row,
+/// a frame cell wide at each end so a single frame still reads as a block.
+QRect bandRect(const QRect& track, int left, int right, double pixelsPerFrame)
+{
+    const int pad = std::max(3, static_cast<int>(std::lround(pixelsPerFrame / 2.0)));
+    return QRect(QPoint(left - pad, track.top()), QPoint(right + pad, track.bottom() + kMarkerRowDepth));
+}
+} // namespace
+
+QRect TimelineWidget::markerSelectionRect() const
+{
+    if (m_model == nullptr || m_selectedMarkers.isEmpty()) return {};
+    const auto& viewport = m_model->viewport();
+    const int64_t first = std::max(m_selectionFirst, viewport.startFrame());
+    const int64_t last = std::min(m_selectionLast, viewport.endFrame());
+    if (last < first) return {};
+    const QRect track = trackRect();
+    const double pixelsPerFrame = viewport.visibleFrameCount() > 1
+        ? double(std::max(0, track.width() - 1)) / double(viewport.visibleFrameCount() - 1) : 0.0;
+    return bandRect(track, xForFrame(first), xForFrame(last), pixelsPerFrame);
+}
+
+void TimelineWidget::paintMarkerSelection(QPainter& painter)
+{
+    if (m_model == nullptr) return;
+    const QRect track = trackRect();
+    const auto& viewport = m_model->viewport();
+    const double pixelsPerFrame = viewport.visibleFrameCount() > 1
+        ? double(std::max(0, track.width() - 1)) / double(viewport.visibleFrameCount() - 1) : 0.0;
+    painter.save();
+    painter.setRenderHint(QPainter::Antialiasing, false);
+
+    QRect band;
+    if (m_rubberBanding && m_rubberFrom >= 0 && m_rubberTo >= 0) {
+        const int64_t first = std::max(std::min(m_rubberFrom, m_rubberTo), viewport.startFrame());
+        const int64_t last = std::min(std::max(m_rubberFrom, m_rubberTo), viewport.endFrame());
+        if (last >= first) band = bandRect(track, xForFrame(first), xForFrame(last), pixelsPerFrame);
+    } else {
+        band = markerSelectionRect();
+    }
+    if (!band.isEmpty()) {
+        painter.fillRect(band, selectionFill());
+        painter.setPen(selectionEdge());
+        painter.setBrush(Qt::NoBrush);
+        painter.drawRect(band.adjusted(0, 0, -1, -1));
+    }
+
+    // Selected wedges again, outlined in blue, so they stand out from the
+    // unselected ones that happen to sit inside the band.
+    if (!m_selectedMarkers.isEmpty()) {
+        painter.setRenderHint(QPainter::Antialiasing, true);
+        painter.setPen(QPen(selectionEdge().lighter(130), 1.5));
+        painter.setBrush(drawnFrameColor().lighter(115));
+        const qreal half = m_markerDragEnabled ? 4.5 : 3.5;
+        const qreal height = m_markerDragEnabled ? 7.0 : 5.0;
+        for (const int64_t frame : m_selectedMarkers) {
+            const int x = xForFrame(frame);
+            if (x < 0) continue;
+            const QPointF tip(x + 0.5, track.bottom() + 1.0);
+            painter.drawPolygon(QPolygonF{tip, tip + QPointF(-half, height), tip + QPointF(half, height)});
+        }
+    }
+    painter.restore();
+}
+
+void TimelineWidget::paintGroupDrag(QPainter& painter)
+{
+    if (!m_groupDragActive || m_groupDragOffset == 0 || m_model == nullptr) return;
+    const QRect track = trackRect();
+    const auto& viewport = m_model->viewport();
+    const double pixelsPerFrame = viewport.visibleFrameCount() > 1
+        ? double(std::max(0, track.width() - 1)) / double(viewport.visibleFrameCount() - 1) : 0.0;
+    painter.save();
+    // Where the band lands.
+    const int64_t first = std::max(m_selectionFirst + m_groupDragOffset, viewport.startFrame());
+    const int64_t last = std::min(m_selectionLast + m_groupDragOffset, viewport.endFrame());
+    if (last >= first) {
+        const QRect band = bandRect(track, xForFrame(first), xForFrame(last), pixelsPerFrame);
+        QColor fill = selectionFill();
+        fill.setAlpha(110);
+        painter.fillRect(band, fill);
+        painter.setPen(QPen(theme::playhead(), 1, Qt::DashLine));
+        painter.drawRect(band.adjusted(0, 0, -1, -1));
+    }
+    // Ghost wedges where each marker lands.
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(theme::playhead());
+    for (const int64_t frame : m_selectedMarkers) {
+        const int x = xForFrame(frame + m_groupDragOffset);
+        if (x < 0) continue;
+        const QPointF tip(x + 0.5, track.bottom() + 1.0);
+        painter.drawPolygon(QPolygonF{tip, tip + QPointF(-4.5, 6.5), tip + QPointF(4.5, 6.5)});
+    }
+
+    QFont bold = font();
+    bold.setBold(true);
+    painter.setFont(bold);
+    const QString sign = m_groupDragOffset > 0 ? QStringLiteral("+") : QString();
+    const qsizetype count = m_selectedMarkers.size();
+    const QString what = count == 1 ? tr("1 marker") : tr("%1 markers").arg(count);
+    const QString text = (m_groupDragCopy ? tr("Copy %1 %2") : tr("Move %1 %2"))
+                             .arg(what, sign + QString::number(m_groupDragOffset));
+    const QFontMetrics metrics(bold);
+    const int width = metrics.horizontalAdvance(text) + 2 * kScrubLabelPadding;
+    const int height = metrics.height() + 4;
+    const int anchor = xForFrame(std::clamp(m_selectionFirst + m_groupDragOffset, viewport.startFrame(),
+                                            viewport.endFrame()));
+    const int left = std::clamp(anchor - width / 2, 0, std::max(0, rect().width() - width));
+    const QRect badge(left, track.top() - 4 - height, width, height);
+    painter.drawRoundedRect(badge, 3, 3);
+    painter.setPen(theme::timelineTrack());
+    painter.drawText(badge, Qt::AlignCenter, text);
+    painter.restore();
 }
 
 void TimelineWidget::paintMarkerDrag(QPainter& painter)
@@ -802,8 +986,46 @@ void TimelineWidget::mousePressEvent(QMouseEvent* event)
         return;
     }
     const int clickX = event->position().toPoint().x();
+    const QPoint clickPos = event->position().toPoint();
+    if (m_model && m_model->frameCount() > 0) {
+        if (event->modifiers().testFlag(Qt::ShiftModifier)) {
+            // Shift+click on a marker adds it to the selection or takes it out;
+            // Shift+drag anywhere else sweeps out a range of markers.
+            const int64_t marker = annotatedFrameAtPosition(clickPos);
+            if (marker >= 0) {
+                QVector<int64_t> frames = m_selectedMarkers;
+                if (frames.contains(marker)) {
+                    frames.removeAll(marker);
+                    // Shrink the band back to the markers that are left.
+                    m_selectionFirst = m_selectionLast = -1;
+                } else {
+                    frames.append(marker);
+                }
+                setSelectedMarkerFrames(frames);
+                return;
+            }
+            m_rubberBanding = true;
+            m_rubberFrom = m_rubberTo = std::clamp<int64_t>(frameForX(clickX), 0, lastFrame());
+            update();
+            return;
+        }
+        if (!m_selectedMarkers.isEmpty()) {
+            if (markerSelectionRect().contains(clickPos)) {
+                m_groupPressed = true;
+                m_groupDragActive = false;
+                m_groupPressX = clickX;
+                m_groupPressFrame = frameForX(clickX);
+                m_groupDragOffset = 0;
+                m_groupDragCopy = event->modifiers().testFlag(Qt::ControlModifier);
+                return;
+            }
+            // A click anywhere else drops the selection and does what it
+            // always did.
+            clearMarkerSelection();
+        }
+    }
     if (m_model) {
-        const int64_t marker = annotatedFrameAtPosition(event->position().toPoint());
+        const int64_t marker = annotatedFrameAtPosition(clickPos);
         if (marker >= 0 && !m_markerDragEnabled) {
             // Markers are fixed: a click goes to that frame.
             m_scrubFrame = marker;
@@ -850,6 +1072,29 @@ void TimelineWidget::mouseMoveEvent(QMouseEvent* event)
         if (delta != 0) { m_model->panViewport(delta); m_lastPanX = x; }
         return;
     }
+    if (m_rubberBanding) {
+        const int64_t frame = std::clamp<int64_t>(frameForX(event->position().toPoint().x()), 0, lastFrame());
+        if (frame != m_rubberTo) {
+            m_rubberTo = frame;
+            update();
+        }
+        return;
+    }
+    if (m_groupPressed) {
+        const int x = event->position().toPoint().x();
+        if (!m_groupDragActive && std::abs(x - m_groupPressX) >= kGroupDragThreshold) m_groupDragActive = true;
+        if (m_groupDragActive) {
+            const int64_t offset = clampGroupOffset(frameForX(x) - m_groupPressFrame);
+            const bool copy = event->modifiers().testFlag(Qt::ControlModifier);
+            if (offset != m_groupDragOffset || copy != m_groupDragCopy) {
+                m_groupDragOffset = offset;
+                m_groupDragCopy = copy;
+                update();
+            }
+            setCursor(copy ? Qt::DragCopyCursor : Qt::ClosedHandCursor);
+        }
+        return;
+    }
     if (m_markerDragFrom >= 0) {
         const int64_t frame = std::clamp<int64_t>(frameForX(event->position().toPoint().x()), 0, lastFrame());
         const bool copy = event->modifiers().testFlag(Qt::ControlModifier);
@@ -884,6 +1129,66 @@ void TimelineWidget::mouseReleaseEvent(QMouseEvent* event)
     if (event->button() == Qt::MiddleButton && m_panning) {
         m_panning = false;
         unsetCursor();
+        return;
+    }
+    if (event->button() == Qt::LeftButton && m_rubberBanding) {
+        m_rubberBanding = false;
+        const int64_t first = std::min(m_rubberFrom, m_rubberTo);
+        const int64_t last = std::max(m_rubberFrom, m_rubberTo);
+        m_rubberFrom = m_rubberTo = -1;
+        QVector<int64_t> frames;
+        for (const int64_t frame : m_annotatedFrames)
+            if (frame >= first && frame <= last) frames.append(frame);
+        clearMarkerSelection();
+        if (!frames.isEmpty()) {
+            m_selectionFirst = first;
+            m_selectionLast = last;
+            setSelectedMarkerFrames(frames);
+        }
+        update();
+        return;
+    }
+    if (event->button() == Qt::LeftButton && m_groupPressed) {
+        const bool dragged = m_groupDragActive;
+        const int64_t offset = m_groupDragOffset;
+        const bool copy = event->modifiers().testFlag(Qt::ControlModifier);
+        m_groupPressed = false;
+        m_groupDragActive = false;
+        m_groupDragOffset = 0;
+        m_groupDragCopy = false;
+        unsetCursor();
+        if (dragged && offset != 0) {
+            QVector<qint64> frames;
+            QVector<int64_t> landed;
+            for (const int64_t frame : m_selectedMarkers) {
+                frames.append(frame);
+                landed.append(frame + offset);
+            }
+            // The selection follows the markers to where they land, so the
+            // group can be nudged again straight away.
+            const int64_t first = m_selectionFirst + offset;
+            const int64_t last = m_selectionLast + offset;
+            m_selectedMarkers = landed;
+            m_selectionFirst = first;
+            m_selectionLast = last;
+            update();
+            emit annotatedFramesDropped(frames, offset, copy);
+            // If the move was refused the markers are still where they were.
+            setSelectedMarkerFrames(m_selectedMarkers);
+            if (m_selectedMarkers.isEmpty()) clearMarkerSelection();
+            return;
+        }
+        if (!dragged) {
+            // A click inside the band: drop the selection and go there.
+            const int64_t frame = snapFrame(frameForX(event->position().toPoint().x()),
+                                            event->position().toPoint().x());
+            clearMarkerSelection();
+            m_scrubFrame = frame;
+            m_lastRequestedFrame = frame;
+            emit scrubStarted();
+            emit scrubFinished(frame);
+        }
+        update();
         return;
     }
     if (event->button() == Qt::LeftButton && m_markerDragFrom >= 0) {
@@ -937,6 +1242,20 @@ void TimelineWidget::wheelEvent(QWheelEvent* event)
         m_model->panViewport(-steps * amount);
     } else { QWidget::wheelEvent(event); return; }
     event->accept();
+}
+
+void TimelineWidget::keyPressEvent(QKeyEvent* event)
+{
+    if (event->key() == Qt::Key_Escape && (!m_selectedMarkers.isEmpty() || m_rubberBanding)) {
+        m_rubberBanding = false;
+        m_groupPressed = false;
+        m_groupDragActive = false;
+        unsetCursor();
+        clearMarkerSelection();
+        event->accept();
+        return;
+    }
+    QWidget::keyPressEvent(event);
 }
 
 void TimelineWidget::mouseDoubleClickEvent(QMouseEvent* event)

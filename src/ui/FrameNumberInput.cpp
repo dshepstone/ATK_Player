@@ -1,7 +1,7 @@
 #include "ui/FrameNumberInput.h"
 #include "ui/FrameFieldStyle.h"
 
-#include <QHBoxLayout>
+#include <QVBoxLayout>
 #include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
@@ -64,23 +64,32 @@ FrameNumberInput::FrameNumberInput(QWidget* parent)
 {
     setObjectName(QStringLiteral("FrameNumberInput"));
     setFocusPolicy(Qt::StrongFocus);
-    auto* layout = new QHBoxLayout(this);
-    layout->setContentsMargins(8, 0, 6, 0);
-    layout->setSpacing(5);
-
-    auto* label = new QLabel(tr("FRAME"), this);
-    label->setProperty("atkRole", "statusCaption");
-    layout->addWidget(label);
+    // The current frame is the number a reviewer looks for most, so it is
+    // drawn large, in yellow, about the height of the timeline track, with
+    // its caption underneath rather than beside it to keep the column narrow.
+    // Bottom-aligned so the number sits level with the frame ruler rather
+    // than the waveform above it.
+    auto* layout = new QVBoxLayout(this);
+    layout->setContentsMargins(8, 4, 6, 2);
+    layout->setSpacing(0);
+    layout->addStretch(1);
 
     m_spinBox = new CancelableSpinBox(this);
     m_spinBox->setObjectName(QStringLiteral("CurrentFrameNumber"));
     m_spinBox->setRange(1, 1);
     m_spinBox->setKeyboardTracking(false);
     configureFrameField(m_spinBox);
+    configureLargeFrameField(m_spinBox);
     updateFrameFieldWidth(m_spinBox, 1);
     m_spinBox->setToolTip(tr("Current visible frame. Type a frame number and press Enter."));
     m_spinBox->setEnabled(false);
-    layout->addWidget(m_spinBox);
+    layout->addWidget(m_spinBox, 0, Qt::AlignHCenter);
+
+    auto* label = new QLabel(tr("FRAME #"), this);
+    label->setObjectName(QStringLiteral("CurrentFrameCaption"));
+    label->setProperty("atkRole", "statusCaption");
+    label->setAlignment(Qt::AlignHCenter);
+    layout->addWidget(label, 0, Qt::AlignHCenter);
 
     auto* editor = m_spinBox->findChild<QLineEdit*>();
     connect(editor, &QLineEdit::returnPressed, this, [this, editor] {

@@ -42,6 +42,12 @@ public:
     /// save beside such a file instead. False when the file does not exist,
     /// and on platforms where open files do not block replacement.
     static bool isFileOpenElsewhere(const QString& path);
+
+    /// Opens the system file manager on the folder holding `filePath`, with
+    /// that file selected where the platform can do it (Windows Explorer,
+    /// macOS Finder); elsewhere the folder is opened. Returns false when the
+    /// file manager could not be started.
+    static bool revealInFileManager(const QString& filePath);
 };
 
 } // namespace atk::platform
