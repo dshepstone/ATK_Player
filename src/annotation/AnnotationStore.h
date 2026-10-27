@@ -6,6 +6,8 @@
 #include <QObject>
 #include <QVector>
 
+#include <functional>
+
 namespace atk::annotation {
 
 /// The editing session for one source's annotations: add, erase, clear, undo
@@ -106,6 +108,19 @@ public:
     /// when `from` equals `to`, either is negative, `from` is empty, or a limit
     /// would be exceeded.
     bool moveFrameContent(int64_t from, int64_t to, int64_t toMediaTimeUs, bool copy);
+
+    /// Shifts the drawings and notes on each of `frames` by `offset` frames,
+    /// together, as one undo step -- a group of timeline markers dragged as
+    /// one. Each frame stays its own frame; frames inside the group may land
+    /// on one another's old place, since every source is read before any is
+    /// written. Content already on a target frame outside the group is kept,
+    /// with the moved content added on top. With `copy` the originals stay and
+    /// the copies get fresh ids. `mediaTimeUs` gives the media time for a
+    /// target frame that was empty. Returns false and changes nothing when the
+    /// offset is zero, a target would be negative, no listed frame has
+    /// content, or a limit would be exceeded.
+    bool moveFramesContent(const QVector<int64_t>& frames, int64_t offset,
+                           const std::function<int64_t(int64_t)>& mediaTimeUs, bool copy);
 
     bool canUndo() const { return !m_undo.isEmpty(); }
     bool canRedo() const { return !m_redo.isEmpty(); }

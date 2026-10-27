@@ -52,6 +52,7 @@ private:
     QToolButton* m_export = nullptr;
     QToolButton* m_rename = nullptr;
     QToolButton* m_folder = nullptr;
+    QToolButton* m_reveal = nullptr;
     bool m_updating = false;
 };
 

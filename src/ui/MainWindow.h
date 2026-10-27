@@ -325,6 +325,7 @@ private:
     void copyNote(qint64 frame, quint64 noteId, bool cut);
     /// A drawing marker dragged along the timeline from one frame to another.
     void moveAnnotatedFrame(qint64 from, qint64 to, bool copy);
+    void moveAnnotatedFrames(const QVector<qint64>& frames, qint64 offset, bool copy);
 
 
     std::unique_ptr<ApplicationSettings> m_settings;

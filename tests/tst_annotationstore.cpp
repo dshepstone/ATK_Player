@@ -50,6 +50,7 @@ private slots:
     void removeContentCutsSelectedItemsAndNotes();
     void moveFrameContentMovesOrCopiesWithOneUndo();
     void moveFrameContentRespectsLimits();
+    void moveFramesContentShiftsAGroupWithOneUndo();
 };
 
 void TestAnnotationStore::toolNamesRoundTripAndRejectUnknown()
@@ -689,6 +690,63 @@ void TestAnnotationStore::moveFrameContentRespectsLimits()
     QVERIFY(!store.moveFrameContent(2, 1, 0, false)); // the target frame is full
     QVERIFY(!store.moveFrameContent(2, 1, 0, true));
     QCOMPARE(store.annotations(), before);
+}
+
+void TestAnnotationStore::moveFramesContentShiftsAGroupWithOneUndo()
+{
+    AnnotationStore store;
+    const quint64 a = store.addItem(10, 0, stroke(0.2f, 0.2f));
+    const quint64 b = store.addNote(15, 0, note(QStringLiteral("ease in")));
+    const quint64 c = store.addItem(20, 0, stroke(0.4f, 0.4f));
+    const quint64 outside = store.addItem(25, 0, stroke(0.8f, 0.8f));
+    const FrameAnnotation f10 = store.frame(10);
+    const FrameAnnotation f15 = store.frame(15);
+    const FrameAnnotation f20 = store.frame(20);
+    const FrameAnnotation f25 = store.frame(25);
+    const auto mediaTime = [](int64_t frame) { return frame * 1000; };
+
+    // Shift by +5: 10 and 15 land where 15 and 20 were, each keeping its own
+    // content; 20 lands on 25, which is outside the group and keeps its own.
+    QSignalSpy history(&store, &AnnotationStore::historyChanged);
+    QVERIFY(store.moveFramesContent({10, 15, 20}, 5, mediaTime, false));
+    QCOMPARE(history.size(), 1);
+    QCOMPARE(store.annotatedFrames(), (QVector<int64_t>{15, 20, 25}));
+    QCOMPARE(store.frame(15).items, f10.items);
+    QVERIFY(store.frame(15).notes.isEmpty());
+    QCOMPARE(store.frame(20).notes, f15.notes);
+    QVERIFY(store.frame(20).items.isEmpty());
+    QCOMPARE(store.frame(25).items.size(), 2);
+    QCOMPARE(store.frame(25).items[0].id, outside);
+    QCOMPARE(store.frame(25).items[1].id, c);
+    QCOMPARE(store.frame(15).items[0].id, a);
+    QCOMPARE(store.frame(20).notes[0].id, b);
+
+    // One undo puts every frame back.
+    QVERIFY(store.undo());
+    QCOMPARE(store.frame(10), f10);
+    QCOMPARE(store.frame(15), f15);
+    QCOMPARE(store.frame(20), f20);
+    QCOMPARE(store.frame(25), f25);
+
+    // Backwards onto empty frames, with the media time of the new frames.
+    QVERIFY(store.moveFramesContent({10, 20}, -8, mediaTime, false));
+    QCOMPARE(store.annotatedFrames(), (QVector<int64_t>{2, 12, 15, 25}));
+    QCOMPARE(store.frame(2).mediaTimeUs, qint64(2000));
+    QVERIFY(store.undo());
+
+    // Copy keeps the originals and gives the copies fresh ids.
+    QVERIFY(store.moveFramesContent({10, 15}, 30, mediaTime, true));
+    QCOMPARE(store.annotatedFrames(), (QVector<int64_t>{10, 15, 20, 25, 40, 45}));
+    QCOMPARE(store.frame(10), f10);
+    QVERIFY(store.frame(40).items[0].id != a);
+    QCOMPARE(store.frame(40).items[0].points, f10.items[0].points);
+    QVERIFY(store.undo());
+
+    // Nothing to do, or a frame would go below zero: refused, unchanged.
+    QVERIFY(!store.moveFramesContent({10, 15}, 0, mediaTime, false));
+    QVERIFY(!store.moveFramesContent({10, 15}, -11, mediaTime, false));
+    QVERIFY(!store.moveFramesContent({3, 4}, 2, mediaTime, false));
+    QCOMPARE(store.annotatedFrames(), (QVector<int64_t>{10, 15, 20, 25}));
 }
 
 QTEST_APPLESS_MAIN(TestAnnotationStore)

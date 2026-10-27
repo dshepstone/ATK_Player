@@ -582,8 +582,11 @@ void MainWindow::buildWidgets()
     connect(m_reviewHeader, &ReviewHeaderBar::showInFolderRequested, this, [this] {
         const int index = m_project->activeIndex();
         if (index < 0 || !m_project->entries().at(index).source) return;
-        const QString folder = QFileInfo(m_project->entries().at(index).source->filePath()).absolutePath();
-        QDesktopServices::openUrl(QUrl::fromLocalFile(folder));
+        const QString path = m_project->entries().at(index).source->filePath();
+        if (!platform::PlatformInfo::revealInFileManager(path))
+            statusBar()->showMessage(tr("Could not open the folder %1")
+                                         .arg(QDir::toNativeSeparators(QFileInfo(path).absolutePath())),
+                                     4000);
     });
     connect(m_project.get(), &project::Project::entriesChanged, this, &MainWindow::refreshReviewHeader);
     connect(m_project.get(), &project::Project::entriesChanged, this, [this] {
@@ -889,6 +892,7 @@ void MainWindow::connectSignals()
             [this](qint64 frame, quint64 id) { m_annotations->removeNote(frame, id); });
     connect(m_notesPanel, &NotesPanel::copyNoteRequested, this, &MainWindow::copyNote);
     connect(m_timelineWidget, &TimelineWidget::annotatedFrameDropped, this, &MainWindow::moveAnnotatedFrame);
+    connect(m_timelineWidget, &TimelineWidget::annotatedFramesDropped, this, &MainWindow::moveAnnotatedFrames);
     connect(m_notesPanel, &NotesPanel::noteActivated, this, [this](qint64 frame) {
         if (frame != m_displayedFrameIndex) m_playback->seekFrame(frame);
     });
@@ -4556,6 +4560,8 @@ void MainWindow::bindAnnotationsToActiveSource()
     const QUuid id = valid ? m_project->entries().at(index).id : QUuid();
     const annotation::SourceAnnotations& sourceData = valid ? m_project->entries().at(index).annotations : kNone;
     if (id == m_annotationSourceId && m_annotations->annotations() == sourceData) return;
+    // A marker selection belongs to the clip it was made on.
+    if (id != m_annotationSourceId) m_timelineWidget->clearMarkerSelection();
     m_annotationSourceId = id;
     m_annotations->setAnnotations(sourceData);
     if (!valid && m_viewer->annotateMode()) setAnnotateMode(false);
@@ -4903,6 +4909,27 @@ void MainWindow::moveAnnotatedFrame(qint64 from, qint64 to, bool copy)
                              3000);
     // Show where they landed.
     if (to != m_displayedFrameIndex) m_playback->seekFrame(to);
+}
+
+void MainWindow::moveAnnotatedFrames(const QVector<qint64>& frames, qint64 offset, bool copy)
+{
+    if (m_annotationSourceId.isNull() || frames.isEmpty() || offset == 0) return;
+    QVector<int64_t> sources(frames.cbegin(), frames.cend());
+    const auto mediaTime = [this](int64_t frame) { return annotationMediaTimeUs(frame); };
+    const QString shift = (offset > 0 ? QStringLiteral("+") : QString()) + QString::number(offset);
+    if (!m_annotations->moveFramesContent(sources, offset, mediaTime, copy)) {
+        m_timelineWidget->revertGroupDrop();
+        statusBar()->showMessage(tr("The selected notes and drawings could not be %1 %2 frames (frame limit reached).")
+                                     .arg(copy ? tr("copied") : tr("moved"), shift),
+                                 4000);
+        return;
+    }
+    const QString what = frames.size() == 1 ? tr("1 frame's notes and drawings")
+                                            : tr("%1 frames' notes and drawings").arg(frames.size());
+    statusBar()->showMessage((copy ? tr("Copied %1 by %2 frames.") : tr("Moved %1 by %2 frames.")).arg(what, shift),
+                             3000);
+    // If the frame on screen was one of them, follow it.
+    if (!copy && frames.contains(m_displayedFrameIndex)) m_playback->seekFrame(m_displayedFrameIndex + offset);
 }
 
 } // namespace atk::ui
