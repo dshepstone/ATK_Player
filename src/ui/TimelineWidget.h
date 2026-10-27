@@ -99,6 +99,9 @@ public:
     QPair<int64_t, int64_t> markerSelectionRange() const;
     void setSelectedMarkerFrames(QVector<int64_t> frames);
     void clearMarkerSelection();
+    /// Called from an annotatedFramesDropped handler that refused the move:
+    /// puts the selection back on the frames that were dragged.
+    void revertGroupDrop();
     /// Frames the selected group would move by while it is being dragged;
     /// 0 when no group drag is in progress.
     int64_t groupDragOffset() const { return m_groupDragActive ? m_groupDragOffset : 0; }
@@ -232,6 +235,10 @@ private:
     int64_t m_groupPressFrame = -1;
     int64_t m_groupDragOffset = 0;
     bool m_groupDragCopy = false;
+    // The selection before a group drop, while its handler runs.
+    QVector<int64_t> m_preDropSelection;
+    int64_t m_preDropFirst = -1;
+    int64_t m_preDropLast = -1;
 };
 
 } // namespace atk::ui

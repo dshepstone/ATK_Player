@@ -4918,6 +4918,7 @@ void MainWindow::moveAnnotatedFrames(const QVector<qint64>& frames, qint64 offse
     const auto mediaTime = [this](int64_t frame) { return annotationMediaTimeUs(frame); };
     const QString shift = (offset > 0 ? QStringLiteral("+") : QString()) + QString::number(offset);
     if (!m_annotations->moveFramesContent(sources, offset, mediaTime, copy)) {
+        m_timelineWidget->revertGroupDrop();
         statusBar()->showMessage(tr("The selected notes and drawings could not be %1 %2 frames (frame limit reached).")
                                      .arg(copy ? tr("copied") : tr("moved"), shift),
                                  4000);

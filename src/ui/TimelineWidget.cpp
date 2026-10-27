@@ -502,6 +502,16 @@ void TimelineWidget::setSelectedMarkerFrames(QVector<int64_t> frames)
     emit markerSelectionChanged(int(m_selectedMarkers.size()));
 }
 
+void TimelineWidget::revertGroupDrop()
+{
+    if (m_preDropSelection.isEmpty()) return;
+    m_selectedMarkers = m_preDropSelection;
+    m_selectionFirst = m_preDropFirst;
+    m_selectionLast = m_preDropLast;
+    m_preDropSelection.clear();
+    update();
+}
+
 void TimelineWidget::clearMarkerSelection()
 {
     m_selectionFirst = m_selectionLast = -1;
@@ -1165,17 +1175,18 @@ void TimelineWidget::mouseReleaseEvent(QMouseEvent* event)
                 landed.append(frame + offset);
             }
             // The selection follows the markers to where they land, so the
-            // group can be nudged again straight away.
-            const int64_t first = m_selectionFirst + offset;
-            const int64_t last = m_selectionLast + offset;
+            // group can be nudged again straight away. The original is kept
+            // until the owner has applied the move, in case it is refused.
+            m_preDropSelection = m_selectedMarkers;
+            m_preDropFirst = m_selectionFirst;
+            m_preDropLast = m_selectionLast;
             m_selectedMarkers = landed;
-            m_selectionFirst = first;
-            m_selectionLast = last;
+            m_selectionFirst += offset;
+            m_selectionLast += offset;
             update();
             emit annotatedFramesDropped(frames, offset, copy);
-            // If the move was refused the markers are still where they were.
+            m_preDropSelection.clear();
             setSelectedMarkerFrames(m_selectedMarkers);
-            if (m_selectedMarkers.isEmpty()) clearMarkerSelection();
             return;
         }
         if (!dragged) {

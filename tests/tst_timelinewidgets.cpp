@@ -7,6 +7,8 @@
 #include "ui/StatusInfoBar.h"
 #include "api/ApiServer.h"
 
+#include <QApplication>
+#include <QMouseEvent>
 #include <QSignalSpy>
 #include <QLabel>
 #include <QJsonObject>
@@ -44,6 +46,7 @@ private slots:
     void activeAndFinalScrubPresentationRemainResponsive();
     void scrubShowsFrameNumberAbovePlayhead();
     void holdSpansStayVisibleWhenZoomedIn();
+    void refusedGroupDropKeepsTheOriginalSelection();
 };
 
 void TestTimelineWidgets::timeRulerLabelsAreRoundAndDistinct()
@@ -579,6 +582,38 @@ void TestTimelineWidgets::holdSpansStayVisibleWhenZoomedIn()
     widget.setHoldSpans({});
     const QColor empty = sample();
     QVERIFY2(empty.red() <= empty.green() + 40, qPrintable(empty.name()));
+}
+
+void TestTimelineWidgets::refusedGroupDropKeepsTheOriginalSelection()
+{
+    TimelineModel model;
+    model.setFrameCount(100);
+    TimelineWidget widget;
+    widget.resize(1000, 130);
+    widget.setModel(&model);
+    widget.setAnnotatedFrames({10, 20, 30});
+    widget.setSelectedMarkerFrames({10, 20});
+    QCOMPARE(widget.selectedMarkerFrames(), QVector<int64_t>({10, 20}));
+    const auto range = widget.markerSelectionRange();
+
+    // The owner refuses the move (a frame limit, say): frames stay put.
+    QSignalSpy drops(&widget, &TimelineWidget::annotatedFramesDropped);
+    connect(&widget, &TimelineWidget::annotatedFramesDropped, &widget, [&] { widget.revertGroupDrop(); });
+    const int y = widget.height() - 14; // the marker row, just under the track
+    const QPoint start(widget.positionForFrame(15), y);
+    QTest::mousePress(&widget, Qt::LeftButton, {}, start);
+    for (int i = 1; i <= 4; ++i) {
+        const QPoint p(widget.positionForFrame(15 + 5 * i), y);
+        QMouseEvent move(QEvent::MouseMove, p, widget.mapToGlobal(p), Qt::NoButton, Qt::LeftButton, {});
+        QApplication::sendEvent(&widget, &move);
+    }
+    QCOMPARE(widget.groupDragOffset(), int64_t(20));
+    QTest::mouseRelease(&widget, Qt::LeftButton, {}, QPoint(widget.positionForFrame(35), y));
+    QCOMPARE(drops.size(), 1);
+
+    // Frame 30, where the group would have landed, is not picked up.
+    QCOMPARE(widget.selectedMarkerFrames(), QVector<int64_t>({10, 20}));
+    QCOMPARE(widget.markerSelectionRange(), range);
 }
 
 QTEST_MAIN(TestTimelineWidgets)
