@@ -143,6 +143,13 @@ plays at, such as `24fps`, or `12fps` at half speed. Its menu offers 0.1x to
 from normal speed the clip plays without sound. Frame stepping and scrubbing
 are not affected.
 
+**Current frame**: the large yellow number to the left of the timeline is the
+frame on screen. Click it, type a frame number and press `Enter` to go there.
+
+**Open Folder**: the button beside the clip name at the top (and the folder
+icon at the top right) opens the clip's folder in Explorer (Windows) or Finder
+(macOS) with the clip selected.
+
 **Zoom**: the zoom button near the right of the bottom bar shows the zoom level
 (**Fit**, or a percentage). Its menu zooms in and out, fits the picture, or
 picks 25%, 50%, 100%, 200% or 400%. The button beside it fits the picture.
@@ -187,6 +194,14 @@ and A/B comparison work as described in the README.
   there, or hold `Ctrl` while you let go to copy instead. Clicking a mark goes
   to that frame whether Drag Markers is on or off. Each paste, cut or drag is
   one undo step.
+- **Move several frames' notes at once**, like keys in Maya's time slider:
+  hold `Shift` and drag across the timeline to select every mark in that
+  range (it is shaded blue), or `Shift`+click marks to add or remove them one
+  at a time. Then drag inside the blue band to slide the whole group along
+  the timeline; each frame keeps its own notes and drawings, and the group
+  keeps its spacing. Hold `Ctrl` while you let go to copy instead. Click
+  outside the band or press `Esc` to clear the selection. This works whether
+  Drag Markers is on or off, and the whole move is one undo step.
 - The **Notes** panel (`F6`, or **Notes** at the top right) starts closed so
   the picture stays large. Notes can be searched and sorted; `Ctrl+.` and
   `Ctrl+,` jump between frames with notes or drawings.

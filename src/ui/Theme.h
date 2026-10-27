@@ -65,6 +65,9 @@ inline QColor timelineFill()      { return QColor(0x3A, 0x3E, 0x44); }
 inline QColor timelineRange()     { return QColor(0x24, 0x55, 0x4B); }
 inline QColor playhead()          { return QColor(0xE8, 0x9A, 0x3C); }
 inline QColor tickMark()          { return QColor(0x54, 0x5A, 0x62); }
+/// The large current-frame readout beside the timeline: yellow so the eye
+/// finds it at a glance.
+inline QColor currentFrameNumber() { return QColor(0xFF, 0xD4, 0x3B); }
 
 /// Waveform. A desaturated blue-grey rather than the accent colour: the
 /// waveform covers a lot of the timeline, and using the accent would make the
@@ -84,6 +87,7 @@ inline constexpr int spacingLarge = 16;
 inline constexpr int iconSmall = 16;   // menus, badges
 inline constexpr int iconMedium = 18;  // toolbars, transport
 inline constexpr int iconLarge = 22;   // primary tool row
+inline constexpr int currentFrameFontPx = 30; // current-frame readout, about the track's height
 } // namespace metrics
 
 /// Application-wide stylesheet built from the palette above.
