@@ -2,7 +2,7 @@
 
 ATK Player is an open-source, frame-accurate video playback and animation review application designed for animators, students, educators, and production workflows.
 
-**Latest release: ATK Player 0.5.8**
+**Latest release: ATK Player 0.5.9**
 
 ATK Player is **Animation Tool Kit — Media Player**, the companion application for the Animation Tool Kit Maya tools series. Created by David Shepstone.
 
@@ -24,8 +24,8 @@ The latest Windows release is available from:
 
 ### Windows Installer
 
-Download `ATK-Player-v0.5.8-Windows.zip` from the release, extract it, and run
-`ATK-Player-0.5.8-Windows-x64.msi` from the extracted folder. The ZIP also holds
+Download `ATK-Player-v0.5.9-Windows.zip` from the release, extract it, and run
+`ATK-Player-0.5.9-Windows-x64.msi` from the extracted folder. The ZIP also holds
 `INSTALL.txt`, the MSI's SHA-256 checksum and the licence notices.
 
 The installer:
@@ -47,7 +47,7 @@ ship the installer only.
 
 ### Unsigned Build Notice
 
-ATK Player 0.5.8 is currently distributed without a commercial Windows code-signing certificate.
+ATK Player 0.5.9 is currently distributed without a commercial Windows code-signing certificate.
 
 Windows may therefore display an **Unknown Publisher** or Microsoft Defender SmartScreen warning when launching the installer.
 
@@ -410,6 +410,14 @@ Shortcuts can be customized under:
 ---
 
 ## Current Release Status
+
+### ATK Player 0.5.9
+
+**Bigger play controls** with `Space` playing from anywhere in the player,
+**Save** and **Save As** buttons in the top row, and a **save location you set
+once per review** in the Export window. The Review Library fits the window
+with long folder paths shortened. See
+[docs/RELEASE_NOTES_0.5.9.md](docs/RELEASE_NOTES_0.5.9.md).
 
 ### ATK Player 0.5.8
 

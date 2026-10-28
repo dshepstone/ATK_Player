@@ -670,6 +670,10 @@ void MainWindow::buildMenus()
     m_commands->action(CommandId::PasteAnnotations)
         ->setToolTip(tr("Paste copied drawings and notes onto this frame"));
     m_commands->action(CommandId::RenameFromRoster)->setIcon(icons::icon(QStringLiteral("text-cursor-input")));
+    m_commands->action(CommandId::SaveProject)->setIcon(icons::icon(QStringLiteral("save")));
+    m_commands->action(CommandId::SaveProjectAs)->setIcon(icons::icon(QStringLiteral("save-all")));
+    m_reviewHeader->setSaveActions(m_commands->action(CommandId::SaveProject),
+                                   m_commands->action(CommandId::SaveProjectAs));
     m_reviewHeader->setRenameAction(m_commands->action(CommandId::RenameFromRoster));
     m_reviewHeader->setExportActions({m_commands->action(CommandId::ExportReview),
                                       m_commands->action(CommandId::ExportReviewNotes),
@@ -2734,7 +2738,8 @@ bool MainWindow::openProjectFile(const QString& path)
     }
     ++m_projectGeneration;
     m_playback->closeMedia();
-    m_project->replace(loaded.name(), loaded.filePath(), loaded.entries(), loaded.currentSourceId());
+    m_project->replace(loaded.name(), loaded.filePath(), loaded.entries(), loaded.currentSourceId(),
+                       loaded.exportFolder());
     int current = m_project->activeIndex();
     if (current >= 0 && m_project->entries().at(current).missing) {
         int usable = -1;
@@ -3039,13 +3044,21 @@ exporter::ExportSpec MainWindow::exportSnapshot(const QString& outputPath) const
         spec.outputPath = outputPath;
     } else {
         const QFileInfo aFile(spec.sourceA.path);
-        const QString directory = m_project->filePath().isEmpty()
-            ? aFile.absolutePath() : QFileInfo(m_project->filePath()).absolutePath();
+        // The project's save location when one is set (and still there),
+        // otherwise beside the project, or beside the clip when untitled.
+        const QString directory = projectExportFolderAvailable() ? m_project->exportFolder()
+            : m_project->filePath().isEmpty() ? aFile.absolutePath()
+                                              : QFileInfo(m_project->filePath()).absolutePath();
         QString name = exportBaseName(spec.sourceA);
         if (spec.comparison) name += QStringLiteral("_vs_") + exportBaseName(spec.sourceB);
         spec.outputPath = QDir(directory).filePath(name + QStringLiteral("_review.mp4"));
     }
     return spec;
+}
+
+bool MainWindow::projectExportFolderAvailable() const
+{
+    return !m_project->exportFolder().isEmpty() && QFileInfo(m_project->exportFolder()).isDir();
 }
 
 bool MainWindow::exportInProgress() const
@@ -3066,6 +3079,15 @@ void MainWindow::exportReview(bool withNotes)
     }
     ExportDialog dialog(spec, this);
     dialog.setOpenWhenDone(m_settings->openExportsWhenDone());
+    dialog.setProjectFolder(m_project->exportFolder(), !m_project->filePath().isEmpty());
+    connect(&dialog, &ExportDialog::projectFolderChanged, this, [this](const QString& folder) {
+        m_project->setExportFolder(folder);
+        updateWindowTitle();
+        statusBar()->showMessage(folder.isEmpty()
+            ? tr("Exports of this project go beside the project again.")
+            : tr("Exports of this project now go to %1. Save the project to keep this.")
+                  .arg(QDir::toNativeSeparators(folder)), 6000);
+    });
     if (dialog.exec() != QDialog::Accepted) return;
     spec.outputPath = dialog.destination();
     spec.burnIns = dialog.burnIns();
@@ -3354,8 +3376,10 @@ void MainWindow::exportReviewNotesBatch()
             clip.unavailableReason = tr("still being read");
         clips.append(std::move(clip));
     }
-    // Beside the project, as the review's other files are.
-    const QString folder = !m_project->filePath().isEmpty() ? QFileInfo(m_project->filePath()).absolutePath()
+    // In the project's save location, or beside the project, as the review's
+    // other files are.
+    const QString folder = projectExportFolderAvailable()       ? m_project->exportFolder()
+                         : !m_project->filePath().isEmpty() ? QFileInfo(m_project->filePath()).absolutePath()
                          : !m_lastMediaDirectory.isEmpty()  ? m_lastMediaDirectory
                                                             : QDir::homePath();
     BatchNotesPdfDialog dialog(std::move(clips), folder, m_tracingPaper, this);

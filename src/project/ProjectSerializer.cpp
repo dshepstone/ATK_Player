@@ -43,6 +43,13 @@ QString storedMediaPath(const QString& mediaPath, const QString& projectPath)
         ? QDir::cleanPath(mediaPath) : relative;
 }
 
+/// As storedMediaPath, for a folder: "." when it is the project's own folder.
+QString storedFolderPath(const QString& folder, const QString& projectPath)
+{
+    const QString stored = storedMediaPath(folder, projectPath);
+    return stored.isEmpty() ? QStringLiteral(".") : stored;
+}
+
 QJsonObject bookmarkJson(const timeline::Bookmark& b)
 {
     return {{QStringLiteral("id"), QString::number(b.id)},
@@ -363,6 +370,10 @@ static SerializerResult saveWithName(const Project& project, const QString& file
         {QStringLiteral("version"), version}, {QStringLiteral("name"), projectName},
         {QStringLiteral("currentSourceId"), project.currentSourceId().toString(QUuid::WithoutBraces)},
         {QStringLiteral("sources"), sources}};
+    // Additive v1 field: where this project's exports are saved by default,
+    // relative to the project file like the media when it sits beside it.
+    if (!project.exportFolder().isEmpty())
+        root.insert(QStringLiteral("exportFolder"), storedFolderPath(project.exportFolder(), filePath));
     // Imported brush tips used by any drawing travel with the project, so it
     // renders the same on a machine that never imported the brush set.
     QSet<QString> usedTips;
@@ -502,9 +513,13 @@ SerializerResult ProjectSerializer::load(Project& project, const QString& filePa
         if (!annotation::BrushTipRegistry::instance().contains(tip.id))
             annotation::BrushTipRegistry::instance().add(tip);
     }
+    const QString storedExportFolder = root.value(QStringLiteral("exportFolder")).toString();
+    const QString exportFolder = storedExportFolder.isEmpty() ? QString()
+        : QDir::isAbsolutePath(storedExportFolder) ? QDir::cleanPath(storedExportFolder)
+                                                   : QDir::cleanPath(base.absoluteFilePath(storedExportFolder));
     project.replace(root.value(QStringLiteral("name")).toString(QStringLiteral("Untitled")),
                     QFileInfo(filePath).absoluteFilePath(), std::move(entries),
-                    QUuid(root.value(QStringLiteral("currentSourceId")).toString()));
+                    QUuid(root.value(QStringLiteral("currentSourceId")).toString()), exportFolder);
     return SerializerResult::success();
 }
 } // namespace atk::project

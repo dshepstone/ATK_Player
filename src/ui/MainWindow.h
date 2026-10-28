@@ -175,6 +175,8 @@ public:
     ComparisonCompositeWidget* comparisonComposite() const { return m_compareComposite; }
     exporter::ExportSpec exportSnapshot(const QString& outputPath = {}) const;
     bool exportInProgress() const;
+    /// True when the project has a save location for exports and it exists.
+    bool projectExportFolderAvailable() const;
     /// The last export handed to the system viewer (for tests).
     QString lastOpenedExport() const { return m_lastOpenedExport; }
     /// Opens a finished PDF or video in the system viewer once the file is

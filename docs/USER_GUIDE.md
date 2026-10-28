@@ -16,8 +16,9 @@ opens: every review you have made, newest first.
   working on; archive finished ones to keep the list short (they are not
   deleted).
 - **Search** finds reviews by name or folder.
-- Each row shows the review's first clips, how many clips it holds and when it
-  was last opened. **Open** (or a double-click) opens it in the player; **⋯**
+- Each row shows the review's first clips, how many clips it holds, when it
+  was last opened and its folder (a long path is shortened in the middle;
+  hover it for the full path). **Open** (or a double-click) opens it in the player; **⋯**
   has Show Folder, Archive and Remove from Library. Removing a review from the
   library never deletes its clips or its project file.
 - **Add Existing…** lists `.atkproj` projects you already have (choose one or
@@ -143,6 +144,14 @@ plays at, such as `24fps`, or `12fps` at half speed. Its menu offers 0.1x to
 from normal speed the clip plays without sound. Frame stepping and scrubbing
 are not affected.
 
+**Playing**: the play button is the large one in the middle of the bottom
+bar, between the step and skip buttons. `Space` plays and pauses wherever you
+are in the player, including just after typing a frame number; only fields
+you type text into, such as notes, take the space instead.
+
+**Saving**: the **Save** and **Save As** buttons at the top right, beside
+Export, save the review project (`Ctrl+S` / `Ctrl+Shift+S`).
+
 **Current frame**: the large yellow number to the left of the timeline is the
 frame on screen. Click it, type a frame number and press `Enter` to go there.
 
@@ -159,7 +168,8 @@ and A/B comparison work as described in the README.
 
 ## 5. Notes, drawings and status
 
-- **Draw on Frame** (`D`) shows the drawing row: pencil, pen, brush, marker,
+- **Draw on Frame** (`D`, the palette button at the left of the bottom bar)
+  shows the drawing row: pencil, pen, brush, marker,
   custom (imported Photoshop) brushes, line, arrow, rectangle, ellipse, text,
   eraser and select, with colour and size (`[` / `]`). Tracing paper (`T`),
   ghosts (`G`), Hold Drawings, Drag Markers and Flip Canvas (`H`) sit in the
@@ -224,6 +234,13 @@ The **Export** button in the review header holds:
 - **Export Review…** and **Export Current Frame…**, described in the README.
 
 The **File** menu has all of these plus **Export Image Sequence…**.
+
+**Set a save location once per review**: in the Export Review window, click
+**Set Save Location…** and choose a folder. It is saved in the project, so
+every later export of that review, including frames, image sequences and
+Notes PDFs, starts in that folder instead of beside the project. Save the
+project afterwards to keep it. **Browse…** still picks a different place for
+one export, and **Clear** goes back to saving beside the project.
 
 ## Keyboard reference
 

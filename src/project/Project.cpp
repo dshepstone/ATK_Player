@@ -2,6 +2,8 @@
 
 #include "core/Logging.h"
 
+#include <QDir>
+
 #include <utility>
 #include <algorithm>
 
@@ -30,10 +32,21 @@ void Project::setFilePath(const QString& path)
     m_filePath = path;
 }
 
+void Project::setExportFolder(const QString& folder)
+{
+    const QString cleaned = folder.isEmpty() ? QString() : QDir::cleanPath(folder);
+    if (m_exportFolder == cleaned) return;
+    m_exportFolder = cleaned;
+    setModified(true);
+}
+
 void Project::setModified(bool modified)
 {
     // Not modified means "matches its file": remember that content.
-    if (!modified) m_savedContent = reviewContent();
+    if (!modified) {
+        m_savedContent = reviewContent();
+        m_savedExportFolder = m_exportFolder;
+    }
     if (m_modified == modified) {
         return;
     }
@@ -57,7 +70,8 @@ bool Project::needsSavePrompt() const
     // scrubbing or zooming the timeline never counts.
     if (!m_modified) return false;
     const QVector<ReviewContent> now = reviewContent();
-    if (!m_filePath.isEmpty()) return now != m_savedContent; // differs from the file
+    if (!m_filePath.isEmpty()) // differs from the file
+        return now != m_savedContent || m_exportFolder != m_savedExportFolder;
     if (now.size() > 1) return true; // a playlist
     return std::any_of(now.cbegin(), now.cend(), [](const ReviewContent& entry) {
         return !entry.bookmarks.isEmpty() || !entry.annotations.isEmpty() || entry.frameOffset != 0;
@@ -142,10 +156,11 @@ int Project::indexForId(const QUuid& id) const
 }
 
 void Project::replace(QString name, QString filePath, QVector<SourceEntry> entries,
-                      const QUuid& currentSourceId)
+                      const QUuid& currentSourceId, QString exportFolder)
 {
     m_name = std::move(name);
     m_filePath = std::move(filePath);
+    m_exportFolder = exportFolder.isEmpty() ? QString() : QDir::cleanPath(exportFolder);
     m_entries = std::move(entries);
     m_activeIndex = indexForId(currentSourceId);
     if (m_activeIndex < 0 && !m_entries.isEmpty()) m_activeIndex = 0;

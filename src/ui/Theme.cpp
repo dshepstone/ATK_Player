@@ -136,6 +136,15 @@ QToolButton[atkRole="iconButton"]:checked {
     border-color: %ACCENT_FILL%;
 }
 QToolButton[atkRole="iconButton"][popupMode="1"] { padding-right: 12px; }
+/* Play / pause: a raised tile, so the main control reads as one at a glance. */
+QToolButton#TransportPlayPauseButton {
+    background-color: %CONTROL%;
+    border: 1px solid %BORDER%;
+    border-radius: 6px;
+    padding: 4px 12px;
+}
+QToolButton#TransportPlayPauseButton:hover   { background-color: %CONTROL_HOVER%; }
+QToolButton#TransportPlayPauseButton:pressed { background-color: %CONTROL_PRESSED%; }
 QToolButton[atkRole="iconButton"]::menu-button {
     background: transparent;
     border: none;

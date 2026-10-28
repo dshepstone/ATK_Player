@@ -13,6 +13,7 @@
 #include <QHash>
 #include <QListWidget>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QSettings>
 #include <QSignalSpy>
 #include <QLineEdit>
@@ -82,6 +83,7 @@ private slots:
     void everyControlHasAName();
     void dialogsHaveNamedControls();
     void reviewLibraryWorksFromTheKeyboard();
+    void reviewLibraryLongPathsFitTheWidth();
     void iconsAreSharpOnHighDpiScreens();
     void aMaximizedLayoutReopens();
     void aLayoutWithTheHeaderElsewhereIsReset();
@@ -157,6 +159,36 @@ void TestUiPolish::reviewLibraryWorksFromTheKeyboard()
     QCOMPARE(open.first().first().toUuid(), id);
     QTest::keyClick(openButton, Qt::Key_Return);
     QTRY_COMPARE(open.count(), 2);
+}
+
+void TestUiPolish::reviewLibraryLongPathsFitTheWidth()
+{
+    QTemporaryDir directory;
+    ui::MainWindow window(directory.filePath(QStringLiteral("settings.ini")));
+    window.resize(1280, 800);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    review::ReviewInfo info;
+    info.name = QStringLiteral("student work");
+    info.folder = directory.filePath(QStringLiteral("My Drive/002. Curriculum Development/002. Learning Outcomes/"
+                                                    "006. DSGN1140 - 2D Digital Character Animation 1/Fall 2026/"
+                                                    "6_Assignments/A3/student work"));
+    info.projectPath = info.folder + QStringLiteral("/student work.atkproj");
+    info.clipCount = 31;
+    window.reviewLibrary()->add(info);
+    window.showReviewLibrary();
+    ui::ReviewLibraryPage* page = window.reviewLibraryPage();
+    page->refresh();
+
+    auto* scroll = page->findChild<QScrollArea*>();
+    QVERIFY(scroll);
+    QCOMPARE(scroll->horizontalScrollBarPolicy(), Qt::ScrollBarAlwaysOff);
+    QWidget* row = nullptr;
+    QTRY_VERIFY((row = page->findChild<QWidget*>(QStringLiteral("ReviewRow"))) && row->isVisible());
+    // The row fits the page: nothing is cut off at the right.
+    QTRY_VERIFY2(row->mapTo(scroll->viewport(), QPoint(row->width(), 0)).x() <= scroll->viewport()->width(),
+                 qPrintable(QStringLiteral("row %1 wide, view %2").arg(row->width()).arg(scroll->viewport()->width())));
+    QVERIFY(page->findChild<QPushButton*>(QStringLiteral("ReviewRowOpen"))->isVisible());
 }
 
 void TestUiPolish::iconsAreSharpOnHighDpiScreens()

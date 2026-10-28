@@ -65,6 +65,7 @@
         <file alias="mouse-pointer-2.svg">../../assets/icons/lucide/mouse-pointer-2.svg</file>
         <file alias="move-horizontal.svg">../../assets/icons/lucide/move-horizontal.svg</file>
         <file alias="paintbrush.svg">../../assets/icons/lucide/paintbrush.svg</file>
+        <file alias="palette.svg">../../assets/icons/lucide/palette.svg</file>
         <file alias="pause.svg">../../assets/icons/lucide/pause.svg</file>
         <file alias="pen-tool.svg">../../assets/icons/lucide/pen-tool.svg</file>
         <file alias="pencil.svg">../../assets/icons/lucide/pencil.svg</file>
@@ -76,6 +77,8 @@
         <file alias="refresh-cw.svg">../../assets/icons/lucide/refresh-cw.svg</file>
         <file alias="repeat.svg">../../assets/icons/lucide/repeat.svg</file>
         <file alias="rewind.svg">../../assets/icons/lucide/rewind.svg</file>
+        <file alias="save-all.svg">../../assets/icons/lucide/save-all.svg</file>
+        <file alias="save.svg">../../assets/icons/lucide/save.svg</file>
         <file alias="scan.svg">../../assets/icons/lucide/scan.svg</file>
         <file alias="scissors.svg">../../assets/icons/lucide/scissors.svg</file>
         <file alias="search.svg">../../assets/icons/lucide/search.svg</file>

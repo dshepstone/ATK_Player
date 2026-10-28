@@ -77,6 +77,12 @@ public:
     const QString& filePath() const { return m_filePath; }
     void setFilePath(const QString& path);
 
+    /// Folder exports of this project are saved to by default, or empty to
+    /// save them beside the project (or the clip). Saved in the project file.
+    const QString& exportFolder() const { return m_exportFolder; }
+    /// Sets the export folder and marks the project modified.
+    void setExportFolder(const QString& folder);
+
     /// True when there are unsaved changes.
     bool isModified() const { return m_modified; }
     void setModified(bool modified);
@@ -104,7 +110,7 @@ public:
     int indexForId(const QUuid& id) const;
     void setActiveIndex(int index);
     void replace(QString name, QString filePath, QVector<SourceEntry> entries,
-                 const QUuid& currentSourceId);
+                 const QUuid& currentSourceId, QString exportFolder = {});
     /// Replaces only the media descriptor for an existing stable source.
     /// Bookmarks outside the replacement extent are discarded; the review
     /// range is clamped. A still-image source's hold carries over to the
@@ -159,6 +165,7 @@ private:
 
     QString m_name;
     QString m_filePath;
+    QString m_exportFolder;
     QVector<SourceEntry> m_entries;
     int m_activeIndex = -1;
     int m_compareA = -1;
@@ -167,6 +174,7 @@ private:
     /// reviewContent() when the project last matched its file (saved, loaded
     /// or new), so a save prompt only appears when something real changed.
     QVector<ReviewContent> m_savedContent;
+    QString m_savedExportFolder;
 };
 
 } // namespace atk::project

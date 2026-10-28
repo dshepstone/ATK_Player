@@ -63,6 +63,31 @@ QToolButton* flatButton(QWidget* parent, const QString& icon, const QString& tip
     return button;
 }
 
+/// A one-line label that shortens its text with "…" to the width it is
+/// given instead of widening the row: a long folder path keeps its drive and
+/// last folders and loses the middle. The full text stays in text().
+class ElidedLabel final : public QLabel {
+public:
+    ElidedLabel(const QString& text, Qt::TextElideMode mode, QWidget* parent)
+        : QLabel(text, parent), m_mode(mode)
+    {
+        setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    }
+
+protected:
+    void paintEvent(QPaintEvent*) override
+    {
+        QPainter painter(this);
+        const QRect area = contentsRect();
+        painter.setPen(palette().color(foregroundRole()));
+        painter.drawText(area, int(alignment()) | Qt::TextSingleLine,
+                         fontMetrics().elidedText(text(), m_mode, area.width()));
+    }
+
+private:
+    Qt::TextElideMode m_mode;
+};
+
 /// Opens its review on double-click, like a playlist row.
 class RowFrame final : public QFrame {
 public:
@@ -156,6 +181,8 @@ ReviewLibraryPage::ReviewLibraryPage(review::ReviewLibrary* library, QWidget* pa
     auto* scroll = new QScrollArea(main);
     scroll->setWidgetResizable(true);
     scroll->setFrameShape(QFrame::NoFrame);
+    // Rows fit the width (long paths shorten), so never scroll sideways.
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     auto* rowsHost = new QWidget(scroll);
     m_rows = new QVBoxLayout(rowsHost);
     m_rows->setContentsMargins(0, 0, 6, 0);
@@ -281,7 +308,7 @@ QWidget* ReviewLibraryPage::makeRow(const review::ReviewInfo& review)
 
     auto* text = new QVBoxLayout;
     text->setSpacing(4);
-    auto* name = new QLabel(review.name, row);
+    auto* name = new ElidedLabel(review.name, Qt::ElideRight, row);
     name->setObjectName(QStringLiteral("ReviewRowName"));
     QStringList meta;
     meta << tr("%n clip(s)", nullptr, review.clipCount);
@@ -291,7 +318,8 @@ QWidget* ReviewLibraryPage::makeRow(const review::ReviewInfo& review)
                                                          QLocale::ShortFormat));
     auto* metaLabel = new QLabel(meta.join(QStringLiteral("  ·  ")), row);
     metaLabel->setObjectName(QStringLiteral("ReviewRowMeta"));
-    auto* folder = new QLabel(QDir::toNativeSeparators(review.folder), row);
+    // Shortened in the middle to fit; the tooltip has the full path.
+    auto* folder = new ElidedLabel(QDir::toNativeSeparators(review.folder), Qt::ElideMiddle, row);
     folder->setObjectName(QStringLiteral("ReviewRowMeta"));
     folder->setToolTip(QDir::toNativeSeparators(review.projectPath));
     text->addWidget(name);

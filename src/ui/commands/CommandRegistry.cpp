@@ -41,6 +41,8 @@ CommandRegistry::CommandRegistry(QObject* parent)
         m_actions.insert(static_cast<int>(id), action);
         m_order.push_back(id);
     }
+    // Holding Space must not flicker between play and pause.
+    if (QAction* play = action(commands::CommandId::PlayPause)) play->setAutoRepeat(false);
 
     qCDebug(log::ui) << "Command registry built with" << m_actions.size() << "commands";
 }
@@ -50,17 +52,35 @@ bool CommandRegistry::eventFilter(QObject* watched, QEvent* event)
     Q_UNUSED(watched);
     if (event->type() != QEvent::ShortcutOverride) return false;
     QWidget* focus = QApplication::focusWidget();
+    auto* key = static_cast<QKeyEvent*>(event);
+    const Qt::KeyboardModifiers modifiers = key->modifiers()
+        & ~(Qt::KeypadModifier | Qt::GroupSwitchModifier);
+    const QKeySequence sequence(key->keyCombination());
+
+    // Play / Pause on a plain key (Space by default) must work wherever focus
+    // sits in the player window. A frame-number box or read-only text keeps
+    // focus after a click and would otherwise swallow it as typing; neither
+    // has any use for a space. Returning true without accepting keeps the
+    // widget from claiming the key, so the window shortcut runs.
+    if (focus && modifiers == Qt::NoModifier) {
+        QAction* play = action(commands::CommandId::PlayPause);
+        const bool playKey = play && !play->shortcut().isEmpty()
+            && sequence.matches(play->shortcut()) == QKeySequence::ExactMatch;
+        const auto* line = qobject_cast<QLineEdit*>(focus);
+        const auto* text = qobject_cast<QTextEdit*>(focus);
+        const auto* plain = qobject_cast<QPlainTextEdit*>(focus);
+        const bool noTyping = qobject_cast<QAbstractSpinBox*>(focus)
+            || (line && line->isReadOnly()) || (text && text->isReadOnly()) || (plain && plain->isReadOnly());
+        if (playKey && noTyping && play->associatedObjects().contains(focus->window())) return true;
+    }
+
     const bool editing = qobject_cast<QLineEdit*>(focus)
         || qobject_cast<QTextEdit*>(focus)
         || qobject_cast<QPlainTextEdit*>(focus)
         || qobject_cast<QAbstractSpinBox*>(focus)
         || qobject_cast<QKeySequenceEdit*>(focus);
     if (!editing) return false;
-    auto* key = static_cast<QKeyEvent*>(event);
-    const Qt::KeyboardModifiers modifiers = key->modifiers()
-        & ~(Qt::KeypadModifier | Qt::GroupSwitchModifier);
     const bool typing = modifiers == Qt::NoModifier || modifiers == Qt::ShiftModifier;
-    const QKeySequence sequence(key->keyCombination());
     const bool standardEdit = sequence.matches(QKeySequence::Copy) == QKeySequence::ExactMatch
         || sequence.matches(QKeySequence::Paste) == QKeySequence::ExactMatch
         || sequence.matches(QKeySequence::Cut) == QKeySequence::ExactMatch

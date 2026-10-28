@@ -107,6 +107,10 @@ ReviewHeaderBar::ReviewHeaderBar(QWidget* parent) : QWidget(parent)
         emit statusChosen(ClipStatus(m_status->itemData(index).toInt()));
     });
 
+    m_save = iconButton(this, QStringLiteral("save"), tr("Save project"), QStringLiteral("ReviewHeaderSave"));
+    m_save->hide(); // shown once the owner hands over its command
+    m_saveAs = iconButton(this, QStringLiteral("save-all"), tr("Save project as"), QStringLiteral("ReviewHeaderSaveAs"));
+    m_saveAs->hide();
     m_export = iconButton(this, QStringLiteral("download"), tr("Export"), QStringLiteral("ReviewHeaderExport"));
     m_export->setPopupMode(QToolButton::InstantPopup);
     m_export->setMenu(new QMenu(m_export));
@@ -133,6 +137,8 @@ ReviewHeaderBar::ReviewHeaderBar(QWidget* parent) : QWidget(parent)
     layout->addStretch(1);
     layout->addWidget(m_status);
     layout->addSpacing(theme::metrics::spacingMedium);
+    layout->addWidget(m_save);
+    layout->addWidget(m_saveAs);
     layout->addWidget(m_rename);
     layout->addWidget(m_export);
     layout->addWidget(m_folder);
@@ -171,6 +177,27 @@ void ReviewHeaderBar::setRenameAction(QAction* action)
     m_rename->setToolButtonStyle(Qt::ToolButtonIconOnly);
     m_rename->setToolTip(tr("Rename clips from a team list"));
     m_rename->show();
+}
+
+void ReviewHeaderBar::setSaveActions(QAction* save, QAction* saveAs)
+{
+    // The commands' own actions, so the buttons enable and disable with the
+    // menu entries; the tooltip carries the shortcut, kept current if the
+    // user rebinds it.
+    const auto bind = [](QToolButton* button, QAction* action, const QString& tip) {
+        if (!action) return;
+        button->setDefaultAction(action);
+        button->setToolButtonStyle(Qt::ToolButtonIconOnly);
+        const auto refresh = [button, action, tip] {
+            const QString shortcut = action->shortcut().toString(QKeySequence::NativeText);
+            button->setToolTip(shortcut.isEmpty() ? tip : QStringLiteral("%1 (%2)").arg(tip, shortcut));
+        };
+        connect(action, &QAction::changed, button, refresh);
+        refresh();
+        button->show();
+    };
+    bind(m_save, save, tr("Save project"));
+    bind(m_saveAs, saveAs, tr("Save project as"));
 }
 
 void ReviewHeaderBar::setExportActions(const QList<QAction*>& actions)
