@@ -48,11 +48,11 @@ TransportControls::TransportControls(CommandRegistry* registry, QWidget* parent)
     m_pauseIcon = icons::icon(QStringLiteral("pause"));
 
     // Drawing tools: on the left, apart from the transport, like SyncSketch.
+    // A palette icon rather than a labelled button, to leave the transport room.
     QToolButton* draw = makeCommandButton(commands::CommandId::ToggleAnnotateMode,
-        icons::icon(QStringLiteral("pencil")), tr("Draw on frame: show the drawing tools"));
+        icons::icon(QStringLiteral("palette")), tr("Draw on frame: show the drawing tools"),
+        theme::metrics::iconLarge);
     draw->setObjectName(QStringLiteral("TransportDrawButton"));
-    draw->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-    draw->setProperty("atkRole", QVariant()); // a framed button: the way into drawing
     layout->addWidget(draw);
 
     // In, out and loop: the review range.
@@ -60,9 +60,9 @@ TransportControls::TransportControls(CommandRegistry* registry, QWidget* parent)
         auto* line = new QWidget(this);
         line->setFixedSize(1, 20);
         line->setStyleSheet(QStringLiteral("background-color: %1;").arg(theme::controlHover().name()));
-        layout->addSpacing(6);
+        layout->addSpacing(10);
         layout->addWidget(line);
-        layout->addSpacing(6);
+        layout->addSpacing(10);
     };
     separator();
     layout->addWidget(makeCommandButton(commands::CommandId::SetRangeIn,
@@ -118,8 +118,10 @@ TransportControls::TransportControls(CommandRegistry* registry, QWidget* parent)
     layout->addWidget(m_speedButton);
 
     // The transport itself, larger than the tools around it so it is easy to
-    // hit; play / pause the largest of all.
+    // hit; play / pause the largest of all. Set apart by separators, which
+    // keep the groups distinct when the window is too narrow for the stretch.
     layout->addStretch(1);
+    separator();
     constexpr int transportIcon = theme::metrics::iconTransport;
     layout->addWidget(makeCommandButton(commands::CommandId::FirstFrame,
         icons::icon(QStringLiteral("skip-back")), tr("Jump to first frame"), transportIcon));
@@ -142,6 +144,7 @@ TransportControls::TransportControls(CommandRegistry* registry, QWidget* parent)
     layout->addWidget(makeCommandButton(commands::CommandId::LastFrame,
         icons::icon(QStringLiteral("skip-forward")), tr("Jump to last frame"), transportIcon));
 
+    separator();
     layout->addStretch(1);
     // View tools: how the picture is shown.
     m_viewTools = new QHBoxLayout;

@@ -65,6 +65,7 @@
         <file alias="mouse-pointer-2.svg">../../assets/icons/lucide/mouse-pointer-2.svg</file>
         <file alias="move-horizontal.svg">../../assets/icons/lucide/move-horizontal.svg</file>
         <file alias="paintbrush.svg">../../assets/icons/lucide/paintbrush.svg</file>
+        <file alias="palette.svg">../../assets/icons/lucide/palette.svg</file>
         <file alias="pause.svg">../../assets/icons/lucide/pause.svg</file>
         <file alias="pen-tool.svg">../../assets/icons/lucide/pen-tool.svg</file>
         <file alias="pencil.svg">../../assets/icons/lucide/pencil.svg</file>

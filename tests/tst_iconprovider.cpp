@@ -81,7 +81,7 @@ void TestIconProvider::iconsUsedByTheInterfaceExist()
                            QStringLiteral("zoom-out"),     QStringLiteral("gauge"),
                            QStringLiteral("pin"),          QStringLiteral("unfold-horizontal"),
                            QStringLiteral("flip-horizontal-2"), QStringLiteral("save"),
-                           QStringLiteral("save-all")};
+                           QStringLiteral("save-all"), QStringLiteral("palette")};
     for (const QString& name : used) QVERIFY2(icons::exists(name), qPrintable(name));
 }
 
