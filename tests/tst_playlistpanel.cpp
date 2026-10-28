@@ -229,6 +229,17 @@ void TestPlaylistPanel::headerShowsTheClipAndSetsItsStatus()
     auto* exportButton = window.findChild<QToolButton*>(QStringLiteral("ReviewHeaderExport"));
     QVERIFY(exportButton && exportButton->menu());
     QVERIFY(exportButton->menu()->actions().contains(window.findChild<QAction*>(QStringLiteral("file.exportReviewNotes"))));
+
+    // Save and Save As sit beside it, backed by the File menu's own commands.
+    auto* save = window.findChild<QToolButton*>(QStringLiteral("ReviewHeaderSave"));
+    auto* saveAs = window.findChild<QToolButton*>(QStringLiteral("ReviewHeaderSaveAs"));
+    QVERIFY(save && saveAs);
+    QVERIFY(save->isVisible() && saveAs->isVisible());
+    QCOMPARE(save->defaultAction(), window.findChild<QAction*>(QStringLiteral("file.saveProject")));
+    QCOMPARE(saveAs->defaultAction(), window.findChild<QAction*>(QStringLiteral("file.saveProjectAs")));
+    QVERIFY(save->toolTip().contains(QStringLiteral("Ctrl+S")));
+    save->click();
+    QTRY_VERIFY(!window.project()->isModified()); // saved to the file it came from
 }
 
 QTEST_MAIN(TestPlaylistPanel)

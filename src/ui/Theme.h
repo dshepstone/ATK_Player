@@ -87,6 +87,8 @@ inline constexpr int spacingLarge = 16;
 inline constexpr int iconSmall = 16;   // menus, badges
 inline constexpr int iconMedium = 18;  // toolbars, transport
 inline constexpr int iconLarge = 22;   // primary tool row
+inline constexpr int iconTransport = 26; // first / step / skip / last: easy to hit
+inline constexpr int iconPlay = 34;      // play / pause: the largest target
 inline constexpr int currentFrameFontPx = 30; // current-frame readout, about the track's height
 } // namespace metrics
 

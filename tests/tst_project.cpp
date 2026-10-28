@@ -30,6 +30,7 @@ private slots:
     void failedSaveAsLeavesProjectIdentityAndDirtyStateUntouched();
     void normalSavePreservesExistingProjectName();
     void savePromptOnlyForReviewWork();
+    void exportFolderRoundTripsBesideTheProject();
     void stillHoldRoundTripsPerSource();
     void stillWithoutSavedHoldUsesLoadDefault();
     void malformedStillHoldRejectsProject();
@@ -593,4 +594,54 @@ void TestProject::clipStatusRoundTripsAsVersion3()
 }
 
 QTEST_MAIN(TestProject)
+void TestProject::exportFolderRoundTripsBesideTheProject()
+{
+    QTemporaryDir directory; QVERIFY(directory.isValid());
+    QDir root(directory.path());
+    QVERIFY(root.mkpath(QStringLiteral("exports")));
+    QVERIFY(root.mkpath(QStringLiteral("review")));
+    const QString projectPath = root.filePath(QStringLiteral("review/review.atkproj"));
+
+    project::Project original;
+    original.addSource(std::make_shared<media::MediaSource>(root.filePath(QStringLiteral("a.mp4"))));
+    QVERIFY(original.exportFolder().isEmpty());
+    // Not set: no key, so older files and builds see nothing new.
+    QVERIFY(project::ProjectSerializer::save(original, projectPath).ok);
+    {
+        QFile saved(projectPath); QVERIFY(saved.open(QIODevice::ReadOnly));
+        QVERIFY(!QJsonDocument::fromJson(saved.readAll()).object().contains(QStringLiteral("exportFolder")));
+    }
+
+    // Inside the project folder: stored relative, so the review folder moves as one.
+    const QString inside = root.filePath(QStringLiteral("review"));
+    original.setFilePath(projectPath);
+    original.setModified(false);
+    original.setExportFolder(inside);
+    QVERIFY(original.isModified());
+    QVERIFY(original.needsSavePrompt()); // a saved project asks: the setting is not in the file yet
+    QVERIFY(project::ProjectSerializer::save(original, projectPath).ok);
+    {
+        QFile saved(projectPath); QVERIFY(saved.open(QIODevice::ReadOnly));
+        QCOMPARE(QJsonDocument::fromJson(saved.readAll()).object().value(QStringLiteral("exportFolder")).toString(),
+                 QStringLiteral("."));
+    }
+    project::Project loaded;
+    QVERIFY(project::ProjectSerializer::load(loaded, projectPath).ok);
+    QCOMPARE(loaded.exportFolder(), QDir::cleanPath(inside));
+    QVERIFY(!loaded.isModified());
+
+    // Outside it: stored absolute.
+    const QString outside = root.filePath(QStringLiteral("exports"));
+    original.setExportFolder(outside);
+    QVERIFY(project::ProjectSerializer::save(original, projectPath).ok);
+    QVERIFY(project::ProjectSerializer::load(loaded, projectPath).ok);
+    QCOMPARE(loaded.exportFolder(), QDir::cleanPath(outside));
+
+    // Cleared, and a new project starts without one.
+    original.setExportFolder(QString());
+    QVERIFY(original.exportFolder().isEmpty());
+    loaded.replace(QStringLiteral("Untitled"), QString(), {}, QUuid{});
+    QVERIFY(loaded.exportFolder().isEmpty());
+}
+
 #include "tst_project.moc"

@@ -76,6 +76,8 @@
         <file alias="refresh-cw.svg">../../assets/icons/lucide/refresh-cw.svg</file>
         <file alias="repeat.svg">../../assets/icons/lucide/repeat.svg</file>
         <file alias="rewind.svg">../../assets/icons/lucide/rewind.svg</file>
+        <file alias="save-all.svg">../../assets/icons/lucide/save-all.svg</file>
+        <file alias="save.svg">../../assets/icons/lucide/save.svg</file>
         <file alias="scan.svg">../../assets/icons/lucide/scan.svg</file>
         <file alias="scissors.svg">../../assets/icons/lucide/scissors.svg</file>
         <file alias="search.svg">../../assets/icons/lucide/search.svg</file>

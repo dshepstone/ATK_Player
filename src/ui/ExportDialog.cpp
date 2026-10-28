@@ -3,7 +3,9 @@
 #include "ui/ExportUi.h"
 #include "export/FFmpegExporter.h"
 #include <QCheckBox>
+#include <QDir>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -54,6 +56,32 @@ ExportDialog::ExportDialog(exporter::ExportSpec spec, QWidget* parent)
     whereRow->addWidget(m_destination, 1);
     whereRow->addWidget(browseButton);
     exportui::addRow(output, this, tr("Save to"), where);
+
+    // The project's save location: set once, and every export of this
+    // project starts there instead of beside the project. Browse still
+    // picks any file for this export alone.
+    auto* remembered = new QWidget(this);
+    remembered->setObjectName(QStringLiteral("ExportProjectFolderRow"));
+    auto* rememberedRow = new QHBoxLayout(remembered);
+    rememberedRow->setContentsMargins(0, 0, 0, 0);
+    m_projectFolderLabel = new QLabel(remembered);
+    m_projectFolderLabel->setObjectName(QStringLiteral("ExportProjectFolder"));
+    m_projectFolderLabel->setWordWrap(true);
+    m_projectFolderLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    auto* setFolder = new QPushButton(tr("Set Save Location…"), remembered);
+    setFolder->setObjectName(QStringLiteral("ExportSetProjectFolder"));
+    setFolder->setToolTip(tr("Choose a folder for this project's exports. It is remembered in the "
+                             "project, so you do not have to browse to it each time."));
+    m_clearProjectFolder = new QPushButton(tr("Clear"), remembered);
+    m_clearProjectFolder->setObjectName(QStringLiteral("ExportClearProjectFolder"));
+    m_clearProjectFolder->setToolTip(tr("Forget this project's save location; exports go beside the project again"));
+    rememberedRow->addWidget(m_projectFolderLabel, 1);
+    rememberedRow->addWidget(setFolder);
+    rememberedRow->addWidget(m_clearProjectFolder);
+    exportui::addRow(output, this, tr("Project folder"), remembered);
+    connect(setFolder, &QPushButton::clicked, this, &ExportDialog::chooseProjectFolder);
+    connect(m_clearProjectFolder, &QPushButton::clicked, this, &ExportDialog::clearProjectFolder);
+    showProjectFolder();
     exportui::addRow(output, this, tr("Format"), new QLabel(tr("MP4 · H.264 (%1)").arg(m_spec.videoEncoder), this));
     exportui::addRow(output, this, tr("Sound"), new QLabel(m_spec.audioSummary(), this));
     if (!exporter::FFmpegExporter::isSupported()) {
@@ -85,6 +113,48 @@ QString ExportDialog::destination() const
 exporter::ExportBurnIns ExportDialog::burnIns() const { return m_burnIns->options(); }
 void ExportDialog::setOpenWhenDone(bool open) { m_openWhenDone->setChecked(open); }
 bool ExportDialog::openWhenDone() const { return m_openWhenDone->isChecked(); }
+void ExportDialog::setProjectFolder(const QString& folder, bool projectSaved)
+{
+    m_projectFolder = folder;
+    m_projectSaved = projectSaved;
+    showProjectFolder();
+}
+
+void ExportDialog::showProjectFolder()
+{
+    QString text;
+    if (m_projectFolder.isEmpty())
+        text = tr("Not set: exports go beside the project");
+    else if (!QFileInfo(m_projectFolder).isDir())
+        text = tr("%1 (not found)").arg(QDir::toNativeSeparators(m_projectFolder));
+    else
+        text = QDir::toNativeSeparators(m_projectFolder);
+    if (!m_projectFolder.isEmpty() && !m_projectSaved) text += tr("\nKept once the project is saved.");
+    m_projectFolderLabel->setText(text);
+    m_projectFolderLabel->setToolTip(QDir::toNativeSeparators(m_projectFolder));
+    m_clearProjectFolder->setVisible(!m_projectFolder.isEmpty());
+}
+
+void ExportDialog::chooseProjectFolder()
+{
+    const QString start = QFileInfo(m_projectFolder).isDir() ? m_projectFolder
+                                                             : QFileInfo(destination()).absolutePath();
+    const QString folder = QFileDialog::getExistingDirectory(this, tr("Set Save Location"), start);
+    if (folder.isEmpty()) return;
+    m_projectFolder = QDir::cleanPath(folder);
+    // This export goes there too, under the name it already has.
+    m_destination->setText(QDir(m_projectFolder).filePath(QFileInfo(destination()).fileName()));
+    showProjectFolder();
+    emit projectFolderChanged(m_projectFolder);
+}
+
+void ExportDialog::clearProjectFolder()
+{
+    m_projectFolder.clear();
+    showProjectFolder();
+    emit projectFolderChanged(QString());
+}
+
 void ExportDialog::browse()
 {
     const QString path = QFileDialog::getSaveFileName(this, tr("Export Review"), destination(), tr("MP4 Video (*.mp4)"));

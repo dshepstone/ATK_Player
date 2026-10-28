@@ -46,6 +46,7 @@ private slots:
     void conflictDetectionIdentifiesStableCommand();
     void preferencesCancelDoesNotWriteSettings();
     void textEditingKeepsTypingShortcuts();
+    void spacePlaysFromFieldsThatDoNotTypeIt();
     void mainWindowLoadsReviewAndShortcutPreferences();
     void windowAndDockStateRoundTrip();
     void bookmarksPanelStartsClosed();
@@ -300,6 +301,39 @@ void TestSettings::textEditingKeepsTypingShortcuts()
     QTest::keyClick(&edit, Qt::Key_B);
     QCOMPARE(edit.text(), QStringLiteral("b"));
     QCOMPARE(triggered.count(), 0);
+}
+
+void TestSettings::spacePlaysFromFieldsThatDoNotTypeIt()
+{
+    QWidget window;
+    CommandRegistry registry(&window);
+    window.addActions(registry.allActions());
+    QSpinBox frame(&window);
+    QLineEdit readOnly(QStringLiteral("clip.mp4"), &window);
+    readOnly.setReadOnly(true);
+    QLineEdit note(&window);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    QAction* play = registry.action(atk::commands::CommandId::PlayPause);
+    QVERIFY(play && !play->autoRepeat()); // holding Space does not flicker
+    QSignalSpy triggered(play, &QAction::triggered);
+
+    // A frame-number box keeps focus after a click; Space still plays.
+    frame.setFocus();
+    QTRY_VERIFY(frame.hasFocus());
+    QTest::keyClick(&frame, Qt::Key_Space);
+    QCOMPARE(triggered.count(), 1);
+    // As does read-only text.
+    readOnly.setFocus();
+    QTRY_VERIFY(readOnly.hasFocus());
+    QTest::keyClick(&readOnly, Qt::Key_Space);
+    QCOMPARE(triggered.count(), 2);
+    // Typing a note still types the space.
+    note.setFocus();
+    QTRY_VERIFY(note.hasFocus());
+    QTest::keyClicks(&note, QStringLiteral("a b"));
+    QCOMPARE(note.text(), QStringLiteral("a b"));
+    QCOMPARE(triggered.count(), 2);
 }
 
 void TestSettings::mainWindowLoadsReviewAndShortcutPreferences()
