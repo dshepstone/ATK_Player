@@ -30,6 +30,9 @@ private slots:
     void failedSaveAsLeavesProjectIdentityAndDirtyStateUntouched();
     void normalSavePreservesExistingProjectName();
     void savePromptOnlyForReviewWork();
+    void exportFolderRoundTripsBesideTheProject();
+    void exportChoicesAndCategoriesRoundTrip();
+    void reorderKeepsTheLoadedClip();
     void stillHoldRoundTripsPerSource();
     void stillWithoutSavedHoldUsesLoadDefault();
     void malformedStillHoldRejectsProject();
@@ -593,4 +596,140 @@ void TestProject::clipStatusRoundTripsAsVersion3()
 }
 
 QTEST_MAIN(TestProject)
+void TestProject::exportFolderRoundTripsBesideTheProject()
+{
+    QTemporaryDir directory; QVERIFY(directory.isValid());
+    QDir root(directory.path());
+    QVERIFY(root.mkpath(QStringLiteral("exports")));
+    QVERIFY(root.mkpath(QStringLiteral("review")));
+    const QString projectPath = root.filePath(QStringLiteral("review/review.atkproj"));
+
+    project::Project original;
+    original.addSource(std::make_shared<media::MediaSource>(root.filePath(QStringLiteral("a.mp4"))));
+    QVERIFY(original.exportFolder().isEmpty());
+    // Not set: no key, so older files and builds see nothing new.
+    QVERIFY(project::ProjectSerializer::save(original, projectPath).ok);
+    {
+        QFile saved(projectPath); QVERIFY(saved.open(QIODevice::ReadOnly));
+        QVERIFY(!QJsonDocument::fromJson(saved.readAll()).object().contains(QStringLiteral("exportFolder")));
+    }
+
+    // Inside the project folder: stored relative, so the review folder moves as one.
+    const QString inside = root.filePath(QStringLiteral("review"));
+    original.setFilePath(projectPath);
+    original.setModified(false);
+    original.setExportFolder(inside);
+    QVERIFY(original.isModified());
+    QVERIFY(original.needsSavePrompt()); // a saved project asks: the setting is not in the file yet
+    QVERIFY(project::ProjectSerializer::save(original, projectPath).ok);
+    {
+        QFile saved(projectPath); QVERIFY(saved.open(QIODevice::ReadOnly));
+        QCOMPARE(QJsonDocument::fromJson(saved.readAll()).object().value(QStringLiteral("exportFolder")).toString(),
+                 QStringLiteral("."));
+    }
+    project::Project loaded;
+    QVERIFY(project::ProjectSerializer::load(loaded, projectPath).ok);
+    QCOMPARE(loaded.exportFolder(), QDir::cleanPath(inside));
+    QVERIFY(!loaded.isModified());
+
+    // Outside it: stored absolute.
+    const QString outside = root.filePath(QStringLiteral("exports"));
+    original.setExportFolder(outside);
+    QVERIFY(project::ProjectSerializer::save(original, projectPath).ok);
+    QVERIFY(project::ProjectSerializer::load(loaded, projectPath).ok);
+    QCOMPARE(loaded.exportFolder(), QDir::cleanPath(outside));
+
+    // Cleared, and a new project starts without one.
+    original.setExportFolder(QString());
+    QVERIFY(original.exportFolder().isEmpty());
+    loaded.replace(QStringLiteral("Untitled"), QString(), {}, QUuid{});
+    QVERIFY(loaded.exportFolder().isEmpty());
+}
+
+void TestProject::exportChoicesAndCategoriesRoundTrip()
+{
+    QTemporaryDir directory; QVERIFY(directory.isValid());
+    const QString projectPath = directory.filePath(QStringLiteral("review.atkproj"));
+    project::Project original;
+    original.addSource(std::make_shared<media::MediaSource>(directory.filePath(QStringLiteral("a.mp4"))));
+    original.addSource(std::make_shared<media::MediaSource>(directory.filePath(QStringLiteral("b.mp4"))));
+    QVERIFY(!original.exportBurnIns());
+    QVERIFY(project::ProjectSerializer::save(original, projectPath).ok);
+    {
+        // Nothing kept: no keys, so older files and builds see nothing new.
+        QFile saved(projectPath); QVERIFY(saved.open(QIODevice::ReadOnly));
+        const QJsonObject root = QJsonDocument::fromJson(saved.readAll()).object();
+        QVERIFY(!root.contains(QStringLiteral("exportOptions")));
+        QVERIFY(!root.contains(QStringLiteral("categories")));
+    }
+    original.setFilePath(projectPath);
+    original.setModified(false);
+
+    exporter::ExportBurnIns choices;
+    choices.frameNumber = true;
+    choices.annotations = true;
+    choices.annotationNotes = true;
+    choices.annotationHoldFrames = 24;
+    choices.tracingPaperPercent = 25;
+    original.setExportBurnIns(choices);
+    QVERIFY(original.needsSavePrompt()); // not in the file yet
+    QVERIFY(original.setClipCategory(original.entries().at(1).id, QStringLiteral(" Section A ")));
+    QCOMPARE(original.categories(), QStringList{QStringLiteral("Section A")});
+    original.setCategories({QStringLiteral("Section A"), QStringLiteral("Section B"), QStringLiteral("section b")});
+    QCOMPARE(original.categories(), (QStringList{QStringLiteral("Section A"), QStringLiteral("Section B")}));
+    // An existing name in another case files under the existing spelling.
+    QVERIFY(original.setClipCategory(original.entries().at(0).id, QStringLiteral("SECTION B")));
+    QCOMPARE(original.entries().at(0).category, QStringLiteral("Section B"));
+    QVERIFY(project::ProjectSerializer::save(original, projectPath).ok);
+
+    project::Project loaded;
+    QVERIFY(project::ProjectSerializer::load(loaded, projectPath).ok);
+    QVERIFY(loaded.exportBurnIns());
+    QCOMPARE(*loaded.exportBurnIns(), choices);
+    QCOMPARE(loaded.categories(), (QStringList{QStringLiteral("Section A"), QStringLiteral("Section B")}));
+    QCOMPARE(loaded.entries().at(0).category, QStringLiteral("Section B"));
+    QCOMPARE(loaded.entries().at(1).category, QStringLiteral("Section A"));
+    QVERIFY(!loaded.needsSavePrompt());
+
+    // Removing a category takes it off its clips.
+    loaded.setCategories({QStringLiteral("Section B")});
+    QVERIFY(loaded.entries().at(1).category.isEmpty());
+    QVERIFY(loaded.needsSavePrompt());
+
+    // Opening a clip on its own starts from the defaults again.
+    loaded.clear();
+    QVERIFY(!loaded.exportBurnIns());
+    QVERIFY(loaded.exportFolder().isEmpty());
+    QVERIFY(loaded.categories().isEmpty());
+    // As does a new review.
+    original.replace(QStringLiteral("Untitled"), QString(), {}, QUuid{});
+    QVERIFY(!original.exportBurnIns());
+}
+
+void TestProject::reorderKeepsTheLoadedClip()
+{
+    project::Project project;
+    for (const char* name : {"a.mp4", "b.mp4", "c.mp4"})
+        project.addSource(std::make_shared<media::MediaSource>(QString::fromLatin1(name)));
+    const QUuid a = project.entries().at(0).id, b = project.entries().at(1).id, c = project.entries().at(2).id;
+    project.setActiveIndex(1);
+    project.setModified(false);
+    QSignalSpy changed(&project, &project::Project::entriesChanged);
+
+    QVERIFY(!project.reorder({a, b}));    // must name every clip
+    QVERIFY(!project.reorder({a, a, b})); // once each
+    QVERIFY(!project.reorder({a, b, QUuid::createUuid()}));
+    QCOMPARE(changed.count(), 0);
+    QVERIFY(project.reorder({a, b, c})); // same order: no change
+    QVERIFY(!project.isModified());
+
+    QVERIFY(project.reorder({c, a, b}));
+    QCOMPARE(project.entries().at(0).id, c);
+    QCOMPARE(project.entries().at(2).id, b);
+    QCOMPARE(project.activeIndex(), 2); // b is still the loaded clip
+    QCOMPARE(project.currentSourceId(), b);
+    QVERIFY(project.isModified());
+    QCOMPARE(changed.count(), 1);
+}
+
 #include "tst_project.moc"

@@ -18,10 +18,13 @@
     <!-- Lucide outline icons (ISC), tinted at runtime by ui/IconProvider. -->
     <qresource prefix="/icons/lucide">
         <file alias="archive.svg">../../assets/icons/lucide/archive.svg</file>
+        <file alias="arrow-down-to-line.svg">../../assets/icons/lucide/arrow-down-to-line.svg</file>
         <file alias="arrow-down.svg">../../assets/icons/lucide/arrow-down.svg</file>
         <file alias="arrow-left-to-line.svg">../../assets/icons/lucide/arrow-left-to-line.svg</file>
         <file alias="arrow-right-to-line.svg">../../assets/icons/lucide/arrow-right-to-line.svg</file>
         <file alias="arrow-up-down.svg">../../assets/icons/lucide/arrow-up-down.svg</file>
+        <file alias="arrow-up-to-line.svg">../../assets/icons/lucide/arrow-up-to-line.svg</file>
+        <file alias="brackets.svg">../../assets/icons/lucide/brackets.svg</file>
         <file alias="arrow-up-right.svg">../../assets/icons/lucide/arrow-up-right.svg</file>
         <file alias="arrow-up.svg">../../assets/icons/lucide/arrow-up.svg</file>
         <file alias="bookmark-plus.svg">../../assets/icons/lucide/bookmark-plus.svg</file>
@@ -65,7 +68,9 @@
         <file alias="mouse-pointer-2.svg">../../assets/icons/lucide/mouse-pointer-2.svg</file>
         <file alias="move-horizontal.svg">../../assets/icons/lucide/move-horizontal.svg</file>
         <file alias="paintbrush.svg">../../assets/icons/lucide/paintbrush.svg</file>
+        <file alias="palette.svg">../../assets/icons/lucide/palette.svg</file>
         <file alias="pause.svg">../../assets/icons/lucide/pause.svg</file>
+        <file alias="rectangle-horizontal.svg">../../assets/icons/lucide/rectangle-horizontal.svg</file>
         <file alias="pen-tool.svg">../../assets/icons/lucide/pen-tool.svg</file>
         <file alias="pencil.svg">../../assets/icons/lucide/pencil.svg</file>
         <file alias="pin.svg">../../assets/icons/lucide/pin.svg</file>
@@ -76,6 +81,8 @@
         <file alias="refresh-cw.svg">../../assets/icons/lucide/refresh-cw.svg</file>
         <file alias="repeat.svg">../../assets/icons/lucide/repeat.svg</file>
         <file alias="rewind.svg">../../assets/icons/lucide/rewind.svg</file>
+        <file alias="save-all.svg">../../assets/icons/lucide/save-all.svg</file>
+        <file alias="save.svg">../../assets/icons/lucide/save.svg</file>
         <file alias="scan.svg">../../assets/icons/lucide/scan.svg</file>
         <file alias="scissors.svg">../../assets/icons/lucide/scissors.svg</file>
         <file alias="search.svg">../../assets/icons/lucide/search.svg</file>
@@ -87,6 +94,7 @@
         <file alias="star.svg">../../assets/icons/lucide/star.svg</file>
         <file alias="step-back.svg">../../assets/icons/lucide/step-back.svg</file>
         <file alias="step-forward.svg">../../assets/icons/lucide/step-forward.svg</file>
+        <file alias="tag.svg">../../assets/icons/lucide/tag.svg</file>
         <file alias="text-cursor-input.svg">../../assets/icons/lucide/text-cursor-input.svg</file>
         <file alias="trash-2.svg">../../assets/icons/lucide/trash-2.svg</file>
         <file alias="type.svg">../../assets/icons/lucide/type.svg</file>

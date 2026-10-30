@@ -200,8 +200,15 @@ QString PreferencesDialog::conflictingCommand(const QHash<QString, QString>& sho
 {
     if (sequence.isEmpty()) return {};
     const QString portable = sequence.toString(QKeySequence::PortableText);
+    // A drawing-only key (brush size) may share a key with a command used
+    // when not drawing, such as [ and ] for the in and out points.
+    const auto drawingOnly = [](const QString& key) {
+        const commands::CommandDefinition* definition = commands::find(key);
+        return definition && commands::isDrawingShortcut(definition->id);
+    };
     for (auto it = shortcuts.cbegin(); it != shortcuts.cend(); ++it)
-        if (it.key() != commandKey && it.value() == portable) return it.key();
+        if (it.key() != commandKey && it.value() == portable && drawingOnly(it.key()) == drawingOnly(commandKey))
+            return it.key();
     return {};
 }
 

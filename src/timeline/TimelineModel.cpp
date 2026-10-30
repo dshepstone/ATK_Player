@@ -123,18 +123,22 @@ void TimelineModel::setPlaybackRange(const PlaybackRange& range)
     if (m_range == normalised) {
         return;
     }
+    // The in/out marks only confine playback: the timeline keeps showing
+    // what it showed, with the marks drawn on it.
     m_range = normalised;
     emit playbackRangeChanged(m_range);
-    if (normalised.enabled) setViewportRange(normalised.startFrame, normalised.endFrame);
-    else fitViewport();
 }
 
 void TimelineModel::setRangeInAtCurrentFrame()
 {
     PlaybackRange range = m_range;
     range.startFrame = m_currentFrame;
-    if (!range.enabled) {
-        // First I press with no range yet: run from here to the end.
+    // With the marks switched off, [ turns them back on with the kept out
+    // point, if it is still after the new in point.
+    if (hasKeptMarks() && range.endFrame >= range.startFrame) {
+        range.enabled = true;
+    } else if (!range.enabled) {
+        // First [ press with no range yet: run from here to the end.
         range.endFrame = std::max<int64_t>(lastFrame(), m_currentFrame);
         range.enabled = true;
     } else if (range.endFrame < range.startFrame) {
@@ -147,7 +151,9 @@ void TimelineModel::setRangeOutAtCurrentFrame()
 {
     PlaybackRange range = m_range;
     range.endFrame = m_currentFrame;
-    if (!range.enabled) {
+    if (hasKeptMarks() && range.startFrame <= range.endFrame) {
+        range.enabled = true;
+    } else if (!range.enabled) {
         range.startFrame = 0;
         range.enabled = true;
     } else if (range.startFrame > range.endFrame) {
@@ -161,14 +167,47 @@ void TimelineModel::clearPlaybackRange()
     setPlaybackRange(PlaybackRange{});
 }
 
+bool TimelineModel::hasPlaybackMarks() const
+{
+    // Marks over the whole clip confine nothing.
+    return m_range.enabled && m_range.isValid() && m_frameCount > 0
+        && (m_range.startFrame > 0 || m_range.endFrame < lastFrame());
+}
+
+bool TimelineModel::hasKeptMarks() const
+{
+    return !m_range.enabled && m_range.isValid() && m_frameCount > 0
+        && m_range.endFrame > m_range.startFrame
+        && (m_range.startFrame > 0 || m_range.endFrame < lastFrame());
+}
+
+void TimelineModel::setPlaybackMarksEnabled(bool enabled)
+{
+    // Off keeps where the marks were, so on puts them straight back.
+    if (enabled ? !hasKeptMarks() : !m_range.enabled) return;
+    PlaybackRange range = m_range;
+    range.enabled = enabled;
+    setPlaybackRange(range);
+}
+
+bool TimelineModel::marksMeetViewport() const
+{
+    return m_range.enabled && m_range.startFrame <= m_viewport.endFrame()
+        && m_range.endFrame >= m_viewport.startFrame();
+}
+
 int64_t TimelineModel::effectiveStartFrame() const
 {
-    return m_viewport.startFrame();
+    // The in/out marks within the visible range; the visible range alone
+    // when there are none, or when the view is zoomed away from them.
+    return marksMeetViewport() ? std::max(m_range.startFrame, m_viewport.startFrame())
+                               : m_viewport.startFrame();
 }
 
 int64_t TimelineModel::effectiveEndFrame() const
 {
-    return m_viewport.endFrame();
+    return marksMeetViewport() ? std::min(m_range.endFrame, m_viewport.endFrame())
+                               : m_viewport.endFrame();
 }
 
 quint64 TimelineModel::addBookmark(const Bookmark& bookmark)

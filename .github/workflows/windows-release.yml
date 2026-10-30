@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version_suffix:
-        description: 'Version suffix (rc1 for acceptance; empty for final)'
+        description: 'Version suffix (rc1 for acceptance; empty or final for the final release)'
         required: false
         default: 'rc1'
       publish:
@@ -71,6 +71,8 @@ jobs:
         shell: pwsh
         run: |
           $suffix = '${{ inputs.version_suffix }}'
+          # "final" is the same as empty, for callers that can't send an empty input.
+          if ($suffix -eq 'final') { $suffix = '' }
           if ('${{ github.ref_type }}' -eq 'tag') {
             $tag = '${{ github.ref_name }}'
             if ($tag -match '^v\d+\.\d+\.\d+-(.+)$') { $suffix = $Matches[1] }
@@ -97,13 +99,14 @@ jobs:
     name: Publish GitHub release
     # Only a final release publishes, approved by the maintainer one of two
     # ways: pushing the final tag (vX.Y.Z, no suffix), or running this
-    # workflow by hand on main with an empty suffix and Publish ticked, which
+    # workflow by hand on main with an empty (or "final") suffix and Publish ticked, which
     # creates that tag on the tested commit. rc tags and other manual runs
     # only build the MSI above.
     if: >-
       (github.ref_type == 'tag' && !contains(github.ref_name, '-'))
       || (github.event_name == 'workflow_dispatch' && inputs.publish &&
-      github.ref == 'refs/heads/main' && inputs.version_suffix == '')
+      github.ref == 'refs/heads/main' &&
+      (inputs.version_suffix == '' || inputs.version_suffix == 'final'))
     needs: package
     runs-on: windows-2022
     permissions:

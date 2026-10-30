@@ -12,7 +12,7 @@ set(CMAKE_OSX_DEPLOYMENT_TARGET "12.0" CACHE STRING "Minimum macOS version")
 # Version is defined once here and propagated to C++ via core/Version.h.in.
 # ---------------------------------------------------------------------------
 project(ATKPlayer
-    VERSION 0.5.8
+    VERSION 0.6.0
     DESCRIPTION "Animation playback and review application"
     HOMEPAGE_URL "https://github.com/dshepstone/ATK_Player"
     LANGUAGES CXX

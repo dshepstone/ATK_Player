@@ -114,6 +114,8 @@ PlaybackController::PlaybackController(timeline::TimelineModel* timeline, QObjec
             this, &PlaybackController::presentNextNavigationFrame);
     connect(m_timeline, &timeline::TimelineModel::viewportChanged,
             this, [this] { onReviewRangeChanged(); });
+    connect(m_timeline, &timeline::TimelineModel::playbackRangeChanged,
+            this, [this] { onReviewRangeChanged(); });
 
     // --- Decode thread ----------------------------------------------------
     m_decodeThread = new QThread(this);
@@ -1071,7 +1073,7 @@ void PlaybackController::skipBySeconds(int seconds)
     const long double scaled = static_cast<long double>(targetUs) * rate.numerator
         / (1'000'000.0L * rate.denominator);
     const int64_t frame = static_cast<int64_t>(std::llround(scaled));
-    seekFrame(std::clamp(frame, m_timeline->effectiveStartFrame(), m_timeline->effectiveEndFrame()));
+    seekFrame(std::clamp(frame, m_timeline->viewport().startFrame(), navigableLastFrame()));
 }
 
 void PlaybackController::onAudioPrimed(int bufferedMs, qint64 mediaOriginUs,
@@ -1298,6 +1300,13 @@ media::FrameRate PlaybackController::effectiveFrameRate() const
 int64_t PlaybackController::effectiveLastFrame() const
 {
     return m_timeline->effectiveEndFrame();
+}
+
+int64_t PlaybackController::navigableLastFrame() const
+{
+    // Seeking, scrubbing and stepping go anywhere on the visible timeline,
+    // past the in/out marks too; only playback keeps between them.
+    return m_timeline->viewport().endFrame();
 }
 
 int PlaybackController::displayIntervalMs() const
@@ -1539,8 +1548,8 @@ void PlaybackController::stop()
 
 void PlaybackController::seekAndShow(int64_t frame, bool keepPlaying)
 {
-    const int64_t start = m_timeline->effectiveStartFrame();
-    const int64_t end = effectiveLastFrame();
+    const int64_t start = m_timeline->viewport().startFrame();
+    const int64_t end = navigableLastFrame();
     const int64_t target = std::clamp(frame, start, end < 0 ? frame : end);
 
     if (inPlaceholderMode()) {
@@ -1596,8 +1605,8 @@ void PlaybackController::seekFrame(int64_t frame)
     // The queue holds the future of the *old* position, so it goes. The cache
     // deliberately does not -- see below.
     m_queue.clear();
-    const int64_t end = effectiveLastFrame();
-    m_navigationFrame = std::clamp(frame, m_timeline->effectiveStartFrame(),
+    const int64_t end = navigableLastFrame();
+    m_navigationFrame = std::clamp(frame, m_timeline->viewport().startFrame(),
                                    end < 0 ? frame : end);
 
     // The cache is deliberately *not* cleared here. Its frames still belong to
@@ -1631,8 +1640,8 @@ void PlaybackController::scrubToFrame(int64_t frame)
     if (!m_scrubbing) {
         beginScrub();
     }
-    const int64_t end = effectiveLastFrame();
-    m_latestScrubFrame = std::clamp(frame, m_timeline->effectiveStartFrame(),
+    const int64_t end = navigableLastFrame();
+    m_latestScrubFrame = std::clamp(frame, m_timeline->viewport().startFrame(),
                                     end < 0 ? frame : end);
     m_navigationFrame = m_latestScrubFrame;
 
@@ -1849,7 +1858,7 @@ void PlaybackController::stepForward()
     }
     anchorNavigationToCurrentFrameIfIdle();
     const int64_t target = m_navigationFrame + 1;
-    if (target > effectiveLastFrame() && effectiveLastFrame() >= 0) {
+    if (target > navigableLastFrame() && navigableLastFrame() >= 0) {
         return;
     }
     emit authoritativeNavigationStarted();
@@ -1868,7 +1877,7 @@ void PlaybackController::stepBackward()
     }
     anchorNavigationToCurrentFrameIfIdle();
     const int64_t target = m_navigationFrame - 1;
-    if (target < m_timeline->effectiveStartFrame()) {
+    if (target < m_timeline->viewport().startFrame()) {
         return;
     }
     emit authoritativeNavigationStarted();

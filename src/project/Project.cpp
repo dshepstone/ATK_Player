@@ -2,6 +2,8 @@
 
 #include "core/Logging.h"
 
+#include <QDir>
+
 #include <utility>
 #include <algorithm>
 
@@ -30,10 +32,103 @@ void Project::setFilePath(const QString& path)
     m_filePath = path;
 }
 
+void Project::setExportFolder(const QString& folder)
+{
+    const QString cleaned = folder.isEmpty() ? QString() : QDir::cleanPath(folder);
+    if (m_exportFolder == cleaned) return;
+    m_exportFolder = cleaned;
+    setModified(true);
+}
+
+void Project::setExportBurnIns(const std::optional<exporter::ExportBurnIns>& burnIns)
+{
+    if (m_exportBurnIns == burnIns) return;
+    m_exportBurnIns = burnIns;
+    setModified(true);
+}
+
+namespace {
+/// Trimmed, without blanks or repeats (compared ignoring case), in order.
+QStringList cleanedCategories(const QStringList& categories)
+{
+    QStringList cleaned;
+    for (const QString& name : categories) {
+        const QString trimmed = name.trimmed();
+        if (!trimmed.isEmpty() && !cleaned.contains(trimmed, Qt::CaseInsensitive)) cleaned.append(trimmed);
+    }
+    return cleaned;
+}
+} // namespace
+
+void Project::setCategories(const QStringList& categories)
+{
+    const QStringList cleaned = cleanedCategories(categories);
+    bool clipsChanged = false;
+    for (SourceEntry& entry : m_entries) {
+        if (!entry.category.isEmpty() && !cleaned.contains(entry.category)) {
+            entry.category.clear();
+            clipsChanged = true;
+        }
+    }
+    if (cleaned == m_categories && !clipsChanged) return;
+    m_categories = cleaned;
+    emit entriesChanged();
+    setModified(true);
+}
+
+bool Project::setClipCategory(const QUuid& id, const QString& category)
+{
+    const int index = indexForId(id);
+    QString name = category.trimmed();
+    // The spelling already in the list wins over a different case.
+    for (const QString& existing : std::as_const(m_categories))
+        if (existing.compare(name, Qt::CaseInsensitive) == 0) name = existing;
+    if (index < 0 || m_entries[index].category == name) return false;
+    if (!name.isEmpty() && !m_categories.contains(name)) m_categories.append(name);
+    m_entries[index].category = name;
+    emit entriesChanged();
+    setModified(true);
+    return true;
+}
+
+bool Project::reorder(const QVector<QUuid>& order)
+{
+    if (order.size() != m_entries.size()) return false;
+    QVector<SourceEntry> reordered;
+    reordered.reserve(m_entries.size());
+    for (const QUuid& id : order) {
+        const int index = indexForId(id);
+        if (index < 0 || std::any_of(reordered.cbegin(), reordered.cend(),
+                                     [&id](const SourceEntry& entry) { return entry.id == id; }))
+            return false;
+        reordered.append(m_entries.at(index));
+    }
+    bool same = true;
+    for (int i = 0; i < m_entries.size() && same; ++i) same = m_entries.at(i).id == reordered.at(i).id;
+    if (same) return true;
+    const QUuid activeId = currentSourceId();
+    const QUuid compareAId = isValidIndex(m_compareA) ? m_entries.at(m_compareA).id : QUuid{};
+    const QUuid compareBId = isValidIndex(m_compareB) ? m_entries.at(m_compareB).id : QUuid{};
+    m_entries = std::move(reordered);
+    m_activeIndex = indexForId(activeId);
+    m_compareA = indexForId(compareAId);
+    m_compareB = indexForId(compareBId);
+    emit entriesChanged();
+    emit activeIndexChanged(m_activeIndex);
+    emit compareAssignmentChanged();
+    setModified(true);
+    return true;
+}
+
 void Project::setModified(bool modified)
 {
     // Not modified means "matches its file": remember that content.
-    if (!modified) m_savedContent = reviewContent();
+    if (!modified) {
+        m_savedContent = reviewContent();
+        m_savedExportFolder = m_exportFolder;
+        m_savedExportBurnIns = m_exportBurnIns;
+        m_savedCategories = m_categories;
+    }
     if (m_modified == modified) {
         return;
     }
@@ -47,7 +142,7 @@ QVector<Project::ReviewContent> Project::reviewContent() const
     content.reserve(m_entries.size());
     for (const SourceEntry& entry : m_entries)
         content.append({entry.source ? entry.source->filePath() : entry.storedPath, entry.bookmarks,
-                        entry.annotations, entry.frameOffset});
+                        entry.annotations, entry.frameOffset, entry.category});
     return content;
 }
 
@@ -57,7 +152,9 @@ bool Project::needsSavePrompt() const
     // scrubbing or zooming the timeline never counts.
     if (!m_modified) return false;
     const QVector<ReviewContent> now = reviewContent();
-    if (!m_filePath.isEmpty()) return now != m_savedContent; // differs from the file
+    if (!m_filePath.isEmpty()) // differs from the file
+        return now != m_savedContent || m_exportFolder != m_savedExportFolder
+            || m_exportBurnIns != m_savedExportBurnIns || m_categories != m_savedCategories;
     if (now.size() > 1) return true; // a playlist
     return std::any_of(now.cbegin(), now.cend(), [](const ReviewContent& entry) {
         return !entry.bookmarks.isEmpty() || !entry.annotations.isEmpty() || entry.frameOffset != 0;
@@ -142,11 +239,28 @@ int Project::indexForId(const QUuid& id) const
 }
 
 void Project::replace(QString name, QString filePath, QVector<SourceEntry> entries,
-                      const QUuid& currentSourceId)
+                      const QUuid& currentSourceId, QString exportFolder,
+                      std::optional<exporter::ExportBurnIns> exportBurnIns, QStringList categories)
 {
     m_name = std::move(name);
     m_filePath = std::move(filePath);
+    m_exportFolder = exportFolder.isEmpty() ? QString() : QDir::cleanPath(exportFolder);
+    m_exportBurnIns = std::move(exportBurnIns);
+    m_categories = cleanedCategories(categories);
     m_entries = std::move(entries);
+    // A clip's category is always one of the list's.
+    for (SourceEntry& entry : m_entries) {
+        if (entry.category.isEmpty()) continue;
+        bool known = false;
+        for (const QString& existing : std::as_const(m_categories)) {
+            if (existing.compare(entry.category, Qt::CaseInsensitive) == 0) {
+                entry.category = existing;
+                known = true;
+                break;
+            }
+        }
+        if (!known) m_categories.append(entry.category);
+    }
     m_activeIndex = indexForId(currentSourceId);
     if (m_activeIndex < 0 && !m_entries.isEmpty()) m_activeIndex = 0;
     m_compareA = -1;
@@ -278,6 +392,11 @@ bool Project::applyProbeResult(const QUuid& id, const QString& path, quint64 tok
 
 void Project::clear()
 {
+    // A clip opened on its own starts from the default export choices, not
+    // the ones of the review it replaces.
+    m_exportFolder.clear();
+    m_exportBurnIns.reset();
+    m_categories.clear();
     if (m_entries.isEmpty() && m_activeIndex < 0) {
         return;
     }

@@ -17,7 +17,7 @@ QString clipStatusLabel(project::ClipStatus status);
 QColor clipStatusColor(project::ClipStatus status);
 
 /// The strip above the picture: where you are (project › clip), the clip's
-/// review status, and quick export / show-in-folder buttons.
+/// review status, and quick save / save as / export / show-in-folder buttons.
 ///
 /// It shows what it is told and reports what the user picks; MainWindow owns
 /// the project and applies the changes.
@@ -36,6 +36,8 @@ public:
     void setExportActions(const QList<QAction*>& actions);
     /// A button for the window's "Rename Clips from Team List" command.
     void setRenameAction(QAction* action);
+    /// Buttons for the window's Save Project and Save Project As commands.
+    void setSaveActions(QAction* save, QAction* saveAs);
 
 signals:
     void statusChosen(atk::project::ClipStatus status);
@@ -49,6 +51,8 @@ private:
     QLabel* m_separator = nullptr;
     QLabel* m_clip = nullptr;
     QComboBox* m_status = nullptr;
+    QToolButton* m_save = nullptr;
+    QToolButton* m_saveAs = nullptr;
     QToolButton* m_export = nullptr;
     QToolButton* m_rename = nullptr;
     QToolButton* m_folder = nullptr;

@@ -39,9 +39,10 @@ int PlaylistCardDelegate::numberGutterWidth(const QFont& font)
     return std::max(26, QFontMetrics(bold).horizontalAdvance(QStringLiteral("000")) + 10);
 }
 
-QSize PlaylistCardDelegate::sizeHint(const QStyleOptionViewItem& option, const QModelIndex&) const
+QSize PlaylistCardDelegate::sizeHint(const QStyleOptionViewItem& option, const QModelIndex& index) const
 {
-    return QSize(option.rect.width() > 0 ? option.rect.width() : 240, kCardHeight);
+    const bool heading = !index.data(playlistrole::GroupHeading).toString().isEmpty();
+    return QSize(option.rect.width() > 0 ? option.rect.width() : 240, kCardHeight + (heading ? kHeadingHeight : 0));
 }
 
 void PlaylistCardDelegate::paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const
@@ -55,8 +56,38 @@ void PlaylistCardDelegate::paint(QPainter* painter, const QStyleOptionViewItem& 
     const bool active = index.data(playlistrole::Active).toBool();
     const bool unavailable = index.data(playlistrole::Unavailable).toBool();
 
+    // A category group starts here: its name and clip count, with a rule,
+    // above the card.
+    QRect cardRect = option.rect;
+    if (const QString heading = index.data(playlistrole::GroupHeading).toString(); !heading.isEmpty()) {
+        const QRect band(option.rect.left() + 8, option.rect.top(), option.rect.width() - 16, kHeadingHeight);
+        cardRect.setTop(option.rect.top() + kHeadingHeight);
+        QFont headingFont = option.font;
+        headingFont.setPixelSize(11);
+        headingFont.setBold(true);
+        headingFont.setLetterSpacing(QFont::AbsoluteSpacing, 0.6);
+        const QFontMetrics metrics(headingFont);
+        const int count = index.data(playlistrole::GroupCount).toInt();
+        const QString countText = count > 0 ? QStringLiteral("  %1").arg(count) : QString();
+        const int countWidth = countText.isEmpty() ? 0 : metrics.horizontalAdvance(countText);
+        const QString name = metrics.elidedText(heading.toUpper(), Qt::ElideRight, band.width() - countWidth - 24);
+        const int nameWidth = metrics.horizontalAdvance(name);
+        const int baseline = band.top() + (band.height() + metrics.ascent() - metrics.descent()) / 2 + 2;
+        painter->setFont(headingFont);
+        painter->setPen(theme::textPrimary());
+        painter->drawText(QPoint(band.left(), baseline), name);
+        painter->setPen(theme::textSecondary());
+        painter->drawText(QPoint(band.left() + nameWidth, baseline), countText);
+        const int ruleLeft = band.left() + nameWidth + countWidth + 8;
+        if (ruleLeft < band.right()) {
+            painter->setPen(QPen(QColor(255, 255, 255, 30), 1.0));
+            const qreal y = baseline - metrics.ascent() / 2.0 + 0.5;
+            painter->drawLine(QPointF(ruleLeft, y), QPointF(band.right(), y));
+        }
+    }
+
     // Card.
-    const QRectF card = QRectF(option.rect).adjusted(4, 2, -4, -2);
+    const QRectF card = QRectF(cardRect).adjusted(4, 2, -4, -2);
     QPainterPath shape;
     shape.addRoundedRect(card, theme::metrics::radiusMedium, theme::metrics::radiusMedium);
     painter->fillPath(shape, selected ? theme::cardSelected() : hovered ? theme::cardHover() : theme::cardBackground());
@@ -143,11 +174,13 @@ void PlaylistCardDelegate::paint(QPainter* painter, const QStyleOptionViewItem& 
     // Review status, right-aligned on the badge line: a dot and its name, so
     // it never relies on colour alone. "Not reviewed" is the default: no chip.
     const auto status = project::ClipStatus(index.data(playlistrole::Status).toInt());
+    qreal statusLeft = text.right();
     if (status != project::ClipStatus::NotReviewed) {
         const QString label = clipStatusLabel(status);
         const QFontMetrics metrics(detailFont);
         const qreal width = metrics.horizontalAdvance(label) + 18;
         const QRectF chip(std::max<qreal>(badge.x(), text.right() - width), text.bottom() - 13, width, 15);
+        statusLeft = chip.left();
         QColor fill = clipStatusColor(status);
         fill.setAlpha(45);
         QPainterPath pill;
@@ -160,6 +193,27 @@ void PlaylistCardDelegate::paint(QPainter* painter, const QStyleOptionViewItem& 
         painter->setPen(theme::textPrimary());
         painter->drawText(chip.adjusted(13, 0, -3, 0), Qt::AlignLeft | Qt::AlignVCenter,
                           metrics.elidedText(label, Qt::ElideRight, int(chip.width() - 16)));
+    }
+
+    // Category, between the badges and the status: a tag and its name,
+    // shortened to the room there is.
+    const QString category = index.data(playlistrole::Category).toString();
+    const qreal room = statusLeft - 6 - badge.x();
+    if (!category.isEmpty() && room > 30) {
+        const QFontMetrics metrics(detailFont);
+        const int iconSize = 11;
+        const qreal width = std::min<qreal>(room, metrics.horizontalAdvance(category) + iconSize + 12);
+        const QRectF chip(badge.x(), text.bottom() - 13, width, 15);
+        QPainterPath pill;
+        pill.addRoundedRect(chip, 4, 4);
+        painter->fillPath(pill, QColor(255, 255, 255, 22));
+        const qreal dpr = painter->device() ? painter->device()->devicePixelRatioF() : 1.0;
+        painter->drawPixmap(QPointF(chip.left() + 4, chip.center().y() - iconSize / 2.0),
+                            icons::pixmap(QStringLiteral("tag"), QSize(iconSize, iconSize), theme::textSecondary(), dpr));
+        painter->setFont(detailFont);
+        painter->setPen(theme::textPrimary());
+        painter->drawText(chip.adjusted(iconSize + 7, 0, -4, 0), Qt::AlignLeft | Qt::AlignVCenter,
+                          metrics.elidedText(category, Qt::ElideRight, int(chip.width() - iconSize - 11)));
     }
 
     if (option.state & QStyle::State_HasFocus && !(option.state & QStyle::State_Selected)) {

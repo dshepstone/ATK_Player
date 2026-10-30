@@ -1,16 +1,19 @@
 #pragma once
 
 #include "annotation/AnnotationTypes.h"
+#include "export/ExportBurnIns.h"
 #include "media/MediaSource.h"
 #include "timeline/Bookmark.h"
 #include "timeline/PlaybackRange.h"
 
 #include <QObject>
 #include <QString>
+#include <QStringList>
 #include <QUuid>
 #include <QVector>
 
 #include <memory>
+#include <optional>
 
 namespace atk::project {
 
@@ -49,6 +52,9 @@ struct SourceEntry {
     int64_t frameOffset = 0;
     /// Review status, set by the reviewer from the header bar.
     ClipStatus status = ClipStatus::NotReviewed;
+    /// The playlist category the clip is filed under, one of the project's
+    /// categories(), or empty for none.
+    QString category;
 };
 
 /// Which viewer a source is bound to during A/B comparison.
@@ -77,6 +83,35 @@ public:
     const QString& filePath() const { return m_filePath; }
     void setFilePath(const QString& path);
 
+    /// Folder exports of this project are saved to by default, or empty to
+    /// save them beside the project (or the clip). Saved in the project file.
+    const QString& exportFolder() const { return m_exportFolder; }
+    /// Sets the export folder and marks the project modified.
+    void setExportFolder(const QString& folder);
+
+    /// The "Drawings, notes and burn-ins" choices this review was last
+    /// exported with, which its next exports start from. Empty until one is
+    /// kept; opening another review or clip starts again from the defaults.
+    /// Saved in the project file.
+    const std::optional<exporter::ExportBurnIns>& exportBurnIns() const { return m_exportBurnIns; }
+    /// Keeps (or, with an empty value, forgets) the choices; marks the
+    /// project modified when they change.
+    void setExportBurnIns(const std::optional<exporter::ExportBurnIns>& burnIns);
+
+    // --- Playlist categories ---------------------------------------------
+    /// The category names clips can be filed under, in the order they were
+    /// made. Saved in the project file.
+    const QStringList& categories() const { return m_categories; }
+    /// Replaces the category names (trimmed, blanks and repeats dropped).
+    /// Clips filed under a name no longer in the list lose their category.
+    void setCategories(const QStringList& categories);
+    /// Files one clip under a category (added to categories() when new), or
+    /// under none with an empty name. False for an unknown id or no change.
+    bool setClipCategory(const QUuid& id, const QString& category);
+    /// Puts the playlist in the order of `order`, which must name every clip
+    /// once. The loaded clip stays loaded. False, with no change, otherwise.
+    bool reorder(const QVector<QUuid>& order);
+
     /// True when there are unsaved changes.
     bool isModified() const { return m_modified; }
     void setModified(bool modified);
@@ -104,7 +139,9 @@ public:
     int indexForId(const QUuid& id) const;
     void setActiveIndex(int index);
     void replace(QString name, QString filePath, QVector<SourceEntry> entries,
-                 const QUuid& currentSourceId);
+                 const QUuid& currentSourceId, QString exportFolder = {},
+                 std::optional<exporter::ExportBurnIns> exportBurnIns = {},
+                 QStringList categories = {});
     /// Replaces only the media descriptor for an existing stable source.
     /// Bookmarks outside the replacement extent are discarded; the review
     /// range is clamped. A still-image source's hold carries over to the
@@ -153,12 +190,16 @@ private:
         QVector<timeline::Bookmark> bookmarks;
         annotation::SourceAnnotations annotations;
         int64_t frameOffset = 0;
+        QString category;
         friend bool operator==(const ReviewContent&, const ReviewContent&) = default;
     };
     QVector<ReviewContent> reviewContent() const;
 
     QString m_name;
     QString m_filePath;
+    QString m_exportFolder;
+    std::optional<exporter::ExportBurnIns> m_exportBurnIns;
+    QStringList m_categories;
     QVector<SourceEntry> m_entries;
     int m_activeIndex = -1;
     int m_compareA = -1;
@@ -167,6 +208,9 @@ private:
     /// reviewContent() when the project last matched its file (saved, loaded
     /// or new), so a save prompt only appears when something real changed.
     QVector<ReviewContent> m_savedContent;
+    QString m_savedExportFolder;
+    std::optional<exporter::ExportBurnIns> m_savedExportBurnIns;
+    QStringList m_savedCategories;
 };
 
 } // namespace atk::project

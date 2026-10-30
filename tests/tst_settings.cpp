@@ -44,8 +44,10 @@ private slots:
     void shortcutOverridesDistinguishClearAndDefault();
     void registryUpdatesActionsAtRuntime();
     void conflictDetectionIdentifiesStableCommand();
+    void bracketKeysAreBrushSizeOnlyWhileDrawing();
     void preferencesCancelDoesNotWriteSettings();
     void textEditingKeepsTypingShortcuts();
+    void spacePlaysFromFieldsThatDoNotTypeIt();
     void mainWindowLoadsReviewAndShortcutPreferences();
     void windowAndDockStateRoundTrip();
     void bookmarksPanelStartsClosed();
@@ -273,6 +275,36 @@ void TestSettings::conflictDetectionIdentifiesStableCommand()
         shortcuts, QStringLiteral("view.zoomFit"), QKeySequence()).isEmpty());
 }
 
+void TestSettings::bracketKeysAreBrushSizeOnlyWhileDrawing()
+{
+    using atk::commands::CommandId;
+    // [ and ] are the in and out points, and the brush size while drawing;
+    // sharing them is not a conflict in Preferences.
+    QHash<QString, QString> shortcuts;
+    shortcuts.insert(QStringLiteral("draw.brushSizeDown"), QStringLiteral("["));
+    shortcuts.insert(QStringLiteral("playback.setRangeIn"), QStringLiteral("["));
+    QVERIFY(PreferencesDialog::conflictingCommand(
+        shortcuts, QStringLiteral("playback.setRangeIn"), QKeySequence(QStringLiteral("["))).isEmpty());
+    QCOMPARE(PreferencesDialog::conflictingCommand(
+        shortcuts, QStringLiteral("playback.addBookmark"), QKeySequence(QStringLiteral("["))),
+        QStringLiteral("playback.setRangeIn"));
+
+    atk::ui::CommandRegistry registry;
+    QAction* in = registry.action(CommandId::SetRangeIn);
+    QAction* smaller = registry.action(CommandId::DecreaseBrushSize);
+    QCOMPARE(in->shortcut(), smaller->shortcut());
+    QCOMPARE(in->shortcutContext(), Qt::WindowShortcut);
+    QCOMPARE(smaller->shortcutContext(), Qt::WidgetShortcut);
+    registry.setDrawing(true);
+    QCOMPARE(in->shortcutContext(), Qt::WidgetShortcut);
+    QCOMPARE(smaller->shortcutContext(), Qt::WindowShortcut);
+    // Keys that are not shared stay on while drawing.
+    QCOMPARE(registry.action(CommandId::AddBookmark)->shortcutContext(), Qt::WindowShortcut);
+    registry.setDrawing(false);
+    QCOMPARE(in->shortcutContext(), Qt::WindowShortcut);
+    QCOMPARE(smaller->shortcutContext(), Qt::WidgetShortcut);
+}
+
 void TestSettings::preferencesCancelDoesNotWriteSettings()
 {
     QTemporaryDir directory;
@@ -300,6 +332,39 @@ void TestSettings::textEditingKeepsTypingShortcuts()
     QTest::keyClick(&edit, Qt::Key_B);
     QCOMPARE(edit.text(), QStringLiteral("b"));
     QCOMPARE(triggered.count(), 0);
+}
+
+void TestSettings::spacePlaysFromFieldsThatDoNotTypeIt()
+{
+    QWidget window;
+    CommandRegistry registry(&window);
+    window.addActions(registry.allActions());
+    QSpinBox frame(&window);
+    QLineEdit readOnly(QStringLiteral("clip.mp4"), &window);
+    readOnly.setReadOnly(true);
+    QLineEdit note(&window);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    QAction* play = registry.action(atk::commands::CommandId::PlayPause);
+    QVERIFY(play && !play->autoRepeat()); // holding Space does not flicker
+    QSignalSpy triggered(play, &QAction::triggered);
+
+    // A frame-number box keeps focus after a click; Space still plays.
+    frame.setFocus();
+    QTRY_VERIFY(frame.hasFocus());
+    QTest::keyClick(&frame, Qt::Key_Space);
+    QCOMPARE(triggered.count(), 1);
+    // As does read-only text.
+    readOnly.setFocus();
+    QTRY_VERIFY(readOnly.hasFocus());
+    QTest::keyClick(&readOnly, Qt::Key_Space);
+    QCOMPARE(triggered.count(), 2);
+    // Typing a note still types the space.
+    note.setFocus();
+    QTRY_VERIFY(note.hasFocus());
+    QTest::keyClicks(&note, QStringLiteral("a b"));
+    QCOMPARE(note.text(), QStringLiteral("a b"));
+    QCOMPARE(triggered.count(), 2);
 }
 
 void TestSettings::mainWindowLoadsReviewAndShortcutPreferences()

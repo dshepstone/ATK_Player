@@ -48,11 +48,11 @@ TransportControls::TransportControls(CommandRegistry* registry, QWidget* parent)
     m_pauseIcon = icons::icon(QStringLiteral("pause"));
 
     // Drawing tools: on the left, apart from the transport, like SyncSketch.
+    // A palette icon rather than a labelled button, to leave the transport room.
     QToolButton* draw = makeCommandButton(commands::CommandId::ToggleAnnotateMode,
-        icons::icon(QStringLiteral("pencil")), tr("Draw on frame: show the drawing tools"));
+        icons::icon(QStringLiteral("palette")), tr("Draw on frame: show the drawing tools"),
+        theme::metrics::iconLarge);
     draw->setObjectName(QStringLiteral("TransportDrawButton"));
-    draw->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-    draw->setProperty("atkRole", QVariant()); // a framed button: the way into drawing
     layout->addWidget(draw);
 
     // In, out and loop: the review range.
@@ -60,15 +60,15 @@ TransportControls::TransportControls(CommandRegistry* registry, QWidget* parent)
         auto* line = new QWidget(this);
         line->setFixedSize(1, 20);
         line->setStyleSheet(QStringLiteral("background-color: %1;").arg(theme::controlHover().name()));
-        layout->addSpacing(6);
+        layout->addSpacing(10);
         layout->addWidget(line);
-        layout->addSpacing(6);
+        layout->addSpacing(10);
     };
     separator();
     layout->addWidget(makeCommandButton(commands::CommandId::SetRangeIn,
-        icons::icon(QStringLiteral("arrow-left-to-line")), tr("Set range in")));
+        icons::icon(QStringLiteral("arrow-left-to-line")), tr("Set in point")));
     layout->addWidget(makeCommandButton(commands::CommandId::SetRangeOut,
-        icons::icon(QStringLiteral("arrow-right-to-line")), tr("Set range out")));
+        icons::icon(QStringLiteral("arrow-right-to-line")), tr("Set out point")));
     // Loop, with the arrow choosing what happens at the end of each clip.
     QToolButton* loop = makeCommandButton(commands::CommandId::ToggleLoop, icons::icon(QStringLiteral("repeat")),
         tr("Loop. The arrow chooses: play through the playlist, stop after each clip, "
@@ -117,24 +117,34 @@ TransportControls::TransportControls(CommandRegistry* registry, QWidget* parent)
     fixWidthForText(m_speedButton, QStringLiteral("99.999fps"));
     layout->addWidget(m_speedButton);
 
+    // The transport itself, larger than the tools around it so it is easy to
+    // hit; play / pause the largest of all. Set apart by separators, which
+    // keep the groups distinct when the window is too narrow for the stretch.
     layout->addStretch(1);
+    separator();
+    constexpr int transportIcon = theme::metrics::iconTransport;
     layout->addWidget(makeCommandButton(commands::CommandId::FirstFrame,
-        icons::icon(QStringLiteral("skip-back")), tr("Jump to first frame")));
+        icons::icon(QStringLiteral("skip-back")), tr("Jump to first frame"), transportIcon));
     layout->addWidget(makeCommandButton(commands::CommandId::PreviousFrame,
-        icons::icon(QStringLiteral("step-back")), tr("Previous frame")));
+        icons::icon(QStringLiteral("step-back")), tr("Previous frame"), transportIcon));
     layout->addWidget(makeCommandButton(commands::CommandId::SkipBack10Seconds,
-        icons::icon(QStringLiteral("rewind")), tr("Skip back 10 seconds")));
+        icons::icon(QStringLiteral("rewind")), tr("Skip back 10 seconds"), transportIcon));
 
-    m_playPauseButton = makeCommandButton(commands::CommandId::PlayPause, m_playIcon, tr("Play"));
+    m_playPauseButton = makeCommandButton(commands::CommandId::PlayPause, m_playIcon, tr("Play"),
+                                          theme::metrics::iconPlay);
+    m_playPauseButton->setObjectName(QStringLiteral("TransportPlayPauseButton"));
+    layout->addSpacing(4);
     layout->addWidget(m_playPauseButton);
+    layout->addSpacing(4);
 
     layout->addWidget(makeCommandButton(commands::CommandId::NextFrame,
-        icons::icon(QStringLiteral("step-forward")), tr("Next frame")));
+        icons::icon(QStringLiteral("step-forward")), tr("Next frame"), transportIcon));
     layout->addWidget(makeCommandButton(commands::CommandId::SkipForward10Seconds,
-        icons::icon(QStringLiteral("fast-forward")), tr("Skip forward 10 seconds")));
+        icons::icon(QStringLiteral("fast-forward")), tr("Skip forward 10 seconds"), transportIcon));
     layout->addWidget(makeCommandButton(commands::CommandId::LastFrame,
-        icons::icon(QStringLiteral("skip-forward")), tr("Jump to last frame")));
+        icons::icon(QStringLiteral("skip-forward")), tr("Jump to last frame"), transportIcon));
 
+    separator();
     layout->addStretch(1);
     // View tools: how the picture is shown.
     m_viewTools = new QHBoxLayout;
@@ -194,6 +204,8 @@ TransportControls::TransportControls(CommandRegistry* registry, QWidget* parent)
         icons::icon(QStringLiteral("scan")), tr("Fit the picture to the viewer")));
     layout->addWidget(makeCommandButton(commands::CommandId::ToggleVideoFullScreen,
         icons::icon(QStringLiteral("fullscreen")), tr("Video full screen")));
+    layout->addWidget(makeCommandButton(commands::CommandId::ToggleCinemaMode,
+        icons::icon(QStringLiteral("rectangle-horizontal")), tr("Cinema mode")));
     layout->addWidget(makeCommandButton(commands::CommandId::Preferences,
         icons::icon(QStringLiteral("settings")), tr("Preferences")));
 
@@ -287,13 +299,15 @@ TransportControls::~TransportControls() = default;
 
 QToolButton* TransportControls::makeCommandButton(commands::CommandId id,
                                              const QIcon& icon,
-                                             const QString& tooltip)
+                                             const QString& tooltip,
+                                             int iconSize)
 {
+    if (iconSize <= 0) iconSize = theme::metrics::iconMedium;
     auto* button = new QToolButton(this);
     button->setToolButtonStyle(Qt::ToolButtonIconOnly);
     // Flat until hovered; a filled accent tile when on (loop, flip...).
     button->setProperty("atkRole", "iconButton");
-    button->setIconSize(QSize(theme::metrics::iconMedium, theme::metrics::iconMedium));
+    button->setIconSize(QSize(iconSize, iconSize));
     // Transport buttons must not steal focus, or Space would re-trigger the
     // focused button instead of running the Play/Pause command.
     button->setFocusPolicy(Qt::NoFocus);

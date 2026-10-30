@@ -43,6 +43,43 @@ QString storedMediaPath(const QString& mediaPath, const QString& projectPath)
         ? QDir::cleanPath(mediaPath) : relative;
 }
 
+/// As storedMediaPath, for a folder: "." when it is the project's own folder.
+QString storedFolderPath(const QString& folder, const QString& projectPath)
+{
+    const QString stored = storedMediaPath(folder, projectPath);
+    return stored.isEmpty() ? QStringLiteral(".") : stored;
+}
+
+QJsonObject burnInsJson(const exporter::ExportBurnIns& burnIns)
+{
+    return {{QStringLiteral("frameNumber"), burnIns.frameNumber},
+            {QStringLiteral("bookmarkLabels"), burnIns.bookmarkLabels},
+            {QStringLiteral("bookmarkNotes"), burnIns.bookmarkNotes},
+            {QStringLiteral("drawings"), burnIns.annotations},
+            {QStringLiteral("frameNotes"), burnIns.annotationNotes},
+            {QStringLiteral("holdFrames"), burnIns.annotationHoldFrames},
+            {QStringLiteral("freezeFrames"), burnIns.annotationFreezeFrames},
+            {QStringLiteral("tracingPaper"), burnIns.tracingPaperPercent}};
+}
+
+/// The saved export choices, or none when absent or not an object. Numbers
+/// are clamped to what the export window offers.
+std::optional<exporter::ExportBurnIns> readBurnIns(const QJsonValue& value)
+{
+    if (!value.isObject()) return std::nullopt;
+    const QJsonObject o = value.toObject();
+    exporter::ExportBurnIns burnIns;
+    burnIns.frameNumber = o.value(QStringLiteral("frameNumber")).toBool();
+    burnIns.bookmarkLabels = o.value(QStringLiteral("bookmarkLabels")).toBool();
+    burnIns.bookmarkNotes = o.value(QStringLiteral("bookmarkNotes")).toBool();
+    burnIns.annotations = o.value(QStringLiteral("drawings")).toBool();
+    burnIns.annotationNotes = o.value(QStringLiteral("frameNotes")).toBool();
+    burnIns.annotationHoldFrames = std::clamp(o.value(QStringLiteral("holdFrames")).toInt(), 0, 240);
+    burnIns.annotationFreezeFrames = std::clamp(o.value(QStringLiteral("freezeFrames")).toInt(), 0, 240);
+    burnIns.tracingPaperPercent = std::clamp(o.value(QStringLiteral("tracingPaper")).toInt(), 0, 100);
+    return burnIns;
+}
+
 QJsonObject bookmarkJson(const timeline::Bookmark& b)
 {
     return {{QStringLiteral("id"), QString::number(b.id)},
@@ -333,6 +370,8 @@ static SerializerResult saveWithName(const Project& project, const QString& file
         // Likewise omitted at the default; present means version 3.
         if (entry.status != ClipStatus::NotReviewed)
             review.insert(QStringLiteral("status"), clipStatusKey(entry.status));
+        // Additive v1 field, omitted when the clip has no category.
+        if (!entry.category.isEmpty()) review.insert(QStringLiteral("category"), entry.category);
         QJsonObject source{{QStringLiteral("id"), entry.id.toString(QUuid::WithoutBraces)},
             {QStringLiteral("path"), storedMediaPath(entry.source->filePath(), filePath)},
             {QStringLiteral("displayName"), entry.displayName.isEmpty() ? entry.source->displayName() : entry.displayName},
@@ -363,6 +402,16 @@ static SerializerResult saveWithName(const Project& project, const QString& file
         {QStringLiteral("version"), version}, {QStringLiteral("name"), projectName},
         {QStringLiteral("currentSourceId"), project.currentSourceId().toString(QUuid::WithoutBraces)},
         {QStringLiteral("sources"), sources}};
+    // Additive v1 field: where this project's exports are saved by default,
+    // relative to the project file like the media when it sits beside it.
+    if (!project.exportFolder().isEmpty())
+        root.insert(QStringLiteral("exportFolder"), storedFolderPath(project.exportFolder(), filePath));
+    // Additive v1 fields: the burn-in choices the review's exports start
+    // from, and the playlist's category names.
+    if (project.exportBurnIns())
+        root.insert(QStringLiteral("exportOptions"), burnInsJson(*project.exportBurnIns()));
+    if (!project.categories().isEmpty())
+        root.insert(QStringLiteral("categories"), QJsonArray::fromStringList(project.categories()));
     // Imported brush tips used by any drawing travel with the project, so it
     // renders the same on a machine that never imported the brush set.
     QSet<QString> usedTips;
@@ -493,6 +542,7 @@ SerializerResult ProjectSerializer::load(Project& project, const QString& filePa
             entry.bookmarks.append(bookmark);
         }
         entry.status = clipStatusFromKey(review.value(QStringLiteral("status")).toString());
+        entry.category = review.value(QStringLiteral("category")).toString().trimmed().left(200);
         if (!readAnnotations(review.value(QStringLiteral("annotations")), &entry.annotations))
             return SerializerResult::failure(QStringLiteral("A source has invalid annotation data."));
         entries.append(std::move(entry));
@@ -502,9 +552,17 @@ SerializerResult ProjectSerializer::load(Project& project, const QString& filePa
         if (!annotation::BrushTipRegistry::instance().contains(tip.id))
             annotation::BrushTipRegistry::instance().add(tip);
     }
+    QStringList categories;
+    for (const QJsonValue& value : root.value(QStringLiteral("categories")).toArray())
+        categories.append(value.toString().left(200));
+    const QString storedExportFolder = root.value(QStringLiteral("exportFolder")).toString();
+    const QString exportFolder = storedExportFolder.isEmpty() ? QString()
+        : QDir::isAbsolutePath(storedExportFolder) ? QDir::cleanPath(storedExportFolder)
+                                                   : QDir::cleanPath(base.absoluteFilePath(storedExportFolder));
     project.replace(root.value(QStringLiteral("name")).toString(QStringLiteral("Untitled")),
                     QFileInfo(filePath).absoluteFilePath(), std::move(entries),
-                    QUuid(root.value(QStringLiteral("currentSourceId")).toString()));
+                    QUuid(root.value(QStringLiteral("currentSourceId")).toString()), exportFolder,
+                    readBurnIns(root.value(QStringLiteral("exportOptions"))), categories);
     return SerializerResult::success();
 }
 } // namespace atk::project

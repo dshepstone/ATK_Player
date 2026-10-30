@@ -58,7 +58,8 @@ signals:
 private:
     QToolButton* makeCommandButton(commands::CommandId id,
                                    const QIcon& icon,
-                                   const QString& tooltip);
+                                   const QString& tooltip,
+                                   int iconSize = 0);
 
     CommandRegistry* m_registry = nullptr;
     QToolButton* m_playPauseButton = nullptr;

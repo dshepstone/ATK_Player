@@ -14,10 +14,13 @@ using C = CommandCategory;
 // The command table.
 //
 // Default shortcuts required by the Phase 0 specification:
-//   Space  Play/Pause      Home  First Frame     I  Set Range In
-//   Left   Previous Frame  End   Last Frame      O  Set Range Out
+//   Space  Play/Pause      Home  First Frame     [  Set In Point
+//   Left   Previous Frame  End   Last Frame      ]  Set Out Point
 //   Right  Next Frame      L     Toggle Loop     B  Add Bookmark
 //   Esc    Stop / cancel the current temporary action
+//
+// [ and ] are shared: brush size while drawing (isDrawingShortcut), the in
+// and out points otherwise.
 //
 // Adding a command means adding one row here; menus, shortcuts and the API
 // command surface all derive from this array.
@@ -89,9 +92,10 @@ constexpr std::array kCommands{
     CommandDefinition{ CommandId::MovePlaylistItemUp, "playlist.moveUp",       QT_TRANSLATE_NOOP("Command", "Move Playlist Item Up"),C::Playback,nullptr,        false },
     CommandDefinition{ CommandId::MovePlaylistItemDown,"playlist.moveDown",    QT_TRANSLATE_NOOP("Command", "Move Playlist Item Down"),C::Playback,nullptr,      false },
     CommandDefinition{ CommandId::RelinkMedia,          "playlist.relink",      QT_TRANSLATE_NOOP("Command", "Relink Media..."),       C::Playback, nullptr,      false },
-    CommandDefinition{ CommandId::SetRangeIn,         "playback.setRangeIn",   QT_TRANSLATE_NOOP("Command", "Set Range In"),         C::Playback, "I",            false },
-    CommandDefinition{ CommandId::SetRangeOut,        "playback.setRangeOut",  QT_TRANSLATE_NOOP("Command", "Set Range Out"),        C::Playback, "O",            false },
-    CommandDefinition{ CommandId::ClearRange,         "playback.clearRange",   QT_TRANSLATE_NOOP("Command", "Clear Range"),          C::Playback, nullptr,        false },
+    CommandDefinition{ CommandId::SetRangeIn,         "playback.setRangeIn",   QT_TRANSLATE_NOOP("Command", "Set In Point"),         C::Playback, "[",            false },
+    CommandDefinition{ CommandId::SetRangeOut,        "playback.setRangeOut",  QT_TRANSLATE_NOOP("Command", "Set Out Point"),        C::Playback, "]",            false },
+    CommandDefinition{ CommandId::ClearRange,         "playback.clearRange",   QT_TRANSLATE_NOOP("Command", "Clear In/Out Points"),  C::Playback, nullptr,        false },
+    CommandDefinition{ CommandId::ToggleInOut,        "playback.toggleInOut",  QT_TRANSLATE_NOOP("Command", "In/Out Points On"),     C::Playback, "\\",           true  },
     CommandDefinition{ CommandId::AddBookmark,        "playback.addBookmark",  QT_TRANSLATE_NOOP("Command", "Add Bookmark"),         C::Playback, "B",            false },
     CommandDefinition{ CommandId::AddRangeBookmark,   "playback.addRangeBookmark",QT_TRANSLATE_NOOP("Command", "Add Range Bookmark"),C::Playback, nullptr,        false },
     CommandDefinition{ CommandId::NextBookmark,       "playback.nextBookmark", QT_TRANSLATE_NOOP("Command", "Next Bookmark"),        C::Playback, "Alt+Right",    false },
@@ -120,6 +124,7 @@ constexpr std::array kCommands{
     CommandDefinition{ CommandId::MediaInformation,  "view.mediaInformation", QT_TRANSLATE_NOOP("Command", "Media Information..."), C::View, nullptr, false },
     CommandDefinition{ CommandId::ToggleFullScreen,   "view.toggleFullScreen", QT_TRANSLATE_NOOP("Command", "Full Screen Application"), C::View,  "F11",          true  },
     CommandDefinition{ CommandId::ToggleVideoFullScreen,"view.toggleVideoFullScreen",QT_TRANSLATE_NOOP("Command", "Video Full Screen"), C::View, "Ctrl+Shift+F", true },
+    CommandDefinition{ CommandId::ToggleCinemaMode,   "view.toggleCinemaMode", QT_TRANSLATE_NOOP("Command", "Cinema Mode"),          C::View,     "C",            true  },
     CommandDefinition{ CommandId::ToggleComparison,    "view.toggleComparison", QT_TRANSLATE_NOOP("Command", "A/B Comparison"), C::View, nullptr, true },
     CommandDefinition{ CommandId::CompareSideBySide,  "view.compareSideBySide", QT_TRANSLATE_NOOP("Command", "Comparison Side by Side"), C::View, nullptr, true },
     CommandDefinition{ CommandId::CompareStacked,     "view.compareStacked", QT_TRANSLATE_NOOP("Command", "Comparison Stacked"), C::View, nullptr, true },
@@ -146,6 +151,11 @@ constexpr std::array kCommands{
 std::span<const CommandDefinition> allCommands()
 {
     return { kCommands.data(), kCommands.size() };
+}
+
+bool isDrawingShortcut(CommandId id)
+{
+    return id == CommandId::IncreaseBrushSize || id == CommandId::DecreaseBrushSize;
 }
 
 const CommandDefinition* find(CommandId id)

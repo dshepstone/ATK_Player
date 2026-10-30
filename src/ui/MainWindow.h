@@ -9,6 +9,8 @@
 #include "media/MediaMetadata.h"
 #include "media/ImageSource.h"
 #include "playback/PlaybackController.h"
+#include "timeline/PlaybackRange.h"
+#include "ui/ArrangePlaylistDialog.h"
 #include "ui/ViewerTransform.h"
 
 #include <QMainWindow>
@@ -20,10 +22,12 @@
 #include <QUuid>
 
 #include <memory>
+#include <optional>
 
 class QDockWidget;
 class QLabel;
 class QSpinBox;
+class QToolButton;
 class QSlider;
 class QCloseEvent;
 class QMenu;
@@ -175,6 +179,22 @@ public:
     ComparisonCompositeWidget* comparisonComposite() const { return m_compareComposite; }
     exporter::ExportSpec exportSnapshot(const QString& outputPath = {}) const;
     bool exportInProgress() const;
+    /// True when the project has a save location for exports and it exists.
+    bool projectExportFolderAvailable() const;
+    /// Applies an Arrange Playlist result: the categories, each clip's
+    /// category and the new order.
+    void applyPlaylistArrangement(const QVector<ArrangePlaylistDialog::Clip>& clips,
+                                  const QStringList& categories);
+    /// The Set In [ and Set Out ] buttons beside the review range (for tests).
+    QToolButton* setInButton() const { return m_setInButton; }
+    QToolButton* setOutButton() const { return m_setOutButton; }
+    QToolButton* inOutToggle() const { return m_inOutToggle; }
+    /// Cinema mode: hides the playlist and slims the timeline for a wider
+    /// picture, without going full screen.
+    bool isCinemaMode() const { return m_cinemaMode; }
+    void setCinemaMode(bool on);
+    /// Keeps (or forgets) the burn-in choices the review's exports start from.
+    void rememberExportBurnIns(const std::optional<exporter::ExportBurnIns>& burnIns);
     /// The last export handed to the system viewer (for tests).
     QString lastOpenedExport() const { return m_lastOpenedExport; }
     /// Opens a finished PDF or video in the system viewer once the file is
@@ -271,6 +291,12 @@ private:
     void exportReview(bool withNotes = false);
     void exportCurrentFrame();
     void exportImageSequence();
+    /// Starts a still export from the review's saved burn-in choices, if any.
+    void applySavedStillBurnIns(exporter::ExportSpec& spec) const;
+    /// The Arrange Playlist window: bulk reorder, sort and categories.
+    void arrangePlaylist();
+    /// Shows on the Set In / Set Out buttons which marks are set and where.
+    void syncInOutButtons();
     void exportReviewNotes();
     void exportReviewNotesBatch();
     exporter::ExportSpec notesPdfSpec(const project::SourceEntry& entry) const;
@@ -427,6 +453,12 @@ private:
     FrameNumberInput* m_frameNumberInput = nullptr;
     QPointer<MediaInformationDialog> m_mediaInformationDialog;
     TimelineRangeSlider* m_timelineRangeSlider = nullptr;
+    QToolButton* m_setInButton = nullptr;
+    QToolButton* m_setOutButton = nullptr;
+    QToolButton* m_inOutToggle = nullptr;
+    QWidget* m_reviewRangeBar = nullptr;
+    bool m_cinemaMode = false;
+    bool m_playlistBeforeCinema = true;
     QSpinBox* m_reviewStartFrame = nullptr;
     QSpinBox* m_reviewEndFrame = nullptr;
     QSlider* m_volumeSlider = nullptr;
