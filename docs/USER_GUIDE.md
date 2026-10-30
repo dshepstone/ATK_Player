@@ -128,7 +128,9 @@ colour. Drag cards to reorder; `F4` shows or hides the panel.
 **Arrange Playlist**: the list button at the bottom right of the playlist (or
 **Arrange Playlist…** on a card's right-click menu) opens a window for bulk
 reordering. Pick several clips with `Shift` or `Ctrl`, then move them together
-with the up, down, top and bottom arrows, or drag them. **Sort by** reorders
+with the up, down, top and bottom arrows, or drag them. To send clips to a
+particular place, type its number in **Move to #** and press `Enter`, or just
+type the number on the list (double-clicking a clip's number works too). **Sort by** reorders
 the whole list by name (numbers in order, so `shot2` comes before `shot10`),
 file date, length, category or review status, or reverses it.
 

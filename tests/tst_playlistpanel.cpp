@@ -58,6 +58,7 @@ private slots:
     void mainWindowFillsInThumbnails();
     void headerShowsTheClipAndSetsItsStatus();
     void arrangeSortsMovesAndFilesClips();
+    void arrangeMovesClipsToATypedNumber();
     void arrangingKeepsTheLoadedClipAndShowsCategories();
     void inOutToggleSwitchesRangeAndWholeClip();
 };
@@ -306,6 +307,57 @@ void TestPlaylistPanel::arrangeSortsMovesAndFilesClips()
     dialog.sortBy(Dialog::SortKey::Category);
     QCOMPARE(names(dialog.clips()), (QStringList{"shot10.mp4", "shot1.mp4", "Shot2.mp4"}));
     QCOMPARE(dialog.list()->topLevelItem(0)->text(0), QStringLiteral("1"));
+}
+
+void TestPlaylistPanel::arrangeMovesClipsToATypedNumber()
+{
+    using Dialog = ui::ArrangePlaylistDialog;
+    QVector<Dialog::Clip> clips;
+    for (const char* name : {"a", "b", "c", "d", "e"}) {
+        Dialog::Clip clip;
+        clip.id = QUuid::createUuid();
+        clip.name = QString::fromLatin1(name);
+        clips.append(clip);
+    }
+    const auto names = [](const Dialog& dialog) {
+        QString result;
+        for (const Dialog::Clip& c : dialog.clips()) result += c.name;
+        return result;
+    };
+    Dialog dialog(clips, {});
+    dialog.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&dialog));
+
+    // Move to a number: the first picked clip lands there, the rest follow.
+    dialog.selectRows({4});
+    dialog.moveSelectedTo(2);
+    QCOMPARE(names(dialog), QStringLiteral("aebcd"));
+    dialog.selectRows({0, 1});
+    dialog.moveSelectedTo(99); // past the end: to the bottom
+    QCOMPARE(names(dialog), QStringLiteral("bcdae"));
+
+    // The Move to # box, with Enter moving rather than closing the window.
+    auto* number = dialog.findChild<QSpinBox*>(QStringLiteral("ArrangeMoveToNumber"));
+    QVERIFY(number);
+    dialog.selectRows({2});
+    QCOMPARE(number->value(), 3); // starts at where the clip is
+    number->setFocus();
+    number->setValue(1);
+    QTest::keyClick(number, Qt::Key_Return);
+    QCOMPARE(names(dialog), QStringLiteral("dbcae"));
+    QVERIFY(dialog.isVisible());
+
+    // Typing a number on the list moves the current clip there.
+    QTreeWidget* list = dialog.list();
+    list->setFocus();
+    list->setCurrentItem(list->topLevelItem(4));
+    dialog.selectRows({4});
+    QTest::keyClick(list, Qt::Key_2);
+    QTRY_VERIFY(list->findChild<QSpinBox*>(QStringLiteral("ArrangePositionEditor")));
+    QTest::keyClick(list->findChild<QSpinBox*>(QStringLiteral("ArrangePositionEditor")), Qt::Key_Return);
+    QTRY_COMPARE(names(dialog), QStringLiteral("debca"));
+    QVERIFY(dialog.isVisible());
+    QCOMPARE(list->topLevelItem(1)->text(0), QStringLiteral("2"));
 }
 
 void TestPlaylistPanel::arrangingKeepsTheLoadedClipAndShowsCategories()

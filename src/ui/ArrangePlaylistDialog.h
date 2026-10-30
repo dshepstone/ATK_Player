@@ -10,6 +10,7 @@
 
 class QComboBox;
 class QPushButton;
+class QSpinBox;
 class QTreeWidget;
 class QTreeWidgetItem;
 
@@ -59,6 +60,9 @@ public:
     /// Moves the selected clips together: by one place (`delta` -1 or +1), or
     /// to the top or bottom (`delta` beyond the list).
     void moveSelected(int delta);
+    /// Moves the selected clips so the first lands at `position` (1-based,
+    /// clamped to the list), the others right after it in their order.
+    void moveSelectedTo(int position);
     /// Files the selected clips under `category` (added to the list when new),
     /// or under none with an empty name.
     void setSelectedCategory(const QString& category);
@@ -70,6 +74,9 @@ public:
     static void sortClips(QVector<Clip>& clips, SortKey key, const QStringList& categories);
 
     QTreeWidget* list() const { return m_list; }
+
+protected:
+    bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
     void fill(const QVector<Clip>& clips);
@@ -86,6 +93,9 @@ private:
     QPushButton* m_renameCategory = nullptr;
     QPushButton* m_setCategory = nullptr;
     QList<QPushButton*> m_moveButtons;
+    QSpinBox* m_moveToNumber = nullptr;
+    QPushButton* m_moveToButton = nullptr;
+    class PositionDelegate* m_positionDelegate = nullptr;
     QStringList m_categories;
 };
 

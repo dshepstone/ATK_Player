@@ -8,6 +8,7 @@
 #include <QDialogButtonBox>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QKeyEvent>
 #include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
@@ -15,12 +16,15 @@
 #include <QMenu>
 #include <QPushButton>
 #include <QSet>
+#include <QSpinBox>
+#include <QStyledItemDelegate>
 #include <QTimer>
 #include <QToolButton>
 #include <QTreeWidget>
 #include <QVBoxLayout>
 
 #include <algorithm>
+#include <functional>
 
 namespace atk::ui {
 namespace {
@@ -83,6 +87,50 @@ int statusRank(project::ClipStatus status)
 
 } // namespace
 
+/// The "#" column's editor: type a position and the picked clips move there.
+/// The number is never written into the item; the dialog moves the clips
+/// once the editor has closed.
+class PositionDelegate final : public QStyledItemDelegate {
+public:
+    PositionDelegate(QObject* parent, std::function<void(int)> moveTo)
+        : QStyledItemDelegate(parent), m_moveTo(std::move(moveTo)) {}
+    /// A digit typed on a row starts the editor with it.
+    QString pendingText;
+
+    QWidget* createEditor(QWidget* parent, const QStyleOptionViewItem&, const QModelIndex& index) const override
+    {
+        if (index.column() != OrderColumn) return nullptr;
+        auto* spin = new QSpinBox(parent);
+        spin->setObjectName(QStringLiteral("ArrangePositionEditor"));
+        spin->setAccessibleName(tr("Move to position"));
+        spin->setRange(1, std::max(1, index.model()->rowCount()));
+        spin->setButtonSymbols(QAbstractSpinBox::NoButtons);
+        spin->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        return spin;
+    }
+    void setEditorData(QWidget* editor, const QModelIndex& index) const override
+    {
+        auto* spin = static_cast<QSpinBox*>(editor);
+        spin->setValue(index.row() + 1);
+        auto* line = spin->findChild<QLineEdit*>();
+        if (line && !pendingText.isEmpty()) {
+            line->setText(pendingText);
+            line->setCursorPosition(int(pendingText.size()));
+        } else {
+            spin->selectAll();
+        }
+    }
+    void setModelData(QWidget* editor, QAbstractItemModel*, const QModelIndex& index) const override
+    {
+        auto* spin = static_cast<QSpinBox*>(editor);
+        spin->interpretText();
+        if (spin->value() != index.row() + 1) m_moveTo(spin->value());
+    }
+
+private:
+    std::function<void(int)> m_moveTo;
+};
+
 void ArrangePlaylistDialog::sortClips(QVector<Clip>& clips, SortKey key, const QStringList& categories)
 {
     if (key == SortKey::Reverse) {
@@ -123,8 +171,9 @@ ArrangePlaylistDialog::ArrangePlaylistDialog(QVector<Clip> clips, QStringList ca
     resize(760, 560);
     auto* root = new QVBoxLayout(this);
 
-    auto* hint = new QLabel(tr("Select clips (Shift or Ctrl to pick several), then move them with the arrows or drag "
-                               "them. Sort reorders the whole playlist. Nothing changes until you apply."), this);
+    auto* hint = new QLabel(tr("Select clips (Shift or Ctrl to pick several), then move them with the arrows, drag "
+                               "them, or type the number to move them to (or double-click a number). Sort reorders "
+                               "the whole playlist. Nothing changes until you apply."), this);
     hint->setWordWrap(true);
     hint->setProperty("atkRole", "placeholder");
     root->addWidget(hint);
@@ -167,10 +216,23 @@ ArrangePlaylistDialog::ArrangePlaylistDialog(QVector<Clip> clips, QStringList ca
     m_list->setHeaderLabels({tr("#"), tr("Clip"), tr("Category"), tr("File date"), tr("Length")});
     m_list->setRootIsDecorated(false);
     m_list->setUniformRowHeights(true);
-    m_list->setAlternatingRowColors(true);
+    m_list->setAlternatingRowColors(false); // divider lines instead (below)
     m_list->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_list->setDragDropMode(QAbstractItemView::InternalMove);
     m_list->setDefaultDropAction(Qt::MoveAction);
+    // A line between rows, so long lists of similar names stay easy to follow.
+    m_list->setStyleSheet(QStringLiteral(
+        "QTreeWidget#ArrangePlaylistList::item { border-bottom: 1px solid %1; padding: 3px 0px; }"
+        "QTreeWidget#ArrangePlaylistList::item:selected { background-color: %2; color: %3; }")
+        .arg(theme::controlHover().name(), theme::accentFill().name(), theme::textOnAccent().name()));
+    // The "#" column takes a number: the picked clips move to that place.
+    m_positionDelegate = new PositionDelegate(m_list, [this](int position) {
+        // After the editor has closed: moving rebuilds the rows.
+        QTimer::singleShot(0, this, [this, position] { moveSelectedTo(position); });
+    });
+    m_list->setItemDelegateForColumn(OrderColumn, m_positionDelegate);
+    m_list->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::EditKeyPressed);
+    m_list->installEventFilter(this);
     m_list->header()->setStretchLastSection(false);
     m_list->header()->setSectionResizeMode(NameColumn, QHeaderView::Stretch);
     for (int column : {OrderColumn, CategoryColumn, DateColumn, LengthColumn})
@@ -192,6 +254,23 @@ ArrangePlaylistDialog::ArrangePlaylistDialog(QVector<Clip> clips, QStringList ca
     addMove(QStringLiteral("arrow-up"), tr("Move up"), -1, QStringLiteral("ArrangeMoveUp"));
     addMove(QStringLiteral("arrow-down"), tr("Move down"), 1, QStringLiteral("ArrangeMoveDown"));
     addMove(QStringLiteral("arrow-down-to-line"), tr("Move to the bottom"), 1'000'000, QStringLiteral("ArrangeMoveBottom"));
+    // Or a number: move the picked clips to that place.
+    moves->addSpacing(10);
+    auto* toLabel = new QLabel(tr("Move to #"), this);
+    moves->addWidget(toLabel);
+    m_moveToNumber = new QSpinBox(this);
+    m_moveToNumber->setObjectName(QStringLiteral("ArrangeMoveToNumber"));
+    m_moveToNumber->setAccessibleName(tr("Position to move the selected clips to"));
+    m_moveToNumber->setRange(1, std::max<int>(1, int(clips.size())));
+    m_moveToNumber->setToolTip(tr("Type a position and press Enter (or Move) to move the selected clips there"));
+    toLabel->setBuddy(m_moveToNumber);
+    moves->addWidget(m_moveToNumber);
+    m_moveToButton = new QPushButton(tr("Move"), this);
+    m_moveToButton->setObjectName(QStringLiteral("ArrangeMoveTo"));
+    m_moveToButton->setAutoDefault(false);
+    moves->addWidget(m_moveToButton);
+    connect(m_moveToButton, &QPushButton::clicked, this, [this] { moveSelectedTo(m_moveToNumber->value()); });
+    m_moveToNumber->installEventFilter(this); // Enter moves, rather than applying the dialog
     moves->addStretch(1);
     middle->addLayout(moves);
     root->addLayout(middle, 1);
@@ -260,7 +339,7 @@ void ArrangePlaylistDialog::fill(const QVector<Clip>& clips)
     const QLocale locale;
     for (const Clip& clip : clips) {
         auto* item = new QTreeWidgetItem(m_list);
-        item->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled | Qt::ItemIsDragEnabled);
+        item->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled | Qt::ItemIsDragEnabled | Qt::ItemIsEditable);
         item->setData(OrderColumn, kIdRole, clip.id);
         item->setText(NameColumn, clip.name);
         item->setToolTip(NameColumn, clip.name);
@@ -325,6 +404,49 @@ void ArrangePlaylistDialog::selectRows(const QVector<int>& rows)
         if (QTreeWidgetItem* item = m_list->topLevelItem(row)) item->setSelected(true);
     if (!rows.isEmpty())
         if (QTreeWidgetItem* item = m_list->topLevelItem(rows.first())) m_list->scrollToItem(item);
+}
+
+void ArrangePlaylistDialog::moveSelectedTo(int position)
+{
+    QVector<Clip> chosen, rest;
+    const QVector<Clip> all = clips();
+    for (int row = 0; row < all.size(); ++row)
+        (m_list->topLevelItem(row)->isSelected() ? chosen : rest).append(all[row]);
+    if (chosen.isEmpty()) return;
+    // The first picked clip lands on `position`; the others follow it.
+    const int at = std::clamp(position - 1, 0, int(rest.size()));
+    QVector<Clip> moved = rest.mid(0, at) + chosen + rest.mid(at);
+    QVector<int> rows;
+    for (int i = 0; i < chosen.size(); ++i) rows.append(at + i);
+    fill(moved);
+    selectRows(rows);
+    if (QTreeWidgetItem* item = m_list->topLevelItem(at)) m_list->setCurrentItem(item, OrderColumn, QItemSelectionModel::NoUpdate);
+}
+
+bool ArrangePlaylistDialog::eventFilter(QObject* watched, QEvent* event)
+{
+    if (watched == m_moveToNumber && event->type() == QEvent::KeyPress) {
+        const int key = static_cast<QKeyEvent*>(event)->key();
+        if (key == Qt::Key_Return || key == Qt::Key_Enter) {
+            m_moveToNumber->interpretText();
+            moveSelectedTo(m_moveToNumber->value());
+            return true;
+        }
+    }
+    // Typing a number on the list starts the "#" editor of the current clip.
+    if (watched == m_list && event->type() == QEvent::KeyPress) {
+        const auto* key = static_cast<QKeyEvent*>(event);
+        QTreeWidgetItem* current = m_list->currentItem();
+        if (current && key->text().size() == 1 && key->text().at(0).isDigit()
+            && !(key->modifiers() & (Qt::ControlModifier | Qt::AltModifier))) {
+            if (!current->isSelected()) current->setSelected(true);
+            m_positionDelegate->pendingText = key->text();
+            m_list->editItem(current, OrderColumn);
+            m_positionDelegate->pendingText.clear();
+            return true;
+        }
+    }
+    return QDialog::eventFilter(watched, event);
 }
 
 void ArrangePlaylistDialog::moveSelected(int delta)
@@ -401,6 +523,15 @@ void ArrangePlaylistDialog::refreshButtons()
 {
     const bool anySelected = !m_list->selectedItems().isEmpty();
     for (QPushButton* button : std::as_const(m_moveButtons)) button->setEnabled(anySelected);
+    m_moveToButton->setEnabled(anySelected);
+    m_moveToNumber->setEnabled(anySelected);
+    // Start from where the first picked clip is now.
+    if (const QList<QTreeWidgetItem*> picked = m_list->selectedItems(); !picked.isEmpty()) {
+        const QSignalBlocker blocker(m_moveToNumber);
+        int first = m_list->topLevelItemCount();
+        for (QTreeWidgetItem* item : picked) first = std::min(first, m_list->indexOfTopLevelItem(item));
+        m_moveToNumber->setValue(first + 1);
+    }
     m_setCategory->setEnabled(anySelected);
     const bool named = !m_category->currentData().toString().isEmpty();
     m_renameCategory->setEnabled(named);
