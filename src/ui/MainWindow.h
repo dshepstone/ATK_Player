@@ -188,6 +188,7 @@ public:
     /// The Set In [ and Set Out ] buttons beside the review range (for tests).
     QToolButton* setInButton() const { return m_setInButton; }
     QToolButton* setOutButton() const { return m_setOutButton; }
+    QToolButton* inOutToggle() const { return m_inOutToggle; }
     /// Keeps (or forgets) the burn-in choices the review's exports start from.
     void rememberExportBurnIns(const std::optional<exporter::ExportBurnIns>& burnIns);
     /// The last export handed to the system viewer (for tests).
@@ -450,6 +451,7 @@ private:
     TimelineRangeSlider* m_timelineRangeSlider = nullptr;
     QToolButton* m_setInButton = nullptr;
     QToolButton* m_setOutButton = nullptr;
+    QToolButton* m_inOutToggle = nullptr;
     QSpinBox* m_reviewStartFrame = nullptr;
     QSpinBox* m_reviewEndFrame = nullptr;
     QSlider* m_volumeSlider = nullptr;

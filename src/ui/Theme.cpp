@@ -154,6 +154,7 @@ QToolButton[atkRole="markButton"] {
 }
 QToolButton[atkRole="markButton"][markSet="true"] { color: %ACCENT%; border-color: %ACCENT%; }
 QToolButton[atkRole="markButton"]:disabled { border-color: %CONTROL%; }
+QToolButton[atkRole="markButton"]:checked { background-color: %ACCENT_FILL%; color: %TEXT_ON_ACCENT%; border-color: %ACCENT_FILL%; }
 QToolButton[atkRole="iconButton"]::menu-button {
     background: transparent;
     border: none;

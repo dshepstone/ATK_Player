@@ -180,9 +180,11 @@ the last frame and press `]` (or **Out ]**). Each drops a small bracket on the
 timeline, the part outside the brackets is shaded, and playback (and Loop)
 stays between them. The timeline keeps showing the whole clip, and you can
 still click or step outside the marks, for example to set a later out point;
-Play starts again from the in point. Right-click either button, or use
-**Playback > Clear In/Out Points**, to play the whole clip again. Each clip
-keeps its own in and out points in the review.
+Play starts again from the in point. The **On/Off** button beside them (`\`)
+switches the points off, hiding them and playing the whole clip, and back on
+where they were. Right-click any of the three buttons, or use
+**Playback > Clear In/Out Points**, to remove them. Each clip keeps its own in
+and out points, on or off, in the review.
 
 **Open Folder**: the button beside the clip name at the top (and the folder
 icon at the top right) opens the clip's folder in Explorer (Windows) or Finder
@@ -291,6 +293,7 @@ back to the standard choices for one export.
 | Previous / Next Frame | `Left` / `Right` |
 | Loop on/off | `L` |
 | Set in point / out point | `[` / `]` |
+| In/out points on/off | `\` |
 | Draw on Frame | `D` |
 | Copy / Cut / Paste drawings and notes | `Ctrl+C` / `Ctrl+X` / `Ctrl+V` |
 | Brush size | `[` / `]` |

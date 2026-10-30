@@ -498,11 +498,17 @@ void MainWindow::buildWidgets()
     };
     m_setInButton = makeMarkButton(QStringLiteral("TimelineSetInButton"), tr("[ In"), tr("Set in point"));
     m_setOutButton = makeMarkButton(QStringLiteral("TimelineSetOutButton"), tr("Out ]"), tr("Set out point"));
+    // On/off for the marks: off hides them and plays the whole clip, keeping
+    // them to switch back on.
+    m_inOutToggle = makeMarkButton(QStringLiteral("TimelineInOutToggle"), tr("Off"), tr("In and out points on"));
+    m_inOutToggle->setCheckable(true);
+    m_inOutToggle->setMinimumWidth(42);
     auto* reviewRangeRow = new QHBoxLayout;
     reviewRangeRow->setContentsMargins(8, 0, 8, 0);
     reviewRangeRow->setSpacing(6);
     reviewRangeRow->addWidget(m_setInButton);
     reviewRangeRow->addWidget(m_setOutButton);
+    reviewRangeRow->addWidget(m_inOutToggle);
     reviewRangeRow->addSpacing(4);
     reviewRangeRow->addWidget(m_reviewStartFrame);
     reviewRangeRow->addWidget(m_timelineRangeSlider, 1);
@@ -817,6 +823,15 @@ void MainWindow::buildMenus()
             menu.exec(button->mapToGlobal(at));
         });
     }
+    if (QAction* toggle = m_commands->action(CommandId::ToggleInOut)) {
+        connect(m_inOutToggle, &QToolButton::clicked, toggle, &QAction::trigger);
+        connect(m_inOutToggle, &QWidget::customContextMenuRequested, this, [this, clearMarks](const QPoint& at) {
+            if (!clearMarks) return;
+            QMenu menu(m_inOutToggle);
+            menu.addAction(clearMarks);
+            menu.exec(m_inOutToggle->mapToGlobal(at));
+        });
+    }
     syncInOutButtons();
 }
 
@@ -1106,6 +1121,9 @@ void MainWindow::connectSignals()
             m_playback.get(), &playback::PlaybackController::scrubToFrame);
     connect(m_timelineWidget, &TimelineWidget::scrubFinished,
             m_playback.get(), &playback::PlaybackController::endScrub);
+    // Drawings keep up with a drag at half resolution, full detail on release.
+    connect(m_timelineWidget, &TimelineWidget::scrubStarted, m_viewer, [this] { m_viewer->setScrubbing(true); });
+    connect(m_timelineWidget, &TimelineWidget::scrubFinished, m_viewer, [this] { m_viewer->setScrubbing(false); });
     connect(m_frameNumberInput, &FrameNumberInput::seekFrameRequested,
             m_playback.get(), &playback::PlaybackController::seekFrame);
     connect(m_timeline.get(), &timeline::TimelineModel::currentFrameChanged,
@@ -1311,6 +1329,18 @@ void MainWindow::onCommand(CommandId id, bool checked)
     case CommandId::ClearRange:
         m_timeline->clearPlaybackRange();
         statusBar()->showMessage(tr("In and out points cleared: the whole clip plays"), 2000);
+        return;
+    case CommandId::ToggleInOut:
+        m_timeline->setPlaybackMarksEnabled(checked);
+        syncInOutButtons();
+        if (m_timeline->hasPlaybackMarks())
+            statusBar()->showMessage(tr("In and out points on: playing frames %1 to %2")
+                                         .arg(m_timeline->playbackRange().startFrame + 1)
+                                         .arg(m_timeline->playbackRange().endFrame + 1), 3000);
+        else if (m_timeline->hasKeptMarks())
+            statusBar()->showMessage(tr("In and out points off: playing the whole clip"), 3000);
+        else
+            statusBar()->showMessage(tr("No in and out points yet. Press [ and ] to set them."), 3000);
         return;
     case CommandId::AddBookmark: {
         timeline::Bookmark bookmark;
@@ -2687,8 +2717,9 @@ void MainWindow::saveActiveReviewState()
 
 void MainWindow::syncInOutButtons()
 {
-    if (!m_setInButton || !m_setOutButton) return;
+    if (!m_setInButton || !m_setOutButton || !m_inOutToggle) return;
     const bool marked = m_timeline->hasPlaybackMarks();
+    const bool kept = m_timeline->hasKeptMarks();
     const timeline::PlaybackRange& range = m_timeline->playbackRange();
     auto shortcut = [this](CommandId id) {
         const QAction* action = m_commands->action(id);
@@ -2714,7 +2745,23 @@ void MainWindow::syncInOutButtons()
         button->style()->unpolish(button);
         button->style()->polish(button);
     }
-    if (QAction* clear = m_commands->action(CommandId::ClearRange)) clear->setEnabled(marked);
+    if (QAction* clear = m_commands->action(CommandId::ClearRange)) clear->setEnabled(marked || kept);
+
+    const QString toggleKeys = shortcut(CommandId::ToggleInOut);
+    m_inOutToggle->setChecked(marked);
+    m_inOutToggle->setText(marked ? tr("On") : tr("Off"));
+    m_inOutToggle->setToolTip(
+        marked ? tr("In and out points on (frames %1 to %2). Click to turn them off and play the whole clip%3.")
+                     .arg(range.startFrame + 1).arg(range.endFrame + 1).arg(toggleKeys)
+        : kept ? tr("In and out points off: the whole clip plays. Click to turn them back on (frames %1 to %2)%3.")
+                     .arg(range.startFrame + 1).arg(range.endFrame + 1).arg(toggleKeys)
+               : tr("Turns the in and out points on and off%1. Set them first with [ and ].").arg(toggleKeys));
+    if (QAction* toggle = m_commands->action(CommandId::ToggleInOut)) {
+        const QSignalBlocker blocker(toggle);
+        toggle->setChecked(marked);
+        toggle->setEnabled(marked || kept);
+    }
+    m_inOutToggle->setEnabled(marked || kept);
 }
 
 void MainWindow::restoreActiveReviewState()

@@ -102,11 +102,26 @@ void TestTimelineModel::inOutMarksKeepTheTimelineAndConfinePlayback()
     QCOMPARE(model.effectiveEndFrame(), qint64(90));
     model.fitViewport();
 
+    // Off: the whole clip plays and the marks are kept; on puts them back.
+    model.setPlaybackMarksEnabled(false);
+    QVERIFY(!model.hasPlaybackMarks());
+    QVERIFY(model.hasKeptMarks());
+    QCOMPARE(model.effectiveStartFrame(), qint64(0));
+    QCOMPARE(model.effectiveEndFrame(), qint64(99));
+    model.setPlaybackMarksEnabled(true);
+    QCOMPARE(model.playbackRange(), (PlaybackRange{20, 59, true}));
+    // [ while off turns them back on with the kept out point.
+    model.setPlaybackMarksEnabled(false);
+    model.setCurrentFrame(30);
+    model.setRangeInAtCurrentFrame();
+    QCOMPARE(model.playbackRange(), (PlaybackRange{30, 59, true}));
+
     // Marks over the whole clip confine nothing; clearing keeps the view.
     model.setPlaybackRange(PlaybackRange{0, 99, true});
     QVERIFY(!model.hasPlaybackMarks());
     model.clearPlaybackRange();
     QVERIFY(!model.hasPlaybackMarks());
+    QVERIFY(!model.hasKeptMarks());
     QCOMPARE(model.effectiveStartFrame(), qint64(0));
     QCOMPARE(model.effectiveEndFrame(), qint64(99));
 }

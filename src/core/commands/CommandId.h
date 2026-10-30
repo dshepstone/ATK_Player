@@ -80,6 +80,7 @@ enum class CommandId {
     SetRangeIn,
     SetRangeOut,
     ClearRange,
+    ToggleInOut,
     AddBookmark,
     AddRangeBookmark,
     NextBookmark,

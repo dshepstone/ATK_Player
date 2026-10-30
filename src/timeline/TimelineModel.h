@@ -62,8 +62,13 @@ public:
     /// viewport; playback starts again from the in mark.
     int64_t effectiveStartFrame() const;
     int64_t effectiveEndFrame() const;
-    /// True when in/out marks narrower than the clip are set.
+    /// True when in/out marks narrower than the clip are set and on.
     bool hasPlaybackMarks() const;
+    /// True when the marks are switched off but kept: the whole clip plays
+    /// and the marks are hidden until they are switched on again.
+    bool hasKeptMarks() const;
+    /// Switches the marks on (back where they were) or off (whole clip).
+    void setPlaybackMarksEnabled(bool enabled);
 
     // --- Bookmarks --------------------------------------------------------
     const QVector<Bookmark>& bookmarks() const { return m_bookmarks; }

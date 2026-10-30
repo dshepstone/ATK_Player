@@ -133,8 +133,12 @@ void TimelineModel::setRangeInAtCurrentFrame()
 {
     PlaybackRange range = m_range;
     range.startFrame = m_currentFrame;
-    if (!range.enabled) {
-        // First I press with no range yet: run from here to the end.
+    // With the marks switched off, [ turns them back on with the kept out
+    // point, if it is still after the new in point.
+    if (hasKeptMarks() && range.endFrame >= range.startFrame) {
+        range.enabled = true;
+    } else if (!range.enabled) {
+        // First [ press with no range yet: run from here to the end.
         range.endFrame = std::max<int64_t>(lastFrame(), m_currentFrame);
         range.enabled = true;
     } else if (range.endFrame < range.startFrame) {
@@ -147,7 +151,9 @@ void TimelineModel::setRangeOutAtCurrentFrame()
 {
     PlaybackRange range = m_range;
     range.endFrame = m_currentFrame;
-    if (!range.enabled) {
+    if (hasKeptMarks() && range.startFrame <= range.endFrame) {
+        range.enabled = true;
+    } else if (!range.enabled) {
         range.startFrame = 0;
         range.enabled = true;
     } else if (range.startFrame > range.endFrame) {
@@ -166,6 +172,22 @@ bool TimelineModel::hasPlaybackMarks() const
     // Marks over the whole clip confine nothing.
     return m_range.enabled && m_range.isValid() && m_frameCount > 0
         && (m_range.startFrame > 0 || m_range.endFrame < lastFrame());
+}
+
+bool TimelineModel::hasKeptMarks() const
+{
+    return !m_range.enabled && m_range.isValid() && m_frameCount > 0
+        && m_range.endFrame > m_range.startFrame
+        && (m_range.startFrame > 0 || m_range.endFrame < lastFrame());
+}
+
+void TimelineModel::setPlaybackMarksEnabled(bool enabled)
+{
+    // Off keeps where the marks were, so on puts them straight back.
+    if (enabled ? !hasKeptMarks() : !m_range.enabled) return;
+    PlaybackRange range = m_range;
+    range.enabled = enabled;
+    setPlaybackRange(range);
 }
 
 bool TimelineModel::marksMeetViewport() const

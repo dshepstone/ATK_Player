@@ -451,7 +451,23 @@ void TestPlaylistPanel::inOutButtonsMarkTheTimeline()
     setOut->click();
     QCOMPARE(model->playbackRange(), (timeline::PlaybackRange{10, 40, true}));
 
-    // Right-click on either button clears both marks.
+    // The On/Off toggle: off hides the marks and plays the whole clip, and
+    // the clip saves them switched off; on brings them back.
+    QToolButton* toggle = window.inOutToggle();
+    QVERIFY(toggle && toggle->isVisible() && toggle->isEnabled() && toggle->isChecked());
+    toggle->click();
+    QVERIFY(!toggle->isChecked());
+    QVERIFY(!model->hasPlaybackMarks() && model->hasKeptMarks());
+    QCOMPARE(timelineWidget->inMarkX(), -1);
+    QCOMPARE(model->effectiveStartFrame(), qint64(0));
+    QCOMPARE(model->effectiveEndFrame(), qint64(47));
+    QCOMPARE(window.project()->entries().at(0).playbackRange, (timeline::PlaybackRange{10, 40, false}));
+    toggle->click();
+    QVERIFY(toggle->isChecked());
+    QCOMPARE(model->playbackRange(), (timeline::PlaybackRange{10, 40, true}));
+    QCOMPARE(commands->action(commands::CommandId::ToggleInOut)->shortcut(), QKeySequence(QStringLiteral("\\")));
+
+    // Right-click on any of the buttons clears both marks.
     QAction* clear = commands->action(commands::CommandId::ClearRange);
     QCOMPARE(setIn->contextMenuPolicy(), Qt::CustomContextMenu);
     QVERIFY(clear->isEnabled());
@@ -460,6 +476,7 @@ void TestPlaylistPanel::inOutButtonsMarkTheTimeline()
     QCOMPARE(timelineWidget->outMarkX(), -1);
     QVERIFY(!setIn->property("markSet").toBool());
     QVERIFY(!clear->isEnabled());
+    QVERIFY(!toggle->isEnabled());
     QCOMPARE(model->effectiveEndFrame(), qint64(47));
 }
 
