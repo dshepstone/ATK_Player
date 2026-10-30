@@ -34,6 +34,9 @@ public:
     /// its next exports. On by default.
     bool rememberBurnIns() const;
     void setRememberBurnIns(bool remember);
+    /// True after "Use Defaults": this export uses the standard choices and
+    /// the review keeps the ones it has saved.
+    bool defaultsForThisExportOnly() const { return m_defaultsForThisExport; }
 signals:
     /// The user set (or, with an empty folder, cleared) the project's save
     /// location. Exports of the project default there from now on.
@@ -54,6 +57,7 @@ private:
     QCheckBox* m_rememberBurnIns = nullptr;
     QLabel* m_savedBurnInsNote = nullptr;
     QPushButton* m_defaultBurnIns = nullptr;
+    bool m_defaultsForThisExport = false;
     QCheckBox* m_openWhenDone = nullptr;
 };
 

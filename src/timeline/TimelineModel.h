@@ -122,6 +122,8 @@ signals:
     void viewportChanged(qint64 startFrame, qint64 endFrame);
 
 private:
+    /// The range I and O adjust: the marked one while it is in force.
+    PlaybackRange markedRange() const;
     /// Keeps bookmarks sorted by frame so the next/previous lookups stay simple.
     void sortBookmarks();
 

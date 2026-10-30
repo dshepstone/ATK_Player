@@ -127,6 +127,9 @@ void TimelineModel::setPlaybackRange(const PlaybackRange& range)
     }
 
     if (m_range == normalised) {
+        // Marking the same range again puts it back in force, e.g. after the
+        // in/out toggle showed the whole clip.
+        if (normalised.enabled) setViewportRange(normalised.startFrame, normalised.endFrame);
         return;
     }
     m_range = normalised;
@@ -137,7 +140,7 @@ void TimelineModel::setPlaybackRange(const PlaybackRange& range)
 
 void TimelineModel::setRangeInAtCurrentFrame()
 {
-    PlaybackRange range = m_range;
+    PlaybackRange range = markedRange();
     range.startFrame = m_currentFrame;
     if (!range.enabled) {
         // First I press with no range yet: run from here to the end.
@@ -151,7 +154,7 @@ void TimelineModel::setRangeInAtCurrentFrame()
 
 void TimelineModel::setRangeOutAtCurrentFrame()
 {
-    PlaybackRange range = m_range;
+    PlaybackRange range = markedRange();
     range.endFrame = m_currentFrame;
     if (!range.enabled) {
         range.startFrame = 0;
@@ -165,6 +168,15 @@ void TimelineModel::setRangeOutAtCurrentFrame()
 void TimelineModel::clearPlaybackRange()
 {
     setPlaybackRange(PlaybackRange{});
+}
+
+PlaybackRange TimelineModel::markedRange() const
+{
+    // With the in/out toggle off (the whole clip on screen) there is no range
+    // in force: the next I or O starts a new one, even at the old frames.
+    if (!isReviewRangeActive()) return PlaybackRange{m_range.startFrame, m_range.endFrame, false};
+    if (m_range.enabled) return m_range;
+    return PlaybackRange{m_viewport.startFrame(), m_viewport.endFrame(), true};
 }
 
 bool TimelineModel::isReviewRangeActive() const

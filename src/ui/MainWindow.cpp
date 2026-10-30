@@ -3238,7 +3238,9 @@ void MainWindow::exportReview(bool withNotes)
     if (dialog.exec() != QDialog::Accepted) return;
     spec.outputPath = dialog.destination();
     spec.burnIns = dialog.burnIns();
-    rememberExportBurnIns(dialog.rememberBurnIns() ? std::optional(spec.burnIns) : std::nullopt);
+    // "Use Defaults" is for this export only: the saved choices stay.
+    if (!dialog.rememberBurnIns()) rememberExportBurnIns(std::nullopt);
+    else if (!dialog.defaultsForThisExportOnly()) rememberExportBurnIns(spec.burnIns);
     m_settings->setOpenExportsWhenDone(dialog.openWhenDone());
     m_openExportWhenDone = dialog.openWhenDone();
     if (QFileInfo::exists(spec.outputPath)

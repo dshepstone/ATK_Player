@@ -142,12 +142,15 @@ void TestUiPolish::exportWindowStartsFromTheReviewsChoices()
     dialog.setSavedBurnIns(saved);
     QCOMPARE(dialog.burnIns(), saved);
     QVERIFY(!defaults->isHidden());
+    QVERIFY(!dialog.defaultsForThisExportOnly());
     defaults->click();
     QCOMPARE(dialog.burnIns(), spec.burnIns);
     QVERIFY(defaults->isHidden());
+    QVERIFY(dialog.defaultsForThisExportOnly()); // the review keeps its saved choices
 
     dialog.setSavedBurnIns(std::nullopt);
     QCOMPARE(dialog.burnIns(), spec.burnIns);
+    QVERIFY(!dialog.defaultsForThisExportOnly());
     remember->setChecked(false);
     QVERIFY(!dialog.rememberBurnIns());
 }

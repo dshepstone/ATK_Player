@@ -97,7 +97,22 @@ void TestTimelineModel::reviewRangeToggleKeepsTheLastRange()
     model.setLastReviewRange(30, 500); // clamped to the clip
     QCOMPARE(model.lastReviewRange(), (PlaybackRange{30, 99, true}));
 
+    // With the whole clip showing, I and O mark a new range, even one at
+    // the same frames as the range that was switched off.
+    model.setPlaybackRange(PlaybackRange{0, 39, true});
+    model.fitViewport();
+    model.setCurrentFrame(39);
+    model.setRangeOutAtCurrentFrame();
+    QVERIFY(model.isReviewRangeActive());
+    QCOMPARE(model.viewport().endFrame(), qint64(39));
+    model.fitViewport();
+    model.setCurrentFrame(20);
+    model.setRangeInAtCurrentFrame(); // a new range: from here to the end
+    QCOMPARE(model.viewport().startFrame(), qint64(20));
+    QCOMPARE(model.viewport().endFrame(), qint64(99));
+
     // Another clip starts without one.
+    model.clearPlaybackRange();
     model.setFrameCount(50);
     QVERIFY(!model.lastReviewRange().enabled);
 }

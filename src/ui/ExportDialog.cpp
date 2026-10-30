@@ -108,7 +108,7 @@ ExportDialog::ExportDialog(exporter::ExportSpec spec, QWidget* parent)
                                      "another review or clip is opened. Saved with the project."));
     m_defaultBurnIns = new QPushButton(tr("Use Defaults"), keep);
     m_defaultBurnIns->setObjectName(QStringLiteral("ExportBurnInDefaults"));
-    m_defaultBurnIns->setToolTip(tr("Go back to the standard choices for this export"));
+    m_defaultBurnIns->setToolTip(tr("Use the standard choices for this export only; the review keeps its saved ones"));
     m_defaultBurnIns->setVisible(false);
     keepRow->addWidget(m_rememberBurnIns);
     keepRow->addStretch(1);
@@ -120,7 +120,8 @@ ExportDialog::ExportDialog(exporter::ExportSpec spec, QWidget* parent)
     burnIns->addWidget(m_savedBurnInsNote);
     connect(m_defaultBurnIns, &QPushButton::clicked, this, [this] {
         m_burnIns->setOptions(m_spec.burnIns);
-        m_savedBurnInsNote->setVisible(false);
+        m_defaultsForThisExport = true;
+        m_savedBurnInsNote->setText(tr("Standard choices for this export only; the review keeps its saved ones."));
         m_defaultBurnIns->setVisible(false);
     });
 
@@ -143,6 +144,8 @@ exporter::ExportBurnIns ExportDialog::burnIns() const { return m_burnIns->option
 void ExportDialog::setSavedBurnIns(const std::optional<exporter::ExportBurnIns>& saved)
 {
     m_burnIns->setOptions(saved ? *saved : m_spec.burnIns);
+    m_defaultsForThisExport = false;
+    m_savedBurnInsNote->setText(tr("Using the choices saved with this review."));
     m_savedBurnInsNote->setVisible(saved.has_value());
     m_defaultBurnIns->setVisible(saved.has_value());
 }
