@@ -483,21 +483,27 @@ void MainWindow::buildWidgets()
         configureFrameField(field);
         updateFrameFieldWidth(field, m_timeline->frameCount());
     }
-    // In/out on or off, beside the range it switches: on plays only the
-    // range, off plays the whole clip and keeps the range for next time.
-    m_reviewRangeToggle = new QToolButton(central);
-    m_reviewRangeToggle->setObjectName(QStringLiteral("ReviewRangeToggle"));
-    m_reviewRangeToggle->setCheckable(true);
-    m_reviewRangeToggle->setFocusPolicy(Qt::NoFocus);
-    m_reviewRangeToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-    m_reviewRangeToggle->setIcon(icons::icon(QStringLiteral("brackets")));
-    m_reviewRangeToggle->setIconSize(QSize(theme::metrics::iconSmall, theme::metrics::iconSmall));
-    m_reviewRangeToggle->setText(tr("In/Out"));
-    m_reviewRangeToggle->setAccessibleName(tr("Play in/out range only"));
+    // Set In [ and Set Out ]: each marks the current frame on the timeline,
+    // and playback keeps between the marks. Right-click either to clear them.
+    auto makeMarkButton = [central](const QString& name, const QString& text, const QString& accessible) {
+        auto* button = new QToolButton(central);
+        button->setObjectName(name);
+        button->setProperty("atkRole", QStringLiteral("markButton"));
+        button->setFocusPolicy(Qt::NoFocus);
+        button->setToolButtonStyle(Qt::ToolButtonTextOnly);
+        button->setText(text);
+        button->setAccessibleName(accessible);
+        button->setContextMenuPolicy(Qt::CustomContextMenu);
+        return button;
+    };
+    m_setInButton = makeMarkButton(QStringLiteral("TimelineSetInButton"), tr("[ In"), tr("Set in point"));
+    m_setOutButton = makeMarkButton(QStringLiteral("TimelineSetOutButton"), tr("Out ]"), tr("Set out point"));
     auto* reviewRangeRow = new QHBoxLayout;
     reviewRangeRow->setContentsMargins(8, 0, 8, 0);
     reviewRangeRow->setSpacing(6);
-    reviewRangeRow->addWidget(m_reviewRangeToggle);
+    reviewRangeRow->addWidget(m_setInButton);
+    reviewRangeRow->addWidget(m_setOutButton);
+    reviewRangeRow->addSpacing(4);
     reviewRangeRow->addWidget(m_reviewStartFrame);
     reviewRangeRow->addWidget(m_timelineRangeSlider, 1);
     reviewRangeRow->addWidget(m_reviewEndFrame);
@@ -796,14 +802,22 @@ void MainWindow::buildMenus()
     m_commands->action(CommandId::CompareWipe)->setEnabled(false);
     m_commands->action(CommandId::CompareBlend)->setEnabled(false);
     m_commands->action(CommandId::CompareDifference)->setEnabled(false);
-    if (QAction* rangeToggle = m_commands->action(CommandId::ToggleReviewRange)) {
-        rangeToggle->setIcon(icons::icon(QStringLiteral("brackets")));
-        connect(m_reviewRangeToggle, &QToolButton::clicked, rangeToggle, &QAction::trigger);
-        connect(rangeToggle, &QAction::changed, this, [this, rangeToggle] {
-            m_reviewRangeToggle->setEnabled(rangeToggle->isEnabled());
+    QAction* clearMarks = m_commands->action(CommandId::ClearRange);
+    for (const auto& [button, id] : {std::pair{m_setInButton, CommandId::SetRangeIn},
+                                     std::pair{m_setOutButton, CommandId::SetRangeOut}}) {
+        QAction* action = m_commands->action(id);
+        if (!action) continue;
+        connect(button, &QToolButton::clicked, action, &QAction::trigger);
+        connect(action, &QAction::changed, button, [button, action] { button->setEnabled(action->isEnabled()); });
+        button->setEnabled(action->isEnabled());
+        if (!clearMarks) continue;
+        connect(button, &QWidget::customContextMenuRequested, this, [button, clearMarks](const QPoint& at) {
+            QMenu menu(button);
+            menu.addAction(clearMarks);
+            menu.exec(button->mapToGlobal(at));
         });
     }
-    syncReviewRangeToggle();
+    syncInOutButtons();
 }
 
 void MainWindow::connectSignals()
@@ -1131,14 +1145,15 @@ void MainWindow::connectSignals()
         m_project->mutableEntries()[m_project->activeIndex()].bookmarks = m_timeline->bookmarks();
         m_project->setModified(true);
     });
-    connect(m_timeline.get(), &timeline::TimelineModel::viewportChanged, this,
-            [this](qint64, qint64) {
+    // Each clip keeps its own in/out marks.
+    connect(m_timeline.get(), &timeline::TimelineModel::playbackRangeChanged, this,
+            [this](const timeline::PlaybackRange& range) {
+                syncInOutButtons();
                 if (m_restoringSourceState || m_project->activeIndex() < 0) return;
-                m_project->mutableEntries()[m_project->activeIndex()].playbackRange = reviewRangeToSave();
+                m_project->mutableEntries()[m_project->activeIndex()].playbackRange = range;
                 m_project->setModified(true);
             });
-    connect(m_timeline.get(), &timeline::TimelineModel::viewportChanged, this, &MainWindow::syncReviewRangeToggle);
-    connect(m_timeline.get(), &timeline::TimelineModel::frameCountChanged, this, &MainWindow::syncReviewRangeToggle);
+    connect(m_timeline.get(), &timeline::TimelineModel::frameCountChanged, this, &MainWindow::syncInOutButtons);
 
     // The frame count only becomes final once media is open, and the transport
     // depends on whether there is an extent at all.
@@ -1287,18 +1302,15 @@ void MainWindow::onCommand(CommandId id, bool checked)
     // --- Range and bookmarks: fully wired ---------------------------------
     case CommandId::SetRangeIn:
         m_timeline->setRangeInAtCurrentFrame();
-        statusBar()->showMessage(tr("Range in set to frame %1").arg(m_timeline->currentFrame() + 1), 2000);
+        statusBar()->showMessage(tr("In point set at frame %1").arg(m_timeline->currentFrame() + 1), 2000);
         return;
     case CommandId::SetRangeOut:
         m_timeline->setRangeOutAtCurrentFrame();
-        statusBar()->showMessage(tr("Range out set to frame %1").arg(m_timeline->currentFrame() + 1), 2000);
+        statusBar()->showMessage(tr("Out point set at frame %1").arg(m_timeline->currentFrame() + 1), 2000);
         return;
     case CommandId::ClearRange:
         m_timeline->clearPlaybackRange();
-        statusBar()->showMessage(tr("Playback range cleared"), 2000);
-        return;
-    case CommandId::ToggleReviewRange:
-        setReviewRangeActive(checked);
+        statusBar()->showMessage(tr("In and out points cleared: the whole clip plays"), 2000);
         return;
     case CommandId::AddBookmark: {
         timeline::Bookmark bookmark;
@@ -2670,54 +2682,39 @@ void MainWindow::saveActiveReviewState()
     if (m_project->activeIndex() < 0 || m_restoringSourceState) return;
     auto& entry = m_project->mutableEntries()[m_project->activeIndex()];
     entry.bookmarks = m_timeline->bookmarks();
-    entry.playbackRange = reviewRangeToSave();
+    entry.playbackRange = m_timeline->playbackRange();
 }
 
-timeline::PlaybackRange MainWindow::reviewRangeToSave() const
+void MainWindow::syncInOutButtons()
 {
-    // The range on screen; with the in/out toggle off (the whole clip on
-    // screen), the range it switches back to, saved as off.
-    const timeline::PlaybackRange& last = m_timeline->lastReviewRange();
-    if (!m_timeline->isReviewRangeActive() && last.enabled) return {last.startFrame, last.endFrame, false};
-    return {m_timeline->viewport().startFrame(), m_timeline->viewport().endFrame(), true};
-}
-
-void MainWindow::setReviewRangeActive(bool active)
-{
-    if (active != m_timeline->isReviewRangeActive()) {
-        if (!active) {
-            m_timeline->fitViewport();
-            statusBar()->showMessage(tr("Playing the whole clip. The in/out range is kept: Shift+I turns it back on."), 4000);
-        } else if (const timeline::PlaybackRange range = m_timeline->lastReviewRange(); range.enabled) {
-            m_playback->activateReviewRange(range.startFrame, range.endFrame);
-            statusBar()->showMessage(tr("Playing frames %1 to %2 only").arg(range.startFrame + 1).arg(range.endFrame + 1), 3000);
-        } else {
-            statusBar()->showMessage(tr("There is no in/out range yet. Press I and O to mark one, or drag the ends of the range bar."), 5000);
-        }
+    if (!m_setInButton || !m_setOutButton) return;
+    const bool marked = m_timeline->hasPlaybackMarks();
+    const timeline::PlaybackRange& range = m_timeline->playbackRange();
+    auto shortcut = [this](CommandId id) {
+        const QAction* action = m_commands->action(id);
+        const QString keys = action ? action->shortcut().toString(QKeySequence::NativeText) : QString();
+        return keys.isEmpty() ? QString() : QStringLiteral(" (%1)").arg(keys);
+    };
+    const QString clearHint = tr("Right-click to clear the in and out points.");
+    m_setInButton->setToolTip(
+        (marked ? tr("Set the in point to the current frame%1. In point: frame %2.")
+                      .arg(shortcut(CommandId::SetRangeIn)).arg(range.startFrame + 1)
+                : tr("Set the in point to the current frame%1. Playback starts here.")
+                      .arg(shortcut(CommandId::SetRangeIn)))
+        + (marked ? QLatin1Char('\n') + clearHint : QString()));
+    m_setOutButton->setToolTip(
+        (marked ? tr("Set the out point to the current frame%1. Out point: frame %2.")
+                      .arg(shortcut(CommandId::SetRangeOut)).arg(range.endFrame + 1)
+                : tr("Set the out point to the current frame%1. Playback stops or loops here.")
+                      .arg(shortcut(CommandId::SetRangeOut)))
+        + (marked ? QLatin1Char('\n') + clearHint : QString()));
+    for (QToolButton* button : {m_setInButton, m_setOutButton}) {
+        if (button->property("markSet").toBool() == marked) continue;
+        button->setProperty("markSet", marked);
+        button->style()->unpolish(button);
+        button->style()->polish(button);
     }
-    syncReviewRangeToggle();
-}
-
-void MainWindow::syncReviewRangeToggle()
-{
-    const bool active = m_timeline->isReviewRangeActive();
-    const bool available = m_timeline->frameCount() > 0 && (active || m_timeline->lastReviewRange().enabled);
-    QString tip = active ? tr("Playing the in/out range only. Click to play the whole clip; the range is kept.")
-                : available ? tr("Playing the whole clip. Click to play only the in/out range (frames %1 to %2).")
-                                  .arg(m_timeline->lastReviewRange().startFrame + 1)
-                                  .arg(m_timeline->lastReviewRange().endFrame + 1)
-                            : tr("Play only the in/out range. Mark one first with I and O, or drag the ends of the range bar.");
-    if (QAction* action = m_commands->action(CommandId::ToggleReviewRange)) {
-        const QSignalBlocker blocker(action);
-        action->setChecked(active);
-        const QString shortcut = action->shortcut().toString(QKeySequence::NativeText);
-        if (!shortcut.isEmpty()) tip += QStringLiteral(" (%1)").arg(shortcut);
-    }
-    if (m_reviewRangeToggle) {
-        const QSignalBlocker blocker(m_reviewRangeToggle);
-        m_reviewRangeToggle->setChecked(active);
-        m_reviewRangeToggle->setToolTip(tip);
-    }
+    if (QAction* clear = m_commands->action(CommandId::ClearRange)) clear->setEnabled(marked);
 }
 
 void MainWindow::restoreActiveReviewState()
@@ -2727,12 +2724,11 @@ void MainWindow::restoreActiveReviewState()
     m_restoringSourceState = true;
     m_timeline->clearBookmarks();
     for (const auto& bookmark : entry.bookmarks) m_timeline->addBookmark(bookmark);
-    // The range the in/out toggle switches back to: this clip's own, or none.
-    m_timeline->setLastReviewRange(entry.playbackRange.startFrame, entry.playbackRange.endFrame);
-    if (entry.playbackRange.enabled && entry.playbackRange.isValid())
-        m_playback->activateReviewRange(entry.playbackRange.startFrame, entry.playbackRange.endFrame);
-    else
-        m_timeline->fitViewport();
+    // The whole clip on screen, with this clip's in/out marks (reviews saved
+    // before the marks kept them as the visible range, which reads the same).
+    m_timeline->fitViewport();
+    m_timeline->setPlaybackRange(entry.playbackRange.isValid() ? entry.playbackRange : timeline::PlaybackRange{});
+    if (m_timeline->hasPlaybackMarks()) m_playback->seekFrame(m_timeline->effectiveStartFrame());
     m_viewer->resetNavigationToFit();
     m_restoringSourceState = false;
     bindAnnotationsToActiveSource();
@@ -4724,6 +4720,7 @@ void MainWindow::setAnnotateMode(bool enabled)
     // started on, so pausing avoids the picture moving under the pen.
     if (enabled && m_playback->isPlaying()) m_playback->pause();
     m_viewer->setAnnotateMode(enabled);
+    m_commands->setDrawing(enabled);
     m_annotationToolbar->setVisible(enabled);
     if (enabled) m_viewer->setFocus(Qt::OtherFocusReason);
 }

@@ -112,6 +112,10 @@ public:
     QString scrubFrameLabelText() const;
     /// True while the badge is drawn filled: during a scrub drag.
     bool scrubFrameLabelHighlighted() const { return m_scrubbing; }
+    /// Where the in and out marks are drawn: x positions on the track, -1
+    /// for a mark that is not set or is scrolled out of view.
+    int inMarkX() const;
+    int outMarkX() const;
     /// Drops only the pointer-preview overlay. The next painted position still
     /// comes from TimelineModel's authoritative presented frame.
     void followAuthoritativeFrame() { m_scrubbing = false; m_scrubFrame = -1; update(); }
@@ -164,6 +168,7 @@ private:
 
     void paintWaveform(QPainter& painter);
     void paintTrack(QPainter& painter);
+    void paintInOutMarks(QPainter& painter);
     void paintBookmarks(QPainter& painter);
     void paintAnnotatedFrames(QPainter& painter);
     void paintHoldSpans(QPainter& painter);

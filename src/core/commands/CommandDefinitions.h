@@ -44,6 +44,11 @@ const CommandDefinition* find(CommandId id);
 /// Lookup by stable string key, for settings and the external API.
 const CommandDefinition* find(QStringView key);
 
+/// True for commands whose shortcut works only while drawing (brush size).
+/// Their keys may repeat another command's, which then gives way while
+/// drawing: [ and ] are the brush size when drawing, in and out otherwise.
+bool isDrawingShortcut(CommandId id);
+
 /// Human-readable category name for menu titles.
 QString categoryTitle(CommandCategory category);
 

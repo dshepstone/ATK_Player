@@ -49,6 +49,11 @@ public:
     /// TODO(M2): call this from preferences once the shortcut editor exists.
     void applyShortcutOverrides(const QHash<QString, QString>& overrides);
 
+    /// While drawing, the brush-size keys ([ and ]) are the brush size; at
+    /// other times they belong to whatever else shares them (in and out).
+    void setDrawing(bool drawing);
+    bool isDrawing() const { return m_drawing; }
+
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
 
@@ -58,7 +63,12 @@ signals:
     void commandTriggered(atk::commands::CommandId id, bool checked);
 
 private:
+    /// Turns off, by shortcut context, whichever side of a shared key is not
+    /// in use: the brush size when not drawing, the other command when drawing.
+    void applyShortcutContexts();
+
     QHash<int, QAction*> m_actions;
+    bool m_drawing = false;
     QList<commands::CommandId> m_order;
 };
 

@@ -57,21 +57,13 @@ public:
     void setViewportRange(int64_t startFrame, int64_t endFrame);
     void ensureFrameVisible(int64_t frame);
 
-    /// First and last frame playback should visit. The visible viewport is the
-    /// single active review range.
+    /// First and last frame playback should visit: the in/out marks, within
+    /// the visible viewport. The playhead itself can go anywhere in the
+    /// viewport; playback starts again from the in mark.
     int64_t effectiveStartFrame() const;
     int64_t effectiveEndFrame() const;
-
-    /// True when playback is confined to part of the clip: the review range
-    /// (the viewport) is narrower than the whole clip.
-    bool isReviewRangeActive() const;
-    /// The last review range narrower than the clip, kept while the whole
-    /// clip plays so the in/out toggle can switch back to it. Not enabled
-    /// when there has been none since the clip was loaded.
-    const PlaybackRange& lastReviewRange() const { return m_lastReviewRange; }
-    /// Remembers a range to switch back to (a clip's saved range restored
-    /// while the whole clip plays). Forgets it unless narrower than the clip.
-    void setLastReviewRange(int64_t startFrame, int64_t endFrame);
+    /// True when in/out marks narrower than the clip are set.
+    bool hasPlaybackMarks() const;
 
     // --- Bookmarks --------------------------------------------------------
     const QVector<Bookmark>& bookmarks() const { return m_bookmarks; }
@@ -122,8 +114,7 @@ signals:
     void viewportChanged(qint64 startFrame, qint64 endFrame);
 
 private:
-    /// The range I and O adjust: the marked one while it is in force.
-    PlaybackRange markedRange() const;
+    bool marksMeetViewport() const;
     /// Keeps bookmarks sorted by frame so the next/previous lookups stay simple.
     void sortBookmarks();
 
@@ -133,7 +124,6 @@ private:
     int64_t m_currentFrame = 0;
     media::FrameRate m_frameRate;
     PlaybackRange m_range;
-    PlaybackRange m_lastReviewRange;
     TimelineViewport m_viewport;
     QVector<Bookmark> m_bookmarks;
     quint64 m_nextBookmarkId = 1;

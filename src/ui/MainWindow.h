@@ -185,8 +185,9 @@ public:
     /// category and the new order.
     void applyPlaylistArrangement(const QVector<ArrangePlaylistDialog::Clip>& clips,
                                   const QStringList& categories);
-    /// The In/Out toggle beside the review range (for tests).
-    QToolButton* reviewRangeToggle() const { return m_reviewRangeToggle; }
+    /// The Set In [ and Set Out ] buttons beside the review range (for tests).
+    QToolButton* setInButton() const { return m_setInButton; }
+    QToolButton* setOutButton() const { return m_setOutButton; }
     /// Keeps (or forgets) the burn-in choices the review's exports start from.
     void rememberExportBurnIns(const std::optional<exporter::ExportBurnIns>& burnIns);
     /// The last export handed to the system viewer (for tests).
@@ -289,13 +290,8 @@ private:
     void applySavedStillBurnIns(exporter::ExportSpec& spec) const;
     /// The Arrange Playlist window: bulk reorder, sort and categories.
     void arrangePlaylist();
-    /// Plays only the in/out range (back to the last one), or the whole clip
-    /// keeping the range. The In/Out button and Shift+I.
-    void setReviewRangeActive(bool active);
-    void syncReviewRangeToggle();
-    /// The review range a clip saves: the one on screen, or the one the
-    /// in/out toggle would switch back to, marked off.
-    timeline::PlaybackRange reviewRangeToSave() const;
+    /// Shows on the Set In / Set Out buttons which marks are set and where.
+    void syncInOutButtons();
     void exportReviewNotes();
     void exportReviewNotesBatch();
     exporter::ExportSpec notesPdfSpec(const project::SourceEntry& entry) const;
@@ -452,7 +448,8 @@ private:
     FrameNumberInput* m_frameNumberInput = nullptr;
     QPointer<MediaInformationDialog> m_mediaInformationDialog;
     TimelineRangeSlider* m_timelineRangeSlider = nullptr;
-    QToolButton* m_reviewRangeToggle = nullptr;
+    QToolButton* m_setInButton = nullptr;
+    QToolButton* m_setOutButton = nullptr;
     QSpinBox* m_reviewStartFrame = nullptr;
     QSpinBox* m_reviewEndFrame = nullptr;
     QSlider* m_volumeSlider = nullptr;

@@ -287,6 +287,7 @@ void TimelineWidget::paintEvent(QPaintEvent* event)
 
     paintWaveform(painter);
     paintTrack(painter);
+    paintInOutMarks(painter);
     paintBookmarks(painter);
     paintHoldSpans(painter);
     paintAnnotatedFrames(painter);
@@ -424,6 +425,56 @@ void TimelineWidget::paintTrack(QPainter& painter)
                              Qt::AlignHCenter | Qt::AlignTop, QString::number(frame + 1));
         }
     }
+}
+
+int TimelineWidget::inMarkX() const
+{
+    if (!m_model || !m_model->hasPlaybackMarks()) return -1;
+    return xForFrame(m_model->playbackRange().startFrame);
+}
+
+int TimelineWidget::outMarkX() const
+{
+    if (!m_model || !m_model->hasPlaybackMarks()) return -1;
+    return xForFrame(m_model->playbackRange().endFrame);
+}
+
+void TimelineWidget::paintInOutMarks(QPainter& painter)
+{
+    if (!m_model || !m_model->hasPlaybackMarks()) return;
+    const QRect track = trackRect();
+    const auto& viewport = m_model->viewport();
+    const auto& range = m_model->playbackRange();
+    if (range.endFrame < viewport.startFrame() || range.startFrame > viewport.endFrame()) return;
+
+    // Outside the marks, the track is shaded; between them, a bar along the
+    // bottom of the track shows what plays.
+    const int left = range.startFrame >= viewport.startFrame() ? xForFrame(range.startFrame) : track.left();
+    const int right = range.endFrame <= viewport.endFrame() ? xForFrame(range.endFrame) : track.right();
+    const QRect inner = track.adjusted(1, 1, -1, -1);
+    const QColor shade(0, 0, 0, 110);
+    if (left > inner.left()) painter.fillRect(QRect(QPoint(inner.left(), inner.top()), QPoint(left - 1, inner.bottom())), shade);
+    if (right < inner.right()) painter.fillRect(QRect(QPoint(right + 1, inner.top()), QPoint(inner.right(), inner.bottom())), shade);
+    painter.fillRect(QRect(QPoint(left, track.bottom() - 2), QPoint(right, track.bottom())), theme::accent());
+
+    // Bracket-shaped marks, [ at the in point and ] at the out point, reaching
+    // a little above and below the track so they read at any zoom.
+    painter.save();
+    painter.setPen(QPen(theme::accent(), 2, Qt::SolidLine, Qt::FlatCap));
+    const int top = track.top() - 4;
+    const int bottom = track.bottom() + 1;
+    constexpr int kFoot = 5;
+    if (const int x = inMarkX(); x >= 0) {
+        painter.drawLine(x, top, x, bottom);
+        painter.drawLine(x, top + 1, x + kFoot, top + 1);
+        painter.drawLine(x, bottom - 1, x + kFoot, bottom - 1);
+    }
+    if (const int x = outMarkX(); x >= 0) {
+        painter.drawLine(x, top, x, bottom);
+        painter.drawLine(x - kFoot, top + 1, x, top + 1);
+        painter.drawLine(x - kFoot, bottom - 1, x, bottom - 1);
+    }
+    painter.restore();
 }
 
 void TimelineWidget::paintBookmarks(QPainter& painter)

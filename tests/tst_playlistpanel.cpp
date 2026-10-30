@@ -8,6 +8,8 @@
 #include "ui/ReviewHeaderBar.h"
 #include "ui/SourcesPanel.h"
 #include "ui/TimelineWidget.h"
+#include "ui/commands/CommandRegistry.h"
+#include "core/commands/CommandId.h"
 #include "timeline/TimelineModel.h"
 
 #include <QApplication>
@@ -60,7 +62,7 @@ private slots:
     void arrangeSortsMovesAndFilesClips();
     void arrangeMovesClipsToATypedNumber();
     void arrangingKeepsTheLoadedClipAndShowsCategories();
-    void inOutToggleSwitchesRangeAndWholeClip();
+    void inOutButtonsMarkTheTimeline();
 };
 
 void TestPlaylistPanel::cardsCarryTheClipDetails()
@@ -396,7 +398,7 @@ void TestPlaylistPanel::arrangingKeepsTheLoadedClipAndShowsCategories()
     QVERIFY(window.project()->needsSavePrompt());
 }
 
-void TestPlaylistPanel::inOutToggleSwitchesRangeAndWholeClip()
+void TestPlaylistPanel::inOutButtonsMarkTheTimeline()
 {
     QTemporaryDir directory;
     project::Project project;
@@ -409,36 +411,56 @@ void TestPlaylistPanel::inOutToggleSwitchesRangeAndWholeClip()
     window.show();
     QVERIFY(QTest::qWaitForWindowExposed(&window));
     window.openProjectFile(path);
-    timeline::TimelineModel* model = window.findChild<ui::TimelineWidget*>()->model();
+    auto* timelineWidget = window.findChild<ui::TimelineWidget*>();
+    timeline::TimelineModel* model = timelineWidget->model();
     QTRY_COMPARE_WITH_TIMEOUT(model->frameCount(), qint64(48), 10000);
-    QToolButton* toggle = window.reviewRangeToggle();
-    QVERIFY(toggle && toggle->isVisible());
-    QVERIFY(!toggle->isChecked()); // the whole clip plays
-    QVERIFY(!toggle->text().isEmpty());
+    QToolButton* setIn = window.setInButton();
+    QToolButton* setOut = window.setOutButton();
+    QVERIFY(setIn && setIn->isVisible() && setIn->isEnabled());
+    QVERIFY(setOut && setOut->isVisible() && setOut->isEnabled());
+    QCOMPARE(timelineWidget->inMarkX(), -1);
 
-    // Narrowing the range turns it on.
-    auto* start = window.findChild<QSpinBox*>(QStringLiteral("ReviewRangeStartFrame"));
-    auto* end = window.findChild<QSpinBox*>(QStringLiteral("ReviewRangeEndFrame"));
-    end->setValue(30);
-    start->setValue(11);
-    QCOMPARE(model->viewport().startFrame(), qint64(10));
-    QCOMPARE(model->viewport().endFrame(), qint64(29));
-    QVERIFY(toggle->isChecked());
+    // The hotkeys are [ and ].
+    auto* commands = window.findChild<ui::CommandRegistry*>();
+    QVERIFY(commands);
+    QCOMPARE(commands->action(commands::CommandId::SetRangeIn)->shortcut(), QKeySequence(QStringLiteral("[")));
+    QCOMPARE(commands->action(commands::CommandId::SetRangeOut)->shortcut(), QKeySequence(QStringLiteral("]")));
 
-    // Off: the whole clip, with the range kept (and saved, marked off).
-    toggle->click();
-    QVERIFY(!toggle->isChecked());
+    // In on frame 11, out on frame 30: two marks on the timeline, which still
+    // shows the whole clip, saved with the clip.
+    window.playbackController()->seekFrame(10);
+    QTRY_COMPARE_WITH_TIMEOUT(model->currentFrame(), qint64(10), 5000);
+    setIn->click();
+    window.playbackController()->seekFrame(29);
+    QTRY_COMPARE_WITH_TIMEOUT(model->currentFrame(), qint64(29), 5000);
+    setOut->click();
+    QCOMPARE(model->playbackRange(), (timeline::PlaybackRange{10, 29, true}));
     QCOMPARE(model->viewport().startFrame(), qint64(0));
     QCOMPARE(model->viewport().endFrame(), qint64(47));
-    QCOMPARE(window.project()->entries().at(0).playbackRange, (timeline::PlaybackRange{10, 29, false}));
-    QCOMPARE(start->value(), 1);
-
-    // On again: back to frames 11 to 30.
-    toggle->click();
-    QVERIFY(toggle->isChecked());
-    QCOMPARE(model->viewport().startFrame(), qint64(10));
-    QCOMPARE(model->viewport().endFrame(), qint64(29));
+    QCOMPARE(model->effectiveStartFrame(), qint64(10));
+    QCOMPARE(model->effectiveEndFrame(), qint64(29));
+    QVERIFY(timelineWidget->inMarkX() >= 0);
+    QVERIFY(timelineWidget->outMarkX() > timelineWidget->inMarkX());
+    QVERIFY(setIn->property("markSet").toBool());
+    QVERIFY(setIn->toolTip().contains(QStringLiteral("11")));
     QCOMPARE(window.project()->entries().at(0).playbackRange, (timeline::PlaybackRange{10, 29, true}));
+
+    // The playhead can still go past the out point, to set a later one.
+    window.playbackController()->seekFrame(40);
+    QTRY_COMPARE_WITH_TIMEOUT(model->currentFrame(), qint64(40), 5000);
+    setOut->click();
+    QCOMPARE(model->playbackRange(), (timeline::PlaybackRange{10, 40, true}));
+
+    // Right-click on either button clears both marks.
+    QAction* clear = commands->action(commands::CommandId::ClearRange);
+    QCOMPARE(setIn->contextMenuPolicy(), Qt::CustomContextMenu);
+    QVERIFY(clear->isEnabled());
+    clear->trigger();
+    QVERIFY(!model->hasPlaybackMarks());
+    QCOMPARE(timelineWidget->outMarkX(), -1);
+    QVERIFY(!setIn->property("markSet").toBool());
+    QVERIFY(!clear->isEnabled());
+    QCOMPARE(model->effectiveEndFrame(), qint64(47));
 }
 
 QTEST_MAIN(TestPlaylistPanel)

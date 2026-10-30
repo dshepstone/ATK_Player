@@ -34,7 +34,7 @@ private slots:
     void viewportPansAndFollowsPlayhead();
     void viewportMappingIsDeterministic();
     void viewportRangeEditsAnchorAndClamp();
-    void reviewRangeToggleKeepsTheLastRange();
+    void inOutMarksKeepTheTimelineAndConfinePlayback();
 };
 
 void TestTimelineModel::startsEmpty()
@@ -73,48 +73,42 @@ void TestTimelineModel::emitsCurrentFrameChangedOnlyOnChange()
     QCOMPARE(spy.count(), 1);
 }
 
-void TestTimelineModel::reviewRangeToggleKeepsTheLastRange()
+void TestTimelineModel::inOutMarksKeepTheTimelineAndConfinePlayback()
 {
     TimelineModel model;
     model.setFrameCount(100);
-    QVERIFY(!model.isReviewRangeActive());
-    QVERIFY(!model.lastReviewRange().enabled); // nothing to switch back to yet
+    QVERIFY(!model.hasPlaybackMarks());
 
-    model.setViewportRange(10, 39);
-    QVERIFY(model.isReviewRangeActive());
-    QCOMPARE(model.lastReviewRange(), (PlaybackRange{10, 39, true}));
-
-    // Whole clip again: the range is kept to switch back to.
-    model.fitViewport();
-    QVERIFY(!model.isReviewRangeActive());
-    QCOMPARE(model.lastReviewRange(), (PlaybackRange{10, 39, true}));
-
-    // A clip's own saved range; one covering the whole clip forgets it.
-    model.setLastReviewRange(5, 20);
-    QCOMPARE(model.lastReviewRange(), (PlaybackRange{5, 20, true}));
-    model.setLastReviewRange(0, 99);
-    QVERIFY(!model.lastReviewRange().enabled);
-    model.setLastReviewRange(30, 500); // clamped to the clip
-    QCOMPARE(model.lastReviewRange(), (PlaybackRange{30, 99, true}));
-
-    // With the whole clip showing, I and O mark a new range, even one at
-    // the same frames as the range that was switched off.
-    model.setPlaybackRange(PlaybackRange{0, 39, true});
-    model.fitViewport();
-    model.setCurrentFrame(39);
-    model.setRangeOutAtCurrentFrame();
-    QVERIFY(model.isReviewRangeActive());
-    QCOMPARE(model.viewport().endFrame(), qint64(39));
-    model.fitViewport();
+    // [ at frame 21 and ] at frame 60: marks on the timeline, which keeps
+    // showing the whole clip; playback runs between them.
     model.setCurrentFrame(20);
-    model.setRangeInAtCurrentFrame(); // a new range: from here to the end
-    QCOMPARE(model.viewport().startFrame(), qint64(20));
+    model.setRangeInAtCurrentFrame();
+    model.setCurrentFrame(59);
+    model.setRangeOutAtCurrentFrame();
+    QVERIFY(model.hasPlaybackMarks());
+    QCOMPARE(model.playbackRange(), (PlaybackRange{20, 59, true}));
+    QCOMPARE(model.viewport().startFrame(), qint64(0));
     QCOMPARE(model.viewport().endFrame(), qint64(99));
+    QCOMPARE(model.effectiveStartFrame(), qint64(20));
+    QCOMPARE(model.effectiveEndFrame(), qint64(59));
 
-    // Another clip starts without one.
+    // Zoomed in on part of the marks, playback keeps to what both allow.
+    model.setViewportRange(40, 80);
+    QCOMPARE(model.effectiveStartFrame(), qint64(40));
+    QCOMPARE(model.effectiveEndFrame(), qint64(59));
+    // Zoomed away from them altogether, the visible range plays.
+    model.setViewportRange(70, 90);
+    QCOMPARE(model.effectiveStartFrame(), qint64(70));
+    QCOMPARE(model.effectiveEndFrame(), qint64(90));
+    model.fitViewport();
+
+    // Marks over the whole clip confine nothing; clearing keeps the view.
+    model.setPlaybackRange(PlaybackRange{0, 99, true});
+    QVERIFY(!model.hasPlaybackMarks());
     model.clearPlaybackRange();
-    model.setFrameCount(50);
-    QVERIFY(!model.lastReviewRange().enabled);
+    QVERIFY(!model.hasPlaybackMarks());
+    QCOMPARE(model.effectiveStartFrame(), qint64(0));
+    QCOMPARE(model.effectiveEndFrame(), qint64(99));
 }
 
 void TestTimelineModel::reviewRangeDoesNotMoveStoppedPlayhead()

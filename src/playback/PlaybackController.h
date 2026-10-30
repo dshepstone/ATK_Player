@@ -360,6 +360,7 @@ private:
 
     media::FrameRate effectiveFrameRate() const;
     int64_t effectiveLastFrame() const;
+    int64_t navigableLastFrame() const;
     bool inPlaceholderMode() const { return !m_hasMedia; }
 
     timeline::TimelineModel* m_timeline = nullptr;

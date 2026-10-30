@@ -9,11 +9,6 @@ namespace atk::timeline {
 TimelineModel::TimelineModel(QObject* parent)
     : QObject(parent)
 {
-    // Every narrower range the viewport takes is the one the in/out toggle
-    // switches back to.
-    connect(this, &TimelineModel::viewportChanged, this, [this](qint64 start, qint64 end) {
-        if (m_frameCount > 0 && (start > 0 || end < lastFrame())) m_lastReviewRange = {start, end, true};
-    });
 }
 
 void TimelineModel::setFrameCount(int64_t count)
@@ -27,7 +22,6 @@ void TimelineModel::setFrameCount(int64_t count)
         return;
     }
     m_frameCount = clamped;
-    m_lastReviewRange = {};
     m_viewport.reset(m_frameCount);
     emit frameCountChanged(m_frameCount);
     emit viewportChanged(m_viewport.startFrame(), m_viewport.endFrame());
@@ -127,20 +121,17 @@ void TimelineModel::setPlaybackRange(const PlaybackRange& range)
     }
 
     if (m_range == normalised) {
-        // Marking the same range again puts it back in force, e.g. after the
-        // in/out toggle showed the whole clip.
-        if (normalised.enabled) setViewportRange(normalised.startFrame, normalised.endFrame);
         return;
     }
+    // The in/out marks only confine playback: the timeline keeps showing
+    // what it showed, with the marks drawn on it.
     m_range = normalised;
     emit playbackRangeChanged(m_range);
-    if (normalised.enabled) setViewportRange(normalised.startFrame, normalised.endFrame);
-    else fitViewport();
 }
 
 void TimelineModel::setRangeInAtCurrentFrame()
 {
-    PlaybackRange range = markedRange();
+    PlaybackRange range = m_range;
     range.startFrame = m_currentFrame;
     if (!range.enabled) {
         // First I press with no range yet: run from here to the end.
@@ -154,7 +145,7 @@ void TimelineModel::setRangeInAtCurrentFrame()
 
 void TimelineModel::setRangeOutAtCurrentFrame()
 {
-    PlaybackRange range = markedRange();
+    PlaybackRange range = m_range;
     range.endFrame = m_currentFrame;
     if (!range.enabled) {
         range.startFrame = 0;
@@ -170,39 +161,31 @@ void TimelineModel::clearPlaybackRange()
     setPlaybackRange(PlaybackRange{});
 }
 
-PlaybackRange TimelineModel::markedRange() const
+bool TimelineModel::hasPlaybackMarks() const
 {
-    // With the in/out toggle off (the whole clip on screen) there is no range
-    // in force: the next I or O starts a new one, even at the old frames.
-    if (!isReviewRangeActive()) return PlaybackRange{m_range.startFrame, m_range.endFrame, false};
-    if (m_range.enabled) return m_range;
-    return PlaybackRange{m_viewport.startFrame(), m_viewport.endFrame(), true};
+    // Marks over the whole clip confine nothing.
+    return m_range.enabled && m_range.isValid() && m_frameCount > 0
+        && (m_range.startFrame > 0 || m_range.endFrame < lastFrame());
 }
 
-bool TimelineModel::isReviewRangeActive() const
+bool TimelineModel::marksMeetViewport() const
 {
-    return m_frameCount > 0 && (m_viewport.startFrame() > 0 || m_viewport.endFrame() < lastFrame());
-}
-
-void TimelineModel::setLastReviewRange(int64_t startFrame, int64_t endFrame)
-{
-    m_lastReviewRange = {};
-    if (startFrame < 0 || endFrame <= startFrame) return;
-    if (m_frameCount > 0) {
-        endFrame = std::min(endFrame, lastFrame());
-        if (startFrame >= endFrame || (startFrame == 0 && endFrame == lastFrame())) return;
-    }
-    m_lastReviewRange = {startFrame, endFrame, true};
+    return m_range.enabled && m_range.startFrame <= m_viewport.endFrame()
+        && m_range.endFrame >= m_viewport.startFrame();
 }
 
 int64_t TimelineModel::effectiveStartFrame() const
 {
-    return m_viewport.startFrame();
+    // The in/out marks within the visible range; the visible range alone
+    // when there are none, or when the view is zoomed away from them.
+    return marksMeetViewport() ? std::max(m_range.startFrame, m_viewport.startFrame())
+                               : m_viewport.startFrame();
 }
 
 int64_t TimelineModel::effectiveEndFrame() const
 {
-    return m_viewport.endFrame();
+    return marksMeetViewport() ? std::min(m_range.endFrame, m_viewport.endFrame())
+                               : m_viewport.endFrame();
 }
 
 quint64 TimelineModel::addBookmark(const Bookmark& bookmark)

@@ -42,9 +42,19 @@ void TestCommandDefinitions::keysAreUnique()
 
 void TestCommandDefinitions::shortcutsAreUnique()
 {
+    // Drawing-only keys (brush size) are checked on their own: they may
+    // share a key with a command used when not drawing.
     QSet<QString> seen;
+    QSet<QString> seenWhileDrawing;
     for (const CommandDefinition& definition : allCommands()) {
         if (definition.defaultShortcut == nullptr) {
+            continue;
+        }
+        if (isDrawingShortcut(definition.id)) {
+            const QString shortcut = QKeySequence(QString::fromLatin1(definition.defaultShortcut)).toString();
+            QVERIFY2(!seenWhileDrawing.contains(shortcut),
+                     qPrintable(QStringLiteral("duplicate drawing shortcut: %1").arg(shortcut)));
+            seenWhileDrawing.insert(shortcut);
             continue;
         }
         const QString shortcut =
@@ -93,8 +103,8 @@ void TestCommandDefinitions::requiredDefaultShortcuts_data()
     QTest::newRow("first frame")    << "playback.firstFrame"    << "Home";
     QTest::newRow("last frame")     << "playback.lastFrame"     << "End";
     QTest::newRow("loop")           << "playback.toggleLoop"    << "L";
-    QTest::newRow("range in")       << "playback.setRangeIn"    << "I";
-    QTest::newRow("range out")      << "playback.setRangeOut"   << "O";
+    QTest::newRow("range in")       << "playback.setRangeIn"    << "[";
+    QTest::newRow("range out")      << "playback.setRangeOut"   << "]";
     QTest::newRow("bookmark")       << "playback.addBookmark"   << "B";
 }
 

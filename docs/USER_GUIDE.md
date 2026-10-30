@@ -174,11 +174,15 @@ frame on screen. Click it, type a frame number and press `Enter` to go there.
 The frame number also sits on top of the playhead at all times, outlined; it
 fills in yellow while you drag the playhead.
 
-**In/Out**: the **In/Out** button at the left of the range bar under the
-timeline (`Shift+I`) switches between playing only the in/out range and
-playing the whole clip. Turning it off keeps the range, so turning it on again
-goes straight back to it. Mark a range with `I` and `O`, the range fields, or
-by dragging the ends of the range bar.
+**In and out points**: go to the first frame you want and press `[` (or the
+**[ In** button at the left of the range bar under the timeline), then go to
+the last frame and press `]` (or **Out ]**). Each drops a small bracket on the
+timeline, the part outside the brackets is shaded, and playback (and Loop)
+stays between them. The timeline keeps showing the whole clip, and you can
+still click or step outside the marks, for example to set a later out point;
+Play starts again from the in point. Right-click either button, or use
+**Playback > Clear In/Out Points**, to play the whole clip again. Each clip
+keeps its own in and out points in the review.
 
 **Open Folder**: the button beside the clip name at the top (and the folder
 icon at the top right) opens the clip's folder in Explorer (Windows) or Finder
@@ -188,7 +192,7 @@ icon at the top right) opens the clip's folder in Explorer (Windows) or Finder
 (**Fit**, or a percentage). Its menu zooms in and out, fits the picture, or
 picks 25%, 50%, 100%, 200% or 400%. The button beside it fits the picture.
 
-Frame stepping (`Left` / `Right`), review ranges (`I` / `O`), bookmarks (`B`)
+Frame stepping (`Left` / `Right`), in and out points (`[` / `]`), bookmarks (`B`)
 and A/B comparison work as described in the README.
 
 ## 5. Notes, drawings and status
@@ -286,8 +290,7 @@ back to the standard choices for one export.
 | Play / Pause | `Space` |
 | Previous / Next Frame | `Left` / `Right` |
 | Loop on/off | `L` |
-| Set range in / out | `I` / `O` |
-| Play in/out range only on/off | `Shift+I` |
+| Set in point / out point | `[` / `]` |
 | Draw on Frame | `D` |
 | Copy / Cut / Paste drawings and notes | `Ctrl+C` / `Ctrl+X` / `Ctrl+V` |
 | Brush size | `[` / `]` |
