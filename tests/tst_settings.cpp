@@ -44,6 +44,7 @@ private slots:
     void shortcutOverridesDistinguishClearAndDefault();
     void registryUpdatesActionsAtRuntime();
     void conflictDetectionIdentifiesStableCommand();
+    void bracketKeysAreBrushSizeOnlyWhileDrawing();
     void preferencesCancelDoesNotWriteSettings();
     void textEditingKeepsTypingShortcuts();
     void spacePlaysFromFieldsThatDoNotTypeIt();
@@ -272,6 +273,36 @@ void TestSettings::conflictDetectionIdentifiesStableCommand()
         QStringLiteral("playback.addBookmark"));
     QVERIFY(PreferencesDialog::conflictingCommand(
         shortcuts, QStringLiteral("view.zoomFit"), QKeySequence()).isEmpty());
+}
+
+void TestSettings::bracketKeysAreBrushSizeOnlyWhileDrawing()
+{
+    using atk::commands::CommandId;
+    // [ and ] are the in and out points, and the brush size while drawing;
+    // sharing them is not a conflict in Preferences.
+    QHash<QString, QString> shortcuts;
+    shortcuts.insert(QStringLiteral("draw.brushSizeDown"), QStringLiteral("["));
+    shortcuts.insert(QStringLiteral("playback.setRangeIn"), QStringLiteral("["));
+    QVERIFY(PreferencesDialog::conflictingCommand(
+        shortcuts, QStringLiteral("playback.setRangeIn"), QKeySequence(QStringLiteral("["))).isEmpty());
+    QCOMPARE(PreferencesDialog::conflictingCommand(
+        shortcuts, QStringLiteral("playback.addBookmark"), QKeySequence(QStringLiteral("["))),
+        QStringLiteral("playback.setRangeIn"));
+
+    atk::ui::CommandRegistry registry;
+    QAction* in = registry.action(CommandId::SetRangeIn);
+    QAction* smaller = registry.action(CommandId::DecreaseBrushSize);
+    QCOMPARE(in->shortcut(), smaller->shortcut());
+    QCOMPARE(in->shortcutContext(), Qt::WindowShortcut);
+    QCOMPARE(smaller->shortcutContext(), Qt::WidgetShortcut);
+    registry.setDrawing(true);
+    QCOMPARE(in->shortcutContext(), Qt::WidgetShortcut);
+    QCOMPARE(smaller->shortcutContext(), Qt::WindowShortcut);
+    // Keys that are not shared stay on while drawing.
+    QCOMPARE(registry.action(CommandId::AddBookmark)->shortcutContext(), Qt::WindowShortcut);
+    registry.setDrawing(false);
+    QCOMPARE(in->shortcutContext(), Qt::WindowShortcut);
+    QCOMPARE(smaller->shortcutContext(), Qt::WidgetShortcut);
 }
 
 void TestSettings::preferencesCancelDoesNotWriteSettings()

@@ -58,6 +58,7 @@ private slots:
     void clearRangeRestoresFullExtent();
     void reviewRangeStopsOnInclusiveEnd();
     void playOutsideRangeRestartsAtStart();
+    void inOutMarksConfinePlayback();
     void loopWrapsWithoutEscapingRange();
     void activeRangeChangeWhilePlayingIsImmediate();
 
@@ -378,9 +379,14 @@ void TestPlaybackController::rangeConstrainsStepping()
     fixture.playback.goToEnd();
     QCOMPARE(fixture.playback.currentFrame(), qint64(20));
 
-    // Stepping past the out point must stay on it.
+    // The marks confine playback, not the playhead: stepping or seeking past
+    // the out point goes there, so a new out point can be set later on.
     fixture.playback.stepForward();
-    QCOMPARE(fixture.playback.currentFrame(), qint64(20));
+    QCOMPARE(fixture.playback.currentFrame(), qint64(21));
+    fixture.playback.seekFrame(80);
+    QCOMPARE(fixture.playback.currentFrame(), qint64(80));
+    fixture.playback.seekFrame(5);
+    QCOMPARE(fixture.playback.currentFrame(), qint64(5));
 }
 
 void TestPlaybackController::clearRangeRestoresFullExtent()
@@ -424,6 +430,22 @@ void TestPlaybackController::playOutsideRangeRestartsAtStart()
     fixture.playback.play();
     QCOMPARE(fixture.playback.currentFrame(), qint64(20));
     QTRY_COMPARE_WITH_TIMEOUT(fixture.playback.state(), PlayerState::Ended, 1500);
+}
+
+void TestPlaybackController::inOutMarksConfinePlayback()
+{
+    Fixture fixture(100, 100);
+    fixture.playback.setPlaybackRange(20, 30);
+    // The whole clip stays on the timeline and the playhead can sit outside
+    // the marks; Play starts from the in point and stops on the out point.
+    QCOMPARE(fixture.timeline.viewport().startFrame(), qint64(0));
+    QCOMPARE(fixture.timeline.viewport().endFrame(), qint64(99));
+    fixture.playback.seekFrame(80);
+    QCOMPARE(fixture.playback.currentFrame(), qint64(80));
+    fixture.playback.play();
+    QCOMPARE(fixture.playback.currentFrame(), qint64(20));
+    QTRY_COMPARE_WITH_TIMEOUT(fixture.playback.state(), PlayerState::Ended, 1500);
+    QCOMPARE(fixture.playback.currentFrame(), qint64(30));
 }
 
 void TestPlaybackController::loopWrapsWithoutEscapingRange()

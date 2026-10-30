@@ -66,9 +66,9 @@ TransportControls::TransportControls(CommandRegistry* registry, QWidget* parent)
     };
     separator();
     layout->addWidget(makeCommandButton(commands::CommandId::SetRangeIn,
-        icons::icon(QStringLiteral("arrow-left-to-line")), tr("Set range in")));
+        icons::icon(QStringLiteral("arrow-left-to-line")), tr("Set in point")));
     layout->addWidget(makeCommandButton(commands::CommandId::SetRangeOut,
-        icons::icon(QStringLiteral("arrow-right-to-line")), tr("Set range out")));
+        icons::icon(QStringLiteral("arrow-right-to-line")), tr("Set out point")));
     // Loop, with the arrow choosing what happens at the end of each clip.
     QToolButton* loop = makeCommandButton(commands::CommandId::ToggleLoop, icons::icon(QStringLiteral("repeat")),
         tr("Loop. The arrow chooses: play through the playlist, stop after each clip, "
@@ -204,6 +204,8 @@ TransportControls::TransportControls(CommandRegistry* registry, QWidget* parent)
         icons::icon(QStringLiteral("scan")), tr("Fit the picture to the viewer")));
     layout->addWidget(makeCommandButton(commands::CommandId::ToggleVideoFullScreen,
         icons::icon(QStringLiteral("fullscreen")), tr("Video full screen")));
+    layout->addWidget(makeCommandButton(commands::CommandId::ToggleCinemaMode,
+        icons::icon(QStringLiteral("rectangle-horizontal")), tr("Cinema mode")));
     layout->addWidget(makeCommandButton(commands::CommandId::Preferences,
         icons::icon(QStringLiteral("settings")), tr("Preferences")));
 

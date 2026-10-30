@@ -93,6 +93,9 @@ private:
     void submit();
     void cancelEdit();
     void rebuildList();
+    /// Moves the current-frame highlight without rebuilding the list, so
+    /// scrubbing past many notes stays quick.
+    void markCurrentFrame();
     void refreshComposer();
     void setComposerActive(bool active);
     void showContextMenu(const QPoint& position);

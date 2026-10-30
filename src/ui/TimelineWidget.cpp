@@ -32,8 +32,9 @@ constexpr int kLabelMargin = 52;
 constexpr int kWaveformHeight = 46;
 constexpr int kWaveformInsetTop = 6;
 // A compact bookmark strip sits between the waveform and ruler. Three range
-// lanes fit here without painting over waveform peaks.
-constexpr int kTrackInsetTop = 34 + kWaveformHeight;
+// lanes fit here without painting over waveform peaks. Measured below the
+// waveform band, which compact mode drops.
+constexpr int kTrackInsetTop = 34;
 constexpr int kTrackInsetBottom = 18;
 constexpr int kPlayheadHandleWidth = 9;
 constexpr int kBookmarkMarkerWidth = 3;
@@ -179,12 +180,20 @@ void TimelineWidget::fitEntire()
 
 QSize TimelineWidget::sizeHint() const
 {
-    return { 800, 84 + kWaveformHeight };
+    return { 800, 84 + waveformRect().height() };
 }
 
 QSize TimelineWidget::minimumSizeHint() const
 {
-    return { 240, 84 + kWaveformHeight };
+    return { 240, 84 + waveformRect().height() };
+}
+
+void TimelineWidget::setCompact(bool compact)
+{
+    if (m_compact == compact) return;
+    m_compact = compact;
+    updateGeometry();
+    update();
 }
 
 void TimelineWidget::setWaveform(const media::WaveformData* waveform)
@@ -211,7 +220,7 @@ void TimelineWidget::refreshWaveform()
 QRect TimelineWidget::waveformRect() const
 {
     return QRect(rect().left() + kLabelMargin, rect().top() + kWaveformInsetTop,
-                 std::max(0, rect().width() - 2 * kLabelMargin), kWaveformHeight);
+                 std::max(0, rect().width() - 2 * kLabelMargin), m_compact ? 0 : kWaveformHeight);
 }
 
 int64_t TimelineWidget::mediaTimeForX(int x) const
@@ -242,7 +251,7 @@ int64_t TimelineWidget::lastFrame() const
 
 QRect TimelineWidget::trackRect() const
 {
-    return rect().adjusted(kLabelMargin, kTrackInsetTop, -kLabelMargin, -kTrackInsetBottom);
+    return rect().adjusted(kLabelMargin, kTrackInsetTop + waveformRect().height(), -kLabelMargin, -kTrackInsetBottom);
 }
 
 int64_t TimelineWidget::timeRulerStepSeconds(double pixelsPerSecond)
@@ -287,6 +296,7 @@ void TimelineWidget::paintEvent(QPaintEvent* event)
 
     paintWaveform(painter);
     paintTrack(painter);
+    paintInOutMarks(painter);
     paintBookmarks(painter);
     paintHoldSpans(painter);
     paintAnnotatedFrames(painter);
@@ -424,6 +434,56 @@ void TimelineWidget::paintTrack(QPainter& painter)
                              Qt::AlignHCenter | Qt::AlignTop, QString::number(frame + 1));
         }
     }
+}
+
+int TimelineWidget::inMarkX() const
+{
+    if (!m_model || !m_model->hasPlaybackMarks()) return -1;
+    return xForFrame(m_model->playbackRange().startFrame);
+}
+
+int TimelineWidget::outMarkX() const
+{
+    if (!m_model || !m_model->hasPlaybackMarks()) return -1;
+    return xForFrame(m_model->playbackRange().endFrame);
+}
+
+void TimelineWidget::paintInOutMarks(QPainter& painter)
+{
+    if (!m_model || !m_model->hasPlaybackMarks()) return;
+    const QRect track = trackRect();
+    const auto& viewport = m_model->viewport();
+    const auto& range = m_model->playbackRange();
+    if (range.endFrame < viewport.startFrame() || range.startFrame > viewport.endFrame()) return;
+
+    // Outside the marks, the track is shaded; between them, a bar along the
+    // bottom of the track shows what plays.
+    const int left = range.startFrame >= viewport.startFrame() ? xForFrame(range.startFrame) : track.left();
+    const int right = range.endFrame <= viewport.endFrame() ? xForFrame(range.endFrame) : track.right();
+    const QRect inner = track.adjusted(1, 1, -1, -1);
+    const QColor shade(0, 0, 0, 110);
+    if (left > inner.left()) painter.fillRect(QRect(QPoint(inner.left(), inner.top()), QPoint(left - 1, inner.bottom())), shade);
+    if (right < inner.right()) painter.fillRect(QRect(QPoint(right + 1, inner.top()), QPoint(inner.right(), inner.bottom())), shade);
+    painter.fillRect(QRect(QPoint(left, track.bottom() - 2), QPoint(right, track.bottom())), theme::accent());
+
+    // Bracket-shaped marks, [ at the in point and ] at the out point, reaching
+    // a little above and below the track so they read at any zoom.
+    painter.save();
+    painter.setPen(QPen(theme::accent(), 2, Qt::SolidLine, Qt::FlatCap));
+    const int top = track.top() - 4;
+    const int bottom = track.bottom() + 1;
+    constexpr int kFoot = 5;
+    if (const int x = inMarkX(); x >= 0) {
+        painter.drawLine(x, top, x, bottom);
+        painter.drawLine(x, top + 1, x + kFoot, top + 1);
+        painter.drawLine(x, bottom - 1, x + kFoot, bottom - 1);
+    }
+    if (const int x = outMarkX(); x >= 0) {
+        painter.drawLine(x, top, x, bottom);
+        painter.drawLine(x - kFoot, top + 1, x, top + 1);
+        painter.drawLine(x - kFoot, bottom - 1, x, bottom - 1);
+    }
+    painter.restore();
 }
 
 void TimelineWidget::paintBookmarks(QPainter& painter)
@@ -788,7 +848,7 @@ QString TimelineWidget::scrubFrameLabelText() const
 
 QRect TimelineWidget::scrubFrameLabelRect() const
 {
-    if (!m_scrubbing || !m_model || m_model->frameCount() <= 0) return {};
+    if (!m_model || m_model->frameCount() <= 0) return {};
     const int x = xForFrame(displayFrame());
     if (x < 0) return {};
     QFont bold = font();
@@ -808,13 +868,20 @@ void TimelineWidget::paintScrubFrameLabel(QPainter& painter)
     if (badge.isEmpty()) return;
     painter.save();
     painter.setRenderHint(QPainter::Antialiasing, true);
-    painter.setPen(Qt::NoPen);
-    painter.setBrush(theme::playhead());
-    painter.drawRoundedRect(badge, 3, 3);
+    // Filled while scrubbing; at rest, an outlined tag in the playhead's
+    // colour, so the frame number is always there without shouting.
+    if (m_scrubbing) {
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(theme::playhead());
+    } else {
+        painter.setPen(QPen(theme::playhead(), 1));
+        painter.setBrush(theme::timelineTrack());
+    }
+    painter.drawRoundedRect(QRectF(badge).adjusted(0.5, 0.5, -0.5, -0.5), 3, 3);
     QFont bold = font();
     bold.setBold(true);
     painter.setFont(bold);
-    painter.setPen(theme::timelineTrack());
+    painter.setPen(m_scrubbing ? theme::timelineTrack() : theme::playhead());
     painter.drawText(badge, Qt::AlignCenter, scrubFrameLabelText());
     painter.restore();
 }

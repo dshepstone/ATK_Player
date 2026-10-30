@@ -122,6 +122,17 @@ public:
     const annotation::FrameAnnotation& annotationFrame() const { return m_annotationFrame; }
     void setAnnotationsVisible(bool visible);
     bool annotationsVisible() const { return m_annotationsVisible; }
+    /// While the timeline is dragged, drawings not seen recently are drawn at
+    /// half resolution so the picture keeps up; full detail on release.
+    void setScrubbing(bool scrubbing);
+    bool isScrubbing() const { return m_fastAnnotations; }
+    /// Drops the recently shown frames' drawn layers (for tests).
+    void forgetRecentDrawings()
+    {
+        m_recentAnnotationLayers.clear();
+        m_recentGhostLayers.clear();
+        m_annotationCacheComplete = false;
+    }
 
     /// Drawings from nearby frames to show faintly under this frame's
     /// (onion skin), for the frame `centerFrame`. Empty = no ghosts.
@@ -334,6 +345,23 @@ private:
     bool m_ghostCacheFlipped = false;
     quint64 m_ghostGeneration = 0;
     quint64 m_ghostCacheGeneration = ~quint64(0);
+    // Finished layers of recently shown frames, so scrubbing back and forth
+    // over drawn frames reuses their pixels instead of drawing every stroke
+    // again on each frame. Matched on the items (or ghosts) and geometry.
+    struct RecentLayer {
+        QVector<annotation::AnnotationItem> items;
+        QVector<annotation::GhostFrame> ghosts;
+        QRectF target;
+        bool flipped = false;
+        QImage image;
+    };
+    QList<RecentLayer> m_recentAnnotationLayers;
+    QList<RecentLayer> m_recentGhostLayers;
+    // What the current caches hold, to remember them when they are replaced.
+    QVector<annotation::AnnotationItem> m_annotationCacheSource;
+    bool m_annotationCacheComplete = false; // no item was left out (hidden)
+    bool m_fastAnnotations = false;
+    QVector<annotation::GhostFrame> m_ghostCacheSource;
     int m_tracingPaperPercent = 0;
     // Picture + tracing paper at widget resolution (see paintCachedPicture).
     QImage m_pictureCache;

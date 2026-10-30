@@ -554,6 +554,19 @@ void ViewerWidget::setAnnotationsVisible(bool visible)
     update();
 }
 
+void ViewerWidget::setScrubbing(bool scrubbing)
+{
+    if (m_fastAnnotations == scrubbing) return;
+    m_fastAnnotations = scrubbing;
+    if (!scrubbing) {
+        // Redraw anything drawn quickly at full resolution.
+        const QSize full = (QSizeF(size()) * devicePixelRatioF()).toSize();
+        if (!m_annotationCache.isNull() && m_annotationCache.size() != full) ++m_annotationGeneration;
+        if (!m_ghostCache.isNull() && m_ghostCache.size() != full) ++m_ghostGeneration;
+        update();
+    }
+}
+
 void ViewerWidget::setAnnotateMode(bool enabled)
 {
     if (m_annotateMode == enabled) return;
@@ -1521,6 +1534,44 @@ void ViewerWidget::paintCachedPicture(QPainter& painter, const QRectF& target, c
     painter.drawImage(QPointF(0.0, 0.0), m_pictureCache);
 }
 
+namespace {
+/// Recent layers kept for reuse: a few dozen frames, within a memory budget.
+constexpr int kRecentLayerCount = 32;
+constexpr qsizetype kRecentLayerBytes = 256LL * 1024 * 1024;
+
+template <typename Layer>
+void rememberLayer(QList<Layer>& layers, Layer layer)
+{
+    if (layer.image.isNull()) return;
+    layers.prepend(std::move(layer));
+    qsizetype bytes = 0;
+    for (qsizetype i = 0; i < layers.size(); ++i) {
+        bytes += layers[i].image.sizeInBytes();
+        if (i >= kRecentLayerCount || (i > 0 && bytes > kRecentLayerBytes)) {
+            layers.resize(i);
+            break;
+        }
+    }
+}
+
+/// Takes out the layer `matches` accepts drawn for this geometry, or a null image.
+template <typename Layer, typename Matches>
+QImage takeLayer(QList<Layer>& layers, const QRectF& target, bool flipped, const QSize& pixelSize, qreal dpr,
+                 Matches matches)
+{
+    for (qsizetype i = 0; i < layers.size(); ++i) {
+        const Layer& layer = layers[i];
+        if (layer.target != target || layer.flipped != flipped || layer.image.size() != pixelSize
+            || !qFuzzyCompare(layer.image.devicePixelRatio(), dpr) || !matches(layer))
+            continue;
+        QImage image = layer.image;
+        layers.removeAt(i);
+        return image;
+    }
+    return {};
+}
+} // namespace
+
 void ViewerWidget::paintAnnotations(QPainter& painter, const QRectF& target)
 {
     if (!m_annotationsVisible) return;
@@ -1532,16 +1583,43 @@ void ViewerWidget::paintAnnotations(QPainter& painter, const QRectF& target)
     };
     const qreal dpr = devicePixelRatioF();
     const QSize pixelSize = (QSizeF(size()) * dpr).toSize();
+    // While scrubbing, a layer not already drawn is drawn at half resolution.
+    const qreal quickDpr = m_fastAnnotations ? dpr / 2.0 : dpr;
+    const QSize quickSize = (QSizeF(size()) * quickDpr).toSize();
+    const auto cacheFits = [&](const QImage& cache) {
+        return (cache.size() == pixelSize && qFuzzyCompare(cache.devicePixelRatio(), dpr))
+            || (cache.size() == quickSize && qFuzzyCompare(cache.devicePixelRatio(), quickDpr));
+    };
+    const bool wasSmooth = painter.testRenderHint(QPainter::SmoothPixmapTransform);
+    painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
+    // A recent layer for this geometry: full resolution, or while scrubbing
+    // a quick one too.
+    const auto takeRecent = [&](QList<RecentLayer>& layers, const auto& matches) {
+        QImage image = takeLayer(layers, target, m_flipHorizontal, pixelSize, dpr, matches);
+        if (image.isNull() && m_fastAnnotations)
+            image = takeLayer(layers, target, m_flipHorizontal, quickSize, quickDpr, matches);
+        return image;
+    };
     // Ghosts of nearby frames' drawings, under this frame's own.
     if (!m_ghosts.isEmpty() && m_ghostCenterFrame == m_frame.frameIndex) {
         if (m_ghostCacheGeneration != m_ghostGeneration || m_ghostCacheTarget != target
-            || m_ghostCacheFlipped != m_flipHorizontal || m_ghostCache.size() != pixelSize
-            || !qFuzzyCompare(m_ghostCache.devicePixelRatio(), dpr)) {
-            m_ghostCache = QImage(pixelSize, QImage::Format_ARGB32_Premultiplied);
-            m_ghostCache.setDevicePixelRatio(dpr);
+            || m_ghostCacheFlipped != m_flipHorizontal || !cacheFits(m_ghostCache)) {
+            if (!m_ghostCacheSource.isEmpty())
+                rememberLayer(m_recentGhostLayers, RecentLayer{{}, m_ghostCacheSource, m_ghostCacheTarget,
+                                                               m_ghostCacheFlipped, m_ghostCache});
+            m_ghostCacheSource = m_ghosts;
+            m_ghostCacheGeneration = m_ghostGeneration;
+            m_ghostCacheTarget = target;
+            m_ghostCacheFlipped = m_flipHorizontal;
+            m_ghostCache = takeRecent(m_recentGhostLayers,
+                                      [this](const RecentLayer& layer) { return layer.ghosts == m_ghosts; });
+        }
+        if (m_ghostCache.isNull()) {
+            m_ghostCache = QImage(quickSize, QImage::Format_ARGB32_Premultiplied);
+            m_ghostCache.setDevicePixelRatio(quickDpr);
             m_ghostCache.fill(Qt::transparent);
-            QImage layer(pixelSize, QImage::Format_ARGB32_Premultiplied);
-            layer.setDevicePixelRatio(dpr);
+            QImage layer(quickSize, QImage::Format_ARGB32_Premultiplied);
+            layer.setDevicePixelRatio(quickDpr);
             QPainter ghostPainter(&m_ghostCache);
             for (const annotation::GhostFrame& ghost : m_ghosts) {
                 // Each ghost is flattened first, so overlapping strokes of one
@@ -1561,9 +1639,6 @@ void ViewerWidget::paintAnnotations(QPainter& painter, const QRectF& target)
                 ghostPainter.drawImage(QPointF(0.0, 0.0), layer);
             }
             ghostPainter.end();
-            m_ghostCacheGeneration = m_ghostGeneration;
-            m_ghostCacheTarget = target;
-            m_ghostCacheFlipped = m_flipHorizontal;
         }
         painter.drawImage(QPointF(0.0, 0.0), m_ghostCache);
     }
@@ -1571,29 +1646,45 @@ void ViewerWidget::paintAnnotations(QPainter& painter, const QRectF& target)
     if (!m_annotationFrame.isEmpty() && m_annotationFrame.frame == m_frame.frameIndex) {
         const auto& items = m_annotationFrame.items;
         if (m_annotationCacheGeneration != m_annotationGeneration || m_annotationCacheTarget != target
-            || m_annotationCacheFlipped != m_flipHorizontal || m_annotationCache.size() != pixelSize
-            || !qFuzzyCompare(m_annotationCache.devicePixelRatio(), dpr) || m_annotationCacheItems > items.size()) {
-            m_annotationCache = QImage(pixelSize, QImage::Format_ARGB32_Premultiplied);
-            m_annotationCache.setDevicePixelRatio(dpr);
-            m_annotationCache.fill(Qt::transparent);
-            m_annotationCacheItems = 0;
+            || m_annotationCacheFlipped != m_flipHorizontal || !cacheFits(m_annotationCache)
+            || m_annotationCacheItems > items.size()) {
+            if (m_annotationCacheComplete && m_annotationCacheItems == m_annotationCacheSource.size())
+                rememberLayer(m_recentAnnotationLayers, RecentLayer{m_annotationCacheSource, {}, m_annotationCacheTarget,
+                                                                    m_annotationCacheFlipped, m_annotationCache});
             m_annotationCacheGeneration = m_annotationGeneration;
             m_annotationCacheTarget = target;
             m_annotationCacheFlipped = m_flipHorizontal;
-            ++m_annotationCacheRebuilds;
+            m_annotationCacheComplete = true;
+            m_annotationCache = m_hiddenItemId != 0 ? QImage()
+                : takeRecent(m_recentAnnotationLayers,
+                             [&items](const RecentLayer& layer) { return layer.items == items; });
+            if (!m_annotationCache.isNull()) {
+                m_annotationCacheItems = int(items.size());
+            } else {
+                m_annotationCache = QImage(quickSize, QImage::Format_ARGB32_Premultiplied);
+                m_annotationCache.setDevicePixelRatio(quickDpr);
+                m_annotationCache.fill(Qt::transparent);
+                m_annotationCacheItems = 0;
+                ++m_annotationCacheRebuilds;
+            }
         }
         if (m_annotationCacheItems < items.size()) {
             // Items are painted in order, so painting only the ones added
             // since the last paint gives exactly the pixels a full rebuild would.
             QPainter cachePainter(&m_annotationCache);
             applyFlip(cachePainter);
-            for (qsizetype i = m_annotationCacheItems; i < items.size(); ++i)
+            for (qsizetype i = m_annotationCacheItems; i < items.size(); ++i) {
                 if (items[i].id != m_hiddenItemId)
                     annotation::AnnotationRenderer::paintItem(cachePainter, target, items[i]);
+                else
+                    m_annotationCacheComplete = false;
+            }
             m_annotationCacheItems = int(items.size());
         }
+        m_annotationCacheSource = items;
         painter.drawImage(QPointF(0.0, 0.0), m_annotationCache);
     }
+    painter.setRenderHint(QPainter::SmoothPixmapTransform, wasSmooth);
     painter.save();
     applyFlip(painter);
     if (const auto preview = strokePreview(); preview && annotation::isValidItem(*preview))

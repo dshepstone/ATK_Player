@@ -7,12 +7,17 @@
 #include "media/MediaSource.h"
 #include "project/Project.h"
 
+#include <QComboBox>
 #include <QLabel>
 #include <QListWidget>
 #include <QPushButton>
 #include <QHBoxLayout>
 #include <QVBoxLayout>
+#include <QInputDialog>
+#include <QLineEdit>
 #include <QMenu>
+
+#include <algorithm>
 
 namespace atk::ui {
 namespace {
@@ -52,11 +57,32 @@ SourcesPanel::SourcesPanel(QWidget* parent)
     heading->setProperty("atkRole", "panelHeading");
     layout->addWidget(heading);
 
+    // Category filter, shown once the playlist uses categories.
+    m_filterRow = new QWidget(this);
+    auto* filterLayout = new QHBoxLayout(m_filterRow);
+    filterLayout->setContentsMargins(8, 0, 8, 4);
+    filterLayout->setSpacing(6);
+    auto* filterIcon = new QLabel(m_filterRow);
+    filterIcon->setPixmap(icons::pixmap(QStringLiteral("tag"), QSize(theme::metrics::iconSmall, theme::metrics::iconSmall),
+                                        theme::textSecondary(), devicePixelRatioF()));
+    filterLayout->addWidget(filterIcon);
+    m_filterBox = new QComboBox(m_filterRow);
+    m_filterBox->setObjectName(QStringLiteral("PlaylistCategoryFilter"));
+    m_filterBox->setAccessibleName(tr("Show category"));
+    m_filterBox->setToolTip(tr("Show the clips in one category, or all of them"));
+    filterLayout->addWidget(m_filterBox, 1);
+    m_filterRow->hide();
+    layout->addWidget(m_filterRow);
+    connect(m_filterBox, &QComboBox::activated, this, [this](int index) {
+        setCategoryFilter(m_filterBox->itemData(index).toString());
+    });
+
     m_list = new QListWidget(this);
     m_list->setObjectName(QStringLiteral("PlaylistList"));
     m_list->setAccessibleName(tr("Playlist"));
     m_list->setItemDelegate(new PlaylistCardDelegate(m_list));
-    m_list->setUniformItemSizes(true);
+    // Not uniform: a card that starts a category group is taller, for its heading.
+    m_list->setUniformItemSizes(false);
     m_list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_list->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
     m_list->setAttribute(Qt::WA_Hover, true);
@@ -78,18 +104,24 @@ SourcesPanel::SourcesPanel(QWidget* parent)
     auto* remove = new QPushButton(icons::icon(QStringLiteral("minus")), QString(), this); remove->setToolTip(tr("Remove selected playlist item"));
     auto* up = new QPushButton(icons::icon(QStringLiteral("arrow-up")), QString(), this); up->setToolTip(tr("Move selected item up"));
     auto* down = new QPushButton(icons::icon(QStringLiteral("arrow-down")), QString(), this); down->setToolTip(tr("Move selected item down"));
-    for (QPushButton* button : {add, remove, up, down}) {
+    auto* arrange = new QPushButton(icons::icon(QStringLiteral("list-ordered")), QString(), this);
+    arrange->setObjectName(QStringLiteral("PlaylistArrangeButton"));
+    arrange->setToolTip(tr("Arrange the playlist: move several clips at once, sort by name, date or length, "
+                           "and file clips under categories"));
+    for (QPushButton* button : {add, remove, up, down, arrange}) {
         button->setProperty("atkRole", "iconButton");
         button->setAccessibleName(button->toolTip());
         button->setIconSize(QSize(theme::metrics::iconSmall, theme::metrics::iconSmall));
         button->setFixedWidth(30);
         controls->addWidget(button);
     }
-    controls->addStretch(1); layout->addLayout(controls);
+    controls->insertStretch(controls->indexOf(arrange), 1);
+    layout->addLayout(controls);
     connect(add, &QPushButton::clicked, this, &SourcesPanel::addMediaRequested);
     connect(remove, &QPushButton::clicked, this, [this] { emit removeRequested(selectedIndex()); });
     connect(up, &QPushButton::clicked, this, [this] { emit moveRequested(selectedIndex(), selectedIndex() - 1); });
     connect(down, &QPushButton::clicked, this, [this] { emit moveRequested(selectedIndex(), selectedIndex() + 1); });
+    connect(arrange, &QPushButton::clicked, this, &SourcesPanel::arrangeRequested);
 
     // The hint replaces the list rather than sitting beneath it, so the empty
     // state reads as one panel instead of an empty box with a caption below it.
@@ -123,9 +155,41 @@ SourcesPanel::SourcesPanel(QWidget* parent)
             if (source && (source->isImageSequence() || source->isStillImage()))
                 frameRate = menu.addAction(tr("Frame Rate..."));
         }
+        // Category: none, one of the project's, or a new one.
+        QMenu* category = nullptr;
+        QAction* newCategory = nullptr;
+        if (m_project != nullptr && selectedIndex() < m_project->entries().size()) {
+            const QString current = m_project->entries().at(selectedIndex()).category;
+            category = menu.addMenu(icons::icon(QStringLiteral("tag")), tr("Category"));
+            category->setObjectName(QStringLiteral("PlaylistCategoryMenu"));
+            const auto addChoice = [category, &current](const QString& text, const QString& name) {
+                QAction* choice = category->addAction(text);
+                choice->setData(name);
+                choice->setCheckable(true);
+                choice->setChecked(name == current);
+            };
+            addChoice(tr("None"), QString());
+            if (!m_project->categories().isEmpty()) category->addSeparator();
+            for (const QString& name : m_project->categories()) addChoice(name, name);
+            category->addSeparator();
+            newCategory = category->addAction(tr("New Category…"));
+        }
+        QAction* arrangeAction = menu.addAction(icons::icon(QStringLiteral("list-ordered")), tr("Arrange Playlist…"));
         menu.addSeparator();
         QAction* remove = menu.addAction(tr("Remove"));
         QAction* selected = menu.exec(m_list->viewport()->mapToGlobal(position));
+        if (selected != nullptr && selected == newCategory) {
+            bool ok = false;
+            const QString name = QInputDialog::getText(this, tr("New Category"), tr("Category name:"),
+                                                       QLineEdit::Normal, QString(), &ok).trimmed();
+            if (ok && !name.isEmpty()) emit categoryRequested(selectedIndex(), name);
+            return;
+        }
+        if (selected != nullptr && category != nullptr && selected->parent() == category) {
+            emit categoryRequested(selectedIndex(), selected->data().toString());
+            return;
+        }
+        if (selected == arrangeAction) { emit arrangeRequested(); return; }
         if (selected == activate) emit sourceActivated(selectedIndex());
         else if (selected == relink) emit relinkRequested(selectedIndex());
         else if (selected != nullptr && selected == frameRate) emit frameRateRequested(selectedIndex());
@@ -183,6 +247,7 @@ void SourcesPanel::setCurrentMedia(const QString& fileName, const QString& descr
     item->setData(playlistrole::Subtitle, description);
     item->setToolTip(description.isEmpty() ? fileName : fileName + QLatin1Char('\n') + description);
     m_list->setCurrentRow(0);
+    refreshFilterChoices();
 
     m_emptyHint->setVisible(false);
     m_dropHint->setVisible(false);
@@ -232,6 +297,7 @@ void SourcesPanel::refresh()
                                   ? qint64(entry.source->metadata().effectiveFrameCount()) : qint64(0));
                 item->setData(playlistrole::Thumbnail, m_thumbnails.value(entry.id));
                 item->setData(playlistrole::Status, int(entry.status));
+                item->setData(playlistrole::Category, entry.category);
                 item->setData(Qt::AccessibleTextRole,
                               QStringLiteral("%1. %2%3").arg(order).arg(name, state.isEmpty() ? QString() : QStringLiteral(", ") + state));
                 item->setToolTip(entry.availabilityError.isEmpty() ? entry.source->filePath()
@@ -248,12 +314,99 @@ void SourcesPanel::refresh()
         }
         m_list->setCurrentRow(m_project->activeIndex());
     }
+    refreshFilterChoices();
 
     const bool empty = m_list->count() == 0;
     m_emptyHint->setVisible(empty);
     m_list->setVisible(!empty);
     m_dropHint->setVisible(!empty);
     m_refreshing = false;
+}
+
+void SourcesPanel::setCategoryFilter(const QString& category)
+{
+    m_categoryFilter = category;
+    if (m_filterBox) {
+        for (int i = 0; i < m_filterBox->count(); ++i) {
+            const QVariant data = m_filterBox->itemData(i);
+            if (data.toString() == category && data.toString().isNull() == category.isNull()) {
+                m_filterBox->setCurrentIndex(i);
+                break;
+            }
+        }
+    }
+    applyCategoryLayout();
+}
+
+void SourcesPanel::refreshFilterChoices()
+{
+    // The project's categories in its order, then any a clip uses that the
+    // list lacks; "No category" when some clips have none.
+    QStringList names;
+    bool uncategorized = false;
+    if (m_project != nullptr && !m_showingSingleSource) {
+        names = m_project->categories();
+        for (const project::SourceEntry& entry : m_project->entries()) {
+            if (entry.category.isEmpty()) uncategorized = true;
+            else if (!names.contains(entry.category)) names.append(entry.category);
+        }
+    }
+    const bool used = std::any_of(names.cbegin(), names.cend(), [this](const QString& name) {
+        return std::any_of(m_project->entries().cbegin(), m_project->entries().cend(),
+                           [&name](const project::SourceEntry& entry) { return entry.category == name; });
+    });
+    m_filterRow->setVisible(used);
+    // A filter on a category that has gone shows everything again.
+    if (!m_categoryFilter.isNull()
+        && (m_categoryFilter.isEmpty() ? !uncategorized : !names.contains(m_categoryFilter)))
+        m_categoryFilter = QString();
+    const QSignalBlocker blocker(m_filterBox);
+    m_filterBox->clear();
+    m_filterBox->addItem(tr("All categories"), QString());
+    for (const QString& name : std::as_const(names)) m_filterBox->addItem(name, name);
+    if (used && uncategorized) m_filterBox->addItem(tr("No category"), QStringLiteral(""));
+    setCategoryFilter(m_categoryFilter);
+}
+
+void SourcesPanel::applyCategoryLayout()
+{
+    if (m_list == nullptr) return;
+    // Headings only once some clip has a category; until then the playlist
+    // looks as it always did.
+    bool categorized = false;
+    for (int row = 0; row < m_list->count() && !categorized; ++row)
+        categorized = !m_list->item(row)->data(playlistrole::Category).toString().isEmpty();
+    const bool filtering = !m_categoryFilter.isNull() && !m_showingSingleSource;
+
+    QListWidgetItem* groupStart = nullptr;
+    int groupCount = 0;
+    const auto closeGroup = [&] {
+        if (groupStart) groupStart->setData(playlistrole::GroupCount, groupCount);
+    };
+    QString previous;
+    bool first = true;
+    for (int row = 0; row < m_list->count(); ++row) {
+        QListWidgetItem* item = m_list->item(row);
+        const QString category = item->data(playlistrole::Category).toString();
+        const bool shown = !filtering || category == m_categoryFilter;
+        m_list->setRowHidden(row, !shown);
+        QString heading;
+        if (shown && categorized) {
+            if (first || category != previous) {
+                closeGroup();
+                heading = category.isEmpty() ? tr("No category") : category;
+                groupStart = item;
+                groupCount = 0;
+            }
+            ++groupCount;
+            previous = category;
+            first = false;
+        }
+        if (item->data(playlistrole::GroupHeading).toString() != heading)
+            item->setData(playlistrole::GroupHeading, heading);
+    }
+    closeGroup();
+    m_list->doItemsLayout();
 }
 
 void SourcesPanel::updateCounts(QListWidgetItem* item, const project::SourceEntry& entry)

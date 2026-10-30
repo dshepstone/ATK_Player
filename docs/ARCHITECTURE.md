@@ -388,10 +388,13 @@ is restored when the viewer returns to the unchanged main-window layout.
 ### `src/timeline/` — where we are and what is marked
 
 `TimelineModel` holds the extent, playhead, bookmarks and the active animation
-review range in `TimelineViewport`, and emits signals when they change. That
-range is both the visible frame viewport and the inclusive forward-playback
-boundary; there is no second user-facing playback range. Changing it while
-stopped does not seek, restart waveform analysis or decode scrub audio. It
+review range in `TimelineViewport`, plus the in/out marks (`PlaybackRange`, set
+with `[` and `]`), and emits signals when they change. The viewport is the
+visible frame range; playback runs between the marks within it
+(`effectiveStartFrame`/`effectiveEndFrame`), while seeking, scrubbing and
+stepping may go anywhere in the viewport. Marking does not zoom the timeline.
+Changing either while stopped does not seek, restart waveform analysis or
+decode scrub audio. The viewport
 starts fitted to the source, clamps to its extent and preserves a ten-frame
 minimum span. The playhead lives here rather
 than in the timeline widget so that the viewer, the timeline, the status bar and

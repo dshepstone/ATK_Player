@@ -57,10 +57,18 @@ public:
     void setViewportRange(int64_t startFrame, int64_t endFrame);
     void ensureFrameVisible(int64_t frame);
 
-    /// First and last frame playback should visit. The visible viewport is the
-    /// single active review range.
+    /// First and last frame playback should visit: the in/out marks, within
+    /// the visible viewport. The playhead itself can go anywhere in the
+    /// viewport; playback starts again from the in mark.
     int64_t effectiveStartFrame() const;
     int64_t effectiveEndFrame() const;
+    /// True when in/out marks narrower than the clip are set and on.
+    bool hasPlaybackMarks() const;
+    /// True when the marks are switched off but kept: the whole clip plays
+    /// and the marks are hidden until they are switched on again.
+    bool hasKeptMarks() const;
+    /// Switches the marks on (back where they were) or off (whole clip).
+    void setPlaybackMarksEnabled(bool enabled);
 
     // --- Bookmarks --------------------------------------------------------
     const QVector<Bookmark>& bookmarks() const { return m_bookmarks; }
@@ -111,6 +119,7 @@ signals:
     void viewportChanged(qint64 startFrame, qint64 endFrame);
 
 private:
+    bool marksMeetViewport() const;
     /// Keeps bookmarks sorted by frame so the next/previous lookups stay simple.
     void sortBookmarks();
 

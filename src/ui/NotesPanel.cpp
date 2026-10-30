@@ -399,7 +399,25 @@ void NotesPanel::setCurrentFrame(qint64 frame, const QString& timecode, bool ava
     m_exportPdf->setEnabled(m_available);
     m_exportVideo->setEnabled(m_available);
     refreshComposer();
-    if (changed) rebuildList(); // highlight this frame's notes, or filter to them
+    if (!changed) return;
+    // Only "this frame" shows different notes on another frame; otherwise the
+    // same rows stay and only the highlight moves.
+    if (frameChanged && filter() != Filter::ThisFrame && m_list->count() > 0) markCurrentFrame();
+    else rebuildList();
+}
+
+void NotesPanel::markCurrentFrame()
+{
+    QListWidgetItem* firstOnFrame = nullptr;
+    for (int i = 0; i < m_list->count(); ++i) {
+        QListWidgetItem* item = m_list->item(i);
+        const bool onFrame = item->data(kFrameRole).toLongLong() == m_currentFrame;
+        const int flags = item->data(kFlagsRole).toInt();
+        const int marked = onFrame ? (flags | OnCurrentFrame) : (flags & ~OnCurrentFrame);
+        if (marked != flags) item->setData(kFlagsRole, marked);
+        if (onFrame && !firstOnFrame) firstOnFrame = item;
+    }
+    if (firstOnFrame) m_list->scrollToItem(firstOnFrame, QAbstractItemView::EnsureVisible);
 }
 
 void NotesPanel::setSearchText(const QString& text)

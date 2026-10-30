@@ -6,6 +6,7 @@
 #include <QUuid>
 #include <QWidget>
 
+class QComboBox;
 class QListWidget;
 class QListWidgetItem;
 class QLabel;
@@ -46,6 +47,16 @@ public:
     void setThumbnail(const QUuid& sourceId, const QImage& image);
     QImage thumbnail(const QUuid& sourceId) const { return m_thumbnails.value(sourceId); }
     QListWidget* list() const { return m_list; }
+    /// Shows only the clips in `category` (an empty name: clips with none),
+    /// or every clip with a null string. Clips keep their place in the order.
+    void setCategoryFilter(const QString& category);
+    QString categoryFilter() const { return m_categoryFilter; }
+    /// True when the filter shows clips in `category`.
+    bool showsCategory(const QString& category) const
+    {
+        return m_categoryFilter.isNull() || category == m_categoryFilter;
+    }
+    QComboBox* categoryFilterBox() const { return m_filterBox; }
 
     /// Wide enough for a thumbnail card and a readable name. The dock starts
     /// at this width; a saved layout keeps whatever width the user chose.
@@ -57,6 +68,10 @@ signals:
     void addMediaRequested();
     void removeRequested(int playlistIndex);
     void moveRequested(int fromIndex, int toIndex);
+    /// The Arrange button: bulk reorder, sort and categories.
+    void arrangeRequested();
+    /// File a clip under a category (empty for none) from the context menu.
+    void categoryRequested(int playlistIndex, const QString& category);
     void relinkRequested(int playlistIndex);
     /// Change the playback rate of an image sequence or still.
     void frameRateRequested(int playlistIndex);
@@ -67,6 +82,10 @@ private:
     void refresh();
     void updateCounts(QListWidgetItem* item, const project::SourceEntry& entry);
     void updateCounts(const QUuid& sourceId);
+    /// Hides the clips the filter leaves out and puts a heading above each
+    /// run of clips in one category, when the playlist uses categories.
+    void applyCategoryLayout();
+    void refreshFilterChoices();
 
     project::Project* m_project = nullptr;
     /// Set while a single M1 source is loaded; overrides the project listing.
@@ -79,6 +98,10 @@ private:
     /// a relinked clip does.
     QSet<QString> m_thumbnailsRequested;
     bool m_refreshing = false;
+    QWidget* m_filterRow = nullptr;
+    QComboBox* m_filterBox = nullptr;
+    /// Null: all clips. Empty: clips with no category. Otherwise a category.
+    QString m_categoryFilter;
 };
 
 } // namespace atk::ui

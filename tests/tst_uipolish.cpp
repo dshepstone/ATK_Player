@@ -1,6 +1,8 @@
 #include "review/FolderScanner.h"
 #include "review/ReviewLibrary.h"
+#include "ui/ArrangePlaylistDialog.h"
 #include "ui/BatchRenameDialog.h"
+#include "ui/ExportDialog.h"
 #include "ui/IconProvider.h"
 #include "ui/MainWindow.h"
 #include "ui/NewReviewDialog.h"
@@ -9,6 +11,7 @@
 #include <QAbstractButton>
 #include <QAbstractItemView>
 #include <QAbstractSlider>
+#include <QCheckBox>
 #include <QComboBox>
 #include <QHash>
 #include <QListWidget>
@@ -82,6 +85,7 @@ private slots:
     void initTestCase() { qputenv("ATK_NO_OPEN_EXPORTS", "1"); }
     void everyControlHasAName();
     void dialogsHaveNamedControls();
+    void exportWindowStartsFromTheReviewsChoices();
     void reviewLibraryWorksFromTheKeyboard();
     void reviewLibraryLongPathsFitTheWidth();
     void iconsAreSharpOnHighDpiScreens();
@@ -110,6 +114,45 @@ void TestUiPolish::dialogsHaveNamedControls()
                                  QStringLiteral("Review"), QStringLiteral("{last}_{first}"));
     unnamed = unnamedControls(&rename);
     QVERIFY2(unnamed.isEmpty(), qPrintable(QStringLiteral("Rename: ") + unnamed.join(QStringLiteral(", "))));
+
+    ui::ArrangePlaylistDialog arrange({{QUuid::createUuid(), QStringLiteral("a.mp4"), {}, -1, {}, {}}},
+                                      {QStringLiteral("Section A")});
+    unnamed = unnamedControls(&arrange);
+    QVERIFY2(unnamed.isEmpty(), qPrintable(QStringLiteral("Arrange: ") + unnamed.join(QStringLiteral(", "))));
+}
+
+void TestUiPolish::exportWindowStartsFromTheReviewsChoices()
+{
+    exporter::ExportSpec spec;
+    spec.outputPath = QStringLiteral("review.mp4");
+    spec.burnIns.annotations = true; // the defaults for this export
+    ui::ExportDialog dialog(spec);
+    auto* remember = dialog.findChild<QCheckBox*>(QStringLiteral("ExportRememberBurnIns"));
+    auto* defaults = dialog.findChild<QPushButton*>(QStringLiteral("ExportBurnInDefaults"));
+    QVERIFY(remember && defaults);
+    QVERIFY(remember->isChecked()); // kept with the review unless turned off
+    QVERIFY(dialog.rememberBurnIns());
+    QCOMPARE(dialog.burnIns(), spec.burnIns);
+
+    exporter::ExportBurnIns saved;
+    saved.frameNumber = true;
+    saved.annotationNotes = true;
+    saved.annotationFreezeFrames = 12;
+    saved.tracingPaperPercent = 50;
+    dialog.setSavedBurnIns(saved);
+    QCOMPARE(dialog.burnIns(), saved);
+    QVERIFY(!defaults->isHidden());
+    QVERIFY(!dialog.defaultsForThisExportOnly());
+    defaults->click();
+    QCOMPARE(dialog.burnIns(), spec.burnIns);
+    QVERIFY(defaults->isHidden());
+    QVERIFY(dialog.defaultsForThisExportOnly()); // the review keeps its saved choices
+
+    dialog.setSavedBurnIns(std::nullopt);
+    QCOMPARE(dialog.burnIns(), spec.burnIns);
+    QVERIFY(!dialog.defaultsForThisExportOnly());
+    remember->setChecked(false);
+    QVERIFY(!dialog.rememberBurnIns());
 }
 
 void TestUiPolish::reviewLibraryWorksFromTheKeyboard()

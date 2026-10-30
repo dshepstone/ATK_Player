@@ -25,6 +25,7 @@
 #include "ui/ApplicationSettings.h"
 #include "ui/BookmarkPanel.h"
 #include "ui/BrushSizePill.h"
+#include "ui/ArrangePlaylistDialog.h"
 #include "ui/BurnInOptionsWidget.h"
 #include "ui/CompareBar.h"
 #include "ui/ComparisonCompositeWidget.h"
@@ -482,13 +483,40 @@ void MainWindow::buildWidgets()
         configureFrameField(field);
         updateFrameFieldWidth(field, m_timeline->frameCount());
     }
-    auto* reviewRangeRow = new QHBoxLayout;
+    // Set In [ and Set Out ]: each marks the current frame on the timeline,
+    // and playback keeps between the marks. Right-click either to clear them.
+    auto makeMarkButton = [central](const QString& name, const QString& text, const QString& accessible) {
+        auto* button = new QToolButton(central);
+        button->setObjectName(name);
+        button->setProperty("atkRole", QStringLiteral("markButton"));
+        button->setFocusPolicy(Qt::NoFocus);
+        button->setToolButtonStyle(Qt::ToolButtonTextOnly);
+        button->setText(text);
+        button->setAccessibleName(accessible);
+        button->setContextMenuPolicy(Qt::CustomContextMenu);
+        return button;
+    };
+    m_setInButton = makeMarkButton(QStringLiteral("TimelineSetInButton"), tr("[ In"), tr("Set in point"));
+    m_setOutButton = makeMarkButton(QStringLiteral("TimelineSetOutButton"), tr("Out ]"), tr("Set out point"));
+    // On/off for the marks: off hides them and plays the whole clip, keeping
+    // them to switch back on.
+    m_inOutToggle = makeMarkButton(QStringLiteral("TimelineInOutToggle"), tr("Off"), tr("In and out points on"));
+    m_inOutToggle->setCheckable(true);
+    m_inOutToggle->setMinimumWidth(42);
+    // In a widget of its own so Cinema mode can tuck the whole row away.
+    m_reviewRangeBar = new QWidget(central);
+    m_reviewRangeBar->setObjectName(QStringLiteral("TimelineReviewRangeBar"));
+    auto* reviewRangeRow = new QHBoxLayout(m_reviewRangeBar);
     reviewRangeRow->setContentsMargins(8, 0, 8, 0);
     reviewRangeRow->setSpacing(6);
+    reviewRangeRow->addWidget(m_setInButton);
+    reviewRangeRow->addWidget(m_setOutButton);
+    reviewRangeRow->addWidget(m_inOutToggle);
+    reviewRangeRow->addSpacing(4);
     reviewRangeRow->addWidget(m_reviewStartFrame);
     reviewRangeRow->addWidget(m_timelineRangeSlider, 1);
     reviewRangeRow->addWidget(m_reviewEndFrame);
-    column->addLayout(reviewRangeRow);
+    column->addWidget(m_reviewRangeBar);
 
     m_transport = new TransportControls(m_commands, central);
     m_transport->setVolumePercent(qRound(m_playback->volume() * 100));
@@ -783,6 +811,31 @@ void MainWindow::buildMenus()
     m_commands->action(CommandId::CompareWipe)->setEnabled(false);
     m_commands->action(CommandId::CompareBlend)->setEnabled(false);
     m_commands->action(CommandId::CompareDifference)->setEnabled(false);
+    QAction* clearMarks = m_commands->action(CommandId::ClearRange);
+    for (const auto& [button, id] : {std::pair{m_setInButton, CommandId::SetRangeIn},
+                                     std::pair{m_setOutButton, CommandId::SetRangeOut}}) {
+        QAction* action = m_commands->action(id);
+        if (!action) continue;
+        connect(button, &QToolButton::clicked, action, &QAction::trigger);
+        connect(action, &QAction::changed, button, [button, action] { button->setEnabled(action->isEnabled()); });
+        button->setEnabled(action->isEnabled());
+        if (!clearMarks) continue;
+        connect(button, &QWidget::customContextMenuRequested, this, [button, clearMarks](const QPoint& at) {
+            QMenu menu(button);
+            menu.addAction(clearMarks);
+            menu.exec(button->mapToGlobal(at));
+        });
+    }
+    if (QAction* toggle = m_commands->action(CommandId::ToggleInOut)) {
+        connect(m_inOutToggle, &QToolButton::clicked, toggle, &QAction::trigger);
+        connect(m_inOutToggle, &QWidget::customContextMenuRequested, this, [this, clearMarks](const QPoint& at) {
+            if (!clearMarks) return;
+            QMenu menu(m_inOutToggle);
+            menu.addAction(clearMarks);
+            menu.exec(m_inOutToggle->mapToGlobal(at));
+        });
+    }
+    syncInOutButtons();
 }
 
 void MainWindow::connectSignals()
@@ -826,6 +879,11 @@ void MainWindow::connectSignals()
     connect(m_sources, &SourcesPanel::addMediaRequested, this, &MainWindow::addMediaDialog);
     connect(m_sources, &SourcesPanel::removeRequested, this, &MainWindow::removePlaylistIndex);
     connect(m_sources, &SourcesPanel::moveRequested, this, &MainWindow::movePlaylistIndex);
+    connect(m_sources, &SourcesPanel::arrangeRequested, this, &MainWindow::arrangePlaylist);
+    connect(m_sources, &SourcesPanel::categoryRequested, this, [this](int index, const QString& category) {
+        if (index < 0 || index >= m_project->entries().size()) return;
+        if (m_project->setClipCategory(m_project->entries().at(index).id, category)) updateWindowTitle();
+    });
     connect(m_sources, &SourcesPanel::relinkRequested, this, [this](int) { relinkSelectedMedia(); });
     connect(m_sources, &SourcesPanel::frameRateRequested, this, &MainWindow::changeSourceFrameRate);
     connect(m_sources, &SourcesPanel::sourceActivated, this,
@@ -1066,6 +1124,9 @@ void MainWindow::connectSignals()
             m_playback.get(), &playback::PlaybackController::scrubToFrame);
     connect(m_timelineWidget, &TimelineWidget::scrubFinished,
             m_playback.get(), &playback::PlaybackController::endScrub);
+    // Drawings keep up with a drag at half resolution, full detail on release.
+    connect(m_timelineWidget, &TimelineWidget::scrubStarted, m_viewer, [this] { m_viewer->setScrubbing(true); });
+    connect(m_timelineWidget, &TimelineWidget::scrubFinished, m_viewer, [this] { m_viewer->setScrubbing(false); });
     connect(m_frameNumberInput, &FrameNumberInput::seekFrameRequested,
             m_playback.get(), &playback::PlaybackController::seekFrame);
     connect(m_timeline.get(), &timeline::TimelineModel::currentFrameChanged,
@@ -1105,12 +1166,15 @@ void MainWindow::connectSignals()
         m_project->mutableEntries()[m_project->activeIndex()].bookmarks = m_timeline->bookmarks();
         m_project->setModified(true);
     });
-    connect(m_timeline.get(), &timeline::TimelineModel::viewportChanged, this,
-            [this](qint64 start, qint64 end) {
+    // Each clip keeps its own in/out marks.
+    connect(m_timeline.get(), &timeline::TimelineModel::playbackRangeChanged, this,
+            [this](const timeline::PlaybackRange& range) {
+                syncInOutButtons();
                 if (m_restoringSourceState || m_project->activeIndex() < 0) return;
-                m_project->mutableEntries()[m_project->activeIndex()].playbackRange = {start, end, true};
+                m_project->mutableEntries()[m_project->activeIndex()].playbackRange = range;
                 m_project->setModified(true);
             });
+    connect(m_timeline.get(), &timeline::TimelineModel::frameCountChanged, this, &MainWindow::syncInOutButtons);
 
     // The frame count only becomes final once media is open, and the transport
     // depends on whether there is an extent at all.
@@ -1259,15 +1323,27 @@ void MainWindow::onCommand(CommandId id, bool checked)
     // --- Range and bookmarks: fully wired ---------------------------------
     case CommandId::SetRangeIn:
         m_timeline->setRangeInAtCurrentFrame();
-        statusBar()->showMessage(tr("Range in set to frame %1").arg(m_timeline->currentFrame() + 1), 2000);
+        statusBar()->showMessage(tr("In point set at frame %1").arg(m_timeline->currentFrame() + 1), 2000);
         return;
     case CommandId::SetRangeOut:
         m_timeline->setRangeOutAtCurrentFrame();
-        statusBar()->showMessage(tr("Range out set to frame %1").arg(m_timeline->currentFrame() + 1), 2000);
+        statusBar()->showMessage(tr("Out point set at frame %1").arg(m_timeline->currentFrame() + 1), 2000);
         return;
     case CommandId::ClearRange:
         m_timeline->clearPlaybackRange();
-        statusBar()->showMessage(tr("Playback range cleared"), 2000);
+        statusBar()->showMessage(tr("In and out points cleared: the whole clip plays"), 2000);
+        return;
+    case CommandId::ToggleInOut:
+        m_timeline->setPlaybackMarksEnabled(checked);
+        syncInOutButtons();
+        if (m_timeline->hasPlaybackMarks())
+            statusBar()->showMessage(tr("In and out points on: playing frames %1 to %2")
+                                         .arg(m_timeline->playbackRange().startFrame + 1)
+                                         .arg(m_timeline->playbackRange().endFrame + 1), 3000);
+        else if (m_timeline->hasKeptMarks())
+            statusBar()->showMessage(tr("In and out points off: playing the whole clip"), 3000);
+        else
+            statusBar()->showMessage(tr("No in and out points yet. Press [ and ] to set them."), 3000);
         return;
     case CommandId::AddBookmark: {
         timeline::Bookmark bookmark;
@@ -1421,6 +1497,9 @@ void MainWindow::onCommand(CommandId id, bool checked)
     case CommandId::ToggleVideoFullScreen:
         if (checked) enterVideoFullScreen();
         else exitVideoFullScreen();
+        return;
+    case CommandId::ToggleCinemaMode:
+        setCinemaMode(checked);
         return;
     case CommandId::ToggleComparison:
         if (checked) enterComparison(); else exitComparison();
@@ -1730,10 +1809,33 @@ void MainWindow::restoreApplicationLayout()
     if (m_reviewHeaderToolbar) m_reviewHeaderToolbar->show();
 }
 
+void MainWindow::setCinemaMode(bool on)
+{
+    if (QAction* action = m_commands->action(CommandId::ToggleCinemaMode)) {
+        QSignalBlocker blocker(action);
+        action->setChecked(on);
+    }
+    if (m_cinemaMode == on) return;
+    m_cinemaMode = on;
+    // A wider picture without leaving the window: the playlist steps aside and
+    // the timeline keeps only its track. Leaving puts the playlist back as it
+    // was; the other panels are left as the reviewer set them.
+    if (on) {
+        m_playlistBeforeCinema = m_sourcesDock->isVisible();
+        m_sourcesDock->hide();
+    } else if (m_playlistBeforeCinema) {
+        m_sourcesDock->show();
+    }
+    m_reviewRangeBar->setVisible(!on);
+    m_timelineWidget->setCompact(on);
+}
+
 void MainWindow::saveApplicationLayout()
 {
     // Save the player's layout, not the library's (which hides the docks).
     showPlayer();
+    // Nor Cinema mode's: the next start should show the playlist.
+    setCinemaMode(false);
     if (!m_settings) return;
     if (!m_skipLayoutSaveOnce) {
         m_settings->setWindowGeometry(saveGeometry());
@@ -2011,8 +2113,10 @@ int MainWindow::nextUsablePlaylistIndex(bool wrap) const
     for (int step = 1; step <= steps; ++step) {
         const int i = (active + step) % count;
         const auto availability = m_project->entries().at(i).availability;
+        // Playing through follows the playlist's category filter.
         if (availability != project::SourceAvailability::Missing
-            && availability != project::SourceAvailability::Error) {
+            && availability != project::SourceAvailability::Error
+            && m_sources->showsCategory(m_project->entries().at(i).category)) {
             return i;
         }
     }
@@ -2639,7 +2743,56 @@ void MainWindow::saveActiveReviewState()
     if (m_project->activeIndex() < 0 || m_restoringSourceState) return;
     auto& entry = m_project->mutableEntries()[m_project->activeIndex()];
     entry.bookmarks = m_timeline->bookmarks();
-    entry.playbackRange = {m_timeline->viewport().startFrame(), m_timeline->viewport().endFrame(), true};
+    entry.playbackRange = m_timeline->playbackRange();
+}
+
+void MainWindow::syncInOutButtons()
+{
+    if (!m_setInButton || !m_setOutButton || !m_inOutToggle) return;
+    const bool marked = m_timeline->hasPlaybackMarks();
+    const bool kept = m_timeline->hasKeptMarks();
+    const timeline::PlaybackRange& range = m_timeline->playbackRange();
+    auto shortcut = [this](CommandId id) {
+        const QAction* action = m_commands->action(id);
+        const QString keys = action ? action->shortcut().toString(QKeySequence::NativeText) : QString();
+        return keys.isEmpty() ? QString() : QStringLiteral(" (%1)").arg(keys);
+    };
+    const QString clearHint = tr("Right-click to clear the in and out points.");
+    m_setInButton->setToolTip(
+        (marked ? tr("Set the in point to the current frame%1. In point: frame %2.")
+                      .arg(shortcut(CommandId::SetRangeIn)).arg(range.startFrame + 1)
+                : tr("Set the in point to the current frame%1. Playback starts here.")
+                      .arg(shortcut(CommandId::SetRangeIn)))
+        + (marked ? QLatin1Char('\n') + clearHint : QString()));
+    m_setOutButton->setToolTip(
+        (marked ? tr("Set the out point to the current frame%1. Out point: frame %2.")
+                      .arg(shortcut(CommandId::SetRangeOut)).arg(range.endFrame + 1)
+                : tr("Set the out point to the current frame%1. Playback stops or loops here.")
+                      .arg(shortcut(CommandId::SetRangeOut)))
+        + (marked ? QLatin1Char('\n') + clearHint : QString()));
+    for (QToolButton* button : {m_setInButton, m_setOutButton}) {
+        if (button->property("markSet").toBool() == marked) continue;
+        button->setProperty("markSet", marked);
+        button->style()->unpolish(button);
+        button->style()->polish(button);
+    }
+    if (QAction* clear = m_commands->action(CommandId::ClearRange)) clear->setEnabled(marked || kept);
+
+    const QString toggleKeys = shortcut(CommandId::ToggleInOut);
+    m_inOutToggle->setChecked(marked);
+    m_inOutToggle->setText(marked ? tr("On") : tr("Off"));
+    m_inOutToggle->setToolTip(
+        marked ? tr("In and out points on (frames %1 to %2). Click to turn them off and play the whole clip%3.")
+                     .arg(range.startFrame + 1).arg(range.endFrame + 1).arg(toggleKeys)
+        : kept ? tr("In and out points off: the whole clip plays. Click to turn them back on (frames %1 to %2)%3.")
+                     .arg(range.startFrame + 1).arg(range.endFrame + 1).arg(toggleKeys)
+               : tr("Turns the in and out points on and off%1. Set them first with [ and ].").arg(toggleKeys));
+    if (QAction* toggle = m_commands->action(CommandId::ToggleInOut)) {
+        const QSignalBlocker blocker(toggle);
+        toggle->setChecked(marked);
+        toggle->setEnabled(marked || kept);
+    }
+    m_inOutToggle->setEnabled(marked || kept);
 }
 
 void MainWindow::restoreActiveReviewState()
@@ -2649,10 +2802,11 @@ void MainWindow::restoreActiveReviewState()
     m_restoringSourceState = true;
     m_timeline->clearBookmarks();
     for (const auto& bookmark : entry.bookmarks) m_timeline->addBookmark(bookmark);
-    if (entry.playbackRange.enabled && entry.playbackRange.isValid())
-        m_playback->activateReviewRange(entry.playbackRange.startFrame, entry.playbackRange.endFrame);
-    else
-        m_timeline->fitViewport();
+    // The whole clip on screen, with this clip's in/out marks (reviews saved
+    // before the marks kept them as the visible range, which reads the same).
+    m_timeline->fitViewport();
+    m_timeline->setPlaybackRange(entry.playbackRange.isValid() ? entry.playbackRange : timeline::PlaybackRange{});
+    if (m_timeline->hasPlaybackMarks()) m_playback->seekFrame(m_timeline->effectiveStartFrame());
     m_viewer->resetNavigationToFit();
     m_restoringSourceState = false;
     bindAnnotationsToActiveSource();
@@ -2692,6 +2846,46 @@ void MainWindow::movePlaylistIndex(int from, int to)
 {
     if (from < 0 || to < 0 || from >= m_project->entries().size() || to >= m_project->entries().size()) return;
     m_project->moveSource(from, to);
+}
+
+void MainWindow::arrangePlaylist()
+{
+    if (m_project->entries().isEmpty()) {
+        statusBar()->showMessage(tr("Add clips to the playlist first."), 3000);
+        return;
+    }
+    QVector<ArrangePlaylistDialog::Clip> clips;
+    for (const project::SourceEntry& entry : m_project->entries()) {
+        ArrangePlaylistDialog::Clip clip;
+        clip.id = entry.id;
+        const QString path = entry.source ? entry.source->filePath() : entry.storedPath;
+        clip.name = !entry.displayName.isEmpty() ? entry.displayName
+                  : entry.source                 ? entry.source->displayName()
+                                                 : QFileInfo(path).fileName();
+        clip.modified = QFileInfo(path).lastModified();
+        if (entry.source && entry.availability == project::SourceAvailability::Ready)
+            clip.durationUs = entry.source->metadata().durationUs;
+        clip.category = entry.category;
+        clip.status = entry.status;
+        clips.append(clip);
+    }
+    ArrangePlaylistDialog dialog(std::move(clips), m_project->categories(), this);
+    if (dialog.exec() != QDialog::Accepted) return;
+    applyPlaylistArrangement(dialog.clips(), dialog.categories());
+}
+
+void MainWindow::applyPlaylistArrangement(const QVector<ArrangePlaylistDialog::Clip>& clips,
+                                          const QStringList& categories)
+{
+    m_project->setCategories(categories);
+    QVector<QUuid> order;
+    for (const ArrangePlaylistDialog::Clip& clip : clips) {
+        m_project->setClipCategory(clip.id, clip.category);
+        order.append(clip.id);
+    }
+    m_project->reorder(order);
+    updateWindowTitle();
+    statusBar()->showMessage(tr("Playlist arranged."), 3000);
 }
 
 bool MainWindow::confirmDiscardChanges()
@@ -2739,7 +2933,7 @@ bool MainWindow::openProjectFile(const QString& path)
     ++m_projectGeneration;
     m_playback->closeMedia();
     m_project->replace(loaded.name(), loaded.filePath(), loaded.entries(), loaded.currentSourceId(),
-                       loaded.exportFolder());
+                       loaded.exportFolder(), loaded.exportBurnIns(), loaded.categories());
     int current = m_project->activeIndex();
     if (current >= 0 && m_project->entries().at(current).missing) {
         int usable = -1;
@@ -3056,6 +3250,25 @@ exporter::ExportSpec MainWindow::exportSnapshot(const QString& outputPath) const
     return spec;
 }
 
+void MainWindow::rememberExportBurnIns(const std::optional<exporter::ExportBurnIns>& burnIns)
+{
+    if (m_project->exportBurnIns() == burnIns) return;
+    m_project->setExportBurnIns(burnIns);
+    updateWindowTitle();
+}
+
+void MainWindow::applySavedStillBurnIns(exporter::ExportSpec& spec) const
+{
+    // Stills have no play-through, hold or freeze; the rest of the review's
+    // export choices carry over.
+    std::optional<exporter::ExportBurnIns> saved = m_project->exportBurnIns();
+    if (!saved) return;
+    saved->annotationHoldFrames = 0;
+    saved->annotationFreezeFrames = 0;
+    if (spec.comparison) saved->tracingPaperPercent = spec.burnIns.tracingPaperPercent;
+    spec.burnIns = *saved;
+}
+
 bool MainWindow::projectExportFolderAvailable() const
 {
     return !m_project->exportFolder().isEmpty() && QFileInfo(m_project->exportFolder()).isDir();
@@ -3080,6 +3293,14 @@ void MainWindow::exportReview(bool withNotes)
     ExportDialog dialog(spec, this);
     dialog.setOpenWhenDone(m_settings->openExportsWhenDone());
     dialog.setProjectFolder(m_project->exportFolder(), !m_project->filePath().isEmpty());
+    // Start from the choices this review was last exported with. "With notes"
+    // still means the drawings and notes go in.
+    std::optional<exporter::ExportBurnIns> saved = m_project->exportBurnIns();
+    if (saved) {
+        if (spec.comparison) saved->tracingPaperPercent = spec.burnIns.tracingPaperPercent;
+        if (withNotes && !spec.comparison) saved->annotations = saved->annotationNotes = true;
+    }
+    dialog.setSavedBurnIns(saved);
     connect(&dialog, &ExportDialog::projectFolderChanged, this, [this](const QString& folder) {
         m_project->setExportFolder(folder);
         updateWindowTitle();
@@ -3091,6 +3312,9 @@ void MainWindow::exportReview(bool withNotes)
     if (dialog.exec() != QDialog::Accepted) return;
     spec.outputPath = dialog.destination();
     spec.burnIns = dialog.burnIns();
+    // "Use Defaults" is for this export only: the saved choices stay.
+    if (!dialog.rememberBurnIns()) rememberExportBurnIns(std::nullopt);
+    else if (!dialog.defaultsForThisExportOnly()) rememberExportBurnIns(spec.burnIns);
     m_settings->setOpenExportsWhenDone(dialog.openWhenDone());
     m_openExportWhenDone = dialog.openWhenDone();
     if (QFileInfo::exists(spec.outputPath)
@@ -3123,6 +3347,7 @@ void MainWindow::exportCurrentFrame()
         && QMessageBox::question(this, tr("Export Current Frame"),
             tr("Replace the existing image?\n%1").arg(QDir::toNativeSeparators(path)),
             QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes) return;
+    applySavedStillBurnIns(spec);
     if (!chooseBurnIns(this, tr("Export Current Frame"), QDir::toNativeSeparators(path), spec.burnIns)) return;
     spec.outputPath = QFileInfo(path).absoluteFilePath();
     const QString validation = spec.validate();
@@ -3140,6 +3365,7 @@ void MainWindow::exportImageSequence()
         this, tr("Choose Parent Folder for Image Sequence"), QFileInfo(spec.outputPath).absolutePath());
     if (parent.isEmpty()) return;
     spec.outputPath = QDir(parent).filePath(spec.imagePrefix + QStringLiteral("_frames"));
+    applySavedStillBurnIns(spec);
     if (!chooseBurnIns(this, tr("Export Image Sequence"),
                        tr("%n frame(s) as PNG images into %1", nullptr, int(spec.frameCount()))
                            .arg(QDir::toNativeSeparators(spec.outputPath)),
@@ -4572,6 +4798,7 @@ void MainWindow::setAnnotateMode(bool enabled)
     // started on, so pausing avoids the picture moving under the pen.
     if (enabled && m_playback->isPlaying()) m_playback->pause();
     m_viewer->setAnnotateMode(enabled);
+    m_commands->setDrawing(enabled);
     m_annotationToolbar->setVisible(enabled);
     if (enabled) m_viewer->setFocus(Qt::OtherFocusReason);
 }

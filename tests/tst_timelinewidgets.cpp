@@ -528,7 +528,10 @@ void TestTimelineWidgets::scrubShowsFrameNumberAbovePlayhead()
     TimelineWidget widget;
     widget.resize(1000, 130);
     widget.setModel(&model);
-    QVERIFY(widget.scrubFrameLabelRect().isEmpty());
+    // Always shown over the playhead, outlined until a drag fills it.
+    QCOMPARE(widget.scrubFrameLabelText(), QStringLiteral("1"));
+    QVERIFY(!widget.scrubFrameLabelRect().isEmpty());
+    QVERIFY(!widget.scrubFrameLabelHighlighted());
 
     const int y = widget.height() - 18;
     QTest::mousePress(&widget, Qt::LeftButton, Qt::NoModifier,
@@ -536,6 +539,7 @@ void TestTimelineWidgets::scrubShowsFrameNumberAbovePlayhead()
     QTest::mouseMove(&widget, QPoint(widget.positionForFrame(44), y));
     // One-based like the FRAME field, and following the pointer, not the decoder.
     QCOMPARE(widget.scrubFrameLabelText(), QStringLiteral("45"));
+    QVERIFY(widget.scrubFrameLabelHighlighted());
     const QRect badge = widget.scrubFrameLabelRect();
     QVERIFY(!badge.isEmpty());
     QVERIFY(std::abs(badge.center().x() - widget.positionForFrame(44)) <= 1);
@@ -549,6 +553,11 @@ void TestTimelineWidgets::scrubShowsFrameNumberAbovePlayhead()
 
     QTest::mouseRelease(&widget, Qt::LeftButton, Qt::NoModifier,
                         QPoint(widget.positionForFrame(99), y));
+    QVERIFY(!widget.scrubFrameLabelHighlighted());
+    QVERIFY(!widget.scrubFrameLabelRect().isEmpty());
+
+    // Gone with no media.
+    model.setFrameCount(0);
     QVERIFY(widget.scrubFrameLabelRect().isEmpty());
 }
 

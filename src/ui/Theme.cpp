@@ -145,6 +145,16 @@ QToolButton#TransportPlayPauseButton {
 }
 QToolButton#TransportPlayPauseButton:hover   { background-color: %CONTROL_HOVER%; }
 QToolButton#TransportPlayPauseButton:pressed { background-color: %CONTROL_PRESSED%; }
+/* Set In [ and Set Out ]: compact pills beside the review range. */
+QToolButton[atkRole="markButton"] {
+    border-radius: 11px;
+    padding: 2px 9px;
+    font-weight: 600;
+    min-width: 0;
+}
+QToolButton[atkRole="markButton"][markSet="true"] { color: %ACCENT%; border-color: %ACCENT%; }
+QToolButton[atkRole="markButton"]:disabled { border-color: %CONTROL%; }
+QToolButton[atkRole="markButton"]:checked { background-color: %ACCENT_FILL%; color: %TEXT_ON_ACCENT%; border-color: %ACCENT_FILL%; }
 QToolButton[atkRole="iconButton"]::menu-button {
     background: transparent;
     border: none;

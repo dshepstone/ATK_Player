@@ -106,6 +106,7 @@ class TestAnnotationViewer : public QObject {
     Q_OBJECT
 private slots:
     void initTestCase() { qRegisterMetaType<atk::annotation::AnnotationItem>(); }
+    void scrubbingReusesDrawnFramesAndDrawsQuickly();
     void mouseStrokeOutsideAnnotateModeDoesNothing();
     void mouseStrokeProducesNormalizedItemOnDisplayedFrame();
     void pressOnLetterboxDoesNotStartAStroke();
@@ -1043,6 +1044,7 @@ void TestAnnotationViewer::addingStrokesPaintsOnlyTheNewOne()
 
     const QImage incremental = f.viewer.grab().toImage();
     // Force a full re-render of the same drawings and compare every pixel.
+    f.viewer.forgetRecentDrawings();
     f.viewer.setAnnotationFrame({});
     f.viewer.setAnnotationFrame(store.frame(12));
     const QImage full = f.viewer.grab().toImage();
@@ -1056,6 +1058,51 @@ void TestAnnotationViewer::addingStrokesPaintsOnlyTheNewOne()
     const quint64 beforeUndoPaint = f.viewer.annotationCacheRebuilds();
     QVERIFY(f.viewer.grab().toImage() != full);
     QCOMPARE(f.viewer.annotationCacheRebuilds(), beforeUndoPaint + 1);
+}
+
+void TestAnnotationViewer::scrubbingReusesDrawnFramesAndDrawsQuickly()
+{
+    Fixture f;
+    auto drawnFrame = [](qint64 index, float y) {
+        annotation::FrameAnnotation annotation;
+        annotation.frame = index;
+        AnnotationItem line = horizontalLine();
+        line.id = quint64(index + 1);
+        for (auto& point : line.points) point.y = y;
+        annotation.items = {line};
+        return annotation;
+    };
+    const annotation::FrameAnnotation first = drawnFrame(12, 0.3f);
+    const annotation::FrameAnnotation second = drawnFrame(13, 0.7f);
+    auto show = [&](const annotation::FrameAnnotation& annotation) {
+        f.viewer.setFrame(frame(annotation.frame));
+        f.viewer.setAnnotationFrame(annotation);
+        return f.viewer.grab().toImage();
+    };
+    const QImage firstImage = show(first);
+    show(second);
+    const quint64 rebuilds = f.viewer.annotationCacheRebuilds();
+
+    // Back to a frame drawn a moment ago: its layer is reused, not redrawn.
+    QCOMPARE(show(first), firstImage);
+    QCOMPARE(f.viewer.annotationCacheRebuilds(), rebuilds);
+
+    // While scrubbing, a frame not seen recently is drawn quickly (at half
+    // resolution); on release it is drawn again at full detail.
+    f.viewer.forgetRecentDrawings();
+    f.viewer.setScrubbing(true);
+    QVERIFY(f.viewer.isScrubbing());
+    const QImage quick = show(second);
+    const quint64 quickRebuilds = f.viewer.annotationCacheRebuilds();
+    QCOMPARE(quickRebuilds, rebuilds + 1);
+    f.viewer.setScrubbing(false);
+    const QImage full = f.viewer.grab().toImage();
+    QCOMPARE(f.viewer.annotationCacheRebuilds(), quickRebuilds + 1);
+    QVERIFY(quick != firstImage && full != firstImage);
+    // Full detail matches a plain render of the same drawing.
+    f.viewer.forgetRecentDrawings();
+    f.viewer.setAnnotationFrame({});
+    QCOMPARE(show(second), full);
 }
 
 QTEST_MAIN(TestAnnotationViewer)

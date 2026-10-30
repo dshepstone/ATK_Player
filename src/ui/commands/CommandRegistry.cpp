@@ -43,6 +43,7 @@ CommandRegistry::CommandRegistry(QObject* parent)
     }
     // Holding Space must not flicker between play and pause.
     if (QAction* play = action(commands::CommandId::PlayPause)) play->setAutoRepeat(false);
+    applyShortcutContexts();
 
     qCDebug(log::ui) << "Command registry built with" << m_actions.size() << "commands";
 }
@@ -127,6 +128,7 @@ void CommandRegistry::setShortcut(commands::CommandId id, const QKeySequence& sh
         a->setShortcut(shortcut);
         a->setShortcutContext(Qt::WindowShortcut);
     }
+    applyShortcutContexts();
 }
 
 void CommandRegistry::resetShortcutsToDefaults()
@@ -140,6 +142,7 @@ void CommandRegistry::resetShortcutsToDefaults()
                            ? QKeySequence(QString::fromLatin1(definition.defaultShortcut))
                            : QKeySequence());
     }
+    applyShortcutContexts();
 }
 
 void CommandRegistry::applyShortcutOverrides(const QHash<QString, QString>& overrides)
@@ -151,6 +154,31 @@ void CommandRegistry::applyShortcutOverrides(const QHash<QString, QString>& over
             continue;
         }
         setShortcut(definition->id, QKeySequence(it.value()));
+    }
+}
+
+void CommandRegistry::setDrawing(bool drawing)
+{
+    if (m_drawing == drawing) return;
+    m_drawing = drawing;
+    applyShortcutContexts();
+}
+
+void CommandRegistry::applyShortcutContexts()
+{
+    QList<QKeySequence> drawingKeys;
+    for (const commands::CommandId id : m_order) {
+        if (!commands::isDrawingShortcut(id)) continue;
+        if (QAction* a = action(id); a && !a->shortcut().isEmpty()) drawingKeys.push_back(a->shortcut());
+    }
+    // A widget-only context on an action that lives in the window and menus
+    // never fires, so the shortcut is off without being forgotten.
+    for (const commands::CommandId id : m_order) {
+        QAction* a = action(id);
+        if (!a || a->shortcut().isEmpty()) continue;
+        const bool off = commands::isDrawingShortcut(id) ? !m_drawing
+                                                         : m_drawing && drawingKeys.contains(a->shortcut());
+        a->setShortcutContext(off ? Qt::WidgetShortcut : Qt::WindowShortcut);
     }
 }
 

@@ -155,8 +155,8 @@ void BookmarkPanel::useCurrentReviewRange()
 {
     if (!m_model) return;
     updateCreationBounds();
-    m_createStart->setValue(static_cast<int>(m_model->viewport().startFrame() + 1));
-    m_createEnd->setValue(static_cast<int>(m_model->viewport().endFrame() + 1));
+    m_createStart->setValue(static_cast<int>(m_model->effectiveStartFrame() + 1));
+    m_createEnd->setValue(static_cast<int>(m_model->effectiveEndFrame() + 1));
     m_createError->clear();
 }
 

@@ -125,6 +125,25 @@ strip down the left edge, a thumbnail, the frame count, and badges for notes,
 drawings and status. The loaded clip's number strip is filled with the accent
 colour. Drag cards to reorder; `F4` shows or hides the panel.
 
+**Arrange Playlist**: the list button at the bottom right of the playlist (or
+**Arrange Playlist…** on a card's right-click menu) opens a window for bulk
+reordering. Pick several clips with `Shift` or `Ctrl`, then move them together
+with the up, down, top and bottom arrows, or drag them. To send clips to a
+particular place, type its number in **Move to #** and press `Enter`, or just
+type the number on the list (double-clicking a clip's number works too). **Sort by** reorders
+the whole list by name (numbers in order, so `shot2` comes before `shot10`),
+file date, length, category or review status, or reverses it.
+
+**Categories**: name your own groups, such as class sections or shot types,
+with **New…** in the Arrange window, then pick clips and **Set for Selected**.
+A clip can have one category or none. Sorting by category groups the clips in
+the order the categories were made. The category shows as a tag on the clip's
+card, and a card's right-click **Category** menu files one clip quickly.
+Categories and the order are saved with the review; nothing changes until you
+click **Apply**.
+
+When clips have categories, the playlist shows a heading above each group with its name and clip count. Use the category box under the **PLAYLIST** title to show one category at a time (or **No category** for the unfiled clips); **All categories** shows everything again. While a filter is on, playing through the playlist skips clips that are hidden.
+
 What happens at the end of each clip is set with the arrow beside the
 **Loop** button (also in the **Playback** menu):
 
@@ -154,6 +173,20 @@ Export, save the review project (`Ctrl+S` / `Ctrl+Shift+S`).
 
 **Current frame**: the large yellow number to the left of the timeline is the
 frame on screen. Click it, type a frame number and press `Enter` to go there.
+The frame number also sits on top of the playhead at all times, outlined; it
+fills in yellow while you drag the playhead.
+
+**In and out points**: go to the first frame you want and press `[` (or the
+**[ In** button at the left of the range bar under the timeline), then go to
+the last frame and press `]` (or **Out ]**). Each drops a small bracket on the
+timeline, the part outside the brackets is shaded, and playback (and Loop)
+stays between them. The timeline keeps showing the whole clip, and you can
+still click or step outside the marks, for example to set a later out point;
+Play starts again from the in point. The **On/Off** button beside them (`\`)
+switches the points off, hiding them and playing the whole clip, and back on
+where they were. Right-click any of the three buttons, or use
+**Playback > Clear In/Out Points**, to remove them. Each clip keeps its own in
+and out points, on or off, in the review.
 
 **Open Folder**: the button beside the clip name at the top (and the folder
 icon at the top right) opens the clip's folder in Explorer (Windows) or Finder
@@ -163,7 +196,14 @@ icon at the top right) opens the clip's folder in Explorer (Windows) or Finder
 (**Fit**, or a percentage). Its menu zooms in and out, fits the picture, or
 picks 25%, 50%, 100%, 200% or 400%. The button beside it fits the picture.
 
-Frame stepping (`Left` / `Right`), review ranges (`I` / `O`), bookmarks (`B`)
+**Cinema mode**: the wide-rectangle button at the right of the bottom bar (or
+`C`, or **View > Cinema Mode**) widens the picture without going full screen.
+The playlist steps aside and the timeline drops to the basics: the waveform
+and the in/out range bar are hidden, leaving the frame track, markers and the
+playback buttons. Press it again to put everything back. The other panels, and
+the full-screen modes, work as before.
+
+Frame stepping (`Left` / `Right`), in and out points (`[` / `]`), bookmarks (`B`)
 and A/B comparison work as described in the README.
 
 ## 5. Notes, drawings and status
@@ -242,6 +282,16 @@ Notes PDFs, starts in that folder instead of beside the project. Save the
 project afterwards to keep it. **Browse…** still picks a different place for
 one export, and **Clear** goes back to saving beside the project.
 
+**Keep the burn-in choices for a review**: the Export Review window's
+**Drawings, notes and burn-ins** choices (frame number, bookmarks, drawings,
+frame notes, play-through, hold or freeze, tracing paper) are remembered for
+the review or playlist while **Remember these choices for this review** is
+ticked. Every later export of it, including Export Current Frame and Export
+Image Sequence, starts from them, and they are saved in the project, so the
+review still has them next time it is opened. Opening a different review or a
+clip on its own starts from the standard choices again. **Use Defaults** goes
+back to the standard choices for one export.
+
 ## Keyboard reference
 
 | Action | Shortcut |
@@ -251,6 +301,8 @@ one export, and **Clear** goes back to saving beside the project.
 | Play / Pause | `Space` |
 | Previous / Next Frame | `Left` / `Right` |
 | Loop on/off | `L` |
+| Set in point / out point | `[` / `]` |
+| In/out points on/off | `\` |
 | Draw on Frame | `D` |
 | Copy / Cut / Paste drawings and notes | `Ctrl+C` / `Ctrl+X` / `Ctrl+V` |
 | Brush size | `[` / `]` |
@@ -261,6 +313,7 @@ one export, and **Clear** goes back to saving beside the project.
 | Zoom in / out / Fit / 100% | `Ctrl+=` / `Ctrl+-` / `Ctrl+0` / `Ctrl+1` |
 | Next / Previous note or drawing | `Ctrl+.` / `Ctrl+,` |
 | Playlist / Bookmarks / Notes panels | `F4` / `F5` / `F6` |
+| Cinema mode | `C` |
 
 In the Review Library, `Tab` moves between reviews and their buttons, the
 arrow keys switch between All, Starred and Archived, and `Space` or `Enter`

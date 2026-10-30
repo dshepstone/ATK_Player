@@ -5,11 +5,13 @@
 #include "project/ProjectSerializer.h"
 #include "ui/ApplicationSettings.h"
 #include "ui/MainWindow.h"
+#include "ui/TimelineWidget.h"
 #include "ui/VideoFullscreenWindow.h"
 #include "ui/ViewerWidget.h"
 
 #include <QAction>
 #include <QComboBox>
+#include <QDockWidget>
 #include <QTemporaryDir>
 #include <QTest>
 
@@ -54,6 +56,7 @@ private slots:
     void loopAndLayoutRemainUnchanged();
     void shutdownWhileFullscreenIsSafe();
     void comparisonModesEnterAndExitWithoutPlaybackMutation();
+    void cinemaModeWidensThePictureInTheWindow();
 };
 
 void TestVideoFullscreen::commandDefinitionAndNoMediaState()
@@ -220,4 +223,55 @@ void TestVideoFullscreen::comparisonModesEnterAndExitWithoutPlaybackMutation()
 }
 
 QTEST_MAIN(TestVideoFullscreen)
+void TestVideoFullscreen::cinemaModeWidensThePictureInTheWindow()
+{
+    QCOMPARE(QString::fromLatin1(atk::commands::find(CommandId::ToggleCinemaMode)->defaultShortcut),
+             QStringLiteral("C"));
+    QTemporaryDir directory;
+    atk::ui::MainWindow window(directory.filePath(QStringLiteral("settings.ini")));
+    window.resize(1400, 900);
+    window.show();
+    QVERIFY(window.openProjectFile(writeProject(directory, 1)));
+    QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->state(), PlayerState::Ready, 10000);
+
+    auto* playlist = window.findChild<QDockWidget*>(QStringLiteral("SourcesDock"));
+    auto* rangeBar = window.findChild<QWidget*>(QStringLiteral("TimelineReviewRangeBar"));
+    auto* timeline = window.findChild<atk::ui::TimelineWidget*>(QStringLiteral("TimelineWidget"));
+    auto* viewer = window.findChild<atk::ui::ViewerWidget*>();
+    QAction* action = command(window, "view.toggleCinemaMode");
+    QVERIFY(playlist && rangeBar && timeline && viewer && action);
+    QVERIFY(action->isCheckable());
+    QTRY_VERIFY(playlist->isVisible());
+    QVERIFY(rangeBar->isVisible());
+    const int timelineHeight = timeline->sizeHint().height();
+    QTRY_VERIFY(viewer->width() > 0);
+    const QSize viewerBefore = viewer->size();
+
+    action->trigger();
+    QVERIFY(window.isCinemaMode());
+    QVERIFY(!window.isFullScreen());
+    QVERIFY(!window.isVideoFullScreen());
+    QVERIFY(!playlist->isVisible());
+    QVERIFY(!rangeBar->isVisible());
+    QVERIFY(timeline->isCompact());
+    QVERIFY(timeline->sizeHint().height() < timelineHeight);
+    QTRY_VERIFY(viewer->width() > viewerBefore.width());
+    QTRY_VERIFY(viewer->height() > viewerBefore.height());
+
+    action->trigger();
+    QVERIFY(!window.isCinemaMode());
+    QVERIFY(!action->isChecked());
+    QVERIFY(playlist->isVisible());
+    QVERIFY(rangeBar->isVisible());
+    QVERIFY(!timeline->isCompact());
+    QCOMPARE(timeline->sizeHint().height(), timelineHeight);
+
+    // A playlist already closed stays closed afterwards.
+    playlist->hide();
+    window.setCinemaMode(true);
+    QVERIFY(action->isChecked());
+    window.setCinemaMode(false);
+    QVERIFY(!playlist->isVisible());
+}
+
 #include "tst_videofullscreen.moc"
