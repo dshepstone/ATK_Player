@@ -57,6 +57,10 @@ signals:
     void addMediaRequested();
     void removeRequested(int playlistIndex);
     void moveRequested(int fromIndex, int toIndex);
+    /// The Arrange button: bulk reorder, sort and categories.
+    void arrangeRequested();
+    /// File a clip under a category (empty for none) from the context menu.
+    void categoryRequested(int playlistIndex, const QString& category);
     void relinkRequested(int playlistIndex);
     /// Change the playback rate of an image sequence or still.
     void frameRateRequested(int playlistIndex);

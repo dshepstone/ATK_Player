@@ -17,6 +17,7 @@ enum : int {
     Unavailable,              ///< bool: missing or unreadable
     FrameCount,               ///< qint64: frames in the clip; 0 when unknown
     Status,                   ///< int (project::ClipStatus)
+    Category,                 ///< QString: the clip's category; empty for none
 };
 } // namespace playlistrole
 

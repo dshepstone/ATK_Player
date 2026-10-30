@@ -95,6 +95,35 @@ ExportDialog::ExportDialog(exporter::ExportSpec spec, QWidget* parent)
     m_burnIns->setOptions(m_spec.burnIns);
     burnIns->addWidget(m_burnIns);
 
+    // The review keeps these choices, so its next export (and the next time
+    // it is opened) starts from them instead of the defaults.
+    auto* keep = new QWidget(this);
+    keep->setObjectName(QStringLiteral("ExportRow"));
+    auto* keepRow = new QHBoxLayout(keep);
+    keepRow->setContentsMargins(0, 6, 0, 0);
+    m_rememberBurnIns = new QCheckBox(tr("Remember these choices for this review"), keep);
+    m_rememberBurnIns->setObjectName(QStringLiteral("ExportRememberBurnIns"));
+    m_rememberBurnIns->setChecked(true);
+    m_rememberBurnIns->setToolTip(tr("Every export of this review or playlist starts from these choices, until "
+                                     "another review or clip is opened. Saved with the project."));
+    m_defaultBurnIns = new QPushButton(tr("Use Defaults"), keep);
+    m_defaultBurnIns->setObjectName(QStringLiteral("ExportBurnInDefaults"));
+    m_defaultBurnIns->setToolTip(tr("Go back to the standard choices for this export"));
+    m_defaultBurnIns->setVisible(false);
+    keepRow->addWidget(m_rememberBurnIns);
+    keepRow->addStretch(1);
+    keepRow->addWidget(m_defaultBurnIns);
+    burnIns->addWidget(keep);
+    m_savedBurnInsNote = new QLabel(tr("Using the choices saved with this review."), this);
+    m_savedBurnInsNote->setObjectName(QStringLiteral("ExportNote"));
+    m_savedBurnInsNote->setVisible(false);
+    burnIns->addWidget(m_savedBurnInsNote);
+    connect(m_defaultBurnIns, &QPushButton::clicked, this, [this] {
+        m_burnIns->setOptions(m_spec.burnIns);
+        m_savedBurnInsNote->setVisible(false);
+        m_defaultBurnIns->setVisible(false);
+    });
+
     m_openWhenDone = new QCheckBox(tr("Open the video when it is done"), this);
     m_openWhenDone->setObjectName(QStringLiteral("ExportOpenWhenDone"));
     m_openWhenDone->setChecked(true);
@@ -111,6 +140,14 @@ QString ExportDialog::destination() const
     return path;
 }
 exporter::ExportBurnIns ExportDialog::burnIns() const { return m_burnIns->options(); }
+void ExportDialog::setSavedBurnIns(const std::optional<exporter::ExportBurnIns>& saved)
+{
+    m_burnIns->setOptions(saved ? *saved : m_spec.burnIns);
+    m_savedBurnInsNote->setVisible(saved.has_value());
+    m_defaultBurnIns->setVisible(saved.has_value());
+}
+bool ExportDialog::rememberBurnIns() const { return m_rememberBurnIns->isChecked(); }
+void ExportDialog::setRememberBurnIns(bool remember) { m_rememberBurnIns->setChecked(remember); }
 void ExportDialog::setOpenWhenDone(bool open) { m_openWhenDone->setChecked(open); }
 bool ExportDialog::openWhenDone() const { return m_openWhenDone->isChecked(); }
 void ExportDialog::setProjectFolder(const QString& folder, bool projectSaved)

@@ -25,6 +25,7 @@
 #include "ui/ApplicationSettings.h"
 #include "ui/BookmarkPanel.h"
 #include "ui/BrushSizePill.h"
+#include "ui/ArrangePlaylistDialog.h"
 #include "ui/BurnInOptionsWidget.h"
 #include "ui/CompareBar.h"
 #include "ui/ComparisonCompositeWidget.h"
@@ -482,9 +483,21 @@ void MainWindow::buildWidgets()
         configureFrameField(field);
         updateFrameFieldWidth(field, m_timeline->frameCount());
     }
+    // In/out on or off, beside the range it switches: on plays only the
+    // range, off plays the whole clip and keeps the range for next time.
+    m_reviewRangeToggle = new QToolButton(central);
+    m_reviewRangeToggle->setObjectName(QStringLiteral("ReviewRangeToggle"));
+    m_reviewRangeToggle->setCheckable(true);
+    m_reviewRangeToggle->setFocusPolicy(Qt::NoFocus);
+    m_reviewRangeToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    m_reviewRangeToggle->setIcon(icons::icon(QStringLiteral("brackets")));
+    m_reviewRangeToggle->setIconSize(QSize(theme::metrics::iconSmall, theme::metrics::iconSmall));
+    m_reviewRangeToggle->setText(tr("In/Out"));
+    m_reviewRangeToggle->setAccessibleName(tr("Play in/out range only"));
     auto* reviewRangeRow = new QHBoxLayout;
     reviewRangeRow->setContentsMargins(8, 0, 8, 0);
     reviewRangeRow->setSpacing(6);
+    reviewRangeRow->addWidget(m_reviewRangeToggle);
     reviewRangeRow->addWidget(m_reviewStartFrame);
     reviewRangeRow->addWidget(m_timelineRangeSlider, 1);
     reviewRangeRow->addWidget(m_reviewEndFrame);
@@ -783,6 +796,14 @@ void MainWindow::buildMenus()
     m_commands->action(CommandId::CompareWipe)->setEnabled(false);
     m_commands->action(CommandId::CompareBlend)->setEnabled(false);
     m_commands->action(CommandId::CompareDifference)->setEnabled(false);
+    if (QAction* rangeToggle = m_commands->action(CommandId::ToggleReviewRange)) {
+        rangeToggle->setIcon(icons::icon(QStringLiteral("brackets")));
+        connect(m_reviewRangeToggle, &QToolButton::clicked, rangeToggle, &QAction::trigger);
+        connect(rangeToggle, &QAction::changed, this, [this, rangeToggle] {
+            m_reviewRangeToggle->setEnabled(rangeToggle->isEnabled());
+        });
+    }
+    syncReviewRangeToggle();
 }
 
 void MainWindow::connectSignals()
@@ -826,6 +847,11 @@ void MainWindow::connectSignals()
     connect(m_sources, &SourcesPanel::addMediaRequested, this, &MainWindow::addMediaDialog);
     connect(m_sources, &SourcesPanel::removeRequested, this, &MainWindow::removePlaylistIndex);
     connect(m_sources, &SourcesPanel::moveRequested, this, &MainWindow::movePlaylistIndex);
+    connect(m_sources, &SourcesPanel::arrangeRequested, this, &MainWindow::arrangePlaylist);
+    connect(m_sources, &SourcesPanel::categoryRequested, this, [this](int index, const QString& category) {
+        if (index < 0 || index >= m_project->entries().size()) return;
+        if (m_project->setClipCategory(m_project->entries().at(index).id, category)) updateWindowTitle();
+    });
     connect(m_sources, &SourcesPanel::relinkRequested, this, [this](int) { relinkSelectedMedia(); });
     connect(m_sources, &SourcesPanel::frameRateRequested, this, &MainWindow::changeSourceFrameRate);
     connect(m_sources, &SourcesPanel::sourceActivated, this,
@@ -1106,11 +1132,13 @@ void MainWindow::connectSignals()
         m_project->setModified(true);
     });
     connect(m_timeline.get(), &timeline::TimelineModel::viewportChanged, this,
-            [this](qint64 start, qint64 end) {
+            [this](qint64, qint64) {
                 if (m_restoringSourceState || m_project->activeIndex() < 0) return;
-                m_project->mutableEntries()[m_project->activeIndex()].playbackRange = {start, end, true};
+                m_project->mutableEntries()[m_project->activeIndex()].playbackRange = reviewRangeToSave();
                 m_project->setModified(true);
             });
+    connect(m_timeline.get(), &timeline::TimelineModel::viewportChanged, this, &MainWindow::syncReviewRangeToggle);
+    connect(m_timeline.get(), &timeline::TimelineModel::frameCountChanged, this, &MainWindow::syncReviewRangeToggle);
 
     // The frame count only becomes final once media is open, and the transport
     // depends on whether there is an extent at all.
@@ -1268,6 +1296,9 @@ void MainWindow::onCommand(CommandId id, bool checked)
     case CommandId::ClearRange:
         m_timeline->clearPlaybackRange();
         statusBar()->showMessage(tr("Playback range cleared"), 2000);
+        return;
+    case CommandId::ToggleReviewRange:
+        setReviewRangeActive(checked);
         return;
     case CommandId::AddBookmark: {
         timeline::Bookmark bookmark;
@@ -2639,7 +2670,54 @@ void MainWindow::saveActiveReviewState()
     if (m_project->activeIndex() < 0 || m_restoringSourceState) return;
     auto& entry = m_project->mutableEntries()[m_project->activeIndex()];
     entry.bookmarks = m_timeline->bookmarks();
-    entry.playbackRange = {m_timeline->viewport().startFrame(), m_timeline->viewport().endFrame(), true};
+    entry.playbackRange = reviewRangeToSave();
+}
+
+timeline::PlaybackRange MainWindow::reviewRangeToSave() const
+{
+    // The range on screen; with the in/out toggle off (the whole clip on
+    // screen), the range it switches back to, saved as off.
+    const timeline::PlaybackRange& last = m_timeline->lastReviewRange();
+    if (!m_timeline->isReviewRangeActive() && last.enabled) return {last.startFrame, last.endFrame, false};
+    return {m_timeline->viewport().startFrame(), m_timeline->viewport().endFrame(), true};
+}
+
+void MainWindow::setReviewRangeActive(bool active)
+{
+    if (active != m_timeline->isReviewRangeActive()) {
+        if (!active) {
+            m_timeline->fitViewport();
+            statusBar()->showMessage(tr("Playing the whole clip. The in/out range is kept: Shift+I turns it back on."), 4000);
+        } else if (const timeline::PlaybackRange range = m_timeline->lastReviewRange(); range.enabled) {
+            m_playback->activateReviewRange(range.startFrame, range.endFrame);
+            statusBar()->showMessage(tr("Playing frames %1 to %2 only").arg(range.startFrame + 1).arg(range.endFrame + 1), 3000);
+        } else {
+            statusBar()->showMessage(tr("There is no in/out range yet. Press I and O to mark one, or drag the ends of the range bar."), 5000);
+        }
+    }
+    syncReviewRangeToggle();
+}
+
+void MainWindow::syncReviewRangeToggle()
+{
+    const bool active = m_timeline->isReviewRangeActive();
+    const bool available = m_timeline->frameCount() > 0 && (active || m_timeline->lastReviewRange().enabled);
+    QString tip = active ? tr("Playing the in/out range only. Click to play the whole clip; the range is kept.")
+                : available ? tr("Playing the whole clip. Click to play only the in/out range (frames %1 to %2).")
+                                  .arg(m_timeline->lastReviewRange().startFrame + 1)
+                                  .arg(m_timeline->lastReviewRange().endFrame + 1)
+                            : tr("Play only the in/out range. Mark one first with I and O, or drag the ends of the range bar.");
+    if (QAction* action = m_commands->action(CommandId::ToggleReviewRange)) {
+        const QSignalBlocker blocker(action);
+        action->setChecked(active);
+        const QString shortcut = action->shortcut().toString(QKeySequence::NativeText);
+        if (!shortcut.isEmpty()) tip += QStringLiteral(" (%1)").arg(shortcut);
+    }
+    if (m_reviewRangeToggle) {
+        const QSignalBlocker blocker(m_reviewRangeToggle);
+        m_reviewRangeToggle->setChecked(active);
+        m_reviewRangeToggle->setToolTip(tip);
+    }
 }
 
 void MainWindow::restoreActiveReviewState()
@@ -2649,6 +2727,8 @@ void MainWindow::restoreActiveReviewState()
     m_restoringSourceState = true;
     m_timeline->clearBookmarks();
     for (const auto& bookmark : entry.bookmarks) m_timeline->addBookmark(bookmark);
+    // The range the in/out toggle switches back to: this clip's own, or none.
+    m_timeline->setLastReviewRange(entry.playbackRange.startFrame, entry.playbackRange.endFrame);
     if (entry.playbackRange.enabled && entry.playbackRange.isValid())
         m_playback->activateReviewRange(entry.playbackRange.startFrame, entry.playbackRange.endFrame);
     else
@@ -2692,6 +2772,46 @@ void MainWindow::movePlaylistIndex(int from, int to)
 {
     if (from < 0 || to < 0 || from >= m_project->entries().size() || to >= m_project->entries().size()) return;
     m_project->moveSource(from, to);
+}
+
+void MainWindow::arrangePlaylist()
+{
+    if (m_project->entries().isEmpty()) {
+        statusBar()->showMessage(tr("Add clips to the playlist first."), 3000);
+        return;
+    }
+    QVector<ArrangePlaylistDialog::Clip> clips;
+    for (const project::SourceEntry& entry : m_project->entries()) {
+        ArrangePlaylistDialog::Clip clip;
+        clip.id = entry.id;
+        const QString path = entry.source ? entry.source->filePath() : entry.storedPath;
+        clip.name = !entry.displayName.isEmpty() ? entry.displayName
+                  : entry.source                 ? entry.source->displayName()
+                                                 : QFileInfo(path).fileName();
+        clip.modified = QFileInfo(path).lastModified();
+        if (entry.source && entry.availability == project::SourceAvailability::Ready)
+            clip.durationUs = entry.source->metadata().durationUs;
+        clip.category = entry.category;
+        clip.status = entry.status;
+        clips.append(clip);
+    }
+    ArrangePlaylistDialog dialog(std::move(clips), m_project->categories(), this);
+    if (dialog.exec() != QDialog::Accepted) return;
+    applyPlaylistArrangement(dialog.clips(), dialog.categories());
+}
+
+void MainWindow::applyPlaylistArrangement(const QVector<ArrangePlaylistDialog::Clip>& clips,
+                                          const QStringList& categories)
+{
+    m_project->setCategories(categories);
+    QVector<QUuid> order;
+    for (const ArrangePlaylistDialog::Clip& clip : clips) {
+        m_project->setClipCategory(clip.id, clip.category);
+        order.append(clip.id);
+    }
+    m_project->reorder(order);
+    updateWindowTitle();
+    statusBar()->showMessage(tr("Playlist arranged."), 3000);
 }
 
 bool MainWindow::confirmDiscardChanges()
@@ -2739,7 +2859,7 @@ bool MainWindow::openProjectFile(const QString& path)
     ++m_projectGeneration;
     m_playback->closeMedia();
     m_project->replace(loaded.name(), loaded.filePath(), loaded.entries(), loaded.currentSourceId(),
-                       loaded.exportFolder());
+                       loaded.exportFolder(), loaded.exportBurnIns(), loaded.categories());
     int current = m_project->activeIndex();
     if (current >= 0 && m_project->entries().at(current).missing) {
         int usable = -1;
@@ -3056,6 +3176,25 @@ exporter::ExportSpec MainWindow::exportSnapshot(const QString& outputPath) const
     return spec;
 }
 
+void MainWindow::rememberExportBurnIns(const std::optional<exporter::ExportBurnIns>& burnIns)
+{
+    if (m_project->exportBurnIns() == burnIns) return;
+    m_project->setExportBurnIns(burnIns);
+    updateWindowTitle();
+}
+
+void MainWindow::applySavedStillBurnIns(exporter::ExportSpec& spec) const
+{
+    // Stills have no play-through, hold or freeze; the rest of the review's
+    // export choices carry over.
+    std::optional<exporter::ExportBurnIns> saved = m_project->exportBurnIns();
+    if (!saved) return;
+    saved->annotationHoldFrames = 0;
+    saved->annotationFreezeFrames = 0;
+    if (spec.comparison) saved->tracingPaperPercent = spec.burnIns.tracingPaperPercent;
+    spec.burnIns = *saved;
+}
+
 bool MainWindow::projectExportFolderAvailable() const
 {
     return !m_project->exportFolder().isEmpty() && QFileInfo(m_project->exportFolder()).isDir();
@@ -3080,6 +3219,14 @@ void MainWindow::exportReview(bool withNotes)
     ExportDialog dialog(spec, this);
     dialog.setOpenWhenDone(m_settings->openExportsWhenDone());
     dialog.setProjectFolder(m_project->exportFolder(), !m_project->filePath().isEmpty());
+    // Start from the choices this review was last exported with. "With notes"
+    // still means the drawings and notes go in.
+    std::optional<exporter::ExportBurnIns> saved = m_project->exportBurnIns();
+    if (saved) {
+        if (spec.comparison) saved->tracingPaperPercent = spec.burnIns.tracingPaperPercent;
+        if (withNotes && !spec.comparison) saved->annotations = saved->annotationNotes = true;
+    }
+    dialog.setSavedBurnIns(saved);
     connect(&dialog, &ExportDialog::projectFolderChanged, this, [this](const QString& folder) {
         m_project->setExportFolder(folder);
         updateWindowTitle();
@@ -3091,6 +3238,7 @@ void MainWindow::exportReview(bool withNotes)
     if (dialog.exec() != QDialog::Accepted) return;
     spec.outputPath = dialog.destination();
     spec.burnIns = dialog.burnIns();
+    rememberExportBurnIns(dialog.rememberBurnIns() ? std::optional(spec.burnIns) : std::nullopt);
     m_settings->setOpenExportsWhenDone(dialog.openWhenDone());
     m_openExportWhenDone = dialog.openWhenDone();
     if (QFileInfo::exists(spec.outputPath)
@@ -3123,6 +3271,7 @@ void MainWindow::exportCurrentFrame()
         && QMessageBox::question(this, tr("Export Current Frame"),
             tr("Replace the existing image?\n%1").arg(QDir::toNativeSeparators(path)),
             QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes) return;
+    applySavedStillBurnIns(spec);
     if (!chooseBurnIns(this, tr("Export Current Frame"), QDir::toNativeSeparators(path), spec.burnIns)) return;
     spec.outputPath = QFileInfo(path).absoluteFilePath();
     const QString validation = spec.validate();
@@ -3140,6 +3289,7 @@ void MainWindow::exportImageSequence()
         this, tr("Choose Parent Folder for Image Sequence"), QFileInfo(spec.outputPath).absolutePath());
     if (parent.isEmpty()) return;
     spec.outputPath = QDir(parent).filePath(spec.imagePrefix + QStringLiteral("_frames"));
+    applySavedStillBurnIns(spec);
     if (!chooseBurnIns(this, tr("Export Image Sequence"),
                        tr("%n frame(s) as PNG images into %1", nullptr, int(spec.frameCount()))
                            .arg(QDir::toNativeSeparators(spec.outputPath)),

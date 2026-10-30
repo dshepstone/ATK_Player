@@ -788,7 +788,7 @@ QString TimelineWidget::scrubFrameLabelText() const
 
 QRect TimelineWidget::scrubFrameLabelRect() const
 {
-    if (!m_scrubbing || !m_model || m_model->frameCount() <= 0) return {};
+    if (!m_model || m_model->frameCount() <= 0) return {};
     const int x = xForFrame(displayFrame());
     if (x < 0) return {};
     QFont bold = font();
@@ -808,13 +808,20 @@ void TimelineWidget::paintScrubFrameLabel(QPainter& painter)
     if (badge.isEmpty()) return;
     painter.save();
     painter.setRenderHint(QPainter::Antialiasing, true);
-    painter.setPen(Qt::NoPen);
-    painter.setBrush(theme::playhead());
-    painter.drawRoundedRect(badge, 3, 3);
+    // Filled while scrubbing; at rest, an outlined tag in the playhead's
+    // colour, so the frame number is always there without shouting.
+    if (m_scrubbing) {
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(theme::playhead());
+    } else {
+        painter.setPen(QPen(theme::playhead(), 1));
+        painter.setBrush(theme::timelineTrack());
+    }
+    painter.drawRoundedRect(QRectF(badge).adjusted(0.5, 0.5, -0.5, -0.5), 3, 3);
     QFont bold = font();
     bold.setBold(true);
     painter.setFont(bold);
-    painter.setPen(theme::timelineTrack());
+    painter.setPen(m_scrubbing ? theme::timelineTrack() : theme::playhead());
     painter.drawText(badge, Qt::AlignCenter, scrubFrameLabelText());
     painter.restore();
 }

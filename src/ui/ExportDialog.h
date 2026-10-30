@@ -3,6 +3,8 @@
 #include "export/ExportSpec.h"
 #include <QDialog>
 
+#include <optional>
+
 class QCheckBox;
 class QLabel;
 class QLineEdit;
@@ -25,6 +27,13 @@ public:
     /// location only once it is saved.
     void setProjectFolder(const QString& folder, bool projectSaved);
     QString projectFolder() const { return m_projectFolder; }
+    /// The burn-in choices kept with the review, shown in place of the
+    /// defaults (the spec's) when there are some. "Use Defaults" goes back.
+    void setSavedBurnIns(const std::optional<exporter::ExportBurnIns>& saved);
+    /// True when the choices made here should be kept with the review for
+    /// its next exports. On by default.
+    bool rememberBurnIns() const;
+    void setRememberBurnIns(bool remember);
 signals:
     /// The user set (or, with an empty folder, cleared) the project's save
     /// location. Exports of the project default there from now on.
@@ -42,6 +51,9 @@ private:
     QLineEdit* m_destination = nullptr;
     QPushButton* m_export = nullptr;
     BurnInOptionsWidget* m_burnIns = nullptr;
+    QCheckBox* m_rememberBurnIns = nullptr;
+    QLabel* m_savedBurnInsNote = nullptr;
+    QPushButton* m_defaultBurnIns = nullptr;
     QCheckBox* m_openWhenDone = nullptr;
 };
 

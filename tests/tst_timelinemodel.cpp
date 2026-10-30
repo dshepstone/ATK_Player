@@ -34,6 +34,7 @@ private slots:
     void viewportPansAndFollowsPlayhead();
     void viewportMappingIsDeterministic();
     void viewportRangeEditsAnchorAndClamp();
+    void reviewRangeToggleKeepsTheLastRange();
 };
 
 void TestTimelineModel::startsEmpty()
@@ -70,6 +71,35 @@ void TestTimelineModel::emitsCurrentFrameChangedOnlyOnChange()
 
     model.setCurrentFrame(11);
     QCOMPARE(spy.count(), 1);
+}
+
+void TestTimelineModel::reviewRangeToggleKeepsTheLastRange()
+{
+    TimelineModel model;
+    model.setFrameCount(100);
+    QVERIFY(!model.isReviewRangeActive());
+    QVERIFY(!model.lastReviewRange().enabled); // nothing to switch back to yet
+
+    model.setViewportRange(10, 39);
+    QVERIFY(model.isReviewRangeActive());
+    QCOMPARE(model.lastReviewRange(), (PlaybackRange{10, 39, true}));
+
+    // Whole clip again: the range is kept to switch back to.
+    model.fitViewport();
+    QVERIFY(!model.isReviewRangeActive());
+    QCOMPARE(model.lastReviewRange(), (PlaybackRange{10, 39, true}));
+
+    // A clip's own saved range; one covering the whole clip forgets it.
+    model.setLastReviewRange(5, 20);
+    QCOMPARE(model.lastReviewRange(), (PlaybackRange{5, 20, true}));
+    model.setLastReviewRange(0, 99);
+    QVERIFY(!model.lastReviewRange().enabled);
+    model.setLastReviewRange(30, 500); // clamped to the clip
+    QCOMPARE(model.lastReviewRange(), (PlaybackRange{30, 99, true}));
+
+    // Another clip starts without one.
+    model.setFrameCount(50);
+    QVERIFY(!model.lastReviewRange().enabled);
 }
 
 void TestTimelineModel::reviewRangeDoesNotMoveStoppedPlayhead()

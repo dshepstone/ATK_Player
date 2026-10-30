@@ -9,6 +9,7 @@
 set(ATK_UI_SOURCES
     AnnotationToolbar.cpp
     ApplicationSettings.cpp
+    ArrangePlaylistDialog.cpp
     BatchRenameDialog.cpp
     BookmarkPanel.cpp
     BrushSizePill.cpp
@@ -48,6 +49,7 @@ set(ATK_UI_SOURCES
 set(ATK_UI_HEADERS
     AnnotationToolbar.h
     ApplicationSettings.h
+    ArrangePlaylistDialog.h
     BatchRenameDialog.h
     BookmarkPanel.h
     BrushSizePill.h

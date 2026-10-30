@@ -2,10 +2,13 @@
 #include "media/MediaSource.h"
 #include "project/Project.h"
 #include "project/ProjectSerializer.h"
+#include "ui/ArrangePlaylistDialog.h"
 #include "ui/MainWindow.h"
 #include "ui/PlaylistCardDelegate.h"
 #include "ui/ReviewHeaderBar.h"
 #include "ui/SourcesPanel.h"
+#include "ui/TimelineWidget.h"
+#include "timeline/TimelineModel.h"
 
 #include <QApplication>
 #include <QComboBox>
@@ -13,6 +16,9 @@
 #include <QLabel>
 #include <QDir>
 #include <QListWidget>
+#include <QPushButton>
+#include <QSpinBox>
+#include <QTreeWidget>
 #include <QMenu>
 #include <QScrollBar>
 #include <QSignalSpy>
@@ -51,6 +57,9 @@ private slots:
     void drawingAndNotesUpdateTheCardInPlace();
     void mainWindowFillsInThumbnails();
     void headerShowsTheClipAndSetsItsStatus();
+    void arrangeSortsMovesAndFilesClips();
+    void arrangingKeepsTheLoadedClipAndShowsCategories();
+    void inOutToggleSwitchesRangeAndWholeClip();
 };
 
 void TestPlaylistPanel::cardsCarryTheClipDetails()
@@ -240,6 +249,144 @@ void TestPlaylistPanel::headerShowsTheClipAndSetsItsStatus()
     QVERIFY(save->toolTip().contains(QStringLiteral("Ctrl+S")));
     save->click();
     QTRY_VERIFY(!window.project()->isModified()); // saved to the file it came from
+}
+
+void TestPlaylistPanel::arrangeSortsMovesAndFilesClips()
+{
+    using Dialog = ui::ArrangePlaylistDialog;
+    const auto clip = [](const char* name, int day, qint64 seconds, const char* category) {
+        Dialog::Clip c;
+        c.id = QUuid::createUuid();
+        c.name = QString::fromLatin1(name);
+        c.modified = QDateTime(QDate(2026, 10, day), QTime(9, 0));
+        c.durationUs = seconds * 1'000'000;
+        c.category = QString::fromLatin1(category);
+        return c;
+    };
+    const QVector<Dialog::Clip> clips{clip("shot10.mp4", 3, 8, "B"), clip("Shot2.mp4", 1, 3, ""),
+                                      clip("shot1.mp4", 2, 20, "A")};
+    const auto names = [](const QVector<Dialog::Clip>& list) {
+        QStringList result;
+        for (const Dialog::Clip& c : list) result << c.name;
+        return result;
+    };
+    QVector<Dialog::Clip> sorted = clips;
+    // Natural, case-blind name order: 1, 2, 10.
+    Dialog::sortClips(sorted, Dialog::SortKey::NameAscending, {});
+    QCOMPARE(names(sorted), (QStringList{"shot1.mp4", "Shot2.mp4", "shot10.mp4"}));
+    Dialog::sortClips(sorted, Dialog::SortKey::DateNewestFirst, {});
+    QCOMPARE(names(sorted), (QStringList{"shot10.mp4", "shot1.mp4", "Shot2.mp4"}));
+    Dialog::sortClips(sorted, Dialog::SortKey::LengthShortestFirst, {});
+    QCOMPARE(names(sorted), (QStringList{"Shot2.mp4", "shot10.mp4", "shot1.mp4"}));
+    // Categories in the list's order; none last.
+    Dialog::sortClips(sorted, Dialog::SortKey::Category, {QStringLiteral("B"), QStringLiteral("A")});
+    QCOMPARE(names(sorted), (QStringList{"shot10.mp4", "shot1.mp4", "Shot2.mp4"}));
+    Dialog::sortClips(sorted, Dialog::SortKey::Reverse, {});
+    QCOMPARE(names(sorted), (QStringList{"Shot2.mp4", "shot1.mp4", "shot10.mp4"}));
+
+    Dialog dialog(clips, {QStringLiteral("B"), QStringLiteral("A")});
+    QCOMPARE(dialog.list()->topLevelItemCount(), 3);
+    QCOMPARE(dialog.list()->topLevelItem(2)->text(0), QStringLiteral("3"));
+    // Two picked clips move together, keeping their own order.
+    dialog.selectRows({1, 2});
+    dialog.moveSelected(-1);
+    QCOMPARE(names(dialog.clips()), (QStringList{"Shot2.mp4", "shot1.mp4", "shot10.mp4"}));
+    dialog.moveSelected(-1); // already at the top: stays
+    QCOMPARE(names(dialog.clips()), (QStringList{"Shot2.mp4", "shot1.mp4", "shot10.mp4"}));
+    dialog.selectRows({0});
+    dialog.moveSelected(1'000'000);
+    QCOMPARE(names(dialog.clips()), (QStringList{"shot1.mp4", "shot10.mp4", "Shot2.mp4"}));
+    dialog.moveSelected(-1);
+    QCOMPARE(names(dialog.clips()), (QStringList{"shot1.mp4", "Shot2.mp4", "shot10.mp4"}));
+    // A new category name is added to the list.
+    dialog.selectRows({0, 1});
+    dialog.setSelectedCategory(QStringLiteral("Late"));
+    QCOMPARE(dialog.categories(), (QStringList{"B", "A", "Late"}));
+    QCOMPARE(dialog.clips().at(1).category, QStringLiteral("Late"));
+    dialog.sortBy(Dialog::SortKey::Category);
+    QCOMPARE(names(dialog.clips()), (QStringList{"shot10.mp4", "shot1.mp4", "Shot2.mp4"}));
+    QCOMPARE(dialog.list()->topLevelItem(0)->text(0), QStringLiteral("1"));
+}
+
+void TestPlaylistPanel::arrangingKeepsTheLoadedClipAndShowsCategories()
+{
+    QTemporaryDir directory;
+    project::Project project;
+    project.addSource(std::make_shared<media::MediaSource>(fixture("atk_fixture_48f.mp4")));
+    project.addSource(std::make_shared<media::MediaSource>(fixture("atk_review_10s.mkv")));
+    project.setActiveIndex(0);
+    const QString path = directory.filePath(QStringLiteral("arrange.atkproj"));
+    QVERIFY(project::ProjectSerializer::save(project, path).ok);
+
+    ui::MainWindow window(directory.filePath(QStringLiteral("settings.ini")));
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    window.openProjectFile(path);
+    auto* panel = window.findChild<ui::SourcesPanel*>();
+    QVERIFY(panel);
+    QVERIFY(panel->findChild<QPushButton*>(QStringLiteral("PlaylistArrangeButton")));
+    QTRY_COMPARE_WITH_TIMEOUT(panel->list()->count(), 2, 5000);
+    const QUuid first = window.project()->entries().at(0).id;
+    const QUuid second = window.project()->entries().at(1).id;
+
+    ui::ArrangePlaylistDialog::Clip a, b;
+    a.id = first;
+    a.category = QStringLiteral("Needs work");
+    b.id = second;
+    window.applyPlaylistArrangement({b, a}, {QStringLiteral("Needs work"), QStringLiteral("Done")});
+    QCOMPARE(window.project()->entries().at(0).id, second);
+    QCOMPARE(window.project()->currentSourceId(), first); // still the loaded clip
+    QCOMPARE(window.project()->activeIndex(), 1);
+    QCOMPARE(window.project()->categories(), (QStringList{"Needs work", "Done"}));
+    QTRY_COMPARE(panel->list()->item(1)->data(role::Category).toString(), QStringLiteral("Needs work"));
+    QVERIFY(panel->list()->item(0)->data(role::Category).toString().isEmpty());
+    QCOMPARE(panel->list()->item(1)->data(role::Order).toInt(), 2);
+    QVERIFY(window.project()->needsSavePrompt());
+}
+
+void TestPlaylistPanel::inOutToggleSwitchesRangeAndWholeClip()
+{
+    QTemporaryDir directory;
+    project::Project project;
+    project.addSource(std::make_shared<media::MediaSource>(fixture("atk_fixture_48f.mp4")));
+    project.setActiveIndex(0);
+    const QString path = directory.filePath(QStringLiteral("range.atkproj"));
+    QVERIFY(project::ProjectSerializer::save(project, path).ok);
+
+    ui::MainWindow window(directory.filePath(QStringLiteral("settings.ini")));
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    window.openProjectFile(path);
+    timeline::TimelineModel* model = window.findChild<ui::TimelineWidget*>()->model();
+    QTRY_COMPARE_WITH_TIMEOUT(model->frameCount(), qint64(48), 10000);
+    QToolButton* toggle = window.reviewRangeToggle();
+    QVERIFY(toggle && toggle->isVisible());
+    QVERIFY(!toggle->isChecked()); // the whole clip plays
+    QVERIFY(!toggle->text().isEmpty());
+
+    // Narrowing the range turns it on.
+    auto* start = window.findChild<QSpinBox*>(QStringLiteral("ReviewRangeStartFrame"));
+    auto* end = window.findChild<QSpinBox*>(QStringLiteral("ReviewRangeEndFrame"));
+    end->setValue(30);
+    start->setValue(11);
+    QCOMPARE(model->viewport().startFrame(), qint64(10));
+    QCOMPARE(model->viewport().endFrame(), qint64(29));
+    QVERIFY(toggle->isChecked());
+
+    // Off: the whole clip, with the range kept (and saved, marked off).
+    toggle->click();
+    QVERIFY(!toggle->isChecked());
+    QCOMPARE(model->viewport().startFrame(), qint64(0));
+    QCOMPARE(model->viewport().endFrame(), qint64(47));
+    QCOMPARE(window.project()->entries().at(0).playbackRange, (timeline::PlaybackRange{10, 29, false}));
+    QCOMPARE(start->value(), 1);
+
+    // On again: back to frames 11 to 30.
+    toggle->click();
+    QVERIFY(toggle->isChecked());
+    QCOMPARE(model->viewport().startFrame(), qint64(10));
+    QCOMPARE(model->viewport().endFrame(), qint64(29));
+    QCOMPARE(window.project()->entries().at(0).playbackRange, (timeline::PlaybackRange{10, 29, true}));
 }
 
 QTEST_MAIN(TestPlaylistPanel)

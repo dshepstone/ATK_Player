@@ -92,6 +92,7 @@ constexpr std::array kCommands{
     CommandDefinition{ CommandId::SetRangeIn,         "playback.setRangeIn",   QT_TRANSLATE_NOOP("Command", "Set Range In"),         C::Playback, "I",            false },
     CommandDefinition{ CommandId::SetRangeOut,        "playback.setRangeOut",  QT_TRANSLATE_NOOP("Command", "Set Range Out"),        C::Playback, "O",            false },
     CommandDefinition{ CommandId::ClearRange,         "playback.clearRange",   QT_TRANSLATE_NOOP("Command", "Clear Range"),          C::Playback, nullptr,        false },
+    CommandDefinition{ CommandId::ToggleReviewRange,  "playback.toggleRange",  QT_TRANSLATE_NOOP("Command", "Play In/Out Range Only"), C::Playback, "Shift+I", true },
     CommandDefinition{ CommandId::AddBookmark,        "playback.addBookmark",  QT_TRANSLATE_NOOP("Command", "Add Bookmark"),         C::Playback, "B",            false },
     CommandDefinition{ CommandId::AddRangeBookmark,   "playback.addRangeBookmark",QT_TRANSLATE_NOOP("Command", "Add Range Bookmark"),C::Playback, nullptr,        false },
     CommandDefinition{ CommandId::NextBookmark,       "playback.nextBookmark", QT_TRANSLATE_NOOP("Command", "Next Bookmark"),        C::Playback, "Alt+Right",    false },

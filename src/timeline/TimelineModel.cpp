@@ -9,6 +9,11 @@ namespace atk::timeline {
 TimelineModel::TimelineModel(QObject* parent)
     : QObject(parent)
 {
+    // Every narrower range the viewport takes is the one the in/out toggle
+    // switches back to.
+    connect(this, &TimelineModel::viewportChanged, this, [this](qint64 start, qint64 end) {
+        if (m_frameCount > 0 && (start > 0 || end < lastFrame())) m_lastReviewRange = {start, end, true};
+    });
 }
 
 void TimelineModel::setFrameCount(int64_t count)
@@ -22,6 +27,7 @@ void TimelineModel::setFrameCount(int64_t count)
         return;
     }
     m_frameCount = clamped;
+    m_lastReviewRange = {};
     m_viewport.reset(m_frameCount);
     emit frameCountChanged(m_frameCount);
     emit viewportChanged(m_viewport.startFrame(), m_viewport.endFrame());
@@ -159,6 +165,22 @@ void TimelineModel::setRangeOutAtCurrentFrame()
 void TimelineModel::clearPlaybackRange()
 {
     setPlaybackRange(PlaybackRange{});
+}
+
+bool TimelineModel::isReviewRangeActive() const
+{
+    return m_frameCount > 0 && (m_viewport.startFrame() > 0 || m_viewport.endFrame() < lastFrame());
+}
+
+void TimelineModel::setLastReviewRange(int64_t startFrame, int64_t endFrame)
+{
+    m_lastReviewRange = {};
+    if (startFrame < 0 || endFrame <= startFrame) return;
+    if (m_frameCount > 0) {
+        endFrame = std::min(endFrame, lastFrame());
+        if (startFrame >= endFrame || (startFrame == 0 && endFrame == lastFrame())) return;
+    }
+    m_lastReviewRange = {startFrame, endFrame, true};
 }
 
 int64_t TimelineModel::effectiveStartFrame() const

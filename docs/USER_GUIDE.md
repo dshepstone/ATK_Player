@@ -125,6 +125,21 @@ strip down the left edge, a thumbnail, the frame count, and badges for notes,
 drawings and status. The loaded clip's number strip is filled with the accent
 colour. Drag cards to reorder; `F4` shows or hides the panel.
 
+**Arrange Playlist**: the list button at the bottom right of the playlist (or
+**Arrange Playlist…** on a card's right-click menu) opens a window for bulk
+reordering. Pick several clips with `Shift` or `Ctrl`, then move them together
+with the up, down, top and bottom arrows, or drag them. **Sort by** reorders
+the whole list by name (numbers in order, so `shot2` comes before `shot10`),
+file date, length, category or review status, or reverses it.
+
+**Categories**: name your own groups, such as class sections or shot types,
+with **New…** in the Arrange window, then pick clips and **Set for Selected**.
+A clip can have one category or none. Sorting by category groups the clips in
+the order the categories were made. The category shows as a tag on the clip's
+card, and a card's right-click **Category** menu files one clip quickly.
+Categories and the order are saved with the review; nothing changes until you
+click **Apply**.
+
 What happens at the end of each clip is set with the arrow beside the
 **Loop** button (also in the **Playback** menu):
 
@@ -154,6 +169,14 @@ Export, save the review project (`Ctrl+S` / `Ctrl+Shift+S`).
 
 **Current frame**: the large yellow number to the left of the timeline is the
 frame on screen. Click it, type a frame number and press `Enter` to go there.
+The frame number also sits on top of the playhead at all times, outlined; it
+fills in yellow while you drag the playhead.
+
+**In/Out**: the **In/Out** button at the left of the range bar under the
+timeline (`Shift+I`) switches between playing only the in/out range and
+playing the whole clip. Turning it off keeps the range, so turning it on again
+goes straight back to it. Mark a range with `I` and `O`, the range fields, or
+by dragging the ends of the range bar.
 
 **Open Folder**: the button beside the clip name at the top (and the folder
 icon at the top right) opens the clip's folder in Explorer (Windows) or Finder
@@ -242,6 +265,16 @@ Notes PDFs, starts in that folder instead of beside the project. Save the
 project afterwards to keep it. **Browse…** still picks a different place for
 one export, and **Clear** goes back to saving beside the project.
 
+**Keep the burn-in choices for a review**: the Export Review window's
+**Drawings, notes and burn-ins** choices (frame number, bookmarks, drawings,
+frame notes, play-through, hold or freeze, tracing paper) are remembered for
+the review or playlist while **Remember these choices for this review** is
+ticked. Every later export of it, including Export Current Frame and Export
+Image Sequence, starts from them, and they are saved in the project, so the
+review still has them next time it is opened. Opening a different review or a
+clip on its own starts from the standard choices again. **Use Defaults** goes
+back to the standard choices for one export.
+
 ## Keyboard reference
 
 | Action | Shortcut |
@@ -251,6 +284,8 @@ one export, and **Clear** goes back to saving beside the project.
 | Play / Pause | `Space` |
 | Previous / Next Frame | `Left` / `Right` |
 | Loop on/off | `L` |
+| Set range in / out | `I` / `O` |
+| Play in/out range only on/off | `Shift+I` |
 | Draw on Frame | `D` |
 | Copy / Cut / Paste drawings and notes | `Ctrl+C` / `Ctrl+X` / `Ctrl+V` |
 | Brush size | `[` / `]` |

@@ -145,6 +145,14 @@ QToolButton#TransportPlayPauseButton {
 }
 QToolButton#TransportPlayPauseButton:hover   { background-color: %CONTROL_HOVER%; }
 QToolButton#TransportPlayPauseButton:pressed { background-color: %CONTROL_PRESSED%; }
+/* In/Out: a pill beside the review range; filled while only the range plays. */
+QToolButton#ReviewRangeToggle {
+    border-radius: 11px;
+    padding: 2px 10px 2px 7px;
+    font-weight: 600;
+    min-width: 0;
+}
+QToolButton#ReviewRangeToggle:disabled { border-color: %CONTROL%; }
 QToolButton[atkRole="iconButton"]::menu-button {
     background: transparent;
     border: none;

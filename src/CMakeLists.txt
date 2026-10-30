@@ -147,6 +147,7 @@ set(ATK_CORE_HEADERS
     review/RosterMatcher.h
     review/ZipArchive.h
 
+    export/ExportBurnIns.h
     export/ExportSpec.h
     export/ExportBurnInRenderer.h
     export/ExportRenderer.h

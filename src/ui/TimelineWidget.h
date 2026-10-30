@@ -105,10 +105,13 @@ public:
     /// Frames the selected group would move by while it is being dragged;
     /// 0 when no group drag is in progress.
     int64_t groupDragOffset() const { return m_groupDragActive ? m_groupDragOffset : 0; }
-    /// Badge above the playhead showing the frame under the pointer while a
-    /// scrub drag is in progress. Empty when not scrubbing.
+    /// Badge above the playhead showing its frame number, always (empty only
+    /// with no media or the playhead scrolled out of view). An outlined tag
+    /// normally; filled while a scrub drag is in progress.
     QRect scrubFrameLabelRect() const;
     QString scrubFrameLabelText() const;
+    /// True while the badge is drawn filled: during a scrub drag.
+    bool scrubFrameLabelHighlighted() const { return m_scrubbing; }
     /// Drops only the pointer-preview overlay. The next painted position still
     /// comes from TimelineModel's authoritative presented frame.
     void followAuthoritativeFrame() { m_scrubbing = false; m_scrubFrame = -1; update(); }
