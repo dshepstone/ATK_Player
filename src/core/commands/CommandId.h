@@ -109,6 +109,7 @@ enum class CommandId {
     MediaInformation,
     ToggleFullScreen,
     ToggleVideoFullScreen,
+    ToggleCinemaMode,
     ToggleComparison,
     CompareSideBySide,
     CompareStacked,

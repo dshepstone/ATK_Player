@@ -189,6 +189,10 @@ public:
     QToolButton* setInButton() const { return m_setInButton; }
     QToolButton* setOutButton() const { return m_setOutButton; }
     QToolButton* inOutToggle() const { return m_inOutToggle; }
+    /// Cinema mode: hides the playlist and slims the timeline for a wider
+    /// picture, without going full screen.
+    bool isCinemaMode() const { return m_cinemaMode; }
+    void setCinemaMode(bool on);
     /// Keeps (or forgets) the burn-in choices the review's exports start from.
     void rememberExportBurnIns(const std::optional<exporter::ExportBurnIns>& burnIns);
     /// The last export handed to the system viewer (for tests).
@@ -452,6 +456,9 @@ private:
     QToolButton* m_setInButton = nullptr;
     QToolButton* m_setOutButton = nullptr;
     QToolButton* m_inOutToggle = nullptr;
+    QWidget* m_reviewRangeBar = nullptr;
+    bool m_cinemaMode = false;
+    bool m_playlistBeforeCinema = true;
     QSpinBox* m_reviewStartFrame = nullptr;
     QSpinBox* m_reviewEndFrame = nullptr;
     QSlider* m_volumeSlider = nullptr;

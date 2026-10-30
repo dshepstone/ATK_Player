@@ -81,6 +81,10 @@ public:
     /// default). Either way a click on a marker goes to its frame.
     void setMarkerDragEnabled(bool enabled);
     bool isMarkerDragEnabled() const { return m_markerDragEnabled; }
+    /// Compact (Cinema mode): drops the waveform band so the timeline is just
+    /// the ruler, markers and track.
+    void setCompact(bool compact);
+    bool isCompact() const { return m_compact; }
     /// The annotated frame whose marker (the wedge under the track) is at
     /// `point`, or -1. Dragging a marker moves that frame's notes and drawings.
     int64_t annotatedFrameAtPosition(const QPoint& point) const;
@@ -220,6 +224,7 @@ private:
     QVector<int64_t> m_annotatedFrames;
     QVector<annotation::HoldSpan> m_holdSpans;
     bool m_markerDragEnabled = false;
+    bool m_compact = false;
     // Drawing-marker drag: the frame picked up and where it would land; -1
     // when no marker is held. m_markerDragCopy follows Ctrl during the drag.
     int64_t m_markerDragFrom = -1;

@@ -204,6 +204,8 @@ TransportControls::TransportControls(CommandRegistry* registry, QWidget* parent)
         icons::icon(QStringLiteral("scan")), tr("Fit the picture to the viewer")));
     layout->addWidget(makeCommandButton(commands::CommandId::ToggleVideoFullScreen,
         icons::icon(QStringLiteral("fullscreen")), tr("Video full screen")));
+    layout->addWidget(makeCommandButton(commands::CommandId::ToggleCinemaMode,
+        icons::icon(QStringLiteral("rectangle-horizontal")), tr("Cinema mode")));
     layout->addWidget(makeCommandButton(commands::CommandId::Preferences,
         icons::icon(QStringLiteral("settings")), tr("Preferences")));
 

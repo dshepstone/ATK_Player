@@ -124,6 +124,7 @@ constexpr std::array kCommands{
     CommandDefinition{ CommandId::MediaInformation,  "view.mediaInformation", QT_TRANSLATE_NOOP("Command", "Media Information..."), C::View, nullptr, false },
     CommandDefinition{ CommandId::ToggleFullScreen,   "view.toggleFullScreen", QT_TRANSLATE_NOOP("Command", "Full Screen Application"), C::View,  "F11",          true  },
     CommandDefinition{ CommandId::ToggleVideoFullScreen,"view.toggleVideoFullScreen",QT_TRANSLATE_NOOP("Command", "Video Full Screen"), C::View, "Ctrl+Shift+F", true },
+    CommandDefinition{ CommandId::ToggleCinemaMode,   "view.toggleCinemaMode", QT_TRANSLATE_NOOP("Command", "Cinema Mode"),          C::View,     "C",            true  },
     CommandDefinition{ CommandId::ToggleComparison,    "view.toggleComparison", QT_TRANSLATE_NOOP("Command", "A/B Comparison"), C::View, nullptr, true },
     CommandDefinition{ CommandId::CompareSideBySide,  "view.compareSideBySide", QT_TRANSLATE_NOOP("Command", "Comparison Side by Side"), C::View, nullptr, true },
     CommandDefinition{ CommandId::CompareStacked,     "view.compareStacked", QT_TRANSLATE_NOOP("Command", "Comparison Stacked"), C::View, nullptr, true },

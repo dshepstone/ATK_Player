@@ -32,8 +32,9 @@ constexpr int kLabelMargin = 52;
 constexpr int kWaveformHeight = 46;
 constexpr int kWaveformInsetTop = 6;
 // A compact bookmark strip sits between the waveform and ruler. Three range
-// lanes fit here without painting over waveform peaks.
-constexpr int kTrackInsetTop = 34 + kWaveformHeight;
+// lanes fit here without painting over waveform peaks. Measured below the
+// waveform band, which compact mode drops.
+constexpr int kTrackInsetTop = 34;
 constexpr int kTrackInsetBottom = 18;
 constexpr int kPlayheadHandleWidth = 9;
 constexpr int kBookmarkMarkerWidth = 3;
@@ -179,12 +180,20 @@ void TimelineWidget::fitEntire()
 
 QSize TimelineWidget::sizeHint() const
 {
-    return { 800, 84 + kWaveformHeight };
+    return { 800, 84 + waveformRect().height() };
 }
 
 QSize TimelineWidget::minimumSizeHint() const
 {
-    return { 240, 84 + kWaveformHeight };
+    return { 240, 84 + waveformRect().height() };
+}
+
+void TimelineWidget::setCompact(bool compact)
+{
+    if (m_compact == compact) return;
+    m_compact = compact;
+    updateGeometry();
+    update();
 }
 
 void TimelineWidget::setWaveform(const media::WaveformData* waveform)
@@ -211,7 +220,7 @@ void TimelineWidget::refreshWaveform()
 QRect TimelineWidget::waveformRect() const
 {
     return QRect(rect().left() + kLabelMargin, rect().top() + kWaveformInsetTop,
-                 std::max(0, rect().width() - 2 * kLabelMargin), kWaveformHeight);
+                 std::max(0, rect().width() - 2 * kLabelMargin), m_compact ? 0 : kWaveformHeight);
 }
 
 int64_t TimelineWidget::mediaTimeForX(int x) const
@@ -242,7 +251,7 @@ int64_t TimelineWidget::lastFrame() const
 
 QRect TimelineWidget::trackRect() const
 {
-    return rect().adjusted(kLabelMargin, kTrackInsetTop, -kLabelMargin, -kTrackInsetBottom);
+    return rect().adjusted(kLabelMargin, kTrackInsetTop + waveformRect().height(), -kLabelMargin, -kTrackInsetBottom);
 }
 
 int64_t TimelineWidget::timeRulerStepSeconds(double pixelsPerSecond)

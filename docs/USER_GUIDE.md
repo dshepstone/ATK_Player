@@ -196,6 +196,13 @@ icon at the top right) opens the clip's folder in Explorer (Windows) or Finder
 (**Fit**, or a percentage). Its menu zooms in and out, fits the picture, or
 picks 25%, 50%, 100%, 200% or 400%. The button beside it fits the picture.
 
+**Cinema mode**: the wide-rectangle button at the right of the bottom bar (or
+`C`, or **View > Cinema Mode**) widens the picture without going full screen.
+The playlist steps aside and the timeline drops to the basics: the waveform
+and the in/out range bar are hidden, leaving the frame track, markers and the
+playback buttons. Press it again to put everything back. The other panels, and
+the full-screen modes, work as before.
+
 Frame stepping (`Left` / `Right`), in and out points (`[` / `]`), bookmarks (`B`)
 and A/B comparison work as described in the README.
 
@@ -306,6 +313,7 @@ back to the standard choices for one export.
 | Zoom in / out / Fit / 100% | `Ctrl+=` / `Ctrl+-` / `Ctrl+0` / `Ctrl+1` |
 | Next / Previous note or drawing | `Ctrl+.` / `Ctrl+,` |
 | Playlist / Bookmarks / Notes panels | `F4` / `F5` / `F6` |
+| Cinema mode | `C` |
 
 In the Review Library, `Tab` moves between reviews and their buttons, the
 arrow keys switch between All, Starred and Archived, and `Space` or `Enter`

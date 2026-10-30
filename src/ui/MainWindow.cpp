@@ -503,7 +503,10 @@ void MainWindow::buildWidgets()
     m_inOutToggle = makeMarkButton(QStringLiteral("TimelineInOutToggle"), tr("Off"), tr("In and out points on"));
     m_inOutToggle->setCheckable(true);
     m_inOutToggle->setMinimumWidth(42);
-    auto* reviewRangeRow = new QHBoxLayout;
+    // In a widget of its own so Cinema mode can tuck the whole row away.
+    m_reviewRangeBar = new QWidget(central);
+    m_reviewRangeBar->setObjectName(QStringLiteral("TimelineReviewRangeBar"));
+    auto* reviewRangeRow = new QHBoxLayout(m_reviewRangeBar);
     reviewRangeRow->setContentsMargins(8, 0, 8, 0);
     reviewRangeRow->setSpacing(6);
     reviewRangeRow->addWidget(m_setInButton);
@@ -513,7 +516,7 @@ void MainWindow::buildWidgets()
     reviewRangeRow->addWidget(m_reviewStartFrame);
     reviewRangeRow->addWidget(m_timelineRangeSlider, 1);
     reviewRangeRow->addWidget(m_reviewEndFrame);
-    column->addLayout(reviewRangeRow);
+    column->addWidget(m_reviewRangeBar);
 
     m_transport = new TransportControls(m_commands, central);
     m_transport->setVolumePercent(qRound(m_playback->volume() * 100));
@@ -1495,6 +1498,9 @@ void MainWindow::onCommand(CommandId id, bool checked)
         if (checked) enterVideoFullScreen();
         else exitVideoFullScreen();
         return;
+    case CommandId::ToggleCinemaMode:
+        setCinemaMode(checked);
+        return;
     case CommandId::ToggleComparison:
         if (checked) enterComparison(); else exitComparison();
         return;
@@ -1803,10 +1809,33 @@ void MainWindow::restoreApplicationLayout()
     if (m_reviewHeaderToolbar) m_reviewHeaderToolbar->show();
 }
 
+void MainWindow::setCinemaMode(bool on)
+{
+    if (QAction* action = m_commands->action(CommandId::ToggleCinemaMode)) {
+        QSignalBlocker blocker(action);
+        action->setChecked(on);
+    }
+    if (m_cinemaMode == on) return;
+    m_cinemaMode = on;
+    // A wider picture without leaving the window: the playlist steps aside and
+    // the timeline keeps only its track. Leaving puts the playlist back as it
+    // was; the other panels are left as the reviewer set them.
+    if (on) {
+        m_playlistBeforeCinema = m_sourcesDock->isVisible();
+        m_sourcesDock->hide();
+    } else if (m_playlistBeforeCinema) {
+        m_sourcesDock->show();
+    }
+    m_reviewRangeBar->setVisible(!on);
+    m_timelineWidget->setCompact(on);
+}
+
 void MainWindow::saveApplicationLayout()
 {
     // Save the player's layout, not the library's (which hides the docks).
     showPlayer();
+    // Nor Cinema mode's: the next start should show the playlist.
+    setCinemaMode(false);
     if (!m_settings) return;
     if (!m_skipLayoutSaveOnce) {
         m_settings->setWindowGeometry(saveGeometry());
