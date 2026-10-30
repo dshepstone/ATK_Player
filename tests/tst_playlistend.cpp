@@ -269,13 +269,28 @@ void TestPlaylistEnd::loopWholePlaylistWrapsToTheFirstClip()
         QVERIFY(command(window, "playback.toggleLoop")->isChecked());
         QVERIFY(!window.playbackController()->isLoopEnabled()); // the window loops clip to clip
 
-        QSignalSpy frames(window.playbackController(), &atk::playback::PlaybackController::frameChanged);
         window.playbackController()->play();
         QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->state(), PlayerState::Playing, 5000);
+        // The wrap is the first presented frame whose index goes backwards
+        // after Last Frame. It must land at the start of the first clip. The
+        // allowance covers opening the clip: playback is already running by
+        // the time its first frame can be shown, so a frame or two pass
+        // unseen (frame 2 is typical on CI runners).
+        constexpr qint64 kStartAllowance = 6; // a quarter second at 24 fps
+        qint64 previous = -1;
+        qint64 wrappedTo = -1;
+        const auto connection = connect(window.playbackController(), &atk::playback::PlaybackController::frameChanged,
+                                        this, [&](const atk::media::VideoFrame& frame) {
+                                            if (wrappedTo < 0 && previous >= 0 && frame.frameIndex < previous)
+                                                wrappedTo = frame.frameIndex;
+                                            previous = frame.frameIndex;
+                                        });
         command(window, "playback.lastFrame")->trigger();
         QTRY_COMPARE_WITH_TIMEOUT(window.project()->activeIndex(), 0, 10000);
-        frames.clear();
-        QTRY_VERIFY_WITH_TIMEOUT(sawFrame(frames, 0) || sawFrame(frames, 1), 10000);
+        QTRY_VERIFY_WITH_TIMEOUT(wrappedTo >= 0, 10000);
+        QVERIFY2(wrappedTo <= kStartAllowance,
+                 qPrintable(QStringLiteral("wrapped to frame %1, not the start of the first clip").arg(wrappedTo)));
+        disconnect(connection);
         QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->state(), PlayerState::Playing, 10000);
     }
 }
