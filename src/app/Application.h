@@ -37,6 +37,15 @@ public:
     /// the point is file associations and test automation, not a CLI surface.
     QString requestedMediaPath() const { return m_requestedMediaPath; }
 
+signals:
+    /// A file the OS asked the running application to open. On macOS, Finder
+    /// (double-click, "Open With", a drop on the Dock icon) sends a
+    /// QFileOpenEvent instead of putting the path on the command line.
+    void fileOpenRequested(const QString& path);
+
+protected:
+    bool event(QEvent* event) override;
+
 private:
     void parseArguments();
 

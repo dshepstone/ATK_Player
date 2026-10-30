@@ -4,6 +4,7 @@
 #include <QApplication>
 #include <QDir>
 #include <QImage>
+#include <QImageReader>
 #include <QRegularExpression>
 #include <QTest>
 
@@ -43,12 +44,26 @@ bool near(const QColor& a, const QColor& b)
 class TestIconProvider : public QObject {
     Q_OBJECT
 private slots:
+    void iconsDrawWithoutTheSvgImagePlugin();
     void everyBundledIconRenders();
     void iconsUsedByTheInterfaceExist();
     void unknownNameIsNullNotBlank();
     void tintFollowsModeAndState();
     void highDpiRendersAtDeviceSize();
 };
+
+// First, before anything loads an image plugin: an app bundle without Qt's
+// "svg" image-format plugin (macdeployqt left it out on macOS) showed every
+// button blank. Icons must not depend on it.
+void TestIconProvider::iconsDrawWithoutTheSvgImagePlugin()
+{
+    QCoreApplication::setLibraryPaths({});
+    QVERIFY2(!QImageReader::supportedImageFormats().contains("svg"),
+             "an svg image plugin was still found; this test proves nothing");
+    const QPixmap pm = icons::pixmap(QStringLiteral("play"), QSize(24, 24), Qt::white);
+    QVERIFY(!pm.isNull());
+    QVERIFY2(inkColor(pm.toImage()).isValid(), "the play icon drew nothing");
+}
 
 void TestIconProvider::everyBundledIconRenders()
 {

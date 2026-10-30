@@ -1,0 +1,232 @@
+name: macOS
+
+# Milestone M7. A separate file from windows.yml on purpose (see the note
+# there): a macOS failure cannot touch the Windows build that already works.
+#
+# Each architecture is built natively on its own runner so the full test suite
+# runs on both, then packaged into a .dmg and launched once from the bundle.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build, test and package (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-15
+            preset: macos-arm64-release
+            triplet: arm64-osx-atk
+          - arch: x86_64
+            runner: macos-15-intel
+            preset: macos-x64-release
+            triplet: x64-osx-atk
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      # Qt's macOS binaries are universal, so one install serves both runners.
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.9.3'
+          host: mac
+          target: desktop
+          arch: clang_64
+          modules: qtmultimedia
+          cache: true
+
+      - name: Point the build at the installed Qt
+        run: echo "QT_ROOT=$QT_ROOT_DIR" >> "$GITHUB_ENV"
+
+      # prepare-dependency-materials.py (licence notices and corresponding
+      # source in the bundle) needs Python 3.12.
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Ninja for the presets; nasm and pkgconf for vcpkg's FFmpeg build.
+      - name: Install build tools
+        run: brew install ninja nasm pkgconf
+
+      # Same reasoning as windows.yml: vcpkg cloned at exactly the pinned
+      # baseline so the port files and the version database agree.
+      - name: Set up vcpkg at the pinned baseline
+        run: |
+          baseline="$(python3 -c 'import json; print(json.load(open("vcpkg.json"))["builtin-baseline"])')"
+          echo "Pinned baseline: $baseline"
+          root="$HOME/vcpkg-atk"
+          git clone --filter=blob:none https://github.com/microsoft/vcpkg.git "$root"
+          git -C "$root" checkout --detach "$baseline"
+          "$root/bootstrap-vcpkg.sh" -disableMetrics
+          echo "VCPKG_ROOT=$root" >> "$GITHUB_ENV"
+          echo "ATK_VCPKG_INSTALLED_DIR=$HOME/atkvcpkg" >> "$GITHUB_ENV"
+
+      - name: Cache vcpkg binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/vcpkg/archives
+          key: vcpkg-${{ runner.os }}-${{ matrix.triplet }}-${{ hashFiles('vcpkg.json', format('cmake/triplets/{0}.cmake', matrix.triplet)) }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-${{ matrix.triplet }}-
+
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }}
+
+      - name: Show vcpkg build logs on failure
+        if: failure()
+        run: |
+          find "$VCPKG_ROOT/buildtrees" -name '*.log' -newer vcpkg.json 2>/dev/null \
+            | grep -E 'ffmpeg|config|err' | head -n 20 | while read -r f; do
+              echo "===== $f"; tail -n 60 "$f"
+            done
+
+      - name: Build
+        id: build
+        run: cmake --build --preset ${{ matrix.preset }}
+
+      # App Nap throttles timers in apps with no visible window, which is
+      # every headless test process; playback then runs at a fraction of real
+      # time. A real ATK Player window is visible, or playing audio, so it is
+      # not napped.
+      - name: Disable App Nap for the tests
+        run: defaults write NSGlobalDomain NSAppSleepDisabled -bool YES
+
+      # Tests run, but a failure no longer stops the job here: the disk image
+      # is still built and uploaded so there is always something to download
+      # and try. "Fail the job if tests failed" at the end keeps the run red.
+      - name: Test
+        id: tests
+        continue-on-error: true
+        run: ctest --preset ${{ matrix.preset }} --output-on-failure
+
+      - name: Show failing test reports
+        if: steps.tests.outcome == 'failure'
+        run: |
+          for report in build/${{ matrix.preset }}/bin/*-results.txt; do
+            [ -e "$report" ] || continue
+            if grep -q 'FAIL!' "$report"; then
+              echo "===== $(basename "$report")"
+              grep -A4 'FAIL!' "$report"
+            fi
+          done
+          # Travels inside the disk-image artifact, so a download from a run
+          # with failing tests says so.
+          mkdir -p out/macos
+          {
+            echo "This build's tests did not all pass. Failed suites:"
+            cat "build/${{ matrix.preset }}/Testing/Temporary/LastTestsFailed.log" 2>/dev/null || true
+            echo
+            echo "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          } > out/macos/TESTS-FAILED.txt
+
+      - name: Upload test reports
+        uses: actions/upload-artifact@v4
+        if: steps.tests.outcome == 'failure'
+        with:
+          name: test-reports-${{ matrix.arch }}
+          path: build/${{ matrix.preset }}/bin/*-results.txt
+          retention-days: 14
+          if-no-files-found: ignore
+
+      # The pinned Qt, FFmpeg and vcpkg source archives bundled as
+      # corresponding source; checksummed, so a cache hit is safe.
+      - name: Cache dependency source archives
+        uses: actions/cache@v4
+        with:
+          path: build/dependency-cache
+          key: dependency-sources-${{ hashFiles('packaging/windows/dependency-sources.json') }}
+
+      # Install, make the bundle self-contained, sign, verify, build the .dmg,
+      # then launch the app once. See packaging/macos/README.md.
+      #
+      # There is no Developer ID yet, so the signature is ad hoc. It is first
+      # signed and verified with the hardened runtime and the checked-in
+      # entitlements (the path a notarised release takes), then re-signed
+      # without the hardened runtime for the disk image: an ad-hoc signature
+      # has no Team ID, so under the hardened runtime another Mac refuses the
+      # bundled frameworks at launch. The smoke test launches that build.
+      - name: Package
+        id: package
+        env:
+          ATK_HARDENED_RUNTIME: '1'
+        run: packaging/macos/build-dmg.sh --arch ${{ matrix.arch }} --skip-build --smoke-test
+
+      # Never an artifact without a disk image in it: when the build worked
+      # but no .dmg came out, say so here instead of uploading something that
+      # looks like a build.
+      - name: Check a disk image was made
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && hashFiles('out/macos/*.dmg') == '' }}
+        run: |
+          echo "::error title=No disk image::The Package step produced no .dmg, so nothing was uploaded. See the Package step log."
+          exit 1
+
+      # Uploaded before the checks below, and whenever a .dmg was made, so a
+      # failing check still leaves the disk image to inspect. The name says
+      # when the tests failed; TESTS-FAILED.txt inside lists them.
+      - name: Upload disk image
+        uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() && hashFiles('out/macos/*.dmg') != '' }}
+        with:
+          name: ATKPlayer-macOS-${{ matrix.arch }}${{ steps.tests.outcome == 'failure' && '-TESTS-FAILED' || '' }}
+          path: |
+            out/macos/*.dmg
+            out/macos/*.sha256
+            out/macos/TESTS-FAILED.txt
+          retention-days: 14
+          if-no-files-found: error
+
+      # Check what users actually download: the app inside the disk image.
+      # Fails on an unsigned file, a Homebrew or other absolute install name or
+      # RPATH, an ad-hoc signature with the hardened runtime, a missing
+      # QtSvg.framework or missing licence material. Notarisation itself cannot run here until
+      # there is a Developer ID.
+      - name: Verify the disk image
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
+        run: |
+          dmg="$(ls out/macos/*.dmg)"
+          codesign --verify --strict --verbose=2 "$dmg"
+          mount="$(mktemp -d)"
+          hdiutil attach -nobrowse -readonly -mountpoint "$mount" "$dmg"
+          status=0
+          packaging/macos/verify-app.sh "$mount/ATKPlayer.app" ${{ matrix.arch }} \
+            --expect-source-materials || status=$?
+          /usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' -c 'Print CFBundleShortVersionString' \
+            -c 'Print CFBundleVersion' -c 'Print LSMinimumSystemVersion' "$mount/ATKPlayer.app/Contents/Info.plist" || status=1
+          hdiutil detach "$mount"
+          exit $status
+
+      - name: Upload smoke-test log
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-log-${{ matrix.arch }}
+          path: |
+            out/macos/smoke-*.log
+            out/macos/smoke-*-images.txt
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Fail the job if tests failed
+        if: steps.tests.outcome == 'failure'
+        run: |
+          echo "::error title=Tests failed::The disk image was still uploaded (artifact name ends in -TESTS-FAILED); see the Test step."
+          exit 1

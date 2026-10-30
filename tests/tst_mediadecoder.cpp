@@ -97,6 +97,8 @@ private slots:
     void nonKeyframeSeekLandsOnRequestedFrame();
     void seekToFinalFrameIsReachable();
     void repeatedSeekToSameFrameIsStable();
+    void aviDecodesFrameAccurately_data();
+    void aviDecodesFrameAccurately();
 
     // --- Cancellation -----------------------------------------------------
     void cancellationAbandonsDecode();
@@ -495,6 +497,43 @@ void TestMediaDecoder::seekToFinalFrameIsReachable()
     // Stepping back from the last frame still works after that seek.
     QVERIFY2(decoder.frameAtIndex(last - 1, frame, &error), qPrintable(error));
     QCOMPARE(frame.frameIndex, last - 1);
+}
+
+void TestMediaDecoder::aviDecodesFrameAccurately_data()
+{
+    QTest::addColumn<QString>("file");
+    QTest::addColumn<QString>("codec");
+    QTest::newRow("Xvid-style MPEG-4") << QStringLiteral("atk_avi_mpeg4_48f.avi") << QStringLiteral("mpeg4");
+    QTest::newRow("MJPEG")             << QStringLiteral("atk_avi_mjpeg_48f.avi") << QStringLiteral("mjpeg");
+}
+
+// AVI files from older capture tools and student exports: the container's
+// timing must give the same frames, counts and stepping as MP4 and MKV.
+void TestMediaDecoder::aviDecodesFrameAccurately()
+{
+    QFETCH(QString, file);
+    QFETCH(QString, codec);
+    const QString path = QDir(fixtureDir()).filePath(file);
+    if (!QFileInfo::exists(path)) QSKIP("AVI fixture not generated");
+
+    MediaDecoder decoder;
+    QString error;
+    QVERIFY2(decoder.open(path, &error), qPrintable(error));
+    const auto& meta = decoder.metadata();
+    QCOMPARE(meta.videoCodecName, codec);
+    QCOMPARE(meta.resolution.width(), kExpectedWidth);
+    QCOMPARE(meta.frameRate.toDouble(), 24.0);
+    QCOMPARE(meta.effectiveFrameCount(), kExpectedFrameCount);
+    QVERIFY(meta.hasAudio);
+
+    // Forward, across keyframes, the last frame, then back one.
+    for (const qint64 target : { qint64(0), qint64(1), qint64(13), qint64(29), qint64(47), qint64(46) }) {
+        VideoFrame frame;
+        QVERIFY2(decoder.frameAtIndex(target, frame, &error),
+                 qPrintable(QStringLiteral("frame %1: %2").arg(target).arg(error)));
+        QCOMPARE(frame.frameIndex, target);
+        QVERIFY(!frame.image.isNull());
+    }
 }
 
 void TestMediaDecoder::repeatedSeekToSameFrameIsStable()

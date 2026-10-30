@@ -13,6 +13,7 @@
 #include "ui/MainWindow.h"
 #include "ui/NotesPanel.h"
 #include "ui/ReviewNotesDialog.h"
+#include "ui/Theme.h"
 #include "ui/TimelineWidget.h"
 #include "ui/TransportControls.h"
 #include "ui/ViewerWidget.h"
@@ -860,7 +861,20 @@ void TestAnnotationWorkflow::drawingRowIsIconsWithAFloatingSizePill()
 
     command(window, "draw.annotateMode")->trigger();
     QVERIFY(toolbar->isVisible());
-    QTRY_VERIFY(pill->isVisible());
+    // The pill only appears when the viewer is tall enough for it. The window
+    // is clamped to the screen, and a small CI display (macOS runners) can
+    // leave the viewer shorter than that: then hidden is the right answer.
+    QCoreApplication::processEvents();
+    if (viewer->height() < pill->sizeHint().height() + 2 * atk::ui::theme::metrics::spacingLarge) {
+        QVERIFY(!pill->isVisible());
+        QSKIP(qPrintable(QStringLiteral("Screen too small for the size pill: viewer %1 px tall, pill %2 px")
+                             .arg(viewer->height()).arg(pill->sizeHint().height())));
+    }
+    QTRY_VERIFY2(pill->isVisible(),
+                 qPrintable(QStringLiteral("viewer %1x%2, pill hint %3x%4, window %5x%6")
+                                .arg(viewer->width()).arg(viewer->height())
+                                .arg(pill->sizeHint().width()).arg(pill->sizeHint().height())
+                                .arg(window.width()).arg(window.height())));
     // Beside the picture: over the viewer's left edge, vertically inside it.
     const QRect pillRect(pill->mapTo(&window, QPoint(0, 0)), pill->size());
     const QRect viewerRect(viewer->mapTo(&window, QPoint(0, 0)), viewer->size());

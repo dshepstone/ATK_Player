@@ -1,5 +1,10 @@
 cmake_minimum_required(VERSION 3.24)
 
+# Must be set before project(). Qt 6.9 supports macOS 12 and later, and the
+# vcpkg triplets in cmake/triplets build FFmpeg for the same minimum, so all
+# three agree. Ignored on other platforms.
+set(CMAKE_OSX_DEPLOYMENT_TARGET "12.0" CACHE STRING "Minimum macOS version")
+
 # ---------------------------------------------------------------------------
 # ATK Player
 # Cross-platform animation playback and review application.
@@ -23,6 +28,11 @@ else()
 endif()
 
 message(STATUS "ATK Player version: ${ATK_VERSION_STRING}")
+
+# The macOS platform layer is Objective-C++ (src/platform/macos/*.mm).
+if(APPLE)
+    enable_language(OBJCXX)
+endif()
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
@@ -85,7 +95,8 @@ elseif(DEFINED ENV{QT_ROOT} AND NOT "$ENV{QT_ROOT}" STREQUAL "")
     message(STATUS "Qt prefix from QT_ROOT environment variable: $ENV{QT_ROOT}")
 endif()
 
-set(ATK_QT_COMPONENTS Core Gui Widgets Multimedia)
+# Svg: the button icons are drawn with QSvgRenderer (see ui/IconProvider.cpp).
+set(ATK_QT_COMPONENTS Core Gui Widgets Multimedia Svg)
 if(ATK_BUILD_TESTS)
     list(APPEND ATK_QT_COMPONENTS Test)
 endif()
@@ -173,6 +184,29 @@ if(WIN32)
         message(WARNING
             "FFmpeg runtime directory not found; ATKPlayer.exe may not start. "
             "Expected it under the vcpkg installed tree.")
+    endif()
+elseif(APPLE)
+    # The dylibs are found through the build RPATH CMake records when linking,
+    # so the build tree runs as it is. The directory is still needed when
+    # installing: macdeployqt resolves @rpath/libav*.dylib against it while
+    # copying them into ATKPlayer.app/Contents/Frameworks.
+    set(_atk_vcpkg_lib_suffix "lib")
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+        set(_atk_vcpkg_lib_suffix "debug/lib")
+    endif()
+
+    foreach(_candidate IN ITEMS
+            "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/${_atk_vcpkg_lib_suffix}"
+            "${_VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/${_atk_vcpkg_lib_suffix}"
+            "${CMAKE_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/${_atk_vcpkg_lib_suffix}")
+        if(EXISTS "${_candidate}")
+            set(ATK_FFMPEG_RUNTIME_DIR "${_candidate}")
+            break()
+        endif()
+    endforeach()
+
+    if(ATK_FFMPEG_RUNTIME_DIR)
+        message(STATUS "FFmpeg runtime:   ${ATK_FFMPEG_RUNTIME_DIR}")
     endif()
 endif()
 

@@ -269,13 +269,28 @@ void TestPlaylistEnd::loopWholePlaylistWrapsToTheFirstClip()
         QVERIFY(command(window, "playback.toggleLoop")->isChecked());
         QVERIFY(!window.playbackController()->isLoopEnabled()); // the window loops clip to clip
 
-        QSignalSpy frames(window.playbackController(), &atk::playback::PlaybackController::frameChanged);
         window.playbackController()->play();
         QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->state(), PlayerState::Playing, 5000);
+        // The wrap is the first presented frame whose index goes backwards
+        // after Last Frame. It must land at the start of the first clip. The
+        // allowance covers opening the clip: playback is already running by
+        // the time its first frame can be shown, so a frame or two pass
+        // unseen (frame 2 is typical on CI runners).
+        constexpr qint64 kStartAllowance = 6; // a quarter second at 24 fps
+        qint64 previous = -1;
+        qint64 wrappedTo = -1;
+        const auto connection = connect(window.playbackController(), &atk::playback::PlaybackController::frameChanged,
+                                        this, [&](const atk::media::VideoFrame& frame) {
+                                            if (wrappedTo < 0 && previous >= 0 && frame.frameIndex < previous)
+                                                wrappedTo = frame.frameIndex;
+                                            previous = frame.frameIndex;
+                                        });
         command(window, "playback.lastFrame")->trigger();
         QTRY_COMPARE_WITH_TIMEOUT(window.project()->activeIndex(), 0, 10000);
-        frames.clear();
-        QTRY_VERIFY_WITH_TIMEOUT(sawFrame(frames, 0) || sawFrame(frames, 1), 10000);
+        QTRY_VERIFY_WITH_TIMEOUT(wrappedTo >= 0, 10000);
+        QVERIFY2(wrappedTo <= kStartAllowance,
+                 qPrintable(QStringLiteral("wrapped to frame %1, not the start of the first clip").arg(wrappedTo)));
+        disconnect(connection);
         QTRY_COMPARE_WITH_TIMEOUT(window.playbackController()->state(), PlayerState::Playing, 10000);
     }
 }
@@ -500,13 +515,22 @@ void TestPlaylistEnd::aboutDialogUsesAnimationToolKitCopy()
     QTemporaryDir directory;
     atk::ui::MainWindow window(directory.filePath(QStringLiteral("settings.ini")));
     QString text;
-    QTimer::singleShot(0, [&text] {
-        auto* dialog = qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+    // Application modal everywhere except macOS, where Qt shows the about box
+    // as a modeless window and trigger() returns at once.
+    const auto aboutBox = [] {
+        if (auto* modal = qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) return modal;
+        for (QWidget* widget : QApplication::topLevelWidgets())
+            if (auto* box = qobject_cast<QMessageBox*>(widget); box && box->isVisible()) return box;
+        return static_cast<QMessageBox*>(nullptr);
+    };
+    QTimer::singleShot(0, [&text, aboutBox] {
+        auto* dialog = aboutBox();
         QVERIFY(dialog);
         text = dialog->text();
         dialog->accept();
     });
     command(window, "help.about")->trigger();
+    QTRY_VERIFY(!text.isEmpty());
     QVERIFY(text.contains(QStringLiteral("Animation Tool Kit - Media Player")));
     QVERIFY(text.contains(QStringLiteral("Animation Tool Kit - Maya tools series")));
     QVERIFY(text.contains(QStringLiteral("Created By David Shepstone")));

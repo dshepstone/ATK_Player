@@ -40,6 +40,19 @@ QWidget {
     font-size: 12px;
 }
 
+/* An explicit toolbar rule, border included, so the stylesheet paints toolbars
+   itself. Without it macOS draws a top-area toolbar natively, in its light
+   look, and the review header showed as a white band. */
+QToolBar {
+    background-color: %WINDOW%;
+    border: none;
+}
+QToolBar::separator {
+    background-color: %BORDER%;
+    width: 1px;
+    margin: 6px 4px;
+}
+
 QMainWindow::separator {
     background-color: %BORDER%;
     width: 1px;

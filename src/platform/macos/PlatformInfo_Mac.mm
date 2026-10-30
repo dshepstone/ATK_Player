@@ -10,8 +10,17 @@
 #include <QStandardPaths>
 #include <QSysInfo>
 
-// macOS-only implementation. Not compiled on other platforms; provided now so
-// the tree stays portable (milestone M7).
+#import <Foundation/Foundation.h>
+
+// macOS-only implementation, Objective-C++ so it can reach Foundation. Built
+// without ARC: retain and release are explicit.
+
+namespace {
+
+/// The activity held while playing; nil otherwise.
+id<NSObject> g_playbackActivity = nil;
+
+} // namespace
 
 namespace atk::platform {
 
@@ -31,10 +40,25 @@ QString PlatformInfo::applicationDataDirectory()
 
 bool PlatformInfo::setDisplaySleepInhibited(bool inhibited)
 {
-    // TODO(M7): IOPMAssertionCreateWithName(kIOPMAssertionTypeNoDisplaySleep, ...)
-    Q_UNUSED(inhibited);
-    qCDebug(log::platform) << "Display sleep inhibition not implemented on macOS yet";
-    return false;
+    // One activity covers both halves of "playing": the display stays awake,
+    // and App Nap stays away. Without the latter macOS coalesces the
+    // display timer of an app whose window is hidden or covered, and playback
+    // drops to a fraction of its frame rate.
+    if (inhibited == (g_playbackActivity != nil)) return true;
+    NSProcessInfo* process = [NSProcessInfo processInfo];
+    if (inhibited) {
+        const NSActivityOptions options = NSActivityUserInitiated | NSActivityIdleDisplaySleepDisabled
+            | NSActivityLatencyCritical;
+        g_playbackActivity = [[process beginActivityWithOptions:options
+                                                         reason:@"ATK Player playback"] retain];
+        qCDebug(log::platform) << "Playback activity started (no display sleep, no App Nap)";
+    } else {
+        [process endActivity:g_playbackActivity];
+        [g_playbackActivity release];
+        g_playbackActivity = nil;
+        qCDebug(log::platform) << "Playback activity ended";
+    }
+    return true;
 }
 
 bool PlatformInfo::isFileOpenElsewhere(const QString& path)

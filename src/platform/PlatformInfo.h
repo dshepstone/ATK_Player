@@ -9,7 +9,7 @@
 // implementation is compiled in, chosen by CMake:
 //
 //     src/platform/windows/PlatformInfo_Windows.cpp
-//     src/platform/macos/PlatformInfo_Mac.cpp
+//     src/platform/macos/PlatformInfo_Mac.mm
 //     src/platform/linux/PlatformInfo_Linux.cpp
 //
 // No <windows.h>, no Cocoa and no X11/Wayland headers may appear outside those
@@ -29,10 +29,11 @@ public:
     /// Created on first use if it does not exist.
     static QString applicationDataDirectory();
 
-    /// Ask the OS to keep the display awake during playback. Returns false when
-    /// the platform has no implementation yet; callers must tolerate that.
+    /// Ask the OS to keep the display awake during playback. On macOS this
+    /// also keeps App Nap from throttling the display timer. Returns false
+    /// when the platform has no implementation yet; callers must tolerate that.
     ///
-    /// TODO(M1): implement per platform once continuous playback exists.
+    /// TODO(M1): implement on Windows and Linux.
     static bool setDisplaySleepInhibited(bool inhibited);
 
     /// True when another program has `path` open in a way that replacing it

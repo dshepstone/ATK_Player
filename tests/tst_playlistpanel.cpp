@@ -14,6 +14,7 @@
 
 #include <QApplication>
 #include <QComboBox>
+#include <QKeySequence>
 #include <QToolButton>
 #include <QLabel>
 #include <QDir>
@@ -250,7 +251,8 @@ void TestPlaylistPanel::headerShowsTheClipAndSetsItsStatus()
     QVERIFY(save->isVisible() && saveAs->isVisible());
     QCOMPARE(save->defaultAction(), window.findChild<QAction*>(QStringLiteral("file.saveProject")));
     QCOMPARE(saveAs->defaultAction(), window.findChild<QAction*>(QStringLiteral("file.saveProjectAs")));
-    QVERIFY(save->toolTip().contains(QStringLiteral("Ctrl+S")));
+    // Native text: "Ctrl+S" on Windows, the Command symbol on macOS.
+    QVERIFY(save->toolTip().contains(QKeySequence(QStringLiteral("Ctrl+S")).toString(QKeySequence::NativeText)));
     save->click();
     QTRY_VERIFY(!window.project()->isModified()); // saved to the file it came from
 }
