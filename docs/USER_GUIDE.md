@@ -142,6 +142,8 @@ card, and a card's right-click **Category** menu files one clip quickly.
 Categories and the order are saved with the review; nothing changes until you
 click **Apply**.
 
+When clips have categories, the playlist shows a heading above each group with its name and clip count. Use the category box under the **PLAYLIST** title to show one category at a time (or **No category** for the unfiled clips); **All categories** shows everything again. While a filter is on, playing through the playlist skips clips that are hidden.
+
 What happens at the end of each clip is set with the arrow beside the
 **Loop** button (also in the **Playback** menu):
 

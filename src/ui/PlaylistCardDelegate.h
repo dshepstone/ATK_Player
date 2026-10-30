@@ -18,6 +18,8 @@ enum : int {
     FrameCount,               ///< qint64: frames in the clip; 0 when unknown
     Status,                   ///< int (project::ClipStatus)
     Category,                 ///< QString: the clip's category; empty for none
+    GroupHeading,             ///< QString: heading drawn above this card; empty for none
+    GroupCount,               ///< int: clips under that heading
 };
 } // namespace playlistrole
 
@@ -33,6 +35,8 @@ public:
     using QStyledItemDelegate::QStyledItemDelegate;
 
     static constexpr int kCardHeight = 74;
+    /// Extra height of a card that starts a category group, for its heading.
+    static constexpr int kHeadingHeight = 24;
 
     /// Width of the numbered gutter for `font`: room for three digits.
     static int numberGutterWidth(const QFont& font);

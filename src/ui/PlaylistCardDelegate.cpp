@@ -39,9 +39,10 @@ int PlaylistCardDelegate::numberGutterWidth(const QFont& font)
     return std::max(26, QFontMetrics(bold).horizontalAdvance(QStringLiteral("000")) + 10);
 }
 
-QSize PlaylistCardDelegate::sizeHint(const QStyleOptionViewItem& option, const QModelIndex&) const
+QSize PlaylistCardDelegate::sizeHint(const QStyleOptionViewItem& option, const QModelIndex& index) const
 {
-    return QSize(option.rect.width() > 0 ? option.rect.width() : 240, kCardHeight);
+    const bool heading = !index.data(playlistrole::GroupHeading).toString().isEmpty();
+    return QSize(option.rect.width() > 0 ? option.rect.width() : 240, kCardHeight + (heading ? kHeadingHeight : 0));
 }
 
 void PlaylistCardDelegate::paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const
@@ -55,8 +56,38 @@ void PlaylistCardDelegate::paint(QPainter* painter, const QStyleOptionViewItem& 
     const bool active = index.data(playlistrole::Active).toBool();
     const bool unavailable = index.data(playlistrole::Unavailable).toBool();
 
+    // A category group starts here: its name and clip count, with a rule,
+    // above the card.
+    QRect cardRect = option.rect;
+    if (const QString heading = index.data(playlistrole::GroupHeading).toString(); !heading.isEmpty()) {
+        const QRect band(option.rect.left() + 8, option.rect.top(), option.rect.width() - 16, kHeadingHeight);
+        cardRect.setTop(option.rect.top() + kHeadingHeight);
+        QFont headingFont = option.font;
+        headingFont.setPixelSize(11);
+        headingFont.setBold(true);
+        headingFont.setLetterSpacing(QFont::AbsoluteSpacing, 0.6);
+        const QFontMetrics metrics(headingFont);
+        const int count = index.data(playlistrole::GroupCount).toInt();
+        const QString countText = count > 0 ? QStringLiteral("  %1").arg(count) : QString();
+        const int countWidth = countText.isEmpty() ? 0 : metrics.horizontalAdvance(countText);
+        const QString name = metrics.elidedText(heading.toUpper(), Qt::ElideRight, band.width() - countWidth - 24);
+        const int nameWidth = metrics.horizontalAdvance(name);
+        const int baseline = band.top() + (band.height() + metrics.ascent() - metrics.descent()) / 2 + 2;
+        painter->setFont(headingFont);
+        painter->setPen(theme::textPrimary());
+        painter->drawText(QPoint(band.left(), baseline), name);
+        painter->setPen(theme::textSecondary());
+        painter->drawText(QPoint(band.left() + nameWidth, baseline), countText);
+        const int ruleLeft = band.left() + nameWidth + countWidth + 8;
+        if (ruleLeft < band.right()) {
+            painter->setPen(QPen(QColor(255, 255, 255, 30), 1.0));
+            const qreal y = baseline - metrics.ascent() / 2.0 + 0.5;
+            painter->drawLine(QPointF(ruleLeft, y), QPointF(band.right(), y));
+        }
+    }
+
     // Card.
-    const QRectF card = QRectF(option.rect).adjusted(4, 2, -4, -2);
+    const QRectF card = QRectF(cardRect).adjusted(4, 2, -4, -2);
     QPainterPath shape;
     shape.addRoundedRect(card, theme::metrics::radiusMedium, theme::metrics::radiusMedium);
     painter->fillPath(shape, selected ? theme::cardSelected() : hovered ? theme::cardHover() : theme::cardBackground());

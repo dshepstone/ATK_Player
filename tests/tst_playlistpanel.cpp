@@ -63,6 +63,7 @@ private slots:
     void arrangeMovesClipsToATypedNumber();
     void arrangingKeepsTheLoadedClipAndShowsCategories();
     void inOutButtonsMarkTheTimeline();
+    void categoryHeadingsAndFilter();
 };
 
 void TestPlaylistPanel::cardsCarryTheClipDetails()
@@ -478,6 +479,72 @@ void TestPlaylistPanel::inOutButtonsMarkTheTimeline()
     QVERIFY(!clear->isEnabled());
     QVERIFY(!toggle->isEnabled());
     QCOMPARE(model->effectiveEndFrame(), qint64(47));
+}
+
+void TestPlaylistPanel::categoryHeadingsAndFilter()
+{
+    project::Project project;
+    for (const char* name : {"a.mp4", "b.mp4", "c.mp4", "d.mp4", "e.mp4"})
+        project.addSource(readySource(fixture(name), 24));
+    project.setActiveIndex(0);
+    ui::SourcesPanel panel;
+    panel.resize(300, 600);
+    panel.show();
+    panel.setProject(&project);
+    QListWidget* list = panel.list();
+    QComboBox* filter = panel.categoryFilterBox();
+    QVERIFY(filter);
+    // No categories in use: no headings and no filter, as before.
+    QVERIFY(filter->parentWidget()->isHidden());
+    for (int row = 0; row < list->count(); ++row)
+        QVERIFY(list->item(row)->data(role::GroupHeading).toString().isEmpty());
+
+    // Layout, Layout, none, Animation, Layout.
+    const auto& entries = project.entries();
+    project.setClipCategory(entries.at(0).id, QStringLiteral("Layout"));
+    project.setClipCategory(entries.at(1).id, QStringLiteral("Layout"));
+    project.setClipCategory(entries.at(3).id, QStringLiteral("Animation"));
+    project.setClipCategory(entries.at(4).id, QStringLiteral("Layout"));
+    QVERIFY(!filter->parentWidget()->isHidden());
+    const auto heading = [list](int row) { return list->item(row)->data(role::GroupHeading).toString(); };
+    QCOMPARE(heading(0), QStringLiteral("Layout"));
+    QCOMPARE(list->item(0)->data(role::GroupCount).toInt(), 2);
+    QVERIFY(heading(1).isEmpty());
+    QCOMPARE(heading(2), QStringLiteral("No category"));
+    QCOMPARE(heading(3), QStringLiteral("Animation"));
+    QCOMPARE(heading(4), QStringLiteral("Layout"));
+    // A card that starts a group is taller, for its heading.
+    QCOMPARE(list->sizeHintForRow(0), ui::PlaylistCardDelegate::kCardHeight + ui::PlaylistCardDelegate::kHeadingHeight);
+    QCOMPARE(list->sizeHintForRow(1), ui::PlaylistCardDelegate::kCardHeight);
+
+    // Filter choices: all, the categories in the project's order, and none.
+    QStringList choices;
+    for (int i = 0; i < filter->count(); ++i) choices << filter->itemText(i);
+    QCOMPARE(choices, (QStringList{"All categories", "Layout", "Animation", "No category"}));
+
+    // One category: the others are hidden, and its clips form one group.
+    filter->setCurrentIndex(1);
+    emit filter->activated(1);
+    QCOMPARE(panel.categoryFilter(), QStringLiteral("Layout"));
+    QVERIFY(!list->isRowHidden(0) && !list->isRowHidden(1) && !list->isRowHidden(4));
+    QVERIFY(list->isRowHidden(2) && list->isRowHidden(3));
+    QCOMPARE(heading(0), QStringLiteral("Layout"));
+    QCOMPARE(list->item(0)->data(role::GroupCount).toInt(), 3);
+    QVERIFY(heading(4).isEmpty());
+    QVERIFY(panel.showsCategory(QStringLiteral("Layout")) && !panel.showsCategory(QString()));
+
+    // "No category" shows the clips without one; the filter survives a refresh.
+    panel.setCategoryFilter(QStringLiteral(""));
+    QVERIFY(!list->isRowHidden(2));
+    QVERIFY(list->isRowHidden(0));
+    project.setActiveIndex(1);
+    QVERIFY(!list->isRowHidden(2) && list->isRowHidden(0));
+    QVERIFY(!panel.grab().isNull());
+
+    // Back to all.
+    panel.setCategoryFilter(QString());
+    for (int row = 0; row < list->count(); ++row) QVERIFY(!list->isRowHidden(row));
+    QVERIFY(panel.showsCategory(QStringLiteral("Animation")));
 }
 
 QTEST_MAIN(TestPlaylistPanel)

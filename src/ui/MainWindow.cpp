@@ -2084,8 +2084,10 @@ int MainWindow::nextUsablePlaylistIndex(bool wrap) const
     for (int step = 1; step <= steps; ++step) {
         const int i = (active + step) % count;
         const auto availability = m_project->entries().at(i).availability;
+        // Playing through follows the playlist's category filter.
         if (availability != project::SourceAvailability::Missing
-            && availability != project::SourceAvailability::Error) {
+            && availability != project::SourceAvailability::Error
+            && m_sources->showsCategory(m_project->entries().at(i).category)) {
             return i;
         }
     }
